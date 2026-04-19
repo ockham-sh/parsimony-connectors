@@ -6,8 +6,8 @@ Exports:
   entry point. Contains the two enumerators (dataset + series) and the
   live fetch connector.
 - :data:`ENV_VARS` — empty. SDMX endpoints are public; ``HF_TOKEN`` is
-  read directly by :class:`parsimony.stores.hf_bundle.store.HFBundleCatalogStore`
-  when present, not via parsimony's dep-binding system.
+  read by :mod:`huggingface_hub` directly when :meth:`parsimony.Catalog.push`
+  uploads an ``hf://`` snapshot, not via parsimony's dep-binding system.
 
 The three plugin surfaces:
 

@@ -16,7 +16,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from parsimony.catalog.catalog import entries_from_table_result, _find_enumerator
+from parsimony.bundles.lazy_catalog import _find_enumerator
+from parsimony.catalog.catalog import entries_from_table_result
 
 from parsimony_sdmx.connectors._agencies import AgencyId
 from parsimony_sdmx.connectors.enumerate_series import (
