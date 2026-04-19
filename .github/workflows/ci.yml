@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    name: Discover workspace packages
+    runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.list.outputs.packages }}
+      has_packages: ${{ steps.list.outputs.has_packages }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: list
+        name: Enumerate packages/*/pyproject.toml
+        shell: bash
+        run: |
+          set -euo pipefail
+          pkgs=$(find packages -mindepth 2 -maxdepth 2 -name pyproject.toml -exec dirname {} \; | sed 's|^packages/||' | sort | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "packages=${pkgs}" >> "$GITHUB_OUTPUT"
+          if [[ "${pkgs}" == "[]" ]]; then
+            echo "has_packages=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_packages=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Per-package test matrix. Only runs if at least one package exists.
+  # matrix.package values come from `find packages/*/pyproject.toml` in
+  # `discover` — directory names, not user input — but we still bind
+  # them to an env var and regex-validate before use so a rogue PR that
+  # adds a maliciously-named directory cannot inject shell commands.
+  test:
+    name: Test — ${{ matrix.package }}
+    needs: discover
+    if: ${{ needs.discover.outputs.has_packages == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      PKG: ${{ matrix.package }}
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJson(needs.discover.outputs.packages) }}
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Validate matrix package name
+        run: |
+          set -euo pipefail
+          if ! [[ "$PKG" =~ ^[a-z][a-z0-9_-]*$ ]]; then
+            echo "::error::Matrix package '$PKG' must match ^[a-z][a-z0-9_-]*$"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Resolve workspace
+        run: uv sync --all-extras
+
+      - name: Ruff
+        run: uv run ruff check "packages/$PKG"
+
+      - name: Mypy
+        run: uv run mypy "packages/$PKG"
+
+      - name: Pytest
+        run: uv run pytest "packages/$PKG" "--cov=packages/$PKG" --cov-report=term-missing
+
+      - name: Conformance verify
+        run: |
+          set -euo pipefail
+          pkg_name=$(python3 -c "
+          import os, tomllib
+          pkg = os.environ['PKG']
+          with open(f'packages/{pkg}/pyproject.toml', 'rb') as fp:
+              data = tomllib.load(fp)
+          print(data['project']['name'])
+          ")
+          uv run parsimony conformance verify "${pkg_name}"

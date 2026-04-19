@@ -1,0 +1,33 @@
+[project]
+name = "parsimony-connectors-workspace"
+version = "0.0.0"
+description = "Workspace root for the parsimony connectors monorepo. Not published."
+requires-python = ">=3.11"
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+# Local dev — the kernel lives next door. CI and published installs use the
+# PyPI version pinned in each package's own pyproject.toml.
+parsimony-core = { path = "../parsimony", editable = true }
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
+asyncio_mode = "auto"
+markers = [
+    "integration: hits live APIs (may be slow, requires env vars)",
+]

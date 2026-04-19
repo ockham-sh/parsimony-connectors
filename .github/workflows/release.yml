@@ -1,0 +1,113 @@
+name: Release
+
+# Single-trigger release model: workflow_dispatch with a package name.
+# Publishes one parsimony-<name> via the per-package PyPI OIDC trusted
+# publisher (see docs/pypi-setup.md). Tag-based release triggers can be
+# added later if cadence makes them worthwhile.
+#
+# Security posture: the `package` input flows into shell / Python / URLs
+# in many places. We bind it ONCE to a job-level env var (PKG) and
+# validate the value with a strict regex at the start of every job so
+# shell expansion in ${{ github.event.inputs.package }} cannot inject
+# code via crafted input. Never reference github.event.inputs.package
+# inside a `run:` block — always use "$PKG".
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Package name to release (e.g. 'fred'). Must match ^[a-z][a-z0-9_-]*$."
+        required: true
+
+concurrency:
+  group: release-${{ github.event.inputs.package }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish parsimony-${{ github.event.inputs.package }}
+    runs-on: ubuntu-latest
+    env:
+      PKG: ${{ github.event.inputs.package }}
+    environment:
+      name: pypi-${{ github.event.inputs.package }}
+      url: https://pypi.org/p/parsimony-${{ github.event.inputs.package }}
+    permissions:
+      id-token: write  # required for OIDC trusted publishing
+      contents: read
+    steps:
+      - name: Validate package-name input
+        run: |
+          set -euo pipefail
+          if ! [[ "$PKG" =~ ^[a-z][a-z0-9_-]*$ ]]; then
+            echo "::error::Input 'package' must match ^[a-z][a-z0-9_-]*$ (got: $PKG)"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Validate package exists
+        run: |
+          set -euo pipefail
+          if [[ ! -d "packages/$PKG" ]]; then
+            echo "::error::packages/$PKG/ does not exist."
+            exit 1
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check version is not already published
+        shell: bash
+        run: |
+          set -euo pipefail
+          pkg_name=$(python3 -c "
+          import os, tomllib
+          pkg = os.environ['PKG']
+          with open(f'packages/{pkg}/pyproject.toml', 'rb') as fp:
+              data = tomllib.load(fp)
+          print(data['project']['name'])
+          ")
+          pkg_version=$(python3 -c "
+          import os, tomllib
+          pkg = os.environ['PKG']
+          with open(f'packages/{pkg}/pyproject.toml', 'rb') as fp:
+              data = tomllib.load(fp)
+          print(data['project']['version'])
+          ")
+          # Defence against a rogue pyproject.toml claiming an unrelated PyPI name.
+          if [[ "$pkg_name" != "parsimony-$PKG" ]]; then
+            echo "::error::pyproject name '$pkg_name' must equal 'parsimony-$PKG'."
+            exit 1
+          fi
+          if python3 -c "
+          import urllib.request, sys
+          try:
+              r = urllib.request.urlopen(f'https://pypi.org/pypi/${pkg_name}/${pkg_version}/json', timeout=10)
+              sys.exit(0 if r.status == 200 else 1)
+          except Exception:
+              sys.exit(1)
+          " 2>/dev/null; then
+            echo "::error::${pkg_name}==${pkg_version} is already on PyPI. Bump the version."
+            exit 1
+          fi
+
+      - name: Resolve workspace
+        run: uv sync --all-extras
+
+      - name: Run package tests
+        run: uv run pytest "packages/$PKG"
+
+      - name: Build wheel + sdist
+        working-directory: packages/${{ github.event.inputs.package }}
+        run: uv build
+
+      - name: Publish to PyPI (OIDC trusted publisher)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/${{ github.event.inputs.package }}/dist/

@@ -1,0 +1,95 @@
+# Golden eval set for parsimony-sdmx semantic search.
+#
+# Each entry names an agent-voice query and the (namespace, code) pair that
+# MUST appear in the top-10 results. Two-hop queries carry `expect_dataset`
+# for the first search and `expect_series` for the scoped second search.
+#
+# CI consumes this file via tests/test_evals.py (Task 14). A query failure
+# does NOT block standard unit-test CI; it gates the published-bundle job
+# only. When a curated entry falls out of top-10 after a model/bundle
+# refresh, either (a) fix the index, (b) retire the expectation if the
+# source catalog genuinely no longer covers it, or (c) pin the model
+# revision that produced the better recall.
+#
+# Conventions:
+# - `namespace` is lowercased snake_case (per normalize_code).
+# - `expected` is the KEY-column code the enumerator emits:
+#     datasets bundle: "{AGENCY}|{dataset_id}" (uppercase preserved).
+#     series bundles:  raw SDMX series_key.
+# - `top_k` defaults to 10 when omitted.
+
+dataset_queries:
+  - id: euro_yield_curve
+    query: "Euro area government bond yield curve"
+    namespace: sdmx_datasets
+    expected: "ECB|YC"
+    notes: "Canonical ECB dataset for sovereign yield structure."
+
+  - id: ecb_mir_money_market
+    query: "MFI interest rates on loans and deposits in the euro area"
+    namespace: sdmx_datasets
+    expected: "ECB|MIR"
+
+  - id: hicp_annual_rate
+    query: "Harmonised index of consumer prices annual rate of change"
+    namespace: sdmx_datasets
+    expected: "ESTAT|prc_hicp_manr"
+
+  - id: unemployment_rate_monthly
+    query: "Monthly unemployment rate by sex and age"
+    namespace: sdmx_datasets
+    expected: "ESTAT|une_rt_m"
+
+  - id: imf_ifs_gdp
+    query: "IMF International Financial Statistics gross domestic product"
+    namespace: sdmx_datasets
+    expected: "IMF_DATA|IFS"
+
+  - id: wb_gdp_constant
+    query: "World Bank GDP constant prices annual"
+    namespace: sdmx_datasets
+    expected: "WB_WDI|WDI"
+
+  - id: ecb_exchange_rates
+    query: "Euro reference exchange rates daily"
+    namespace: sdmx_datasets
+    expected: "ECB|EXR"
+
+  - id: estat_trade_in_goods
+    query: "International trade in goods detailed statistics"
+    namespace: sdmx_datasets
+    expected: "ESTAT|DS-045409"
+
+two_hop_queries:
+  - id: ten_year_bund_yield
+    query: "10-year German government bond yield"
+    dataset_step:
+      namespace: sdmx_datasets
+      expected: "ECB|YC"
+    series_step:
+      namespace: sdmx_series_ecb_yc
+      expected: "B.DE.EUR.4F.G_N_C.SV_C_YM.SR_10Y"
+
+  - id: ten_year_bund_yield_benchmark
+    query: "Euro area 10-year benchmark government yield"
+    dataset_step:
+      namespace: sdmx_datasets
+      expected: "ECB|YC"
+    series_step:
+      namespace: sdmx_series_ecb_yc
+      expected: "B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y"
+
+  - id: french_hicp_annual
+    query: "Annual HICP rate of change for France"
+    dataset_step:
+      namespace: sdmx_datasets
+      expected: "ESTAT|prc_hicp_manr"
+    series_step:
+      namespace: sdmx_series_estat_prc_hicp_manr
+      expected: "A.RCH_A.CP00.FR"
+
+thresholds:
+  # Release-blocking thresholds on the eval set as a whole. CI checks these
+  # after running each query at top_k=10 against a built bundle.
+  min_dataset_recall: 0.85 # 7 of 8 single-hop queries must hit
+  min_two_hop_joint_recall: 0.70 # 2 of 3 two-hop chains must hit end-to-end

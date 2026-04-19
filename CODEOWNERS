@@ -1,0 +1,23 @@
+# CODEOWNERS — per-connector stewardship
+#
+# Every workspace member gets its own line. New stewards emerge from
+# contribution; additions go through the normal PR review process. See
+# GOVERNANCE.md §2 (Stewardship).
+#
+# Until per-connector stewards emerge, the founder is the default owner.
+
+*                   @espinetandreu
+
+# ---------------------------------------------------------------------------
+# Per-connector stewards (uncomment and reassign as stewards emerge).
+#
+# /packages/fred/         @espinetandreu
+# /packages/sdmx/         @espinetandreu
+# ---------------------------------------------------------------------------
+
+# Tooling and workspace infrastructure — changes affect every package.
+/tools/             @espinetandreu
+/pyproject.toml     @espinetandreu
+/.github/           @espinetandreu
+/CONTRIBUTING.md    @espinetandreu
+/GOVERNANCE.md      @espinetandreu
