@@ -14,6 +14,28 @@ permissions:
   contents: read
 
 jobs:
+  registry-drift:
+    name: Registry drift check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pydantic (schema dep only)
+        # gen_registry.py loads packages/mcp/parsimony_mcp/cli/registry_schema.py
+        # directly via importlib.util, so we only need pydantic here —
+        # not the MCP server deps nor any connector's transitive tree.
+        # That keeps drift-check isolated from the rest of the workspace
+        # and fast (no full uv sync).
+        run: uv pip install --system pydantic
+
+      - name: Verify registry.json is up to date
+        run: python tools/gen_registry.py --check
+
   discover:
     name: Discover workspace packages
     runs-on: ubuntu-latest

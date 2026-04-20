@@ -150,9 +150,9 @@ centre for officially-maintained code. Graduation is the **exception**.
   publishes from this monorepo or its own repo.
 - **Contract.** The graduated connector continues to implement the kernel
   entry-point contract identically.
-- **Discoverability.** The graduated connector remains in the signed
-  `OFFICIAL_PLUGINS.json` manifest at the kernel level and loads under the
-  allow-list default.
+- **Discoverability.** The graduated connector remains in the monorepo's
+  `registry.json` (regenerated from the package metadata in its new
+  location) so the MCP init wizard continues to advertise it.
 
 ### What graduation changes
 
@@ -170,8 +170,10 @@ centre for officially-maintained code. Graduation is the **exception**.
    place, and a release note for users.
 2. Founder reviews for contract compliance and PyPI-naming continuity.
 3. On merge, this monorepo's `packages/<name>/` is deleted, its pyproject
-   entry in the matrix workflow is removed, `OFFICIAL_PLUGINS.json` is
-   updated to point at the new repo, and the README notes the graduation.
+   entry in the matrix workflow is removed, `registry.json` is
+   regenerated (the graduated connector keeps its entry but the
+   package metadata now resolves to its new location), and the README
+   notes the graduation.
 4. The next publish event comes from the new repo, not this one. The PyPI
    trusted publisher switches in PyPI's project settings at the same time.
 
