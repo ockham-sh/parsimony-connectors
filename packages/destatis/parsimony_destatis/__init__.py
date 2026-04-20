@@ -11,8 +11,6 @@ import re
 from typing import Annotated, Any
 
 import pandas as pd
-from pydantic import BaseModel, Field, field_validator
-
 from parsimony.connector import Connectors, Namespace, connector, enumerator
 from parsimony.errors import EmptyDataError, ParseError, ProviderError
 from parsimony.result import (
@@ -23,6 +21,7 @@ from parsimony.result import (
     Result,
 )
 from parsimony.transport.http import HttpClient
+from pydantic import BaseModel, Field, field_validator
 
 _BASE_URL = "https://www-genesis.destatis.de/genesisWS/rest/2020"
 
