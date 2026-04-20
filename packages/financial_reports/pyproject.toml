@@ -68,6 +68,13 @@ python_version = "3.11"
 warn_return_any = true
 warn_unused_ignores = true
 ignore_missing_imports = true
+# The generated SDK ships a module with a syntax error we stub out at runtime.
+# Silence mypy on the SDK package — no type coverage expected from a generated client.
+exclude = ["financial_reports_generated_client"]
+
+[[tool.mypy.overrides]]
+module = "financial_reports_generated_client.*"
+follow_imports = "skip"
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib -m 'not integration'"

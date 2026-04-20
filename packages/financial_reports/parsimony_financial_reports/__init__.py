@@ -14,8 +14,6 @@ import logging
 from typing import Any, Literal
 
 import pandas as pd
-from pydantic import BaseModel, Field
-
 from parsimony.connector import Connectors, connector
 from parsimony.errors import EmptyDataError, RateLimitError
 from parsimony.result import (
@@ -25,6 +23,7 @@ from parsimony.result import (
     Provenance,
     Result,
 )
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
