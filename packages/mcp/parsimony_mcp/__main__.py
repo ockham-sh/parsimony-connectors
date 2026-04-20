@@ -20,11 +20,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 import time
 from collections.abc import Sequence
+from pathlib import Path
 
 import mcp.server.stdio
+from dotenv import load_dotenv
 from parsimony.discovery import build_connectors_from_env
 
 from parsimony_mcp._logging import configure_logging
@@ -38,8 +41,38 @@ _SLOW_DISCOVERY_MS = 2000
 _KNOWN_SUBCOMMANDS = frozenset({"init"})
 
 
+def _load_project_env() -> Path | None:
+    """Load a project-local ``.env`` into ``os.environ`` before discovery.
+
+    Walks from ``$PARSIMONY_MCP_PROJECT_DIR`` (if set) or the current
+    working directory upward to the filesystem root, loading the
+    first ``.env`` found. Pre-existing environment variables always
+    win — ``.env`` is a default, not an override, which matches the
+    agent-host case where secrets come from the host's
+    ``mcpServers.*.env`` block.
+
+    Without this, connectors whose declared env vars aren't in the
+    launching shell get silently skipped by the kernel's
+    :func:`build_connectors_from_env` — a confusing "0 tools" UX
+    even when the user has filled in ``.env``.
+    """
+    override = os.environ.get("PARSIMONY_MCP_PROJECT_DIR")
+    start = Path(override).resolve() if override else Path.cwd().resolve()
+
+    for directory in (start, *start.parents):
+        candidate = directory / ".env"
+        if candidate.is_file():
+            load_dotenv(candidate, override=False)
+            return candidate
+    return None
+
+
 async def _run_server() -> None:
     configure_logging()
+
+    env_path = _load_project_env()
+    if env_path is not None:
+        logger.info("loaded project env", extra={"path": str(env_path)})
 
     start = time.monotonic()
     all_connectors = build_connectors_from_env()

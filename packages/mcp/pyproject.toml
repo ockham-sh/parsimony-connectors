@@ -33,6 +33,14 @@ dependencies = [
     # existing pyproject.toml. tomli-w alone would serialise a fresh
     # AST and silently discard the user's annotations on every run.
     "tomlkit>=0.12,<1",
+    # load_dotenv at server startup pulls .env into os.environ before
+    # the kernel's discovery reads it. Without this, connectors whose
+    # declared env vars aren't already in the launching shell get
+    # silently skipped — a confusing "0 tools" experience even with
+    # a populated .env. python-dotenv is transitive via
+    # pydantic-settings today; declaring it explicitly avoids a
+    # silent break if MCP SDK drops that chain.
+    "python-dotenv>=1.0,<2",
 ]
 
 [project.optional-dependencies]
