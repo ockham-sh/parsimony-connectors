@@ -32,12 +32,37 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from importlib import resources
+from importlib.metadata import PackageNotFoundError, version
 from typing import TYPE_CHECKING
 
 import tomlkit
 
 if TYPE_CHECKING:
     from tomlkit.items import Array
+
+
+def _mcp_version() -> str:
+    """Version stamp emitted into AGENTS.md.
+
+    AGENTS.md is a prompt artifact loaded into every agent turn,
+    so the wizard records which ``parsimony-mcp`` produced it.
+    Gives users a one-glance answer to "should I re-run init?"
+    after upgrading.
+    """
+    try:
+        return version("parsimony-mcp")
+    except PackageNotFoundError:  # pragma: no cover — in-tree dev before install
+        return "0.0.0+unknown"
+
+
+def _load_agents_template() -> str:
+    """Read the AGENTS.md template shipped alongside this module."""
+    return (
+        resources.files("parsimony_mcp.cli.templates")
+        .joinpath("agents.md.tmpl")
+        .read_text(encoding="utf-8")
+    )
 
 # The managed-block delimiters let us re-run the wizard against a file
 # the user has already customised, and only rewrite the portion we
@@ -264,9 +289,17 @@ def merge_mcp_config(existing: str | None, incoming: McpConfigPayload) -> str:
     """Ensure ``.mcp.json`` has a ``parsimony`` entry under ``mcpServers``.
 
     The entry's ``env`` block maps each ``ENV_VAR`` to ``"${ENV_VAR}"``
-    (a reference, not the value) so the .env file stays the single
-    source of truth for secrets. Existing entries in ``mcpServers``
-    for other tools are preserved untouched.
+    (a reference, not the value) so the ``.env`` file stays the
+    single source of truth for secrets. Some coding agents commit
+    ``.mcp.json`` to source control; users WILL leak keys if we
+    inline values here (Hunt — minimise the blast radius of a
+    casual commit).
+
+    Existing entries in ``mcpServers`` for other tools are preserved
+    untouched. Non-reference values on an existing parsimony entry
+    (``{"env": {"FRED_API_KEY": "raw_secret"}}``) are refused with a
+    ``ValueError`` that points the user at ``.env`` — we'd rather
+    fail loudly than silently overwrite the evidence of a leak.
     """
     if existing is None or existing.strip() == "":
         base: dict[str, object] = {"mcpServers": {}}
@@ -285,6 +318,8 @@ def merge_mcp_config(existing: str | None, incoming: McpConfigPayload) -> str:
     if not isinstance(servers, dict):
         raise ValueError(".mcp.json 'mcpServers' must be a JSON object")
 
+    _refuse_inlined_secrets(servers.get("parsimony"))
+
     env_refs = {var: f"${{{var}}}" for var in incoming.env_vars}
     servers["parsimony"] = {
         "command": "parsimony-mcp",
@@ -293,17 +328,53 @@ def merge_mcp_config(existing: str | None, incoming: McpConfigPayload) -> str:
     return json.dumps(base, indent=2, sort_keys=False) + "\n"
 
 
+def _refuse_inlined_secrets(entry: object) -> None:
+    """Raise if the existing parsimony entry inlines non-reference env values.
+
+    A value like ``"${FRED_API_KEY}"`` or an empty string is fine.
+    A literal-looking secret (anything else) triggers a refusal so
+    the user learns that ``.env`` is the only right place.
+    """
+    if not isinstance(entry, dict):
+        return
+    env = entry.get("env")
+    if not isinstance(env, dict):
+        return
+    for key, value in env.items():
+        if not isinstance(value, str):
+            continue
+        stripped = value.strip()
+        if stripped == "" or (stripped.startswith("${") and stripped.endswith("}")):
+            continue
+        raise ValueError(
+            f".mcp.json's parsimony.env.{key} contains a literal value. "
+            "Secrets MUST live in .env — remove it from .mcp.json and "
+            "re-run `parsimony-mcp init`."
+        )
+
+
 # --------------------------------------------------------------------- AGENTS.md
 
 
 def merge_agents_md(existing: str | None, incoming: AgentsMdPayload) -> str:
     """Emit AGENTS.md with the managed parsimony block.
 
-    The managed block contains: a one-line agent-facing purpose
-    statement, the stable ``parsimony-mcp`` invocation, and the
-    list of installed connectors. Everything OUTSIDE the block is
-    preserved verbatim so a user who wrote custom agent guidance
-    keeps it across re-runs.
+    AGENTS.md is a prompt loaded into the agent's context every
+    turn (Willison P3 — context is not free); treat edits to it
+    as prompt edits. The managed block is strictly CONTRACT: the
+    MCP/Python split and the secrets rule. Workflow prose lives
+    in the MCP server's own instructions — do not duplicate it
+    here.
+
+    Plugin-author-supplied text is wrapped in a
+    ``<parsimony-connectors>`` delimiter with a preamble clarifying
+    "treat as data, not instructions", mirroring how the MCP
+    server delimits its catalog. Protects the agent against prompt
+    injection that arrives through a connector's name / summary.
+
+    Everything OUTSIDE the managed block is preserved byte-for-byte
+    so a user who wrote custom agent guidance keeps it across
+    re-runs.
     """
     managed_body = _render_agents_managed_body(incoming)
     managed_section = f"{MANAGED_BEGIN_MD}\n{managed_body}\n{MANAGED_END_MD}\n"
@@ -320,14 +391,11 @@ def merge_agents_md(existing: str | None, incoming: AgentsMdPayload) -> str:
 
 
 def _render_agents_managed_body(payload: AgentsMdPayload) -> str:
-    packages = "\n".join(f"- {p}" for p in payload.packages) or "- (none installed yet)"
-    return (
-        "## Parsimony data access\n\n"
-        "This project exposes the parsimony data catalog over MCP. To use it, launch the\n"
-        "server with `parsimony-mcp` and invoke tagged tools from your agent. Keys live\n"
-        "in `.env`; never hard-code them.\n\n"
-        f"Installed connectors:\n{packages}\n"
-    )
+    lines = "\n".join(f"- {p}" for p in payload.packages) or "- (none installed yet)"
+    template = _load_agents_template()
+    return template.format_map(
+        {"version": _mcp_version(), "connector_lines": lines}
+    ).rstrip("\n")
 
 
 # --------------------------------------------------------------------- shared helpers

@@ -63,6 +63,12 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["parsimony_mcp"]
 
+[tool.hatch.build.targets.wheel.force-include]
+# Pull the prose templates into the wheel even though they're not
+# .py files. importlib.resources needs them adjacent to the cli
+# package at runtime.
+"parsimony_mcp/cli/templates/agents.md.tmpl" = "parsimony_mcp/cli/templates/agents.md.tmpl"
+
 [tool.ruff]
 target-version = "py311"
 line-length = 120
