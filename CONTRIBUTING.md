@@ -121,7 +121,52 @@ mergeable when every item below is satisfied:
 
 ---
 
-## 5. Reporting bugs
+## 5. Extending the MCP host
+
+The `packages/mcp/` directory is the MCP (Model Context Protocol) host
+adapter. It is a CONSUMER of the kernel contract — it receives a
+`Connectors` collection from whichever plugins the user has installed
+and serves them as MCP tools to coding agents — not a
+`parsimony.providers` plugin. It has different contribution dynamics
+than a connector package.
+
+### Adding a subcommand
+
+New CLI subcommands (e.g. `parsimony-mcp doctor`) live under
+`packages/mcp/parsimony_mcp/cli/`. The CLI entry point is in
+`__main__.py` and dispatches via argparse subparsers. Keep business
+logic in a typed library module; the CLI layer is a thin adapter that
+parses args and calls the library.
+
+### Adding a file-merge strategy
+
+The init wizard merges five file types (TOML, JSON, Markdown,
+`.env`, `.gitignore`) via pure functions in
+`packages/mcp/parsimony_mcp/cli/_merge.py`. Each function takes
+`(existing: str | None, incoming) -> str` and does no I/O. A new
+merge strategy adds one function and one unit test fixture; it does
+not require a new protocol or base class.
+
+### Modifying the registry schema
+
+The connector registry schema is shared between the generator
+(`tools/gen_registry.py`) and the init consumer
+(`parsimony_mcp.cli.registry`). Both import from a single Pydantic
+model in `tools/registry_schema.py`. Bumping the schema version is a
+coordinated change: update the model, the generator output, and the
+consumer's expected version — all in one PR.
+
+### What this section does NOT cover
+
+- Per-connector stewardship — see §2 (Stewardship).
+- Conformance testing — the MCP package opts out via
+  `[tool.parsimony.conformance] skip = true` in its own
+  `pyproject.toml`; see `packages/mcp/pyproject.toml` for the
+  canonical example.
+
+---
+
+## 6. Reporting bugs
 
 Open a GitHub issue with:
 
@@ -136,7 +181,7 @@ issue.
 
 ---
 
-## 6. Code style
+## 7. Code style
 
 - **Formatter:** `ruff format` (120-char lines, the workspace root `pyproject.toml` configures this)
 - **Linter:** `ruff check` with the rules selected in the workspace root
@@ -146,15 +191,20 @@ issue.
 
 ---
 
-## 7. Taking over an abandoned connector
+## 8. Taking over an abandoned connector
 
 If a connector steward has been unresponsive to issues and PRs for 90 days,
 anyone may open a takeover PR. See [GOVERNANCE.md §2](GOVERNANCE.md#2-stewardship)
 for the full policy.
 
+**Note:** this rule applies to connector packages only. The
+`packages/mcp/` MCP host adapter is NOT subject to 90-day-abandonment
+takeover; ownership transfers require explicit handoff from the
+current owner.
+
 ---
 
-## 8. Getting help
+## 9. Getting help
 
 - Open a discussion on GitHub Discussions
 - Ask in the parsimony issue tracker
