@@ -12,8 +12,6 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
-from pydantic import BaseModel, Field, field_validator
-
 from parsimony.connector import Connectors, Namespace, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import (
@@ -23,6 +21,7 @@ from parsimony.result import (
     Provenance,
     Result,
 )
+from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
