@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import dataclasses
 import datetime as dt
 import enum
 import errno
@@ -58,6 +59,15 @@ from parsimony_mcp.cli._merge import (
     merge_gitignore,
     merge_mcp_config,
     merge_pyproject,
+)
+from parsimony_mcp.cli._prompts import (
+    PromptAborted,
+    PromptChoices,
+    PromptIO,
+    TTYUnavailable,
+)
+from parsimony_mcp.cli._prompts import (
+    collect as prompt_collect,
 )
 from parsimony_mcp.cli.registry import (
     DEFAULT_CACHE_PATH,
@@ -762,11 +772,31 @@ def _non_interactive_ready(inputs: InitInputs) -> bool:
     return inputs.assume_yes and bool(inputs.selected_packages)
 
 
+def _merge_prompt_choices(inputs: InitInputs, choices: PromptChoices) -> InitInputs:
+    """Merge the prompt layer's output back onto ``inputs``.
+
+    The prompt layer never overrides ``target_dir`` / flags — it
+    only fills in the slots that couldn't be decided from argv
+    alone. ``assume_yes`` is left False so apply() takes the
+    interactive-consent code path (the user already clicked
+    through a review screen).
+    """
+    return dataclasses.replace(
+        inputs,
+        selected_packages=choices.selected_packages,
+        env_values=dict(choices.env_values),
+        # The user consented to writing files via the review screen;
+        # apply() treats this the same as --yes for conflict checks.
+        assume_yes=True,
+    )
+
+
 def run(
     argv: Sequence[str] | None = None,
     *,
     stdout: IO[str] | None = None,
     stderr: IO[str] | None = None,
+    prompt_io: PromptIO | None = None,
 ) -> int:
     """CLI entry point for ``parsimony-mcp init``.
 
@@ -805,6 +835,30 @@ def run(
 
     inputs = inputs_from_args(args, registry)
 
+    # Interactive layer: fill in under-specified inputs when the
+    # caller didn't pass --yes, OR passed --yes without --with.
+    # The prompt module raises TTYUnavailable if stdin isn't a TTY
+    # and PromptAborted on explicit cancel; we translate both to
+    # stable exit codes (Collina P1 — operational errors classified).
+    if not _non_interactive_ready(inputs) and not inputs.dry_run:
+        try:
+            choices = prompt_collect(
+                registry,
+                initial_selection=inputs.selected_packages,
+                show_keys=inputs.show_keys,
+                io=prompt_io,
+            )
+        except TTYUnavailable as exc:
+            print(f"error: {exc}", file=err)
+            return ExitCode.USAGE
+        except PromptAborted:
+            print("cancelled. Nothing was written.", file=err)
+            return ExitCode.USER_CANCEL
+        except KeyboardInterrupt:
+            print("\ninterrupted. Nothing was written.", file=err)
+            return ExitCode.SIGINT
+        inputs = _merge_prompt_choices(inputs, choices)
+
     try:
         operations = plan(inputs, registry)
     except ValueError as exc:
@@ -814,17 +868,6 @@ def run(
     if inputs.dry_run:
         _render_dry_run(operations, source, out)
         return ExitCode.OK
-
-    if not _non_interactive_ready(inputs):
-        # Task 9 lands the interactive prompt layer. Until then,
-        # non-TTY / no-flags runs must fail loudly with the exact
-        # scripted recipe — never silently proceed.
-        print(
-            "error: interactive prompts not available yet. "
-            "Use --yes together with --with parsimony-<name> (or --dry-run).",
-            file=err,
-        )
-        return ExitCode.USAGE
 
     try:
         result = apply(
@@ -839,6 +882,12 @@ def run(
     except ApplyError as exc:
         print(f"error: {exc}", file=err)
         return ExitCode.FILESYSTEM
+    except KeyboardInterrupt:
+        # Mid-apply Ctrl-C: fresh-init cleans its staging dir on
+        # the `finally`; merge mode may have partially written.
+        # Either way we exit clean — the user can re-run.
+        print("\ninterrupted during write. Check target dir for backups.", file=err)
+        return ExitCode.SIGINT
 
     _render_apply_summary(result, source, out)
     return ExitCode.OK

@@ -256,12 +256,19 @@ def test_run_dry_run_prints_plan_and_exits_ok(monkeypatch: pytest.MonkeyPatch, t
     assert text.index(".gitignore") < text.index(".env")
 
 
-def test_run_without_yes_emits_usage_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_run_without_yes_on_non_tty_emits_scripted_recipe(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Default prompt_io under pytest sees sys.stdin which is not a TTY.
+
+    The wizard must refuse with the exact scripted recipe rather
+    than hang on an unfulfilled readline.
+    """
     _patch_fetch(monkeypatch, _sample_registry())
     err = io.StringIO()
     rc = run(["--into", str(tmp_path)], stdout=io.StringIO(), stderr=err)
     assert rc == ExitCode.USAGE
-    assert "interactive prompts not available" in err.getvalue()
+    assert "--yes --with parsimony-" in err.getvalue()
 
 
 def test_run_registry_error_maps_to_registry_exit_code(
@@ -316,6 +323,50 @@ def test_run_fresh_init_writes_all_files(
     assert not (tmp_path / ".parsimony-init-staging").exists()
     # .gitignore mentions .env so a subsequent `git add` can't leak it.
     assert ".env" in (tmp_path / ".gitignore").read_text()
+
+
+def test_run_interactive_fills_missing_inputs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """When neither --yes nor --with is given, run() drops into prompts."""
+    from tests._prompt_helpers import ScriptedIO
+
+    _patch_fetch(monkeypatch, _sample_registry())
+
+    scripted = ScriptedIO(
+        inputs=[
+            "",        # accept default selection
+            "secret",  # FRED_API_KEY (required)
+            "n",       # don't show last 4
+            "c",       # continue at review
+        ],
+    )
+    rc = run(
+        ["--into", str(tmp_path)],
+        stdout=io.StringIO(),
+        stderr=io.StringIO(),
+        prompt_io=scripted,
+    )
+    assert rc == ExitCode.OK
+    assert (tmp_path / ".env").is_file()
+    assert "FRED_API_KEY=secret" in (tmp_path / ".env").read_text()
+
+
+def test_run_tty_unavailable_surfaces_scripted_recipe(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from tests._prompt_helpers import ScriptedIO
+
+    _patch_fetch(monkeypatch, _sample_registry())
+    err = io.StringIO()
+    rc = run(
+        ["--into", str(tmp_path)],
+        stdout=io.StringIO(),
+        stderr=err,
+        prompt_io=ScriptedIO(inputs=[], tty=False),
+    )
+    assert rc == ExitCode.USAGE
+    assert "--yes --with parsimony-" in err.getvalue()
 
 
 def test_run_merge_mode_requires_yes_or_force(
