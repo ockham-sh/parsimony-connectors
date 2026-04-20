@@ -29,6 +29,30 @@ env:
   KERNEL_REF: main
 
 jobs:
+  registry-drift:
+    name: Registry drift check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify registry.json is up to date
+        # gen_registry.py loads packages/mcp/parsimony_mcp/cli/registry_schema.py
+        # directly via importlib.util, so we only need pydantic — not
+        # the MCP server deps nor any connector's transitive tree.
+        # `uv run --no-project --with` creates an ephemeral
+        # environment with just that dep, skipping workspace
+        # resolution (and the developer-local `[tool.uv.sources]`
+        # entries pointing at sibling repos). Keeps drift-check fast
+        # and isolated from workspace flakiness. `uv pip install
+        # --system` is not an option — GitHub runners' system Python
+        # is externally managed (PEP 668).
+        run: uv run --no-project --with pydantic python tools/gen_registry.py --check
+
   discover:
     name: Discover workspace packages
     runs-on: ubuntu-latest
@@ -137,6 +161,23 @@ jobs:
       - name: Conformance verify
         run: |
           set -euo pipefail
+          # Packages that are adapters / consumers of the kernel contract
+          # (not `parsimony.providers` plugins) opt out via
+          # `[tool.parsimony.conformance] skip = true` in their own
+          # pyproject.toml — avoids hard-coding a per-package
+          # allow/deny list in the CI workflow. See packages/mcp/ for
+          # the canonical example.
+          skip=$(python3 -c "
+          import os, tomllib
+          pkg = os.environ['PKG']
+          with open(f'packages/{pkg}/pyproject.toml', 'rb') as fp:
+              data = tomllib.load(fp)
+          print('1' if data.get('tool', {}).get('parsimony', {}).get('conformance', {}).get('skip') else '0')
+          ")
+          if [[ "$skip" == "1" ]]; then
+            echo "::notice::Skipping conformance verify for $PKG — package opts out via [tool.parsimony.conformance] skip=true"
+            exit 0
+          fi
           pkg_name=$(python3 -c "
           import os, tomllib
           pkg = os.environ['PKG']
