@@ -306,7 +306,13 @@ def _build_registry() -> Registry:
 
 
 def _serialize(registry: Registry) -> str:
-    payload = registry.model_dump(mode="json")
+    # ``exclude_none=True`` drops optional fields that aren't set —
+    # ``homepage``, ``pricing``, ``rate_limits`` on a connector package
+    # and ``get_url`` on an env var. The consumer treats missing and
+    # null identically (both become ``None`` after pydantic load), so
+    # the nulls are pure noise. Skipping them keeps registry.json
+    # readable and shrinks the wire payload.
+    payload = registry.model_dump(mode="json", exclude_none=True)
     # Stable, diff-friendly output: 2-space indent, sorted within each record
     return json.dumps(payload, indent=2, sort_keys=False) + "\n"
 
