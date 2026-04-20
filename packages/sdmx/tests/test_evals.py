@@ -26,7 +26,6 @@ import yaml
 
 from parsimony_sdmx.connectors import (
     enumerate_sdmx_datasets,
-    enumerate_sdmx_series,
 )
 from parsimony_sdmx.connectors.enumerate_series import SERIES_NAMESPACE_TEMPLATE
 
@@ -35,7 +34,8 @@ _QUERIES_PATH = Path(__file__).parent / "evals" / "queries.yaml"
 
 @pytest.fixture(scope="module")
 def eval_set() -> dict:
-    return yaml.safe_load(_QUERIES_PATH.read_text(encoding="utf-8"))
+    data: dict = yaml.safe_load(_QUERIES_PATH.read_text(encoding="utf-8"))
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +50,9 @@ def test_eval_file_has_required_sections(eval_set: dict) -> None:
 
 
 def test_dataset_queries_use_datasets_namespace(eval_set: dict) -> None:
-    datasets_ns = enumerate_sdmx_datasets.output_config.columns[0].namespace
+    output_config = enumerate_sdmx_datasets.output_config
+    assert output_config is not None
+    datasets_ns = output_config.columns[0].namespace
     for q in eval_set["dataset_queries"]:
         assert q["namespace"] == datasets_ns, (
             f"dataset query {q['id']} uses namespace {q['namespace']!r}; expected {datasets_ns!r}"

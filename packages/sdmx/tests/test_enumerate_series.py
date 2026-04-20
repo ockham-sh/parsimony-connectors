@@ -11,11 +11,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-
 from parsimony.bundles.lazy_catalog import _find_enumerator
 from parsimony.catalog.catalog import entries_from_table_result
 
@@ -83,7 +81,9 @@ async def test_per_row_template_resolution_produces_correct_namespace(outputs_ro
     result = await enumerate_sdmx_series.bind_deps(outputs_root=outputs_root)(
         EnumerateSeriesParams(agency=AgencyId.ECB, dataset_id="YC"),
     )
-    table = result.to_table(enumerate_sdmx_series.output_config)
+    output_config = enumerate_sdmx_series.output_config
+    assert output_config is not None
+    table = result.to_table(output_config)
     entries = entries_from_table_result(table)
 
     # Kernel lowercases placeholder values — namespace is snake_case lowercase.
@@ -116,7 +116,9 @@ def test_find_enumerator_reverse_resolves_against_this_connector() -> None:
     resolved namespace like ``sdmx_series_ecb_yc`` and extract the routing
     params so the live-fallback invocation can target the right dataset.
     """
-    match = _find_enumerator([enumerate_sdmx_series], "sdmx_series_ecb_yc")
+    from parsimony.connector import Connectors
+
+    match = _find_enumerator(Connectors([enumerate_sdmx_series]), "sdmx_series_ecb_yc")
     assert match is not None
     conn, extracted = match
     assert conn is enumerate_sdmx_series
@@ -124,7 +126,9 @@ def test_find_enumerator_reverse_resolves_against_this_connector() -> None:
 
 
 def test_enumerator_output_declares_template_namespace() -> None:
-    cols = enumerate_sdmx_series.output_config.columns
+    output_config = enumerate_sdmx_series.output_config
+    assert output_config is not None
+    cols = output_config.columns
     key_col = next(c for c in cols if c.role.value == "key")
     assert key_col.namespace == SERIES_NAMESPACE_TEMPLATE
     assert key_col.namespace_is_template is True

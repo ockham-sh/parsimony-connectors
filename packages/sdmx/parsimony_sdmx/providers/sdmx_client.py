@@ -8,7 +8,7 @@ User-Agent behaviour as our direct fetches.
 from __future__ import annotations
 
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from typing import Any
 
 import sdmx
@@ -27,10 +27,8 @@ def sdmx_client(
     # Preserve cookies/headers set by sdmx1 defaults.
     original = getattr(client, "session", None)
     if original is not None:
-        try:
+        with suppress(AttributeError):
             session.cookies.update(original.cookies)
-        except AttributeError:
-            pass
         for name, value in getattr(original, "headers", {}).items():
             session.headers.setdefault(name, value)
     client.session = session

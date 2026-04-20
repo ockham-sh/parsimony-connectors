@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-
 from parsimony.catalog.catalog import entries_from_table_result
 
 from parsimony_sdmx.connectors.enumerate_datasets import (
@@ -54,7 +52,9 @@ async def test_enumerates_all_agencies(outputs_root: Path) -> None:
 @pytest.mark.asyncio
 async def test_ingests_into_expected_namespace(outputs_root: Path) -> None:
     result = await enumerate_sdmx_datasets.bind_deps(outputs_root=outputs_root)(EnumerateDatasetsParams())
-    table = result.to_table(enumerate_sdmx_datasets.output_config)
+    output_config = enumerate_sdmx_datasets.output_config
+    assert output_config is not None  # enumerator was declared with output=
+    table = result.to_table(output_config)
     entries = entries_from_table_result(table)
 
     assert len(entries) == 3
@@ -85,7 +85,9 @@ async def test_empty_root_raises_emptydata(tmp_path: Path) -> None:
 
 def test_enumerator_metadata_shape() -> None:
     """The decorator registered a valid enumerator output."""
-    cols = enumerate_sdmx_datasets.output_config.columns
+    output_config = enumerate_sdmx_datasets.output_config
+    assert output_config is not None
+    cols = output_config.columns
     key_cols = [c for c in cols if c.role.value == "key"]
     assert len(key_cols) == 1
     assert key_cols[0].namespace == "sdmx_datasets"

@@ -28,6 +28,11 @@ python_version = "3.11"
 warn_return_any = true
 warn_unused_ignores = true
 ignore_missing_imports = true
+# `ignore_missing_imports` doesn't suppress `import-untyped` for packages
+# that have publishable stubs (requests/PyYAML have `types-*` packages on
+# PyPI but we don't install them). Silence the category workspace-wide so
+# mypy doesn't nag about stubs the connectors don't need.
+disable_error_code = ["import-untyped", "unused-ignore"]
 
 # The financial_reports SDK (financial_reports_generated_client) ships a
 # module with a syntax error we stub out at runtime. Skip-follow imports

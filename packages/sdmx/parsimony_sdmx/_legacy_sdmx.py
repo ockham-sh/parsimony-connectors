@@ -9,9 +9,6 @@ from urllib.parse import quote
 
 import pandas as pd
 import sdmx as sdmx_lib
-from pydantic import BaseModel, Field, field_validator
-from requests.exceptions import HTTPError
-
 from parsimony.catalog.models import code_token as _code_token
 from parsimony.catalog.models import normalize_code
 from parsimony.connector import Connectors, connector
@@ -24,6 +21,8 @@ from parsimony.result import (
     Result,
     SemanticTableResult,
 )
+from pydantic import BaseModel, Field, field_validator
+from requests.exceptions import HTTPError
 
 # ---------------------------------------------------------------------------
 # Parameter models

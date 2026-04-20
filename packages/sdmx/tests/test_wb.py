@@ -237,25 +237,23 @@ class TestFetchWbStructure:
         with patch(
             "parsimony_sdmx.providers.wb.bounded_get",
             side_effect=SdmxFetchError("403 Forbidden"),
-        ):
-            with pytest.raises(SdmxFetchError, match="WB structure fetch"):
-                _fetch_wb_structure(
-                    HttpConfig(),
-                    "https://api.worldbank.org/v2/sdmx/rest",
-                    "dataflow/WB",
-                )
+        ), pytest.raises(SdmxFetchError, match="WB structure fetch"):
+            _fetch_wb_structure(
+                HttpConfig(),
+                "https://api.worldbank.org/v2/sdmx/rest",
+                "dataflow/WB",
+            )
 
     def test_parse_error_wrapped_as_sdmx_fetch_error(self) -> None:
         with patch(
             "parsimony_sdmx.providers.wb.bounded_get",
             return_value=b"<not-sdmx><garbage>",
-        ):
-            with pytest.raises(SdmxFetchError, match="parse"):
-                _fetch_wb_structure(
-                    HttpConfig(),
-                    "https://api.worldbank.org/v2/sdmx/rest",
-                    "dataflow/WB",
-                )
+        ), pytest.raises(SdmxFetchError, match="parse"):
+            _fetch_wb_structure(
+                HttpConfig(),
+                "https://api.worldbank.org/v2/sdmx/rest",
+                "dataflow/WB",
+            )
 
 
 class TestNoFetchClient:

@@ -100,9 +100,8 @@ class TestMemoryMonitorContext:
     ) -> None:
         cfg = MemoryMonitorConfig(threshold_percent=99.9, poll_seconds=0.05)
         fake_mem = MagicMock(percent=10.0)
-        with patch("psutil.virtual_memory", return_value=fake_mem):
-            with memory_monitor(tmp_path, "ECB", cfg):
-                time.sleep(0.15)
+        with patch("psutil.virtual_memory", return_value=fake_mem), memory_monitor(tmp_path, "ECB", cfg):
+            time.sleep(0.15)
         # No OOM markers should exist.
         d = oom_dir(tmp_path, "ECB")
         if d.exists():

@@ -40,6 +40,7 @@ dev = [
     "respx>=0.22.0",
     "ruff>=0.15.10",
     "mypy>=1.10",
+    "pyyaml>=6.0",
 ]
 
 [project.urls]
@@ -78,9 +79,9 @@ warn_unused_ignores = true
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-addopts = "--import-mode=importlib -m 'not integration'"
+addopts = "--import-mode=importlib -m 'not integration and not slow'"
 asyncio_mode = "auto"
 markers = [
     "integration: hits live APIs (may be slow, requires env vars)",
-    "slow: long-running test (subprocess / heavy I/O)",
+    "slow: long-running test (subprocess / heavy I/O; tests use pickle-spawn which needs tests to be a package — excluded by default)",
 ]
