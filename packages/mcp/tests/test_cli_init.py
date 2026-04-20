@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 import pytest
 
+from parsimony_mcp.cli._merge import EnvPayload
 from parsimony_mcp.cli.init import (
     RECOMMENDED_STARTER_SET,
     ExitCode,
@@ -113,11 +114,17 @@ def test_plan_collects_env_vars_from_selection() -> None:
     )
     ops = plan(inputs, _sample_registry())
     env_op = next(op for op in ops if op.kind is FileKind.ENV)
-    assert env_op.incoming == {"keys": ["FRED_API_KEY"], "values": {}}
+    assert isinstance(env_op.incoming, EnvPayload)
+    assert env_op.incoming.keys == ("FRED_API_KEY",)
+    assert env_op.incoming.values == {}
 
 
 def test_file_operation_is_frozen() -> None:
-    op = FileOperation(kind=FileKind.ENV, target=Path("."), incoming=None)
+    op = FileOperation(
+        kind=FileKind.ENV,
+        target=Path("."),
+        incoming=EnvPayload(keys=(), values={}),
+    )
     with pytest.raises(dataclasses.FrozenInstanceError):
         op.kind = FileKind.PYPROJECT  # type: ignore[misc]
 
@@ -288,20 +295,46 @@ def test_run_unknown_package_maps_to_usage(monkeypatch: pytest.MonkeyPatch, tmp_
     assert "not present in registry" in err.getvalue()
 
 
-def test_run_apply_not_yet_implemented_surfaces_fs_error(
+def test_run_fresh_init_writes_all_files(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # Task 7 ships --dry-run; the apply path is a stub until Task 8.
-    # The CLI must surface that explicitly rather than pretend success.
     _patch_fetch(monkeypatch, _sample_registry())
+    out = io.StringIO()
+    err = io.StringIO()
+    rc = run(
+        ["--yes", "--with", "parsimony-fred", "--into", str(tmp_path)],
+        stdout=out,
+        stderr=err,
+    )
+    assert rc == ExitCode.OK, err.getvalue()
+    # All five wizard-owned files exist; the staging dir is gone.
+    assert (tmp_path / ".gitignore").is_file()
+    assert (tmp_path / ".env").is_file()
+    assert (tmp_path / "pyproject.toml").is_file()
+    assert (tmp_path / ".mcp.json").is_file()
+    assert (tmp_path / "AGENTS.md").is_file()
+    assert not (tmp_path / ".parsimony-init-staging").exists()
+    # .gitignore mentions .env so a subsequent `git add` can't leak it.
+    assert ".env" in (tmp_path / ".gitignore").read_text()
+
+
+def test_run_merge_mode_requires_yes_or_force(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _patch_fetch(monkeypatch, _sample_registry())
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='existing'\n")
+
     err = io.StringIO()
     rc = run(
         ["--yes", "--with", "parsimony-fred", "--into", str(tmp_path)],
         stdout=io.StringIO(),
         stderr=err,
     )
-    assert rc == ExitCode.FILESYSTEM
-    assert "Task 8" in err.getvalue()
+    # --yes programmatically consents to merge + backup.
+    assert rc == ExitCode.OK, err.getvalue()
+    # Original pyproject.toml backed up with an ISO-8601 suffix.
+    backups = list(tmp_path.glob("pyproject.toml.parsimony.bak-*"))
+    assert len(backups) == 1
 
 
 # ---------------------------------------------------------------------- __main__ dispatch
