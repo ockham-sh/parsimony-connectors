@@ -14,6 +14,10 @@ name: Release
 #
 # All third-party actions pinned by commit SHA (not tag) to defeat tag
 # mutation / hostile retag. Version comment shows the human-readable tag.
+#
+# Kernel source pin: the workspace resolves `parsimony-core` from a sibling
+# `ockham-sh/parsimony` checkout via `[tool.uv.sources]`. This job checks
+# out the kernel alongside the connectors so `../parsimony` resolves.
 
 on:
   workflow_dispatch:
@@ -29,10 +33,17 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  KERNEL_REPO: ockham-sh/parsimony
+  KERNEL_REF: main
+
 jobs:
   publish:
     name: Publish parsimony-${{ github.event.inputs.package }}
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: parsimony-connectors
     env:
       PKG: ${{ github.event.inputs.package }}
     environment:
@@ -43,6 +54,7 @@ jobs:
       contents: read
     steps:
       - name: Validate package-name input
+        shell: bash
         run: |
           set -euo pipefail
           if ! [[ "$PKG" =~ ^[a-z][a-z0-9_-]*$ ]]; then
@@ -51,6 +63,15 @@ jobs:
           fi
 
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          path: parsimony-connectors
+
+      - name: Check out parsimony kernel
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          repository: ${{ env.KERNEL_REPO }}
+          ref: ${{ env.KERNEL_REF }}
+          path: parsimony
 
       - name: Validate package exists
         run: |
@@ -149,11 +170,11 @@ jobs:
           uv run parsimony conformance verify "${pkg_name}"
 
       - name: Build wheel + sdist
-        working-directory: packages/${{ github.event.inputs.package }}
+        working-directory: parsimony-connectors/packages/${{ github.event.inputs.package }}
         run: uv build
 
       - name: Publish to PyPI (OIDC trusted publisher)
         uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc  # v1.12.4
         with:
-          packages-dir: packages/${{ github.event.inputs.package }}/dist/
+          packages-dir: parsimony-connectors/packages/${{ github.event.inputs.package }}/dist/
           attestations: true

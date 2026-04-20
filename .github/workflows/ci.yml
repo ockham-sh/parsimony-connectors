@@ -20,16 +20,29 @@ concurrency:
 permissions:
   contents: read
 
+# Kernel source pin. Both CI jobs check out `ockham-sh/parsimony` alongside
+# the connectors repo so the workspace-level `[tool.uv.sources]` override
+# (which points at `../parsimony`) resolves to a real path on the runner.
+# Bump KERNEL_REF when the kernel lands a new contract-v1 alpha.
+env:
+  KERNEL_REPO: ockham-sh/parsimony
+  KERNEL_REF: main
+
 jobs:
   discover:
     name: Discover workspace packages
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: parsimony-connectors
     outputs:
       packages: ${{ steps.list.outputs.packages }}
       has_packages: ${{ steps.list.outputs.has_packages }}
       python_versions: ${{ steps.versions.outputs.python_versions }}
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          path: parsimony-connectors
 
       - id: list
         name: Enumerate packages/*/pyproject.toml
@@ -68,6 +81,9 @@ jobs:
     needs: discover
     if: ${{ needs.discover.outputs.has_packages == 'true' }}
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: parsimony-connectors
     env:
       PKG: ${{ matrix.package }}
     strategy:
@@ -76,7 +92,19 @@ jobs:
         package: ${{ fromJson(needs.discover.outputs.packages) }}
         python-version: ${{ fromJson(needs.discover.outputs.python_versions) }}
     steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          path: parsimony-connectors
+
+      - name: Check out parsimony kernel
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          repository: ${{ env.KERNEL_REPO }}
+          ref: ${{ env.KERNEL_REF }}
+          path: parsimony
+
       - name: Validate matrix package name
+        shell: bash
         run: |
           set -euo pipefail
           if ! [[ "$PKG" =~ ^[a-z][a-z0-9_-]*$ ]]; then
@@ -84,17 +112,15 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
-
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.3
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
           cache-dependency-glob: |
-            uv.lock
-            pyproject.toml
-            packages/*/pyproject.toml
+            parsimony-connectors/uv.lock
+            parsimony-connectors/pyproject.toml
+            parsimony-connectors/packages/*/pyproject.toml
 
       - name: Resolve workspace
         run: uv sync --all-extras --all-packages

@@ -8,8 +8,12 @@ requires-python = ">=3.11"
 members = ["packages/*"]
 
 [tool.uv.sources]
-# Local dev — the kernel lives next door. CI and published installs use the
-# PyPI version pinned in each package's own pyproject.toml.
+# The kernel's new contract v1 surface (parsimony.testing, Catalog.from_url,
+# CONTRACT_VERSION) is not yet on PyPI — the 0.1.0a1 release predates the
+# rewrite. Until the kernel ships a new alpha, both local dev and CI resolve
+# parsimony-core from the sibling `ockham-sh/parsimony` checkout at `../parsimony`.
+# CI achieves this by checking out both repos side-by-side (see ci.yml).
+# Flip to PyPI by removing this override once parsimony-core>=0.2 ships.
 parsimony-core = { path = "../parsimony", editable = true }
 
 [tool.ruff]
