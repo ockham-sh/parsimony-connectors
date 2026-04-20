@@ -9,8 +9,6 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 import pandas as pd
-from pydantic import BaseModel, Field
-
 from parsimony.bundles import CatalogSpec
 from parsimony.connector import Connectors, Namespace, connector, enumerator
 from parsimony.errors import EmptyDataError
@@ -22,6 +20,7 @@ from parsimony.result import (
     Result,
 )
 from parsimony.transport.http import HttpClient
+from pydantic import BaseModel, Field
 
 _BASE_URL = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service"
 _METADATA_URL = "https://api.fiscaldata.treasury.gov/services/dtg/metadata/"

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import parsimony_treasury
 from parsimony.testing import assert_plugin_valid
+
+import parsimony_treasury
 
 
 def test_conforms_to_parsimony_plugin_contract() -> None:
