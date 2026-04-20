@@ -36,8 +36,6 @@ from typing import Annotated, Any, Literal
 
 import httpx
 import pandas as pd
-from pydantic import BaseModel, Field
-
 from parsimony.connector import (
     Connectors,
     Namespace,
@@ -59,6 +57,7 @@ from parsimony.result import (
     Result,
 )
 from parsimony.transport.http import HttpClient
+from pydantic import BaseModel, Field
 
 ENV_VARS: dict[str, str] = {"api_key": "ALPHA_VANTAGE_API_KEY"}
 
