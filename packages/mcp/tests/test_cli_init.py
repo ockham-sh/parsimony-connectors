@@ -275,10 +275,10 @@ def test_run_without_yes_on_non_tty_emits_scripted_recipe(
 def test_run_registry_error_maps_to_registry_exit_code(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from parsimony_mcp.cli.registry import RegistryError
+    from parsimony_mcp.cli.registry import RegistryUpstreamError
 
     def failing(**kwargs: Any) -> Any:
-        raise RegistryError("network down")
+        raise RegistryUpstreamError("network down", status=503)
 
     monkeypatch.setattr("parsimony_mcp.cli.init.fetch_registry", failing)
     err = io.StringIO()
@@ -288,7 +288,34 @@ def test_run_registry_error_maps_to_registry_exit_code(
         stderr=err,
     )
     assert rc == ExitCode.REGISTRY
-    assert "network down" in err.getvalue()
+    # Three-part prose renders: what / DO NOT / DO all present.
+    text = err.getvalue()
+    assert text.startswith("error: ")
+    assert "DO NOT:" in text
+    assert "DO:" in text
+    assert "HTTP 503" in text
+
+
+def test_run_registry_dns_failure_renders_three_part_prose(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """DNS failure gets the 'no network detected' prose specifically."""
+    from parsimony_mcp.cli.registry import RegistryDNSError
+
+    def failing(**kwargs: Any) -> Any:
+        raise RegistryDNSError("could not resolve registry host 'x.example'")
+
+    monkeypatch.setattr("parsimony_mcp.cli.init.fetch_registry", failing)
+    err = io.StringIO()
+    rc = run(
+        ["--yes", "--with", "parsimony-fred", "--into", str(tmp_path), "--skip-install"],
+        stdout=io.StringIO(),
+        stderr=err,
+    )
+    assert rc == ExitCode.REGISTRY
+    text = err.getvalue()
+    assert "DNS" in text
+    assert "offline" in text
 
 
 def test_run_unknown_package_maps_to_usage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

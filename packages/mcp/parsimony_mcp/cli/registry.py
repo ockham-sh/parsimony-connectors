@@ -63,10 +63,36 @@ _MAX_RESPONSE_BYTES: Final[int] = 2 * 1024 * 1024  # 2 MiB — registry.json is 
 class RegistryError(Exception):
     """Registry cannot be obtained, validated, or is otherwise unusable.
 
-    Raised with a prose message the CLI surfaces verbatim. Never
-    catch this broadly — each branch picks a specific message the
-    user can act on.
+    Subclasses differentiate the three failure modes Task 12
+    distinguishes in user prose: DNS (no network), upstream
+    (reachable but broken), and malformed (parsed response is not
+    a valid registry). The base class is kept for ``except
+    RegistryError`` at the CLI edge.
     """
+
+
+class RegistryDNSError(RegistryError):
+    """Hostname did not resolve — the machine appears offline."""
+
+
+class RegistryUpstreamError(RegistryError):
+    """Host resolved but returned an error or refused the connection.
+
+    ``status`` is the HTTP status when the server answered (None
+    for transport-layer failures that never saw a response).
+    """
+
+    def __init__(self, message: str, *, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+class RegistryMalformedError(RegistryError):
+    """Response parsed at the network layer but failed schema validation."""
+
+
+class RegistrySchemaMismatchError(RegistryError):
+    """Registry schema version is newer than this client understands."""
 
 
 @dataclass(frozen=True)
@@ -197,7 +223,9 @@ def _validate_url(url: str) -> None:
         # this code path by design.
         infos = socket.getaddrinfo(parsed.hostname, None)
     except socket.gaierror as exc:
-        raise RegistryError(f"could not resolve registry host {parsed.hostname!r}: {exc}") from exc
+        raise RegistryDNSError(
+            f"could not resolve registry host {parsed.hostname!r}: {exc}"
+        ) from exc
 
     for info in infos:
         sockaddr = info[4]
@@ -238,20 +266,24 @@ def _fetch_with_retry(url: str, *, client: httpx.Client | None) -> bytes:
                 if attempt == 1:
                     _sleep_with_jitter()
                     continue
-                raise RegistryError(f"registry fetch network error: {exc}") from exc
+                raise RegistryUpstreamError(
+                    f"registry fetch network error: {exc}"
+                ) from exc
 
             if 500 <= response.status_code < 600:
-                last_error = RegistryError(
-                    f"registry server error HTTP {response.status_code} from {url}"
+                last_error = RegistryUpstreamError(
+                    f"registry server error HTTP {response.status_code} from {url}",
+                    status=response.status_code,
                 )
                 if attempt == 1:
                     _sleep_with_jitter()
                     continue
                 raise last_error
             if response.status_code >= 400:
-                raise RegistryError(
+                raise RegistryUpstreamError(
                     f"registry fetch failed: HTTP {response.status_code} from {url} "
-                    f"(client error — check --registry URL)"
+                    f"(client error — check --registry URL)",
+                    status=response.status_code,
                 )
 
             content = response.content
@@ -297,12 +329,12 @@ def _parse_registry(raw: bytes, *, url: str) -> Registry:
         # rather than drowning them in a pydantic error tree.
         for error in exc.errors():
             if error.get("loc") == ("schema_version",):
-                raise RegistryError(
+                raise RegistrySchemaMismatchError(
                     f"registry at {url} has an incompatible schema version. "
                     f"This client understands schema v{SCHEMA_VERSION}. "
                     f"Upgrade parsimony-mcp or pin --registry to an older URL."
                 ) from exc
-        raise RegistryError(
+        raise RegistryMalformedError(
             f"registry at {url} failed schema validation: {exc.error_count()} error(s). "
             f"The registry may be corrupted or served by the wrong host."
         ) from exc

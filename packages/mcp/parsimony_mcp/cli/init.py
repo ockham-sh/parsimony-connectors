@@ -48,6 +48,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO
 
+from parsimony_mcp._logging import configure_logging
+from parsimony_mcp.cli._errors import (
+    registry_dns_failure,
+    registry_malformed,
+    registry_schema_mismatch,
+    registry_upstream_unreachable,
+    uv_missing,
+)
 from parsimony_mcp.cli._introspect import (
     detect_env_drift,
     introspect_packages,
@@ -83,8 +91,12 @@ from parsimony_mcp.cli.registry import (
     DEFAULT_CACHE_PATH,
     DEFAULT_REGISTRY_URL,
     Registry,
+    RegistryDNSError,
     RegistryError,
+    RegistryMalformedError,
+    RegistrySchemaMismatchError,
     RegistrySource,
+    RegistryUpstreamError,
     fetch_registry,
 )
 
@@ -829,6 +841,12 @@ def run(
     out = stdout if stdout is not None else sys.stdout
     err = stderr if stderr is not None else sys.stderr
 
+    # Route structured logs through the same JSON-to-stderr formatter
+    # the MCP server already uses. PARSIMONY_MCP_LOG_LEVEL (default
+    # WARN) controls verbosity. Idempotent — safe to call even if
+    # another entry point already configured it.
+    configure_logging()
+
     pre_parser = argparse.ArgumentParser(add_help=False)
     pre_parser.add_argument("--help-advanced", action="store_true")
     pre_args, _ = pre_parser.parse_known_args(argv)
@@ -850,8 +868,33 @@ def run(
     cache_path: Path | None = DEFAULT_CACHE_PATH if uses_default_registry else None
     try:
         registry, source = fetch_registry(url=args.registry, cache_path=cache_path)
+    except RegistryDNSError as exc:
+        _LOG.warning("registry DNS failure", extra={"url": args.registry, "error": str(exc)})
+        err.write(registry_dns_failure(args.registry).render())
+        return ExitCode.REGISTRY
+    except RegistryUpstreamError as exc:
+        _LOG.warning(
+            "registry upstream failure",
+            extra={"url": args.registry, "status": exc.status, "error": str(exc)},
+        )
+        err.write(registry_upstream_unreachable(args.registry, exc.status).render())
+        return ExitCode.REGISTRY
+    except RegistrySchemaMismatchError as exc:
+        _LOG.warning("registry schema mismatch", extra={"url": args.registry, "error": str(exc)})
+        from parsimony_mcp.cli.registry_schema import SCHEMA_VERSION
+
+        err.write(registry_schema_mismatch(args.registry, SCHEMA_VERSION).render())
+        return ExitCode.REGISTRY
+    except RegistryMalformedError as exc:
+        _LOG.warning("registry malformed", extra={"url": args.registry, "error": str(exc)})
+        err.write(registry_malformed(args.registry, str(exc)).render())
+        return ExitCode.REGISTRY
     except RegistryError as exc:
-        print(f"error: {exc}", file=err)
+        # Any RegistryError we didn't classify above. Should be rare;
+        # fall back to a generic three-part prose rather than the raw
+        # message.
+        _LOG.warning("registry error", extra={"url": args.registry, "error": str(exc)})
+        err.write(registry_upstream_unreachable(args.registry, None).render())
         return ExitCode.REGISTRY
 
     inputs = inputs_from_args(args, registry)
@@ -923,7 +966,7 @@ def run(
                 inputs=inputs, registry=registry, out=out, err=err
             )
 
-    _render_apply_summary(result, source, out)
+    _render_apply_summary(result, source, inputs, registry, out)
     if install_exit != ExitCode.OK:
         return install_exit
     return ExitCode.OK
@@ -945,11 +988,18 @@ def _run_install_phase(
     """
     print("\nInstalling dependencies via `uv sync` ...", file=out)
     sync = run_uv_sync(inputs.target_dir)
+    _LOG.info(
+        "uv sync finished",
+        extra={"outcome": sync.outcome.value, "returncode": sync.returncode},
+    )
     if sync.outcome == UvSyncOutcome.INTERRUPTED:
-        print(f"\n{sync.message}", file=err)
+        err.write(f"\n{sync.message}\n")
         return ExitCode.SIGINT
+    if sync.outcome == UvSyncOutcome.UNKNOWN and sync.returncode == 127:
+        err.write(uv_missing().render())
+        return ExitCode.FILESYSTEM
     if sync.outcome != UvSyncOutcome.SUCCESS:
-        print(f"\n{sync.message}", file=err)
+        err.write(f"\n{sync.message}\n")
         # Intentionally FILESYSTEM (not a new code): keeps the
         # public exit-code surface stable within 0.1.x. The prose
         # message carries the distinction.
@@ -977,13 +1027,57 @@ def _run_install_phase(
     return ExitCode.OK
 
 
-def _render_apply_summary(result: ApplyResult, source: RegistrySource, out: IO[str]) -> None:
-    """Print a concise report of what changed, what was backed up."""
-    print(f"parsimony-mcp init — registry source: {source.origin} ({source.url})", file=out)
-    print(f"  target: {result.target_dir}", file=out)
+def _render_apply_summary(
+    result: ApplyResult,
+    source: RegistrySource,
+    inputs: InitInputs,
+    registry: Registry,
+    out: IO[str],
+) -> None:
+    """Print a scannable one-block summary of what happened.
+
+    Friedman: include freshness (was the registry fetched live or
+    from cache?), provenance (URL), and a pointer at the one thing
+    the user should do next. The block fits in ~10 lines so it's
+    readable without scrolling.
+    """
+    freshness = _format_freshness(source)
+    print("\nparsimony-mcp init — done.", file=out)
+    print(f"  project:   {result.target_dir}", file=out)
+    print(f"  registry:  {freshness} ({source.url})", file=out)
+    print(f"  schema:    v{registry.schema_version}", file=out)
+    print(
+        f"  selected:  {len(inputs.selected_packages)} connector(s): "
+        f"{', '.join(inputs.selected_packages) or '<none>'}",
+        file=out,
+    )
     for path in result.written:
-        print(f"  wrote   {path.relative_to(result.target_dir)}", file=out)
+        print(f"  wrote      {path.relative_to(result.target_dir)}", file=out)
     for path in result.backups:
-        print(f"  backup  {path.relative_to(result.target_dir)}", file=out)
+        print(f"  backup     {path.relative_to(result.target_dir)}", file=out)
     for path in result.unchanged:
-        print(f"  (no change) {path.relative_to(result.target_dir)}", file=out)
+        print(f"  unchanged  {path.relative_to(result.target_dir)}", file=out)
+    print(
+        "\nNext: start `parsimony-mcp` from this directory to serve the tools "
+        "to your coding agent.\n",
+        file=out,
+    )
+
+
+def _format_freshness(source: RegistrySource) -> str:
+    """Translate a RegistrySource into a one-phrase freshness label."""
+    if source.origin == "network":
+        return "fetched live"
+    age = source.cache_age_seconds
+    if age is None:
+        return f"from {source.origin}"
+    hours = age / 3600.0
+    if hours < 1:
+        minutes = max(int(age // 60), 1)
+        age_str = f"{minutes}m ago"
+    elif hours < 48:
+        age_str = f"{int(hours)}h ago"
+    else:
+        age_str = f"{int(hours / 24)}d ago"
+    label = "cache (fresh)" if source.origin == "cache-fresh" else "cache (stale)"
+    return f"{label}, {age_str}"
