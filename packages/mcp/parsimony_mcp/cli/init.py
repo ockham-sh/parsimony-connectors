@@ -48,6 +48,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO
 
+from parsimony_mcp.cli._introspect import (
+    detect_env_drift,
+    introspect_packages,
+)
 from parsimony_mcp.cli._merge import (
     AgentsMdPayload,
     EnvPayload,
@@ -59,6 +63,12 @@ from parsimony_mcp.cli._merge import (
     merge_gitignore,
     merge_mcp_config,
     merge_pyproject,
+)
+from parsimony_mcp.cli._orchestrate import (
+    LockHeld,
+    UvSyncOutcome,
+    project_lock,
+    run_uv_sync,
 )
 from parsimony_mcp.cli._prompts import (
     PromptAborted,
@@ -140,6 +150,7 @@ class InitInputs:
     registry_url: str = DEFAULT_REGISTRY_URL
     cache_path: Path | None = DEFAULT_CACHE_PATH
     show_keys: bool = False
+    skip_install: bool = False
 
 
 # --------------------------------------------------------------------- plan
@@ -684,6 +695,15 @@ def _add_arguments(parser: argparse.ArgumentParser, *, advanced: bool) -> None:
         ),
     )
     parser.add_argument(
+        "--skip-install",
+        action="store_true",
+        help=(
+            "Write project files but skip `uv sync` (advanced; for CI / tests)."
+            if advanced
+            else advanced_help
+        ),
+    )
+    parser.add_argument(
         "--help-advanced",
         action="store_true",
         help="Show flags for scripted or advanced use.",
@@ -743,6 +763,7 @@ def inputs_from_args(args: argparse.Namespace, registry: Registry) -> InitInputs
         registry_url=args.registry,
         cache_path=cache_path,
         show_keys=args.show_keys,
+        skip_install=args.skip_install,
     )
 
 
@@ -869,27 +890,90 @@ def run(
         _render_dry_run(operations, source, out)
         return ExitCode.OK
 
+    # Lock per-project so two simultaneous wizards don't race.
+    # `--skip-install` still takes the lock: both paths write files
+    # and should serialise for the same reason.
     try:
-        result = apply(
-            operations,
-            target_dir=inputs.target_dir,
-            force=inputs.force,
-            assume_yes=inputs.assume_yes,
-        )
-    except ApplyConflict as exc:
+        lock = project_lock(inputs.target_dir)
+    except LockHeld as exc:
         print(f"error: {exc}", file=err)
         return ExitCode.CONFLICT
-    except ApplyError as exc:
-        print(f"error: {exc}", file=err)
-        return ExitCode.FILESYSTEM
-    except KeyboardInterrupt:
-        # Mid-apply Ctrl-C: fresh-init cleans its staging dir on
-        # the `finally`; merge mode may have partially written.
-        # Either way we exit clean — the user can re-run.
-        print("\ninterrupted during write. Check target dir for backups.", file=err)
-        return ExitCode.SIGINT
+
+    with lock:
+        try:
+            result = apply(
+                operations,
+                target_dir=inputs.target_dir,
+                force=inputs.force,
+                assume_yes=inputs.assume_yes,
+            )
+        except ApplyConflict as exc:
+            print(f"error: {exc}", file=err)
+            return ExitCode.CONFLICT
+        except ApplyError as exc:
+            print(f"error: {exc}", file=err)
+            return ExitCode.FILESYSTEM
+        except KeyboardInterrupt:
+            print("\ninterrupted during write. Check target dir for backups.", file=err)
+            return ExitCode.SIGINT
+
+        install_exit = ExitCode.OK
+        if not inputs.skip_install and inputs.selected_packages:
+            install_exit = _run_install_phase(
+                inputs=inputs, registry=registry, out=out, err=err
+            )
 
     _render_apply_summary(result, source, out)
+    if install_exit != ExitCode.OK:
+        return install_exit
+    return ExitCode.OK
+
+
+def _run_install_phase(
+    *,
+    inputs: InitInputs,
+    registry: Registry,
+    out: IO[str],
+    err: IO[str],
+) -> ExitCode:
+    """Run ``uv sync`` and introspect installed plugins.
+
+    Failures during this phase leave the user's files in place —
+    the tree is valid; only the venv is missing / half-built, and
+    uv (not us) owns recovery. We return distinct exit codes so CI
+    can branch on "setup wrote files but install needs attention".
+    """
+    print("\nInstalling dependencies via `uv sync` ...", file=out)
+    sync = run_uv_sync(inputs.target_dir)
+    if sync.outcome == UvSyncOutcome.INTERRUPTED:
+        print(f"\n{sync.message}", file=err)
+        return ExitCode.SIGINT
+    if sync.outcome != UvSyncOutcome.SUCCESS:
+        print(f"\n{sync.message}", file=err)
+        # Intentionally FILESYSTEM (not a new code): keeps the
+        # public exit-code surface stable within 0.1.x. The prose
+        # message carries the distinction.
+        return ExitCode.FILESYSTEM
+
+    # Phase 2 of the two-phase env-var flow: verify installed
+    # connectors' ENV_VARS match the registry; WARN (never fail) on
+    # drift. The user's install succeeded — drift is a CI signal
+    # for the registry owner, not a user-blocking problem.
+    by_pkg = {c.package: c for c in registry.connectors}
+    registry_env_vars: dict[str, set[str]] = {}
+    for pkg in inputs.selected_packages:
+        entry = by_pkg.get(pkg)
+        if entry is None:
+            continue
+        registry_env_vars[pkg] = {v.name for v in entry.env_vars}
+
+    results = introspect_packages(
+        inputs.selected_packages, target_dir=inputs.target_dir
+    )
+    warnings = detect_env_drift(results, registry_env_vars=registry_env_vars)
+    for warning in warnings:
+        print(f"warning: {warning}", file=err)
+
     return ExitCode.OK
 
 

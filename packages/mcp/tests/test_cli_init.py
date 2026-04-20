@@ -185,6 +185,7 @@ _EXPECTED_ADVANCED_EXTRA_FLAGS = {
     "--no-cache",
     "--show-keys",
     "--force",
+    "--skip-install",
 }
 
 
@@ -282,7 +283,7 @@ def test_run_registry_error_maps_to_registry_exit_code(
     monkeypatch.setattr("parsimony_mcp.cli.init.fetch_registry", failing)
     err = io.StringIO()
     rc = run(
-        ["--yes", "--with", "parsimony-fred", "--into", str(tmp_path)],
+        ["--yes", "--with", "parsimony-fred", "--into", str(tmp_path), "--skip-install"],
         stdout=io.StringIO(),
         stderr=err,
     )
@@ -309,7 +310,7 @@ def test_run_fresh_init_writes_all_files(
     out = io.StringIO()
     err = io.StringIO()
     rc = run(
-        ["--yes", "--with", "parsimony-fred", "--into", str(tmp_path)],
+        ["--yes", "--with", "parsimony-fred", "--into", str(tmp_path), "--skip-install"],
         stdout=out,
         stderr=err,
     )
@@ -342,7 +343,7 @@ def test_run_interactive_fills_missing_inputs(
         ],
     )
     rc = run(
-        ["--into", str(tmp_path)],
+        ["--into", str(tmp_path), "--skip-install"],
         stdout=io.StringIO(),
         stderr=io.StringIO(),
         prompt_io=scripted,
@@ -377,7 +378,7 @@ def test_run_merge_mode_requires_yes_or_force(
 
     err = io.StringIO()
     rc = run(
-        ["--yes", "--with", "parsimony-fred", "--into", str(tmp_path)],
+        ["--yes", "--with", "parsimony-fred", "--into", str(tmp_path), "--skip-install"],
         stdout=io.StringIO(),
         stderr=err,
     )
