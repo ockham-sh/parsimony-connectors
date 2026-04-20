@@ -29,3 +29,12 @@ PLAN-*.md
 .idea/
 *.swp
 .DS_Store
+
+outputs/
+
+# Recorded HTTP cassettes must never be committed — respx mocks are hand-authored
+# from upstream API documentation. A pre-commit / CI regex scan is the belt; this
+# ignore is the braces. Override per-file via `!` if you need a hand-authored
+# fixture checked in.
+packages/*/tests/fixtures/**
+!packages/*/tests/fixtures/README.md
