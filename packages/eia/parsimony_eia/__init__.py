@@ -9,11 +9,15 @@ from __future__ import annotations
 import contextlib
 from typing import Annotated, Any
 
+import httpx
 import pandas as pd
-from pydantic import BaseModel, Field, field_validator
-
 from parsimony.connector import Connectors, Namespace, connector, enumerator
-from parsimony.errors import EmptyDataError
+from parsimony.errors import (
+    EmptyDataError,
+    ProviderError,
+    RateLimitError,
+    UnauthorizedError,
+)
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -22,6 +26,34 @@ from parsimony.result import (
     Result,
 )
 from parsimony.transport.http import HttpClient
+from pydantic import BaseModel, Field, field_validator
+
+
+def _raise_for_status_mapped(response: httpx.Response, op_name: str) -> None:
+    """Map 401/429 to the kernel hierarchy; other errors as ProviderError.
+
+    Does NOT echo the URL/query string into the message — ``api_key`` travels
+    as a query param via ``HttpClient(query_params=...)`` and must not leak
+    into exception text.
+    """
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        if status == 401:
+            raise UnauthorizedError(
+                provider="eia", message=f"EIA rejected the API key on '{op_name}'"
+            ) from exc
+        if status == 429:
+            retry_after = float(exc.response.headers.get("Retry-After", "60"))
+            raise RateLimitError(
+                provider="eia",
+                retry_after=retry_after,
+                message=f"EIA rate limit on '{op_name}', retry after {retry_after:.0f}s",
+            ) from exc
+        raise ProviderError(
+            provider="eia", status_code=status, message=f"EIA API error {status} on '{op_name}'"
+        ) from exc
 
 _BASE_URL = "https://api.eia.gov/v2"
 
@@ -101,7 +133,7 @@ async def eia_fetch(params: EiaFetchParams, *, api_key: str) -> Result:
         req_params["end"] = params.end
 
     response = await http.request("GET", f"/{params.route}/data", params=req_params)
-    response.raise_for_status()
+    _raise_for_status_mapped(response, "eia_fetch")
     body = response.json()
 
     resp = body.get("response", {})
@@ -143,7 +175,7 @@ async def enumerate_eia(params: EiaEnumerateParams, *, api_key: str) -> pd.DataF
     http = HttpClient(_BASE_URL, query_params={"api_key": api_key})
 
     response = await http.request("GET", "/")
-    response.raise_for_status()
+    _raise_for_status_mapped(response, "enumerate_eia")
     body = response.json()
 
     routes = body.get("response", {}).get("routes", [])
