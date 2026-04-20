@@ -13,8 +13,6 @@ import re
 from typing import Annotated
 
 import pandas as pd
-from pydantic import BaseModel, Field, field_validator
-
 from parsimony.bundles import CatalogSpec
 from parsimony.connector import Connectors, Namespace, connector, enumerator
 from parsimony.errors import EmptyDataError
@@ -26,6 +24,7 @@ from parsimony.result import (
     Result,
 )
 from parsimony.transport.http import HttpClient
+from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
