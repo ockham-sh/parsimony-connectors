@@ -22,8 +22,6 @@ from datetime import datetime
 from typing import Annotated, Any
 
 import pandas as pd
-from pydantic import BaseModel, Field, field_validator
-
 from parsimony.bundles import CatalogSpec
 from parsimony.connector import Connectors, Namespace, connector, enumerator
 from parsimony.errors import EmptyDataError
@@ -34,6 +32,7 @@ from parsimony.result import (
     Provenance,
     Result,
 )
+from pydantic import BaseModel, Field, field_validator
 
 _BASE_URL = "https://www.rba.gov.au"
 _TABLES_URL = f"{_BASE_URL}/statistics/tables/"
