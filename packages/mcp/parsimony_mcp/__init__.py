@@ -1,17 +1,23 @@
-"""Parsimony MCP server — expose search/discovery connectors as MCP tools."""
+"""Parsimony MCP server adapter.
+
+Exposes a parsimony :class:`Connectors` collection as MCP tools::
+
+    from parsimony.discovery import build_connectors_from_env
+    from parsimony_mcp import create_server
+
+    server = create_server(build_connectors_from_env().filter(tags=["tool"]))
+"""
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version
 
-def create_server(*args, **kwargs):
-    """Build an MCP Server from a parsimony Connectors collection.
+from parsimony_mcp.bridge import connector_to_tool, result_to_content
+from parsimony_mcp.server import create_server
 
-    Lazy import to avoid namespace collision between ``parsimony.mcp`` (this package)
-    and the top-level ``mcp`` package.
-    """
-    from parsimony.mcp.server import create_server as _create
+try:
+    __version__ = version("parsimony-mcp")
+except PackageNotFoundError:  # pragma: no cover — only during in-tree development before install
+    __version__ = "0.0.0+unknown"
 
-    return _create(*args, **kwargs)
-
-
-__all__ = ["create_server"]
+__all__ = ["__version__", "connector_to_tool", "create_server", "result_to_content"]

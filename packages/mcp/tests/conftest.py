@@ -4,14 +4,9 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
-from pydantic import BaseModel, Field
-
 from parsimony.connector import Connectors, connector
 from parsimony.result import Column, ColumnRole, OutputConfig
-
-# ---------------------------------------------------------------------------
-# Param models
-# ---------------------------------------------------------------------------
+from pydantic import BaseModel, Field
 
 
 class SearchParams(BaseModel):
@@ -22,10 +17,6 @@ class SearchParams(BaseModel):
 class ProfileParams(BaseModel):
     ticker: str = Field(..., description="Ticker symbol")
 
-
-# ---------------------------------------------------------------------------
-# Mock connectors
-# ---------------------------------------------------------------------------
 
 SEARCH_OUTPUT = OutputConfig(
     columns=[
@@ -67,11 +58,6 @@ async def mock_fetch(params: SearchParams) -> pd.DataFrame:
             "value": [1.0, 2.0],
         }
     )
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture()
