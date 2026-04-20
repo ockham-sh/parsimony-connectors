@@ -11,6 +11,7 @@ wiring all stay correct together.
 from __future__ import annotations
 
 import asyncio
+from typing import cast
 
 import pandas as pd
 from mcp import types as mcp_types
@@ -76,14 +77,16 @@ async def _call_tool(
         params=mcp_types.CallToolRequestParams(name=name, arguments=arguments),
     )
     result = await handler(request)
-    return result.root if hasattr(result, "root") else result
+    narrowed = result.root if hasattr(result, "root") else result
+    return cast(mcp_types.CallToolResult, narrowed)
 
 
 async def _list_tools(server: Server) -> mcp_types.ListToolsResult:
     handler = server.request_handlers[mcp_types.ListToolsRequest]
     request = mcp_types.ListToolsRequest(method="tools/list")
     result = await handler(request)
-    return result.root if hasattr(result, "root") else result
+    narrowed = result.root if hasattr(result, "root") else result
+    return cast(mcp_types.ListToolsResult, narrowed)
 
 
 def _text(result: mcp_types.CallToolResult) -> str:
@@ -117,16 +120,19 @@ class TestInstructions:
 
     def test_instructions_contain_tool_descriptions(self, tool_connectors) -> None:
         server = create_server(tool_connectors)
+        assert server.instructions is not None
         assert "mock_search" in server.instructions
 
     def test_instructions_exclude_non_tool_connectors(self, tool_connectors) -> None:
         server = create_server(tool_connectors)
+        assert server.instructions is not None
         # mock_fetch is not tagged 'tool' so must not appear
         assert "mock_fetch" not in server.instructions
 
     def test_catalog_is_delimited(self, tool_connectors) -> None:
         """Plugin-author prose must be clearly scoped as data, not instructions."""
         server = create_server(tool_connectors)
+        assert server.instructions is not None
         assert "<catalog>" in server.instructions
         assert "</catalog>" in server.instructions
 
