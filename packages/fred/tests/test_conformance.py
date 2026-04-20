@@ -7,8 +7,9 @@ https://github.com/ockham-sh/parsimony/blob/main/docs/plugin-contract.md
 
 from __future__ import annotations
 
-import parsimony_fred
 from parsimony.testing import assert_plugin_valid
+
+import parsimony_fred
 
 
 def test_parsimony_fred_conforms_to_plugin_contract() -> None:
