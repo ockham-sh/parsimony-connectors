@@ -55,6 +55,9 @@ jobs:
     steps:
       - name: Validate package-name input
         shell: bash
+        # Runs before checkout, so override the job-level working-directory
+        # (parsimony-connectors/) which does not exist yet.
+        working-directory: .
         run: |
           set -euo pipefail
           if ! [[ "$PKG" =~ ^[a-z][a-z0-9_-]*$ ]]; then
