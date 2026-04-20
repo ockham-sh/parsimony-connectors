@@ -23,6 +23,12 @@ dependencies = [
     "mcp>=1.0,<2",
     "tabulate>=0.9.0,<1",
     "pandas>=2.0,<3",
+    # `parsimony-mcp init` uses a blocking httpx.Client to fetch
+    # registry.json. parsimony-core already brings httpx transitively;
+    # this declaration pins the floor we depend on directly.
+    "httpx>=0.27,<1",
+    # pydantic models in parsimony_mcp.cli.registry_schema.
+    "pydantic>=2.7,<3",
 ]
 
 [project.optional-dependencies]
@@ -33,6 +39,8 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "pip-audit>=2.7",
+    # respx wraps httpx.MockTransport for declarative registry-fetch tests.
+    "respx>=0.21",
 ]
 
 [project.urls]
