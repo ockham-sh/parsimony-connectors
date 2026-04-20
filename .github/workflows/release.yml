@@ -174,7 +174,10 @@ jobs:
 
       - name: Build wheel + sdist
         working-directory: parsimony-connectors/packages/${{ github.event.inputs.package }}
-        run: uv build
+        # uv build invoked from a workspace member writes artifacts to the
+        # WORKSPACE ROOT's dist/ by default, not the member's dist/. Pin the
+        # output explicitly so the publish step below finds them.
+        run: uv build --out-dir dist
 
       - name: Publish to PyPI (OIDC trusted publisher)
         uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc  # v1.12.4
