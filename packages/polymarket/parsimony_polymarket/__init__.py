@@ -7,13 +7,12 @@ from typing import Any, Literal
 
 import httpx
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field
-
 from parsimony.connector import Connectors, connector
 from parsimony.errors import ProviderError
 from parsimony.result import Provenance, Result
 from parsimony.transport.http import HttpClient
 from parsimony.transport.json_helpers import interpolate_path
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PolymarketFetchParams(BaseModel):
