@@ -37,8 +37,9 @@ dev = [
 
 [project.urls]
 Homepage = "https://parsimony.dev"
-Repository = "https://github.com/ockham-sh/parsimony-mcp"
-Changelog = "https://github.com/ockham-sh/parsimony-mcp/blob/main/CHANGELOG.md"
+Repository = "https://github.com/ockham-sh/parsimony-connectors"
+Changelog = "https://github.com/ockham-sh/parsimony-connectors/blob/main/packages/mcp/CHANGELOG.md"
+Issues = "https://github.com/ockham-sh/parsimony-connectors/issues"
 
 [project.scripts]
 parsimony-mcp = "parsimony_mcp.__main__:main"
@@ -97,3 +98,14 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "raise NotImplementedError",
 ]
+
+# Monorepo conformance metadata. parsimony-mcp is a CONSUMER of the
+# kernel contract (it receives a `Connectors` collection from whichever
+# plugins the user installed) — not a plugin itself, so it does NOT
+# declare a `parsimony.providers` entry point. Running
+# `parsimony conformance verify parsimony-mcp` would fail at plugin
+# discovery, not reveal anything useful. The monorepo CI reads this
+# stanza and skips the conformance step for packages flagged here.
+[tool.parsimony.conformance]
+skip = true
+reason = "MCP is an adapter/consumer, not a parsimony.providers plugin."

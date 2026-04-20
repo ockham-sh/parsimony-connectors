@@ -19,7 +19,7 @@ from parsimony.connector import Connector, Connectors
 from parsimony.errors import ConnectorError
 from pydantic import ValidationError
 
-from parsimony_mcp.bridge import connector_to_tool, result_to_content, translate_error
+from parsimony_mcp.server.bridge import connector_to_tool, result_to_content, translate_error
 
 logger = logging.getLogger("parsimony_mcp.server")
 

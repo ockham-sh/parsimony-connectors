@@ -84,6 +84,23 @@ jobs:
       - name: Conformance verify
         run: |
           set -euo pipefail
+          # Packages that are adapters / consumers of the kernel contract
+          # (not `parsimony.providers` plugins) opt out via
+          # `[tool.parsimony.conformance] skip = true` in their own
+          # pyproject.toml — avoids hard-coding a per-package
+          # allow/deny list in the CI workflow. See packages/mcp/ for
+          # the canonical example.
+          skip=$(python3 -c "
+          import os, tomllib
+          pkg = os.environ['PKG']
+          with open(f'packages/{pkg}/pyproject.toml', 'rb') as fp:
+              data = tomllib.load(fp)
+          print('1' if data.get('tool', {}).get('parsimony', {}).get('conformance', {}).get('skip') else '0')
+          ")
+          if [[ "$skip" == "1" ]]; then
+            echo "::notice::Skipping conformance verify for $PKG — package opts out via [tool.parsimony.conformance] skip=true"
+            exit 0
+          fi
           pkg_name=$(python3 -c "
           import os, tomllib
           pkg = os.environ['PKG']
