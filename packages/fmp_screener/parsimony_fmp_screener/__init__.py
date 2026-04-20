@@ -18,8 +18,6 @@ from typing import Any
 
 import httpx
 import pandas as pd
-from pydantic import BaseModel, Field
-
 from parsimony.connector import (
     Connectors,
     connector,
@@ -38,6 +36,7 @@ from parsimony.result import (
     Result,
 )
 from parsimony.transport.http import HttpClient
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 

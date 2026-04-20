@@ -86,7 +86,7 @@ See `tools/pyproject_template.toml` for the source of truth on boilerplate.
 Fill in:
 
 - `parsimony_foo/__init__.py` — the connector module. Must export `CONNECTORS`; optionally `ENV_VARS`, `PROVIDER_METADATA`. See the kernel's [`docs/contract.md`](https://github.com/ockham-sh/parsimony/blob/main/docs/contract.md) for the full spec.
-- `tests/` — at minimum a conformance test and unit tests for the connector's public behaviour.
+- `tests/` — a conformance test (`test_conformance.py`) plus a happy-path / error-mapping test file (`test_<name>_connectors.py`) following [`docs/testing-template.md`](docs/testing-template.md).
 
 Before opening a PR:
 
@@ -117,6 +117,7 @@ mergeable when every item below is satisfied:
 - [ ] The connector declares an active maintainer in `CODEOWNERS`.
 - [ ] The PR description names the data provider, its pricing model, any ToS caveats, and links to the provider's API documentation.
 - [ ] No secrets, no API keys, no `.env` files committed.
+- [ ] All respx mocks are hand-authored from upstream API documentation — no live-session recordings. `packages/*/tests/fixtures/**` is gitignored; override per-file if you need a hand-authored fixture checked in.
 - [ ] For a commercial provider: the PR description confirms the provider's terms allow Apache 2.0 redistribution. (If uncertain, [GOVERNANCE.md §6](GOVERNANCE.md#6-licence) describes the audit path.)
 
 ---

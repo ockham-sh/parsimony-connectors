@@ -26,7 +26,6 @@ import yaml
 
 from parsimony_sdmx.connectors import (
     enumerate_sdmx_datasets,
-    enumerate_sdmx_series,
 )
 from parsimony_sdmx.connectors.enumerate_series import SERIES_NAMESPACE_TEMPLATE
 
@@ -35,7 +34,8 @@ _QUERIES_PATH = Path(__file__).parent / "evals" / "queries.yaml"
 
 @pytest.fixture(scope="module")
 def eval_set() -> dict:
-    return yaml.safe_load(_QUERIES_PATH.read_text(encoding="utf-8"))
+    data: dict = yaml.safe_load(_QUERIES_PATH.read_text(encoding="utf-8"))
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +50,9 @@ def test_eval_file_has_required_sections(eval_set: dict) -> None:
 
 
 def test_dataset_queries_use_datasets_namespace(eval_set: dict) -> None:
-    datasets_ns = enumerate_sdmx_datasets.output_config.columns[0].namespace
+    output_config = enumerate_sdmx_datasets.output_config
+    assert output_config is not None
+    datasets_ns = output_config.columns[0].namespace
     for q in eval_set["dataset_queries"]:
         assert q["namespace"] == datasets_ns, (
             f"dataset query {q['id']} uses namespace {q['namespace']!r}; expected {datasets_ns!r}"
@@ -92,6 +94,19 @@ def test_query_ids_are_unique(eval_set: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
+# Bundles ship one-per-namespace as ``hf://<org>/catalog-<namespace>``. The
+# test loads the matching bundle per query rather than maintaining a combined
+# catalog — one catalog per namespace is the new on-disk contract.
+_BUNDLE_URL_TEMPLATE = os.environ.get("SDMX_BUNDLE_URL_TEMPLATE", "hf://ockham/catalog-{namespace}")
+
+
+async def _load_bundle_for(namespace: str):
+    """Load the standard Catalog for *namespace* from the configured HF org."""
+    from parsimony._standard.catalog import Catalog
+
+    return await Catalog.from_url(_BUNDLE_URL_TEMPLATE.format(namespace=namespace))
+
+
 @pytest.mark.skipif(
     os.environ.get("SDMX_RUN_EVALS") != "1",
     reason="integration eval disabled; set SDMX_RUN_EVALS=1 to run against built bundles",
@@ -99,15 +114,11 @@ def test_query_ids_are_unique(eval_set: dict) -> None:
 @pytest.mark.asyncio
 async def test_dataset_queries_recall(eval_set: dict) -> None:
     """Single-hop: every dataset_query's expected code must appear in top-10."""
-    from parsimony.catalog.catalog import Catalog
     from parsimony.catalog.models import catalog_key
-    from parsimony.stores.hf_bundle.store import HFBundleCatalogStore
-
-    store = HFBundleCatalogStore()
-    catalog = Catalog(store=store, connectors=[enumerate_sdmx_datasets, enumerate_sdmx_series])
 
     hits = misses = 0
     for q in eval_set["dataset_queries"]:
+        catalog = await _load_bundle_for(q["namespace"])
         matches = await catalog.search(q["query"], limit=10, namespaces=[q["namespace"]])
         codes = [catalog_key(m.namespace, m.code)[1] for m in matches]
         if q["expected"] in codes:
@@ -128,24 +139,21 @@ async def test_dataset_queries_recall(eval_set: dict) -> None:
 @pytest.mark.asyncio
 async def test_two_hop_joint_recall(eval_set: dict) -> None:
     """Two-hop: dataset_search → series_search — both must hit in top-10."""
-    from parsimony.catalog.catalog import Catalog
     from parsimony.catalog.models import catalog_key
-    from parsimony.stores.hf_bundle.store import HFBundleCatalogStore
-
-    store = HFBundleCatalogStore()
-    catalog = Catalog(store=store, connectors=[enumerate_sdmx_datasets, enumerate_sdmx_series])
 
     joint_hits = total = 0
     for q in eval_set["two_hop_queries"]:
         total += 1
-        ds_matches = await catalog.search(
+        ds_catalog = await _load_bundle_for(q["dataset_step"]["namespace"])
+        ds_matches = await ds_catalog.search(
             q["query"], limit=10, namespaces=[q["dataset_step"]["namespace"]]
         )
         ds_codes = [catalog_key(m.namespace, m.code)[1] for m in ds_matches]
         if q["dataset_step"]["expected"] not in ds_codes:
             continue
 
-        sr_matches = await catalog.search(
+        sr_catalog = await _load_bundle_for(q["series_step"]["namespace"])
+        sr_matches = await sr_catalog.search(
             q["query"], limit=10, namespaces=[q["series_step"]["namespace"]]
         )
         sr_codes = [catalog_key(m.namespace, m.code)[1] for m in sr_matches]

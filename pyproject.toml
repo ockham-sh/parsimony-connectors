@@ -8,8 +8,12 @@ requires-python = ">=3.11"
 members = ["packages/*"]
 
 [tool.uv.sources]
-# Local dev — the kernel lives next door. CI and published installs use the
-# PyPI version pinned in each package's own pyproject.toml.
+# The kernel's new contract v1 surface (parsimony.testing, Catalog.from_url,
+# CONTRACT_VERSION) is not yet on PyPI — the 0.1.0a1 release predates the
+# rewrite. Until the kernel ships a new alpha, both local dev and CI resolve
+# parsimony-core from the sibling `ockham-sh/parsimony` checkout at `../parsimony`.
+# CI achieves this by checking out both repos side-by-side (see ci.yml).
+# Flip to PyPI by removing this override once parsimony-core>=0.2 ships.
 parsimony-core = { path = "../parsimony", editable = true }
 
 [tool.ruff]
@@ -24,10 +28,23 @@ python_version = "3.11"
 warn_return_any = true
 warn_unused_ignores = true
 ignore_missing_imports = true
+# `ignore_missing_imports` doesn't suppress `import-untyped` for packages
+# that have publishable stubs (requests/PyYAML have `types-*` packages on
+# PyPI but we don't install them). Silence the category workspace-wide so
+# mypy doesn't nag about stubs the connectors don't need.
+disable_error_code = ["import-untyped", "unused-ignore"]
+
+# The financial_reports SDK (financial_reports_generated_client) ships a
+# module with a syntax error we stub out at runtime. Skip-follow imports
+# into the SDK so mypy doesn't parse the broken file.
+[[tool.mypy.overrides]]
+module = "financial_reports_generated_client.*"
+follow_imports = "skip"
 
 [tool.pytest.ini_options]
-addopts = "--import-mode=importlib"
+addopts = "--import-mode=importlib -m 'not integration'"
 asyncio_mode = "auto"
 markers = [
     "integration: hits live APIs (may be slow, requires env vars)",
+    "slow: long-running test (subprocess / heavy I/O)",
 ]

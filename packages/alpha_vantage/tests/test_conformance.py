@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import parsimony_alpha_vantage
 from parsimony.testing import assert_plugin_valid
+
+import parsimony_alpha_vantage
 
 
 def test_conforms_to_parsimony_plugin_contract() -> None:

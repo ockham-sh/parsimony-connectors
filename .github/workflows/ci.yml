@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    paths:
+      - "packages/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/ci.yml"
+      - "Makefile"
+      - "tools/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -13,15 +20,29 @@ concurrency:
 permissions:
   contents: read
 
+# Kernel source pin. Both CI jobs check out `ockham-sh/parsimony` alongside
+# the connectors repo so the workspace-level `[tool.uv.sources]` override
+# (which points at `../parsimony`) resolves to a real path on the runner.
+# Bump KERNEL_REF when the kernel lands a new contract-v1 alpha.
+env:
+  KERNEL_REPO: ockham-sh/parsimony
+  KERNEL_REF: main
+
 jobs:
   discover:
     name: Discover workspace packages
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: parsimony-connectors
     outputs:
       packages: ${{ steps.list.outputs.packages }}
       has_packages: ${{ steps.list.outputs.has_packages }}
+      python_versions: ${{ steps.versions.outputs.python_versions }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          path: parsimony-connectors
 
       - id: list
         name: Enumerate packages/*/pyproject.toml
@@ -36,25 +57,54 @@ jobs:
             echo "has_packages=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - id: versions
+        name: Select Python versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          # PR-time: run only 3.12 for fast feedback. Push-to-main: run the full
+          # 3.11/3.12 matrix so release-targeted Python versions are still
+          # protected. Informed by Dodds/Python-Perf plan recommendation.
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo 'python_versions=["3.12"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'python_versions=["3.11","3.12"]' >> "$GITHUB_OUTPUT"
+          fi
+
   # Per-package test matrix. Only runs if at least one package exists.
   # matrix.package values come from `find packages/*/pyproject.toml` in
   # `discover` — directory names, not user input — but we still bind
   # them to an env var and regex-validate before use so a rogue PR that
   # adds a maliciously-named directory cannot inject shell commands.
   test:
-    name: Test — ${{ matrix.package }}
+    name: Test — ${{ matrix.package }} (py${{ matrix.python-version }})
     needs: discover
     if: ${{ needs.discover.outputs.has_packages == 'true' }}
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: parsimony-connectors
     env:
       PKG: ${{ matrix.package }}
     strategy:
       fail-fast: false
       matrix:
         package: ${{ fromJson(needs.discover.outputs.packages) }}
-        python-version: ["3.11", "3.12"]
+        python-version: ${{ fromJson(needs.discover.outputs.python_versions) }}
     steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          path: parsimony-connectors
+
+      - name: Check out parsimony kernel
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          repository: ${{ env.KERNEL_REPO }}
+          ref: ${{ env.KERNEL_REF }}
+          path: parsimony
+
       - name: Validate matrix package name
+        shell: bash
         run: |
           set -euo pipefail
           if ! [[ "$PKG" =~ ^[a-z][a-z0-9_-]*$ ]]; then
@@ -62,15 +112,18 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v4
-
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.3
         with:
           python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-dependency-glob: |
+            parsimony-connectors/uv.lock
+            parsimony-connectors/pyproject.toml
+            parsimony-connectors/packages/*/pyproject.toml
 
       - name: Resolve workspace
-        run: uv sync --all-extras
+        run: uv sync --all-extras --all-packages
 
       - name: Ruff
         run: uv run ruff check "packages/$PKG"
@@ -92,3 +145,13 @@ jobs:
           print(data['project']['name'])
           ")
           uv run parsimony conformance verify "${pkg_name}"
+
+      - name: pip-audit
+        run: |
+          set -euo pipefail
+          uv run --with pip-audit pip-audit --disable-pip --strict \
+            --ignore-vuln GHSA-4xh5-x5gv-qwph \
+            "packages/$PKG" || {
+              echo "::warning::pip-audit reported advisories for packages/$PKG — review before release"
+              exit 0
+            }

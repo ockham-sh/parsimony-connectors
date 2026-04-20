@@ -26,10 +26,7 @@ def _code(cid: str, label: str) -> SimpleNamespace:
 
 
 def _dim(dim_id: str, codelist_id: str | None = None) -> SimpleNamespace:
-    if codelist_id:
-        local = SimpleNamespace(enumerated=SimpleNamespace(id=codelist_id))
-    else:
-        local = None
+    local = SimpleNamespace(enumerated=SimpleNamespace(id=codelist_id)) if codelist_id else None
     return SimpleNamespace(
         id=dim_id, local_representation=local, concept_identity=None
     )

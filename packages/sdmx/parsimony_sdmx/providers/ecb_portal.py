@@ -16,6 +16,7 @@ shaped titles into downstream parquet.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -212,16 +213,12 @@ def _write_cache(
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 json.dump(data, fh)
         except BaseException:
-            try:
+            with contextlib.suppress(OSError):
                 os.close(fd)
-            except OSError:
-                pass
             raise
         tmp.replace(path)
     except OSError:
         logger.warning("Failed to write ECB portal cache %s", path, exc_info=True)
         if tmp.exists():
-            try:
+            with contextlib.suppress(OSError):
                 tmp.unlink()
-            except OSError:
-                pass

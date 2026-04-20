@@ -136,24 +136,21 @@ class TestBoundedGet:
         huge_body = b"x" * (2 * 1024 * 1024)  # 2 MiB
         resp = self._mock_response(huge_body)
         cfg = HttpConfig(max_response_bytes=1024)
-        with patch.object(s, "get", return_value=resp):
-            with pytest.raises(SdmxFetchError, match="exceeded"):
-                bounded_get(s, "https://example.com/data", config=cfg)
+        with patch.object(s, "get", return_value=resp), pytest.raises(SdmxFetchError, match="exceeded"):
+            bounded_get(s, "https://example.com/data", config=cfg)
 
     def test_4xx_raises_fetch_error(self) -> None:
         s = build_session()
         resp = self._mock_response(b"", status=404)
-        with patch.object(s, "get", return_value=resp):
-            with pytest.raises(requests.exceptions.HTTPError):
-                bounded_get(s, "https://example.com/data")
+        with patch.object(s, "get", return_value=resp), pytest.raises(requests.exceptions.HTTPError):
+            bounded_get(s, "https://example.com/data")
 
     def test_request_exception_wrapped(self) -> None:
         s = build_session()
         with patch.object(
             s, "get", side_effect=requests.exceptions.ConnectionError("no route")
-        ):
-            with pytest.raises(SdmxFetchError, match="GET"):
-                bounded_get(s, "https://example.com/data")
+        ), pytest.raises(SdmxFetchError, match="GET"):
+            bounded_get(s, "https://example.com/data")
 
     def test_extra_headers_forwarded(self) -> None:
         s = build_session()

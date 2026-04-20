@@ -15,15 +15,14 @@ import logging
 import random
 from typing import Annotated
 
+from parsimony.connector import connector
+from parsimony.errors import EmptyDataError, ParseError, ProviderError
+from parsimony.result import Result
 from pydantic import BaseModel, Field, field_validator
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import HTTPError, Timeout
 
-from parsimony.connector import connector
-from parsimony.errors import EmptyDataError, ParseError, ProviderError
-from parsimony.result import Result
-
-from parsimony_sdmx.connectors._agencies import ALL_AGENCIES, AgencyId
+from parsimony_sdmx.connectors._agencies import ALL_AGENCIES
 
 logger = logging.getLogger(__name__)
 
@@ -112,8 +111,8 @@ async def sdmx_fetch(params: SdmxFetchParams) -> Result:
     Never forwards raw upstream response bodies — they're a prompt-injection
     surface when this tool is exposed to LLM agents.
     """
-    from parsimony_sdmx._legacy_sdmx import sdmx_fetch as _legacy_fetch
     from parsimony_sdmx._legacy_sdmx import SdmxFetchParams as _LegacyParams
+    from parsimony_sdmx._legacy_sdmx import sdmx_fetch as _legacy_fetch
 
     legacy_params = _LegacyParams(
         dataset_key=params.dataset_key,
@@ -131,7 +130,7 @@ async def sdmx_fetch(params: SdmxFetchParams) -> Result:
         except (ProviderError, EmptyDataError, ParseError):
             # Already-taxonomized failure — bubble up unchanged.
             raise
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             raise ProviderError(
                 provider="sdmx",
                 status_code=0,

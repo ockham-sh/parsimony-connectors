@@ -24,8 +24,6 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-
 from parsimony.connector import (
     Connectors,
     Namespace,
@@ -47,6 +45,7 @@ from parsimony.result import (
     Result,
 )
 from parsimony.transport.http import HttpClient
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 _TICKER_RE = re.compile(r"^[a-zA-Z0-9._\-]+$")
 _TICKERS_RE = re.compile(r"^[a-zA-Z0-9._,\-/]+$")

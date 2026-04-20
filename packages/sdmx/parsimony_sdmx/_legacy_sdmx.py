@@ -9,9 +9,6 @@ from urllib.parse import quote
 
 import pandas as pd
 import sdmx as sdmx_lib
-from pydantic import BaseModel, Field, field_validator
-from requests.exceptions import HTTPError
-
 from parsimony.catalog.models import code_token as _code_token
 from parsimony.catalog.models import normalize_code
 from parsimony.connector import Connectors, connector
@@ -24,6 +21,8 @@ from parsimony.result import (
     Result,
     SemanticTableResult,
 )
+from pydantic import BaseModel, Field, field_validator
+from requests.exceptions import HTTPError
 
 # ---------------------------------------------------------------------------
 # Parameter models
@@ -787,7 +786,7 @@ async def enumerate_sdmx_dataset_codelists(
     """Return one :class:`~parsimony.result.SemanticTableResult` per dimension codelist.
 
     Each result uses the same schema as :func:`sdmx_codelist` (KEY ``namespace`` from
-    :func:`sdmx_codelist_namespace`). Suitable for :meth:`~parsimony.catalog.catalog.Catalog.index_result`.
+    :func:`sdmx_codelist_namespace`). Suitable for :meth:`parsimony.BaseCatalog.index_result`.
     """
     return await asyncio.to_thread(_build_dataset_codelists_tables_sync, params.dataset_key)
 
