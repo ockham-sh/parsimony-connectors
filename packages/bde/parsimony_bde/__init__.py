@@ -15,8 +15,7 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
-from parsimony.bundles import CatalogSpec
-from parsimony.connector import Connectors, Namespace, connector, enumerator
+from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import (
     Column,
@@ -64,7 +63,7 @@ _FREQ_MAP = {
 class BdeFetchParams(BaseModel):
     """Parameters for fetching Banco de España time series."""
 
-    key: Annotated[str, Namespace("bde")] = Field(
+    key: Annotated[str, "ns:bde"] = Field(
         ...,
         description="Comma-separated BdE series codes (e.g. D_1NBAF472)",
     )
@@ -232,7 +231,6 @@ async def bde_fetch(params: BdeFetchParams) -> Result:
 @enumerator(
     output=BDE_ENUMERATE_OUTPUT,
     tags=["macro", "es"],
-    catalog=CatalogSpec.static(namespace="bde"),
 )
 async def enumerate_bde(params: BdeEnumerateParams) -> pd.DataFrame:
     """Enumerate BdE series by fetching well-known series codes and their metadata.
@@ -285,5 +283,7 @@ async def enumerate_bde(params: BdeEnumerateParams) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Exports
 # ---------------------------------------------------------------------------
+
+CATALOGS: list[tuple[str, object]] = [("bde", enumerate_bde)]
 
 CONNECTORS = Connectors([bde_fetch, enumerate_bde])

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from parsimony.connector import Namespace
 from pydantic import BaseModel, Field
 
 
@@ -23,7 +22,7 @@ class FinnhubSearchParams(BaseModel):
 class FinnhubQuoteParams(BaseModel):
     """Real-time quote for a single stock symbol."""
 
-    symbol: Annotated[str, Namespace("finnhub_symbol")] = Field(
+    symbol: Annotated[str, "ns:finnhub_symbol"] = Field(
         ..., description="Stock ticker, e.g. 'AAPL'. Use finnhub_search to resolve symbols."
     )
 
@@ -31,7 +30,7 @@ class FinnhubQuoteParams(BaseModel):
 class FinnhubProfileParams(BaseModel):
     """Company profile for a single stock symbol."""
 
-    symbol: Annotated[str, Namespace("finnhub_symbol")] = Field(
+    symbol: Annotated[str, "ns:finnhub_symbol"] = Field(
         ..., description="Stock ticker, e.g. 'AAPL'. Use finnhub_search to resolve symbols."
     )
 
@@ -39,7 +38,7 @@ class FinnhubProfileParams(BaseModel):
 class FinnhubPeersParams(BaseModel):
     """Peer companies for a given stock symbol."""
 
-    symbol: Annotated[str, Namespace("finnhub_symbol")] = Field(
+    symbol: Annotated[str, "ns:finnhub_symbol"] = Field(
         ..., description="Stock ticker, e.g. 'AAPL'. Use finnhub_search to resolve symbols."
     )
 
@@ -47,7 +46,7 @@ class FinnhubPeersParams(BaseModel):
 class FinnhubRecommendationParams(BaseModel):
     """Analyst buy/sell/hold recommendations for a stock."""
 
-    symbol: Annotated[str, Namespace("finnhub_symbol")] = Field(
+    symbol: Annotated[str, "ns:finnhub_symbol"] = Field(
         ..., description="Stock ticker, e.g. 'AAPL'. Use finnhub_search to resolve symbols."
     )
 
@@ -55,7 +54,7 @@ class FinnhubRecommendationParams(BaseModel):
 class FinnhubEarningsParams(BaseModel):
     """Historical EPS actuals and estimates for a stock."""
 
-    symbol: Annotated[str, Namespace("finnhub_symbol")] = Field(
+    symbol: Annotated[str, "ns:finnhub_symbol"] = Field(
         ..., description="Stock ticker, e.g. 'AAPL'. Use finnhub_search to resolve symbols."
     )
 
@@ -63,7 +62,7 @@ class FinnhubEarningsParams(BaseModel):
 class FinnhubBasicFinancialsParams(BaseModel):
     """Fundamental financial metrics for a stock."""
 
-    symbol: Annotated[str, Namespace("finnhub_symbol")] = Field(
+    symbol: Annotated[str, "ns:finnhub_symbol"] = Field(
         ..., description="Stock ticker, e.g. 'AAPL'. Use finnhub_search to resolve symbols."
     )
 
@@ -71,7 +70,7 @@ class FinnhubBasicFinancialsParams(BaseModel):
 class FinnhubCompanyNewsParams(BaseModel):
     """News articles for a specific company."""
 
-    symbol: Annotated[str, Namespace("finnhub_symbol")] = Field(
+    symbol: Annotated[str, "ns:finnhub_symbol"] = Field(
         ..., description="Stock ticker, e.g. 'AAPL'. Use finnhub_search to resolve symbols."
     )
     from_date: str = Field(

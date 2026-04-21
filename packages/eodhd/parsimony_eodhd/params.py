@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from parsimony.connector import Namespace
 from pydantic import BaseModel, ConfigDict, Field
 
 # Technical-indicator function names accepted by eodhd_technical. Declared
@@ -42,7 +41,7 @@ _EodhdTechnicalFunction = Literal[
 class EodhdEodParams(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    ticker: Annotated[str, Namespace("eodhd_symbols")] = Field(
+    ticker: Annotated[str, "ns:eodhd_symbols"] = Field(
         ...,
         pattern=r"^[A-Z0-9._\-]+$",
         description="Ticker in EODHD format, e.g. AAPL.US or BARC.LSE",
@@ -62,7 +61,7 @@ class EodhdEodParams(BaseModel):
 class EodhdLiveParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    ticker: Annotated[str, Namespace("eodhd_symbols")] = Field(
+    ticker: Annotated[str, "ns:eodhd_symbols"] = Field(
         ...,
         pattern=r"^[A-Z0-9._\-]+$",
         description="Ticker in EODHD format, e.g. AAPL.US",
@@ -72,7 +71,7 @@ class EodhdLiveParams(BaseModel):
 class EodhdIntradayParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    ticker: Annotated[str, Namespace("eodhd_symbols")] = Field(
+    ticker: Annotated[str, "ns:eodhd_symbols"] = Field(
         ...,
         pattern=r"^[A-Z0-9._\-]+$",
         description="Ticker in EODHD format, e.g. AAPL.US",
@@ -98,7 +97,7 @@ class EodhdBulkEodParams(BaseModel):
 class EodhdDividendsParams(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    ticker: Annotated[str, Namespace("eodhd_symbols")] = Field(
+    ticker: Annotated[str, "ns:eodhd_symbols"] = Field(
         ..., pattern=r"^[A-Z0-9._\-]+$", description="Ticker in EODHD format, e.g. AAPL.US"
     )
     from_date: str | None = Field(
@@ -110,7 +109,7 @@ class EodhdDividendsParams(BaseModel):
 class EodhdSplitsParams(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    ticker: Annotated[str, Namespace("eodhd_symbols")] = Field(
+    ticker: Annotated[str, "ns:eodhd_symbols"] = Field(
         ..., pattern=r"^[A-Z0-9._\-]+$", description="Ticker in EODHD format, e.g. AAPL.US"
     )
     from_date: str | None = Field(
@@ -149,7 +148,7 @@ class EodhdExchangeSymbolsParams(BaseModel):
 class EodhdFundamentalsParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    ticker: Annotated[str, Namespace("eodhd_symbols")] = Field(
+    ticker: Annotated[str, "ns:eodhd_symbols"] = Field(
         ...,
         pattern=r"^[A-Z0-9._\-]+$",
         description="Ticker in EODHD format, e.g. AAPL.US or SPY.US (ETFs supported)",
@@ -227,7 +226,7 @@ class EodhdMacroBulkParams(BaseModel):
 class EodhdTechnicalParams(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    ticker: Annotated[str, Namespace("eodhd_symbols")] = Field(
+    ticker: Annotated[str, "ns:eodhd_symbols"] = Field(
         ..., pattern=r"^[A-Z0-9._\-]+$", description="Ticker in EODHD format, e.g. AAPL.US"
     )
     function: _EodhdTechnicalFunction = Field(
@@ -251,7 +250,7 @@ class EodhdTechnicalParams(BaseModel):
 class EodhdInsiderParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    ticker: Annotated[str, Namespace("eodhd_symbols")] | None = Field(
+    ticker: Annotated[str, "ns:eodhd_symbols"] | None = Field(
         default=None,
         description="EODHD ticker to filter by, e.g. AAPL.US. Omit for all recent transactions.",
     )

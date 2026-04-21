@@ -13,9 +13,9 @@ import re
 from typing import Annotated
 
 import pandas as pd
-from parsimony.bundles import CatalogSpec
-from parsimony.connector import Connectors, Namespace, connector, enumerator
+from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
+from parsimony.http import HttpClient
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -23,7 +23,6 @@ from parsimony.result import (
     Provenance,
     Result,
 )
-from parsimony.transport.http import HttpClient
 from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
@@ -72,7 +71,7 @@ _CATEGORY_KEYWORDS: dict[str, list[str]] = {
 class SnbFetchParams(BaseModel):
     """Parameters for fetching SNB data from a cube."""
 
-    cube_id: Annotated[str, Namespace("snb")] = Field(..., description="SNB cube identifier (e.g. rendoblim, devkum)")
+    cube_id: Annotated[str, "ns:snb"] = Field(..., description="SNB cube identifier (e.g. rendoblim, devkum)")
     from_date: str | None = Field(default=None, description="Start date (YYYY or YYYY-MM or YYYY-MM-DD)")
     to_date: str | None = Field(default=None, description="End date (YYYY or YYYY-MM or YYYY-MM-DD)")
     dim_sel: str | None = Field(default=None, description="Dimension selection (e.g. D0(V0,V1),D1(ALL))")
@@ -254,7 +253,6 @@ async def snb_fetch(params: SnbFetchParams) -> Result:
 @enumerator(
     output=SNB_ENUMERATE_OUTPUT,
     tags=["macro", "ch"],
-    catalog=CatalogSpec.static(namespace="snb"),
 )
 async def enumerate_snb(params: SnbEnumerateParams) -> pd.DataFrame:
     """Enumerate well-known SNB data cubes for catalog indexing.
@@ -305,5 +303,7 @@ async def enumerate_snb(params: SnbEnumerateParams) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Exports
 # ---------------------------------------------------------------------------
+
+CATALOGS: list[tuple[str, object]] = [("snb", enumerate_snb)]
 
 CONNECTORS = Connectors([snb_fetch, enumerate_snb])

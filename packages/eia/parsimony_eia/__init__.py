@@ -11,13 +11,14 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
-from parsimony.connector import Connectors, Namespace, connector, enumerator
+from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import (
     EmptyDataError,
     ProviderError,
     RateLimitError,
     UnauthorizedError,
 )
+from parsimony.http import HttpClient
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -25,7 +26,6 @@ from parsimony.result import (
     Provenance,
     Result,
 )
-from parsimony.transport.http import HttpClient
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -68,7 +68,7 @@ ENV_VARS: dict[str, str] = {"api_key": "EIA_API_KEY"}
 class EiaFetchParams(BaseModel):
     """Parameters for fetching EIA energy data."""
 
-    route: Annotated[str, Namespace("eia")] = Field(..., description="API route (e.g. petroleum/pri/spt)")
+    route: Annotated[str, "ns:eia"] = Field(..., description="API route (e.g. petroleum/pri/spt)")
     frequency: str | None = Field(default=None, description="Data frequency: monthly, weekly, daily, annual")
     start: str | None = Field(default=None, description="Start date (YYYY-MM or YYYY)")
     end: str | None = Field(default=None, description="End date (YYYY-MM or YYYY)")

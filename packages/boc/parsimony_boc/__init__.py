@@ -12,8 +12,7 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
-from parsimony.bundles import CatalogSpec
-from parsimony.connector import Connectors, Namespace, connector, enumerator
+from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import (
     Column,
@@ -38,7 +37,7 @@ _BASE_URL = "https://www.bankofcanada.ca/valet"
 class BocFetchParams(BaseModel):
     """Parameters for fetching Bank of Canada time series."""
 
-    series_name: Annotated[str, Namespace("boc")] = Field(
+    series_name: Annotated[str, "ns:boc"] = Field(
         ...,
         description=(
             "Comma-separated BoC series names (e.g. FXUSDCAD,FXEURCAD) "
@@ -185,7 +184,6 @@ async def boc_fetch(params: BocFetchParams) -> Result:
 @enumerator(
     output=BOC_ENUMERATE_OUTPUT,
     tags=["macro", "ca"],
-    catalog=CatalogSpec.static(namespace="boc"),
 )
 async def enumerate_boc(params: BocEnumerateParams) -> pd.DataFrame:
     """Enumerate all Bank of Canada series via /lists/series/json.
@@ -219,5 +217,7 @@ async def enumerate_boc(params: BocEnumerateParams) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Exports
 # ---------------------------------------------------------------------------
+
+CATALOGS: list[tuple[str, object]] = [("boc", enumerate_boc)]
 
 CONNECTORS = Connectors([boc_fetch, enumerate_boc])

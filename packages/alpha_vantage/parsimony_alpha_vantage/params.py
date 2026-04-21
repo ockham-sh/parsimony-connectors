@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from parsimony.connector import Namespace
 from pydantic import BaseModel, Field
 
 # Economic-indicator function names accepted by alpha_vantage_econ. Declared
@@ -96,7 +95,7 @@ class AlphaVantageSearchParams(BaseModel):
 class AlphaVantageQuoteParams(BaseModel):
     """Real-time quote for a single stock symbol."""
 
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
+    symbol: Annotated[str, "ns:alpha_vantage"] = Field(
         ...,
         description="Stock ticker, e.g. 'IBM'. Use alpha_vantage_search to resolve symbols.",
     )
@@ -105,7 +104,7 @@ class AlphaVantageQuoteParams(BaseModel):
 class AlphaVantageDailyParams(BaseModel):
     """Daily OHLCV time series for a stock symbol."""
 
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
+    symbol: Annotated[str, "ns:alpha_vantage"] = Field(
         ...,
         description="Stock ticker, e.g. 'IBM'. Use alpha_vantage_search to resolve symbols.",
     )
@@ -118,7 +117,7 @@ class AlphaVantageDailyParams(BaseModel):
 class AlphaVantageOverviewParams(BaseModel):
     """Company overview / fundamentals for a stock symbol."""
 
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
+    symbol: Annotated[str, "ns:alpha_vantage"] = Field(
         ...,
         description="Stock ticker, e.g. 'IBM'. Use alpha_vantage_search to resolve symbols.",
     )
@@ -127,7 +126,7 @@ class AlphaVantageOverviewParams(BaseModel):
 class AlphaVantageStatementParams(BaseModel):
     """Financial statement for a stock symbol."""
 
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
+    symbol: Annotated[str, "ns:alpha_vantage"] = Field(
         ...,
         description="Stock ticker, e.g. 'IBM'. Use alpha_vantage_search to resolve symbols.",
     )
@@ -140,7 +139,7 @@ class AlphaVantageStatementParams(BaseModel):
 class AlphaVantageEarningsParams(BaseModel):
     """Earnings data for a stock symbol."""
 
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
+    symbol: Annotated[str, "ns:alpha_vantage"] = Field(
         ...,
         description="Stock ticker, e.g. 'IBM'. Use alpha_vantage_search to resolve symbols.",
     )
@@ -224,7 +223,7 @@ class AlphaVantageTopMoversParams(BaseModel):
 class AlphaVantageOptionsParams(BaseModel):
     """Historical options chain for a stock symbol."""
 
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
+    symbol: Annotated[str, "ns:alpha_vantage"] = Field(
         ...,
         description="Stock ticker, e.g. 'IBM'. Use alpha_vantage_search to resolve symbols.",
     )
@@ -237,7 +236,7 @@ class AlphaVantageOptionsParams(BaseModel):
 class AlphaVantageWeeklyParams(BaseModel):
     """Weekly OHLCV time series for a stock symbol."""
 
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
+    symbol: Annotated[str, "ns:alpha_vantage"] = Field(
         ...,
         description="Stock ticker, e.g. 'IBM'. Use alpha_vantage_search to resolve symbols.",
     )
@@ -246,7 +245,7 @@ class AlphaVantageWeeklyParams(BaseModel):
 class AlphaVantageMonthlyParams(BaseModel):
     """Monthly OHLCV time series for a stock symbol."""
 
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
+    symbol: Annotated[str, "ns:alpha_vantage"] = Field(
         ...,
         description="Stock ticker, e.g. 'IBM'. Use alpha_vantage_search to resolve symbols.",
     )
@@ -255,7 +254,7 @@ class AlphaVantageMonthlyParams(BaseModel):
 class AlphaVantageIntradayParams(BaseModel):
     """Intraday OHLCV time series for a stock symbol."""
 
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
+    symbol: Annotated[str, "ns:alpha_vantage"] = Field(
         ...,
         description="Stock ticker, e.g. 'IBM'. Use alpha_vantage_search to resolve symbols.",
     )
@@ -300,7 +299,7 @@ class AlphaVantageCryptoMonthlyParams(BaseModel):
 class AlphaVantageEtfProfileParams(BaseModel):
     """ETF profile including holdings and sector allocation."""
 
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
+    symbol: Annotated[str, "ns:alpha_vantage"] = Field(
         ...,
         description="ETF ticker, e.g. 'SPY', 'QQQ'. Use alpha_vantage_search to find ETFs.",
     )
@@ -328,7 +327,7 @@ class AlphaVantageIpoCalendarParams(BaseModel):
 class AlphaVantageTechnicalParams(BaseModel):
     """Technical indicator for a stock symbol."""
 
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
+    symbol: Annotated[str, "ns:alpha_vantage"] = Field(
         ...,
         description="Stock ticker, e.g. 'IBM'. Use alpha_vantage_search to resolve symbols.",
     )

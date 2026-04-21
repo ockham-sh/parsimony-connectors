@@ -27,8 +27,8 @@ from parsimony.errors import (
     RateLimitError,
     UnauthorizedError,
 )
+from parsimony.http import HttpClient
 from parsimony.result import OutputConfig, Provenance, Result
-from parsimony.transport.http import HttpClient
 
 # Per-request timeout. 15s is defensible for EODHD's REST endpoints, which
 # are not streaming. Bulk endpoints (fundamentals, macro_bulk, bulk_eod,

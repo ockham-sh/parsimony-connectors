@@ -22,8 +22,7 @@ from datetime import datetime
 from typing import Annotated, Any
 
 import pandas as pd
-from parsimony.bundles import CatalogSpec
-from parsimony.connector import Connectors, Namespace, connector, enumerator
+from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import (
     Column,
@@ -62,7 +61,7 @@ _CATEGORY_PREFIXES = {
 class RbaFetchParams(BaseModel):
     """Parameters for fetching RBA statistical table data."""
 
-    table_id: Annotated[str, Namespace("rba")] = Field(
+    table_id: Annotated[str, "ns:rba"] = Field(
         ...,
         description=(
             "RBA CSV table identifier — the filename stem without .csv "
@@ -335,7 +334,6 @@ async def rba_fetch(params: RbaFetchParams) -> Result:
 @enumerator(
     output=RBA_ENUMERATE_OUTPUT,
     tags=["macro", "au"],
-    catalog=CatalogSpec.static(namespace="rba"),
 )
 async def enumerate_rba(params: RbaEnumerateParams) -> pd.DataFrame:
     """Discover RBA series by scraping the tables page for CSV links,
@@ -370,5 +368,7 @@ async def enumerate_rba(params: RbaEnumerateParams) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Exports
 # ---------------------------------------------------------------------------
+
+CATALOGS: list[tuple[str, object]] = [("rba", enumerate_rba)]
 
 CONNECTORS = Connectors([rba_fetch, enumerate_rba])

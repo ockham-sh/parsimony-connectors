@@ -16,7 +16,6 @@ from __future__ import annotations
 import re
 from typing import Annotated, Literal
 
-from parsimony.connector import Namespace
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 _PATH_SAFE_RE = re.compile(r"^[a-zA-Z0-9._\-]+$")
@@ -93,7 +92,7 @@ class CoinGeckoMarketsParams(BaseModel):
 class CoinGeckoCoinDetailParams(BaseModel):
     """Parameters for fetching full coin metadata."""
 
-    coin_id: Annotated[str, Namespace("coingecko_coin")] = Field(
+    coin_id: Annotated[str, "ns:coingecko_coin"] = Field(
         ..., description="CoinGecko coin ID, e.g. 'bitcoin'. Use coingecko_search to resolve."
     )
     localization: bool = Field(default=False, description="Include localized language data (inflates response)")
@@ -113,7 +112,7 @@ class CoinGeckoCoinDetailParams(BaseModel):
 class CoinGeckoMarketChartParams(BaseModel):
     """Parameters for historical price chart by number of days."""
 
-    coin_id: Annotated[str, Namespace("coingecko_coin")] = Field(
+    coin_id: Annotated[str, "ns:coingecko_coin"] = Field(
         ..., description="CoinGecko coin ID, e.g. 'bitcoin'. Use coingecko_search to resolve."
     )
     vs_currency: str = Field(default="usd", description="Target currency, e.g. usd, eur, btc")
@@ -143,7 +142,7 @@ class CoinGeckoMarketChartRangeParams(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    coin_id: Annotated[str, Namespace("coingecko_coin")] = Field(
+    coin_id: Annotated[str, "ns:coingecko_coin"] = Field(
         ..., description="CoinGecko coin ID, e.g. 'bitcoin'. Use coingecko_search to resolve."
     )
     vs_currency: str = Field(default="usd", description="Target currency, e.g. usd, eur, btc")
@@ -169,7 +168,7 @@ class CoinGeckoMarketChartRangeParams(BaseModel):
 class CoinGeckoOhlcParams(BaseModel):
     """Parameters for OHLC candlestick data."""
 
-    coin_id: Annotated[str, Namespace("coingecko_coin")] = Field(
+    coin_id: Annotated[str, "ns:coingecko_coin"] = Field(
         ..., description="CoinGecko coin ID, e.g. 'bitcoin'. Use coingecko_search to resolve."
     )
     vs_currency: str = Field(default="usd", description="Target currency, e.g. usd, eur, btc")
