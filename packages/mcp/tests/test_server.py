@@ -251,7 +251,7 @@ class TestCallToolTimeout:
     async def test_slow_connector_is_marked_error_with_directive(self, monkeypatch) -> None:
         """A connector that hangs past the timeout budget must surface cleanly."""
         # Shorten the timeout so the test doesn't take 30s
-        import parsimony_mcp.server._core as server_mod
+        import parsimony_mcp.server as server_mod
         monkeypatch.setattr(server_mod, "_CALL_TIMEOUT_SECONDS", 0.1)
 
         @connector(name="slow_tool", output=SEARCH_OUTPUT, tags=["tool"])

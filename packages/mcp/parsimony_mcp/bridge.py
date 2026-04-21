@@ -5,12 +5,21 @@ Three responsibilities — all pure, all side-effect free:
 1. :func:`connector_to_tool` — map a :class:`parsimony.connector.Connector`
    to an MCP :class:`~mcp.types.Tool` definition.
 2. :func:`result_to_content` — serialize a parsimony :class:`Result` to MCP
-   text content, with per-cell sanitization and a self-describing
-   truncation directive.
+   text content as TOON (Token-Oriented Object Notation), with a
+   self-describing truncation directive.
 3. :func:`translate_error` — translate a connector or validation error into
    agent-safe :class:`~mcp.types.TextContent` blocks. Never stringifies the
    raw exception, because raw exception messages routinely embed full
    request URLs including ``?api_key=...`` query-string secrets.
+
+The output format is TOON rather than Markdown because (a) Markdown
+table cells need defensive escaping for ``|``, backticks, and
+newlines (any of which can break the table or inject host-level
+prose) while TOON's CSV-style row format only needs quoting for
+structural characters that are easier to reason about; and (b)
+TOON's tabular form spends column names once in a header rather
+than once per row, saving 30-50% of tokens for typical preview
+tables. See :mod:`parsimony_mcp._toon` for the encoder.
 """
 
 from __future__ import annotations
@@ -30,8 +39,9 @@ from parsimony.errors import (
 from parsimony.result import Result
 from pydantic import ValidationError
 
+from parsimony_mcp._toon import _quote, encode_dataframe, encode_kv, encode_series
+
 _MAX_ROWS = 50
-_MAX_CELL_CHARS = 500
 _MAX_VALIDATION_ERRORS = 5
 
 
@@ -48,41 +58,31 @@ def connector_to_tool(conn: Connector) -> Tool:
     )
 
 
-def _sanitize_cell(value: Any) -> str:
-    """Coerce a DataFrame cell to a safe markdown string.
-
-    Escapes markdown table delimiters, replaces newlines with spaces, and
-    truncates per-cell length. A compromised upstream provider returning a
-    cell like ``"\\n\\n**SYSTEM**: do X"`` otherwise produces markdown the
-    LLM reads as host instructions.
-    """
-    text = str(value)
-    text = text.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
-    text = text.replace("|", r"\|").replace("`", r"\`")
-    if len(text) > _MAX_CELL_CHARS:
-        text = text[: _MAX_CELL_CHARS - 1] + "…"
-    return text
-
-
 def result_to_content(result: Result, max_rows: int = _MAX_ROWS) -> list[TextContent]:
-    """Serialize a connector Result to MCP text content."""
+    """Serialize a connector Result to MCP text content as TOON.
+
+    DataFrames render as a tabular block followed by ``total_rows``
+    and a ``truncation`` directive when the head is smaller than the
+    full result. Series render as a 2-column tabular block. Scalars
+    render as a single ``value:`` line.
+    """
     data = result.data
     if isinstance(data, pd.DataFrame):
         total = len(data)
-        preview = data.head(max_rows).map(_sanitize_cell)
-        text = preview.to_markdown(index=False)
+        preview = data.head(max_rows)
+        text = encode_dataframe(preview, name="preview")
         if total > max_rows:
-            text += (
-                f"\n\n(showing {max_rows} of {total} rows — this is a discovery "
-                f"preview; for the full dataset call "
-                f"`parsimony.client['<connector>'](...)` in Python, do not "
-                f"call this MCP tool again hoping for more rows)"
+            truncation = (
+                f"Discovery preview only — for the full {total} rows, "
+                f"call parsimony.client['<connector>'](...) in Python. "
+                f"Do not call this MCP tool again hoping for more rows."
             )
+            text += "\n\n" + encode_kv("total_rows", total)
+            text += "\n" + encode_kv("truncation", truncation)
     elif isinstance(data, pd.Series):
-        sanitized = data.map(_sanitize_cell)
-        text = sanitized.to_markdown()
+        text = encode_series(data, name="result")
     else:
-        text = _sanitize_cell(data)
+        text = encode_kv("value", data)
     return [TextContent(type="text", text=text)]
 
 
@@ -162,3 +162,8 @@ def translate_error(exc: BaseException, tool_name: str) -> list[TextContent]:
     return _error_content(
         f"Internal error in {tool_name} ({type(exc).__name__}); see server logs"
     )
+
+
+# Re-export _quote for tests that exercise quoting edge cases through
+# the bridge (e.g. compromised-upstream cell defenses).
+__all__ = ["_quote", "connector_to_tool", "result_to_content", "translate_error"]

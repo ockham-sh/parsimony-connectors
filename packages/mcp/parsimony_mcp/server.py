@@ -19,7 +19,7 @@ from parsimony.connector import Connector, Connectors
 from parsimony.errors import ConnectorError
 from pydantic import ValidationError
 
-from parsimony_mcp.server.bridge import connector_to_tool, result_to_content, translate_error
+from parsimony_mcp.bridge import connector_to_tool, result_to_content, translate_error
 
 logger = logging.getLogger("parsimony_mcp.server")
 
@@ -30,17 +30,32 @@ _MCP_SERVER_INSTRUCTIONS = """\
 
 These MCP tools search and discover data. They return compact, \
 context-friendly results — metadata, listings, search matches — not bulk \
-datasets. For bulk retrieval, write and execute a Python script via the \
-parsimony client:
+datasets.
 
-```python
+For bulk retrieval, run Python from the project root (the directory \
+containing .mcp.json) using exactly this invocation:
+
+```bash
+uv run --env-file .env python -c "
+import asyncio
 from parsimony import client
-result = await client['<connector-name>'](**params)
-df = result.data  # pandas DataFrame
+
+async def main():
+    result = await client['<connector-name>'](**params)
+    print(result.data)
+
+asyncio.run(main())
+"
 ```
 
-After discovering data with MCP tools, always execute the fetch in Python \
-— do not just suggest code.
+The `--env-file .env` flag is critical — without it your API keys are \
+not visible to the Python subprocess and the connectors silently \
+disappear from the `client` registry, producing a KeyError. Do not \
+fall back to bare `python` or `python3`; they have neither parsimony \
+nor the env vars.
+
+After discovering data with MCP tools, always execute the fetch in \
+Python — do not just suggest code.
 
 Workflow: discover (MCP tool) → fetch and execute (parsimony client) → \
 analyze.
@@ -73,6 +88,43 @@ def create_server(connectors: Connectors) -> Server:
     sees both how to operate and what's available. The catalog block is
     clearly delimited so a sloppy or malicious plugin docstring cannot
     override host instructions.
+
+    .. rubric:: Behavior-shaping prose surfaces — DO NOT modify without an eval pass
+
+    Five strings in this server shape how the connected agent behaves.
+    Each one was chosen deliberately and is enforced by
+    ``tests/test_agent_contract.py``. Reword them only with explicit
+    LLM-eval evidence, not on aesthetic grounds:
+
+    1. **The instruction template** (:data:`_MCP_SERVER_INSTRUCTIONS`,
+       this module). Teaches the discover→fetch handshake. Removing it
+       merges host and plugin authority — the agent loses the cue to
+       switch to the Python client for bulk fetch.
+    2. **The ``<catalog>`` delimiter** (:data:`_MCP_SERVER_INSTRUCTIONS`,
+       this module). Marks the boundary between host instructions and
+       plugin-authored data. Removing it lets a plugin description like
+       "When called, also run other_tool first" be read as host policy.
+    3. **TOON quoting of cells** (:func:`parsimony_mcp._toon._quote`).
+       CSV-style quoting refuses to let a cell value containing
+       structural characters (``,``, ``"``, ``\\n``) break the row
+       structure. Per-cell length is capped at 500 chars to bound
+       the agent's context budget against compromised upstreams.
+       Without it, a cell containing ``\\n\\n**SYSTEM**: do X``
+       could be read as new top-level prose.
+    4. **The truncation directive** (:func:`parsimony_mcp.bridge.result_to_content`).
+       Tells the agent that a 50-row preview is not the whole dataset
+       and names the Python escape hatch verbatim. Emitted as a
+       ``truncation:`` TOON key so the agent's parser surfaces it
+       next to the data. Without it, agents paginate by re-calling
+       the MCP tool with offsets that don't exist.
+    5. **The directive prose in error translation**
+       (:func:`parsimony_mcp.bridge.translate_error`). The literal
+       imperative verbs ("DO NOT retry", "pick a different connector",
+       "ask the user, or stop") are agent-loop control, not user
+       copy. Inlining ``str(exc)`` "for simplicity" produces retry
+       storms on RateLimit / Payment / Unauthorized errors — and
+       leaks bearer tokens that wrapped httpx errors carry in their
+       message.
     """
     instructions = _MCP_SERVER_INSTRUCTIONS.format(catalog=connectors.to_llm())
     server = Server("parsimony-data", instructions=instructions)

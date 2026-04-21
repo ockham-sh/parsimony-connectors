@@ -21,18 +21,14 @@ classifiers = [
 dependencies = [
     "parsimony-core>=0.1.0a1,<0.3",
     "mcp>=1.0,<2",
-    "tabulate>=0.9.0,<1",
     "pandas>=2.0,<3",
-    # `parsimony-mcp init` uses a blocking httpx.Client to fetch
-    # registry.json. parsimony-core already brings httpx transitively;
-    # this declaration pins the floor we depend on directly.
-    "httpx>=0.27,<1",
-    # pydantic models in parsimony_mcp.cli.registry_schema.
+    # pydantic is used at the bridge boundary (validate_input=False on
+    # the MCP SDK's @call_tool, then explicit ValidationError handling).
     "pydantic>=2.7,<3",
-    # tomlkit preserves comments and whitespace when merging into an
-    # existing pyproject.toml. tomli-w alone would serialise a fresh
-    # AST and silently discard the user's annotations on every run.
-    "tomlkit>=0.12,<1",
+    # python-dotenv reads .env at server startup so the same secrets
+    # source is used by the MCP server and the user's code-execution
+    # tool (both share the project venv and CWD).
+    "python-dotenv>=1.0,<2",
 ]
 
 [project.optional-dependencies]
@@ -43,8 +39,6 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "pip-audit>=2.7",
-    # respx wraps httpx.MockTransport for declarative registry-fetch tests.
-    "respx>=0.21",
 ]
 
 [project.urls]
@@ -62,12 +56,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["parsimony_mcp"]
-
-[tool.hatch.build.targets.wheel.force-include]
-# Pull the prose templates into the wheel even though they're not
-# .py files. importlib.resources needs them adjacent to the cli
-# package at runtime.
-"parsimony_mcp/cli/templates/agents.md.tmpl" = "parsimony_mcp/cli/templates/agents.md.tmpl"
 
 [tool.ruff]
 target-version = "py311"
@@ -89,7 +77,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101", "S105", "S106"]  # asserts and test fixtures
+"tests/*" = ["S101", "S103", "S105", "S106"]  # asserts, intentional world-writable test setups, and test fixtures
 
 [tool.mypy]
 python_version = "3.11"
