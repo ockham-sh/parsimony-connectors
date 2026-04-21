@@ -10,9 +10,9 @@ import logging
 from typing import Annotated, Any
 
 import pandas as pd
-from parsimony.bundles import CatalogSpec
-from parsimony.connector import Connectors, Namespace, connector, enumerator
+from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
+from parsimony.http import HttpClient
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -20,7 +20,6 @@ from parsimony.result import (
     Provenance,
     Result,
 )
-from parsimony.transport.http import HttpClient
 from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
@@ -38,7 +37,7 @@ ENV_VARS: dict[str, str] = {"api_key": "RIKSBANK_API_KEY"}
 class RiksbankFetchParams(BaseModel):
     """Parameters for fetching a Riksbank time series."""
 
-    series_id: Annotated[str, Namespace("riksbank")] = Field(..., description="Riksbank series ID (e.g. SEKEURPMI)")
+    series_id: Annotated[str, "ns:riksbank"] = Field(..., description="Riksbank series ID (e.g. SEKEURPMI)")
     from_date: str | None = Field(default=None, description="Start date (YYYY-MM-DD)")
     to_date: str | None = Field(default=None, description="End date (YYYY-MM-DD)")
 
@@ -187,7 +186,6 @@ async def riksbank_fetch(params: RiksbankFetchParams, *, api_key: str = "") -> R
 @enumerator(
     output=RIKSBANK_ENUMERATE_OUTPUT,
     tags=["macro", "se"],
-    catalog=CatalogSpec.static(namespace="riksbank"),
 )
 async def enumerate_riksbank(params: RiksbankEnumerateParams, *, api_key: str = "") -> pd.DataFrame:
     """Enumerate all Riksbank series via the Groups and Series endpoints."""
@@ -239,5 +237,7 @@ async def enumerate_riksbank(params: RiksbankEnumerateParams, *, api_key: str = 
 # ---------------------------------------------------------------------------
 # Exports
 # ---------------------------------------------------------------------------
+
+CATALOGS: list[tuple[str, object]] = [("riksbank", enumerate_riksbank)]
 
 CONNECTORS = Connectors([riksbank_fetch, enumerate_riksbank])

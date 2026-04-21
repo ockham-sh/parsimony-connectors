@@ -41,14 +41,12 @@ def test_polymarket_connectors_are_polymarket_tagged() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_json_helpers_interpolate_path_watchpoint_resolves() -> None:
-    """Flip CI red the day ``parsimony.transport.json_helpers.interpolate_path`` moves.
+def test_interpolate_path_resolves() -> None:
+    """``parsimony.transport.json_helpers`` was removed in kernel 0.3.0.
 
-    Polymarket is the only connector that imports this symbol today. It is NOT
-    part of the public contract surface in ``parsimony/docs/contract.md`` §6
-    — this test is the tripwire per the Track B council plan.
+    ``interpolate_path`` is now inlined in this package.
     """
-    from parsimony.transport.json_helpers import interpolate_path
+    from parsimony_polymarket import interpolate_path
 
     rendered, remaining = interpolate_path("/markets/{id}", {"id": "foo", "limit": 10})
     assert rendered == "/markets/foo"

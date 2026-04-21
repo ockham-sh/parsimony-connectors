@@ -12,7 +12,7 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
-from parsimony.connector import Connectors, Namespace, connector, enumerator
+from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import (
     Column,
@@ -49,7 +49,7 @@ class BojFetchParams(BaseModel):
         ...,
         description="Database code (e.g. FM08 for FX rates, PR01 for prices)",
     )
-    code: Annotated[str, Namespace("boj")] = Field(
+    code: Annotated[str, "ns:boj"] = Field(
         ...,
         description="Comma-separated series codes (max 250, e.g. FXERD01)",
     )

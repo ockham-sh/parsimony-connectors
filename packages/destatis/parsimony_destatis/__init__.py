@@ -11,8 +11,9 @@ import re
 from typing import Annotated, Any
 
 import pandas as pd
-from parsimony.connector import Connectors, Namespace, connector, enumerator
+from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError, ParseError, ProviderError
+from parsimony.http import HttpClient
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -20,7 +21,6 @@ from parsimony.result import (
     Provenance,
     Result,
 )
-from parsimony.transport.http import HttpClient
 from pydantic import BaseModel, Field, field_validator
 
 _BASE_URL = "https://www-genesis.destatis.de/genesisWS/rest/2020"
@@ -51,7 +51,7 @@ _GERMAN_MONTHS = {
 class DestatisFetchParams(BaseModel):
     """Parameters for fetching Destatis table data."""
 
-    table_id: Annotated[str, Namespace("destatis")] = Field(..., description="GENESIS table ID (e.g. 61111-0001)")
+    table_id: Annotated[str, "ns:destatis"] = Field(..., description="GENESIS table ID (e.g. 61111-0001)")
     start_year: str | None = Field(default=None, description="Start year (YYYY)")
     end_year: str | None = Field(default=None, description="End year (YYYY)")
 

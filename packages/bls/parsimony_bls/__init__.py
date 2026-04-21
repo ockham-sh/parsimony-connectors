@@ -9,8 +9,9 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 import pandas as pd
-from parsimony.connector import Connectors, Namespace, connector, enumerator
+from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError, ProviderError
+from parsimony.http import HttpClient
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -18,7 +19,6 @@ from parsimony.result import (
     Provenance,
     Result,
 )
-from parsimony.transport.http import HttpClient
 from pydantic import BaseModel, Field, field_validator
 
 _BASE_URL = "https://api.bls.gov/publicAPI/v2"
@@ -34,7 +34,7 @@ ENV_VARS: dict[str, str] = {"api_key": "BLS_API_KEY"}
 class BlsFetchParams(BaseModel):
     """Parameters for fetching a BLS time series."""
 
-    series_id: Annotated[str, Namespace("bls")] = Field(..., description="BLS series ID (e.g. LNS14000000)")
+    series_id: Annotated[str, "ns:bls"] = Field(..., description="BLS series ID (e.g. LNS14000000)")
     start_year: str = Field(..., description="Start year (YYYY)")
     end_year: str = Field(..., description="End year (YYYY)")
 

@@ -10,14 +10,13 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from parsimony.connector import Namespace
 from pydantic import BaseModel, Field
 
 
 class FmpSymbolParams(BaseModel):
     """Single-symbol requests."""
 
-    symbol: Annotated[str, Namespace("fmp_symbols")] = Field(
+    symbol: Annotated[str, "ns:fmp_symbols"] = Field(
         ..., description="Stock ticker symbol (e.g. AAPL)"
     )
 
@@ -35,7 +34,7 @@ class FmpSearchParams(BaseModel):
 
 
 class FmpFinancialStatementParams(BaseModel):
-    symbol: Annotated[str, Namespace("fmp_symbols")] = Field(
+    symbol: Annotated[str, "ns:fmp_symbols"] = Field(
         ..., description="Stock ticker symbol (e.g. AAPL)"
     )
     period: str = Field(default="annual", description="Reporting period (annual or quarter)")
@@ -43,7 +42,7 @@ class FmpFinancialStatementParams(BaseModel):
 
 
 class FmpHistoricalPricesParams(BaseModel):
-    symbol: Annotated[str, Namespace("fmp_symbols")] = Field(
+    symbol: Annotated[str, "ns:fmp_symbols"] = Field(
         ..., description="Stock ticker symbol (e.g. AAPL)"
     )
     frequency: str = Field(
@@ -76,7 +75,7 @@ class FmpNewsParams(BaseModel):
 
 
 class FmpInsiderTradesParams(BaseModel):
-    symbol: Annotated[str, Namespace("fmp_symbols")] = Field(
+    symbol: Annotated[str, "ns:fmp_symbols"] = Field(
         ..., description="Stock symbol (e.g. AAPL)"
     )
     limit: int = Field(default=20, description="Max trades to return (default 20)")
@@ -84,7 +83,7 @@ class FmpInsiderTradesParams(BaseModel):
 
 
 class FmpInstitutionalPositionsParams(BaseModel):
-    symbol: Annotated[str, Namespace("fmp_symbols")] = Field(
+    symbol: Annotated[str, "ns:fmp_symbols"] = Field(
         ..., description="Stock symbol (e.g. AAPL)"
     )
     year: str = Field(..., description="Reporting year (e.g. 2024)")
@@ -92,7 +91,7 @@ class FmpInstitutionalPositionsParams(BaseModel):
 
 
 class FmpEarningsTranscriptParams(BaseModel):
-    symbol: Annotated[str, Namespace("fmp_symbols")] = Field(
+    symbol: Annotated[str, "ns:fmp_symbols"] = Field(
         ..., description="Stock symbol (e.g. AAPL)"
     )
     year: str = Field(..., description="Fiscal year (e.g. 2024)")
@@ -100,7 +99,7 @@ class FmpEarningsTranscriptParams(BaseModel):
 
 
 class FmpCorporateHistoryParams(BaseModel):
-    symbol: Annotated[str, Namespace("fmp_symbols")] = Field(
+    symbol: Annotated[str, "ns:fmp_symbols"] = Field(
         ..., description="Stock symbol (e.g. AAPL)"
     )
     event_type: Literal["earnings", "dividends", "splits"] = Field(
@@ -120,7 +119,7 @@ class FmpEventCalendarParams(BaseModel):
 
 
 class FmpAnalystEstimatesParams(BaseModel):
-    symbol: Annotated[str, Namespace("fmp_symbols")] = Field(
+    symbol: Annotated[str, "ns:fmp_symbols"] = Field(
         ..., description="Stock symbol (e.g. AAPL)"
     )
     period: str = Field(default="annual", description="annual or quarter")

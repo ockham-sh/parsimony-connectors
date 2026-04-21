@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 import json
+from string import Formatter
 from typing import Any, Literal
 
 import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector
 from parsimony.errors import ProviderError
+from parsimony.http import HttpClient
 from parsimony.result import Provenance, Result
-from parsimony.transport.http import HttpClient
-from parsimony.transport.json_helpers import interpolate_path
 from pydantic import BaseModel, ConfigDict, Field
+
+
+def interpolate_path(path: str, all_params: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    used_keys = {field_name for _, field_name, _, _ in Formatter().parse(path) if field_name}
+    rendered_path = path.format(**{k: (v if v is not None else "") for k, v in all_params.items()})
+    return rendered_path, {k: v for k, v in all_params.items() if k not in used_keys}
 
 
 class PolymarketFetchParams(BaseModel):

@@ -22,8 +22,8 @@ from parsimony.errors import (
     RateLimitError,
     UnauthorizedError,
 )
+from parsimony.http import HttpClient
 from parsimony.result import OutputConfig
-from parsimony.transport.http import HttpClient
 
 # Per-request timeout. 15s matches the long-standing Tiingo connector
 # default; endpoints are REST, not streaming.

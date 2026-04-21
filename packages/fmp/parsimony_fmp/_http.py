@@ -28,8 +28,8 @@ from parsimony.errors import (
     RateLimitError,
     UnauthorizedError,
 )
+from parsimony.http import HttpClient
 from parsimony.result import OutputConfig, Provenance, Result
-from parsimony.transport.http import HttpClient
 
 # Per-request timeout. 15s matches the Tiingo connector's precedent and is
 # defensible for FMP's equity REST endpoints, which are not streaming.

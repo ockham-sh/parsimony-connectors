@@ -12,7 +12,7 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
-from parsimony.connector import Connectors, Namespace, connector, enumerator
+from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import (
     Column,
@@ -38,7 +38,7 @@ class BdpFetchParams(BaseModel):
     """Parameters for fetching Banco de Portugal time series."""
 
     domain_id: int = Field(..., description="Domain ID (use enumerate to discover)")
-    dataset_id: Annotated[str, Namespace("bdp")] = Field(..., description="Dataset ID within the domain")
+    dataset_id: Annotated[str, "ns:bdp"] = Field(..., description="Dataset ID within the domain")
     series_ids: str | None = Field(
         default=None,
         description="Comma-separated series IDs to filter (optional)",

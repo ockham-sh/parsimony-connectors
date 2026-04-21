@@ -27,7 +27,7 @@ from parsimony.errors import (
     RateLimitError,
     UnauthorizedError,
 )
-from parsimony.transport.http import HttpClient
+from parsimony.http import HttpClient
 
 _DEFAULT_BASE_URL: str = "https://www.alphavantage.co"
 _DEFAULT_TIMEOUT_SECONDS: float = 20.0

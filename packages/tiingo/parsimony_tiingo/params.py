@@ -11,7 +11,6 @@ from __future__ import annotations
 import re
 from typing import Annotated
 
-from parsimony.connector import Namespace
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # Regex guard for values that are interpolated directly into request paths
@@ -30,7 +29,7 @@ class TiingoSearchParams(BaseModel):
 class TiingoEodParams(BaseModel):
     """Historical end-of-day prices for a stock."""
 
-    ticker: Annotated[str, Namespace("tiingo_ticker")] = Field(
+    ticker: Annotated[str, "ns:tiingo_ticker"] = Field(
         ..., description="Stock ticker, e.g. 'AAPL'. Use tiingo_search to resolve tickers."
     )
     start_date: str | None = Field(default=None, description="Start date ISO 8601, e.g. '2024-01-01'.")
@@ -56,7 +55,7 @@ class TiingoIexParams(BaseModel):
 class TiingoIexHistParams(BaseModel):
     """Historical IEX intraday prices for a stock."""
 
-    ticker: Annotated[str, Namespace("tiingo_ticker")] = Field(
+    ticker: Annotated[str, "ns:tiingo_ticker"] = Field(
         ..., description="Stock ticker, e.g. 'AAPL'. Use tiingo_search to resolve tickers."
     )
     start_date: str | None = Field(default=None, description="Start date ISO 8601, e.g. '2024-01-01'.")
@@ -77,7 +76,7 @@ class TiingoIexHistParams(BaseModel):
 class TiingoMetaParams(BaseModel):
     """Company metadata for a stock ticker."""
 
-    ticker: Annotated[str, Namespace("tiingo_ticker")] = Field(
+    ticker: Annotated[str, "ns:tiingo_ticker"] = Field(
         ..., description="Stock ticker, e.g. 'AAPL'. Use tiingo_search to resolve tickers."
     )
 
