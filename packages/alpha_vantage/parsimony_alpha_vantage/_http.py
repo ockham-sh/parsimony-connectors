@@ -20,10 +20,9 @@ import pandas as pd
 from parsimony.errors import (
     EmptyDataError,
     PaymentRequiredError,
-    ProviderError,
     RateLimitError,
 )
-from parsimony.transport import HttpClient, map_http_error
+from parsimony.transport import HttpClient, map_http_error, map_timeout_error
 
 _DEFAULT_BASE_URL: str = "https://www.alphavantage.co"
 _DEFAULT_TIMEOUT_SECONDS: float = 20.0
@@ -104,11 +103,7 @@ async def av_fetch(
     except httpx.HTTPStatusError as exc:
         map_http_error(exc, provider=_PROVIDER, op_name=op_name)
     except httpx.TimeoutException as exc:
-        raise ProviderError(
-            provider=_PROVIDER,
-            status_code=408,
-            message=f"Alpha Vantage request timed out on '{op_name}'",
-        ) from exc
+        map_timeout_error(exc, provider=_PROVIDER, op_name=op_name)
 
     body = response.json()
     _raise_for_in_body_error(body, op_name)
@@ -138,11 +133,7 @@ async def av_fetch_csv(
     except httpx.HTTPStatusError as exc:
         map_http_error(exc, provider=_PROVIDER, op_name=op_name)
     except httpx.TimeoutException as exc:
-        raise ProviderError(
-            provider=_PROVIDER,
-            status_code=408,
-            message=f"Alpha Vantage request timed out on '{op_name}'",
-        ) from exc
+        map_timeout_error(exc, provider=_PROVIDER, op_name=op_name)
 
     text = response.text
     if text.startswith("Information"):

@@ -16,8 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 import httpx
-from parsimony.errors import ProviderError
-from parsimony.transport import HttpClient, map_http_error
+from parsimony.transport import HttpClient, map_http_error, map_timeout_error
 from parsimony.result import OutputConfig
 
 # Per-request timeout. 15s matches the long-standing Tiingo connector
@@ -65,11 +64,7 @@ async def tiingo_fetch(
     except httpx.HTTPStatusError as exc:
         map_http_error(exc, provider=_PROVIDER, op_name=op_name)
     except httpx.TimeoutException as exc:
-        raise ProviderError(
-            provider=_PROVIDER,
-            status_code=408,
-            message=f"Tiingo request timed out on '{op_name}'",
-        ) from exc
+        map_timeout_error(exc, provider=_PROVIDER, op_name=op_name)
 
     return response.json()
 

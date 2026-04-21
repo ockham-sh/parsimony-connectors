@@ -22,7 +22,7 @@ from parsimony.errors import (
     RateLimitError,
     UnauthorizedError,
 )
-from parsimony.transport import HttpClient, parse_retry_after
+from parsimony.transport import HttpClient, map_timeout_error, parse_retry_after
 from parsimony.result import OutputConfig
 
 _DEFAULT_BASE_URL: str = "https://api.coingecko.com/api/v3"
@@ -149,11 +149,7 @@ async def coingecko_fetch(
     except httpx.HTTPStatusError as exc:
         _raise_mapped_status(exc, op_name)
     except httpx.TimeoutException as exc:
-        raise ProviderError(
-            provider=_PROVIDER,
-            status_code=408,
-            message=f"CoinGecko request timed out on '{op_name}'",
-        ) from exc
+        map_timeout_error(exc, provider=_PROVIDER, op_name=op_name)
 
     return response.json()
 

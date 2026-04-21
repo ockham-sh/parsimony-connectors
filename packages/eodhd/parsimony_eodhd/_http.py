@@ -23,7 +23,7 @@ from parsimony.errors import (
     ParseError,
     ProviderError,
 )
-from parsimony.transport import HttpClient, map_http_error
+from parsimony.transport import HttpClient, map_http_error, map_timeout_error
 from parsimony.result import OutputConfig, Provenance, Result
 
 # Per-request timeout. 15s is defensible for EODHD's REST endpoints, which
@@ -121,11 +121,7 @@ async def eodhd_fetch(
     except httpx.HTTPStatusError as exc:
         map_http_error(exc, provider=_PROVIDER, op_name=op_name)
     except httpx.TimeoutException as exc:
-        raise ProviderError(
-            provider=_PROVIDER,
-            status_code=408,
-            message=f"EODHD request timed out on '{op_name}'",
-        ) from exc
+        map_timeout_error(exc, provider=_PROVIDER, op_name=op_name)
 
     data = response.json()
     prov = Provenance(source=op_name, params=dict(params))

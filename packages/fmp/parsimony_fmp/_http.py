@@ -1,21 +1,21 @@
-"""FMP transport — shared fetch helpers and pooled-client escape hatch.
+"""FMP transport — shared fetch helpers.
 
-Error mapping is delegated to :func:`parsimony.transport.map_http_error`.
-API-key redaction is delegated to :func:`parsimony.transport.redact_url` —
-the ``apikey`` query param is already in the kernel's sensitive-name set.
+Everything HTTP-generic is delegated to the kernel:
 
-This module owns two things that remain FMP-specific: the
-DataFrame-shaping :func:`fmp_fetch` envelope for the 18 simple
-connectors, and the pooled-client context manager used by the screener
-(the only place in ``parsimony-fmp`` that reaches into the kernel's
-private ``HttpClient._client_kwargs`` — isolated here on purpose).
+* error mapping → :func:`parsimony.transport.map_http_error`
+* timeout mapping → :func:`parsimony.transport.map_timeout_error`
+* API-key redaction → :func:`parsimony.transport.redact_url`
+  (the ``apikey`` query param is already in the kernel's sensitive-name set)
+* pooled-client context manager → :func:`parsimony.transport.pooled_client`
+  (re-exported here for screener callers)
+
+What remains FMP-specific is :func:`fmp_fetch`, the DataFrame-shaping
+envelope for the 18 simple connectors.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
@@ -23,9 +23,8 @@ import pandas as pd
 from parsimony.errors import (
     EmptyDataError,
     ParseError,
-    ProviderError,
 )
-from parsimony.transport import HttpClient, map_http_error
+from parsimony.transport import HttpClient, map_http_error, map_timeout_error, pooled_client
 from parsimony.result import OutputConfig, Provenance, Result
 
 # Per-request timeout. 15s matches the Tiingo connector's precedent and is
@@ -70,11 +69,7 @@ async def fetch_json(
     except httpx.HTTPStatusError as exc:
         map_http_error(exc, provider="fmp", op_name=op_name)
     except httpx.TimeoutException as exc:
-        raise ProviderError(
-            provider="fmp",
-            status_code=408,
-            message=f"FMP request timed out on endpoint '{op_name}'",
-        ) from exc
+        map_timeout_error(exc, provider="fmp", op_name=op_name)
     return response.json()
 
 
@@ -127,25 +122,6 @@ async def fmp_fetch(
     if output_config is not None:
         return output_config.build_table_result(df, provenance=prov, params=dict(params))
     return Result.from_dataframe(df, prov)
-
-
-@asynccontextmanager
-async def pooled_client(http: HttpClient) -> AsyncIterator[HttpClient]:
-    """Yield an HttpClient whose underlying ``httpx.AsyncClient`` is pooled.
-
-    Used by the screener for its per-symbol enrichment fan-out so that TCP
-    and TLS state is reused across thousands of requests within a single
-    ``fmp_screener`` invocation.
-
-    NOTE: this helper is the only place in ``parsimony-fmp`` that reaches
-    into the kernel's private ``HttpClient._client_kwargs``. The kernel has
-    no public constructor for a pre-configured ``httpx.AsyncClient`` that
-    matches an ``HttpClient``'s auth/timeout/transport settings; isolating
-    the private access here means a single site to update if that shape
-    changes upstream.
-    """
-    async with httpx.AsyncClient(**http._client_kwargs()) as shared:
-        yield http.with_shared_client(shared)
 
 
 __all__ = [
