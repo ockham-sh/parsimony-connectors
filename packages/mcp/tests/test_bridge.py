@@ -17,7 +17,7 @@ from parsimony.errors import (
 from parsimony.result import Provenance, Result
 from pydantic import BaseModel, Field, ValidationError
 
-from parsimony_mcp.server.bridge import (
+from parsimony_mcp.bridge import (
     _sanitize_cell,
     connector_to_tool,
     result_to_content,
