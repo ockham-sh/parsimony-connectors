@@ -29,9 +29,9 @@ from pathlib import Path
 import mcp.server.stdio
 from parsimony.discovery import build_connectors_from_env
 
+from parsimony_mcp import init as init_command
 from parsimony_mcp._env import load_env
 from parsimony_mcp._logging import configure_logging
-from parsimony_mcp.cli import init as cli_init
 from parsimony_mcp.server import create_server
 
 logger = logging.getLogger("parsimony_mcp.main")
@@ -107,15 +107,15 @@ def _dispatch(argv: Sequence[str]) -> int:
         sub = argv[0]
         rest = argv[1:]
         if sub == "init":
-            return cli_init.run(rest)
+            return init_command.run(rest)
         # Unreachable: _KNOWN_SUBCOMMANDS is a closed set.
         raise AssertionError(f"no dispatch for subcommand {sub!r}")
 
     try:
         asyncio.run(_run_server())
     except KeyboardInterrupt:
-        return int(cli_init.ExitCode.SIGINT)
-    return int(cli_init.ExitCode.OK)
+        return 130  # SIGINT — Python's default handler exit code.
+    return int(init_command.ExitCode.OK)
 
 
 def main() -> None:
@@ -123,7 +123,7 @@ def main() -> None:
     try:
         code = _dispatch(sys.argv[1:])
     except KeyboardInterrupt:
-        code = int(cli_init.ExitCode.SIGINT)
+        code = 130
     sys.exit(code)
 
 
