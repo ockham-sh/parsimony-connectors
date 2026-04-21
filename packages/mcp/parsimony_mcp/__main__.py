@@ -20,13 +20,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 import time
 from collections.abc import Sequence
+from pathlib import Path
 
 import mcp.server.stdio
 from parsimony.discovery import build_connectors_from_env
 
+from parsimony_mcp._env import load_env
 from parsimony_mcp._logging import configure_logging
 from parsimony_mcp.cli import init as cli_init
 from parsimony_mcp.server import create_server
@@ -38,7 +41,28 @@ _SLOW_DISCOVERY_MS = 2000
 _KNOWN_SUBCOMMANDS = frozenset({"init"})
 
 
+def _load_env_from_environment() -> None:
+    """Apply the .env precedence chain to ``os.environ`` before discovery.
+
+    Sequence is load-bearing — configuration sources must load in the
+    order their consumers read them:
+
+    1. ``load_env`` runs first so ``.env`` and any caller-provided
+       overrides are visible by the time
+    2. ``configure_logging`` reads ``PARSIMONY_MCP_LOG_LEVEL`` and
+    3. ``build_connectors_from_env`` snapshots the rest of the env
+       vars at construction time.
+
+    Reordering breaks ``.env``-driven config silently (the level
+    override or the API key both vanish).
+    """
+    project_dir_pin_str = os.environ.get("PARSIMONY_MCP_PROJECT_DIR")
+    project_dir_pin = Path(project_dir_pin_str) if project_dir_pin_str else None
+    load_env(cwd=Path.cwd(), project_dir_pin=project_dir_pin)
+
+
 async def _run_server() -> None:
+    _load_env_from_environment()
     configure_logging()
 
     start = time.monotonic()

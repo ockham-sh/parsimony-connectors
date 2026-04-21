@@ -23,16 +23,20 @@ dependencies = [
     "mcp>=1.0,<2",
     "tabulate>=0.9.0,<1",
     "pandas>=2.0,<3",
-    # `parsimony-mcp init` uses a blocking httpx.Client to fetch
-    # registry.json. parsimony-core already brings httpx transitively;
-    # this declaration pins the floor we depend on directly.
+    # `parsimony-mcp init` (legacy cli/ wizard, deleted in a follow-up
+    # commit) uses a blocking httpx.Client to fetch registry.json.
     "httpx>=0.27,<1",
-    # pydantic models in parsimony_mcp.cli.registry_schema.
+    # pydantic is used at the bridge boundary (validate_input=False on
+    # the MCP SDK's @call_tool, then explicit ValidationError handling).
     "pydantic>=2.7,<3",
     # tomlkit preserves comments and whitespace when merging into an
-    # existing pyproject.toml. tomli-w alone would serialise a fresh
-    # AST and silently discard the user's annotations on every run.
+    # existing pyproject.toml in the legacy cli/ wizard (deleted in a
+    # follow-up commit).
     "tomlkit>=0.12,<1",
+    # python-dotenv reads .env at server startup so the same secrets
+    # source is used by the MCP server and the user's code-execution
+    # tool (both share the project venv and CWD).
+    "python-dotenv>=1.0,<2",
 ]
 
 [project.optional-dependencies]
@@ -89,7 +93,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101", "S105", "S106"]  # asserts and test fixtures
+"tests/*" = ["S101", "S103", "S105", "S106"]  # asserts, intentional world-writable test setups, and test fixtures
 
 [tool.mypy]
 python_version = "3.11"
