@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import io
 import stat
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -478,22 +480,30 @@ class TestIntrospectOne:
 
 def _make_entry_point(
     name: str, value: str, *, dist_name: str | None = None
-) -> object:
-    """Build a minimal entry-point-shaped object for testing."""
+) -> importlib.metadata.EntryPoint:
+    """Build a minimal entry-point-shaped object for testing.
+
+    Returns either a real ``EntryPoint`` or a ``_Shim`` that duck-types one
+    via ``__getattr__`` (needed because ``EntryPoint.dist`` is read-only and
+    tests want to override it). The annotation is ``EntryPoint`` in both
+    branches so ``_introspect_one(ep)`` type-checks without per-call casts —
+    the runtime protocol is what matters.
+    """
     import importlib.metadata as md
+    from typing import cast
 
     ep = md.EntryPoint(name=name, value=value, group="parsimony.providers")
     if dist_name is not None:
         # EntryPoint.dist is read-only; wrap with a thin shim.
         class _Shim:
-            def __init__(self, ep, dist_name):
+            def __init__(self, ep: md.EntryPoint, dist_name: str) -> None:
                 self._ep = ep
                 self._dist_name = dist_name
 
-            def __getattr__(self, attr):
+            def __getattr__(self, attr: str) -> Any:
                 if attr == "dist":
                     return type("D", (), {"name": self._dist_name})()
                 return getattr(self._ep, attr)
 
-        return _Shim(ep, dist_name)
+        return cast("md.EntryPoint", _Shim(ep, dist_name))
     return ep

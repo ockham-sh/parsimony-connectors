@@ -153,7 +153,7 @@ class TestTruncationDirective:
         df = pd.DataFrame({"id": list(range(rows)), "title": [f"row-{i}" for i in range(rows)]})
         return Result(
             data=df,
-            provenance=Provenance(source="test", retrieved_at="2026-04-20T00:00:00Z"),
+            provenance=Provenance(source="test"),
         )
 
     def test_total_rows_key_present_when_over_max_rows(self):
