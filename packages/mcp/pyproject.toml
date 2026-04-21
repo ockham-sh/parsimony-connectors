@@ -22,11 +22,6 @@ dependencies = [
     "parsimony-core>=0.1.0a1,<0.3",
     "mcp>=1.0,<2",
     "pandas>=2.0,<3",
-    # tabulate is the per-call hot-path dep — `df.to_markdown()` raises
-    # ImportError without it. pandas declares it as the optional extra
-    # `pandas[output_formatting]`; pulling that extra is equivalent to
-    # the explicit dep but documents the why.
-    "tabulate>=0.9.0,<1",
     # pydantic is used at the bridge boundary (validate_input=False on
     # the MCP SDK's @call_tool, then explicit ValidationError handling).
     "pydantic>=2.7,<3",
