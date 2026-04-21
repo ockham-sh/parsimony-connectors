@@ -202,12 +202,11 @@ def _is_owned_by_current_user(path: Path) -> bool:
     multi-user POSIX system; Windows single-user laptops aren't the
     target.
     """
-    try:
-        getuid = os.getuid  # type: ignore[attr-defined]
-    except AttributeError:
+    getuid = getattr(os, "getuid", None)
+    if getuid is None:
         return True
     try:
-        return path.stat().st_uid == getuid()
+        return bool(path.stat().st_uid == getuid())
     except OSError:
         return False
 
