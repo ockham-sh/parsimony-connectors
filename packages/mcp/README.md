@@ -34,6 +34,35 @@ pip install parsimony-fred  # example; replace with whichever you need
 
 Replace `/absolute/path/to/your/venv/bin/parsimony-mcp` with the output of `which parsimony-mcp` in the env where you installed the package. Restart Claude Desktop after editing the config.
 
+**Project-scoped config (Claude Code, Cursor, etc.)** — drop a `.mcp.json` in the project root. Two equivalent patterns, both fine:
+
+```json
+// Pattern A — hardcoded key in the env block
+{
+  "mcpServers": {
+    "parsimony": {
+      "command": "uv",
+      "args": ["run", "parsimony-mcp"],
+      "env": { "FRED_API_KEY": "your-fred-key-here" }
+    }
+  }
+}
+```
+
+```json
+// Pattern B — load keys from a .env file (gitignore the .env!)
+{
+  "mcpServers": {
+    "parsimony": {
+      "command": "uv",
+      "args": ["run", "--env-file", ".env", "parsimony-mcp"]
+    }
+  }
+}
+```
+
+Do **not** rely on shell-style `${VAR}` substitution inside the `env` block — several MCP clients (Claude Code included) pass the literal string through unchanged, which produces opaque 4xx errors from upstream providers. Either hardcode the value or use Pattern B.
+
 **3. Verify.** In Claude Desktop's chat, type "list parsimony tools" — you should see the connectors from whichever plugins you installed. If you see "no tools" check the Claude Desktop log pane and the troubleshooting matrix below.
 
 ---
@@ -66,6 +95,7 @@ The server itself takes no CLI flags. The console script is `parsimony-mcp`; equ
 | Claude Desktop shows "Server disconnected" or the server never appears | Wrong path to `parsimony-mcp` in the config `command` field | Run `which parsimony-mcp` in the venv where you installed the package; paste the full absolute path into the config. Restart Claude Desktop. |
 | "0 tools available" / no tools listed | No plugin packages installed | `pip install parsimony-fred` (or any other `parsimony-*` package); restart Claude Desktop. |
 | Tool call returns "Authentication error for X" | Connector-specific env var missing | Check the plugin's README for the required env var name; add it to the `env` block in `claude_desktop_config.json`. |
+| Tool call returns `HTTPStatusError` / opaque 4xx after editing `.mcp.json` | Client cached the old config at session start; reconnect re-uses stale child process | Fully quit and relaunch the client (not just `/mcp` reconnect). Also check for an `env: { KEY: "${KEY}" }` block — the `${…}` is passed literally by Claude Code and others, breaking auth. |
 | Tool call returns "Rate limit for X" with `DO NOT retry` directive | Upstream provider rate-limited you | The agent will not retry automatically. Either wait, pick a different connector, or upgrade the upstream plan. |
 | Tool call returns "timed out after 30s" | Upstream is slow or network partition | The 30s timeout is deliberate — an agent running `call_tool` for minutes helps nobody. Retry manually if upstream recovers. |
 | JSON parse errors in Claude Desktop's MCP log | Something is writing to stdout that isn't MCP JSON-RPC | Check for plugins that `print()` at import time. Report the plugin to its author; the MCP adapter's stdout is reserved for protocol framing. |
