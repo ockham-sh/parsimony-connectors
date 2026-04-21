@@ -1,8 +1,14 @@
-"""Per-dataset worker run inside an isolated subprocess by the orchestrator.
+"""Per-dataset worker run inside an isolated subprocess by :func:`fetch_series`.
 
 Must be at module level so ``multiprocessing`` can pickle it. Must catch
 every exception and always return a :class:`DatasetOutcome` — never raise
-across the Pool boundary.
+across the process boundary.
+
+Writes the series parquet to disk inside the child so the parent never
+has to receive the full row set through an ``mp.Queue`` — only the small
+:class:`DatasetOutcome` envelope. This sidesteps the pipe-buffer
+deadlock that would otherwise surface on multi-thousand-series datasets
+like ECB YC or ESTAT UNE_RT_M.
 """
 
 from __future__ import annotations

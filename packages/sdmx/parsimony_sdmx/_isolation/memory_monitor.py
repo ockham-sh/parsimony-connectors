@@ -26,7 +26,7 @@ from typing import Any
 
 import psutil
 
-from parsimony_sdmx.cli.layout import oom_dir
+from parsimony_sdmx._isolation.layout import oom_dir
 
 logger = logging.getLogger(__name__)
 

@@ -3,8 +3,8 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from parsimony_sdmx.cli.layout import oom_dir
-from parsimony_sdmx.cli.memory_monitor import (
+from parsimony_sdmx._isolation.layout import oom_dir
+from parsimony_sdmx._isolation.memory_monitor import (
     MemoryMonitorConfig,
     _kill_largest_child,
     clear_worker_marker,

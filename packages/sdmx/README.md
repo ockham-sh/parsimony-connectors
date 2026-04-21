@@ -1,103 +1,144 @@
 # parsimony-sdmx
 
-Flat SDMX catalog builder. Harvests dataflows from statistical agencies (ECB, Eurostat, IMF, World Bank) and writes two parquet files per agency — a dataset-level catalog and one series-level catalog per dataset — ready to feed a FAISS or SQL index.
+SDMX connector plugin for the [parsimony](https://parsimony.dev) framework. Harvests dataflow listings and per-dataset series keys from statistical agencies (ECB, Eurostat, IMF, World Bank), composes human-readable titles from the DSD + codelists, and publishes one parquet + FAISS bundle per catalog via `parsimony publish`.
 
-## Layout
+No separate builder CLI, no intermediate on-disk cache — every call hits the live agency endpoint inside a spawned subprocess.
 
-```
-outputs/{AGENCY}/datasets.parquet        # columns: dataset_id, agency_id, title
-outputs/{AGENCY}/series/{DATASET}.parquet # columns: id, dataset_id, title
-```
+## Supported agencies
 
-Titles are composed as `"CODE1: label1 - CODE2: label2 - …"` over the DSD's non-`TIME_PERIOD` dimensions in DSD order. ECB series additionally append `TITLE` / `TITLE_COMPL` fetched from the per-series XML endpoint. HTML-embedded descriptions (common on Eurostat) are stripped before they reach parquet.
+| Agency ID  | Source                                           |
+|------------|--------------------------------------------------|
+| `ECB`      | European Central Bank SDMX 2.1                   |
+| `ESTAT`    | Eurostat SDMX 2.1                                |
+| `IMF_DATA` | IMF SDMX 3 (``sdmx.imf.org``)                    |
+| `WB_WDI`   | World Bank SDMX 2.1 (custom path × decade sweep) |
 
 ## Install
 
-Requires Python ≥ 3.12 and [uv](https://docs.astral.sh/uv/).
+Requires Python ≥ 3.11 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-make install              # uv sync --all-extras
+# From the monorepo root:
+uv sync --package parsimony-sdmx --extra dev
+uv pip install "parsimony-core[standard] @ file://$PWD/../parsimony"
 ```
 
-## Usage
+The `standard` extra on `parsimony-core` pulls FAISS, BM25, and sentence-transformers — the default embedder stack used at publish time.
+
+## Publish a single catalog
+
+The plugin exposes two kinds of namespace:
+
+- ``sdmx_datasets`` — one cross-agency catalog of every dataflow.
+- ``sdmx_series_<agency>_<dataset_id>`` — one per-dataset catalog of series keys, e.g. ``sdmx_series_ecb_yc``.
+
+Publish by name with ``--only`` (pure string lookup, no listing walk):
 
 ```bash
-# Print every dataset the agency exposes
-parsimony-sdmx -a ESTAT --list-datasets
-
-# Write only outputs/{AGENCY}/datasets.parquet (no series fetched)
-parsimony-sdmx -a ECB --catalog
-
-# Fetch one dataset
-parsimony-sdmx -a ECB -d YC
-
-# Fetch every dataset the agency exposes
-parsimony-sdmx -a ESTAT --all
-
-# Preview what an --all run would write, without fetching
-parsimony-sdmx -a ESTAT --all --dry-run
-
-# Rebuild datasets whose parquet already exists (resume contract: file present → skip)
-parsimony-sdmx -a ECB -d YC --force
+parsimony publish \
+  --provider sdmx \
+  --target "file:///tmp/parsimony-smoke/{namespace}" \
+  --only sdmx_series_ecb_yc
 ```
 
-Or via Make shortcuts:
+The ``{namespace}`` placeholder is substituted before the push. The target scheme is what decides where the bundle lands:
+
+| Scheme              | Destination                               | Extra required |
+|---------------------|-------------------------------------------|----------------|
+| ``file://<path>``   | Local filesystem                          | —              |
+| ``hf://<repo>``     | Hugging Face dataset repo                 | ``standard``   |
+| ``s3://<bucket>``   | S3 bucket                                 | ``s3``         |
+
+A local publish produces:
+
+```
+/tmp/parsimony-smoke/sdmx_series_ecb_yc/
+├── entries.parquet   # rows: (namespace, code, title, description, tags, metadata, embedding)
+├── embeddings.faiss  # FAISS index aligned with entries.parquet
+└── meta.json         # catalog metadata + embedder fingerprint
+```
+
+## Publish everything
+
+Omit ``--only`` to walk every agency listing and publish one bundle per discovered ``(agency, dataset_id)`` pair plus the static ``sdmx_datasets`` catalog. Expect a long run — ESTAT alone has 8 k+ dataflows:
 
 ```bash
-make catalog AGENCY=ECB            # datasets.parquet only
-make fetch AGENCY=ECB DATASET=YC   # single dataset
-make fetch-all AGENCY=ESTAT        # every dataset for the agency
-make list AGENCY=IMF_DATA          # enumerate datasets
+parsimony publish \
+  --provider sdmx \
+  --target "file:///tmp/parsimony-smoke/{namespace}"
 ```
 
-Supported agencies: `ECB`, `ESTAT`, `IMF_DATA`, `WB_WDI`. Exit codes: `0` every dataset ok/empty, `1` at least one failed.
+An agency that fails listing is skipped with a warning; the run continues for the others.
+
+## Search a published bundle
+
+```python
+import asyncio
+from parsimony.catalog import Catalog
+
+async def main():
+    cat = await Catalog.from_url("file:///tmp/parsimony-smoke/sdmx_series_ecb_yc")
+    for hit in await cat.search("10 year yield", 3):
+        print(f"{hit.similarity:.3f}  {hit.code}  {hit.title[:80]}")
+
+asyncio.run(main())
+```
+
+The same `Catalog.from_url(...)` works against `hf://`, `s3://`, and `file://` URLs — FAISS + BM25 are combined via RRF at query time.
+
+## Plugin contract
+
+The package implements the standard parsimony plugin contract, exported at the top level of ``parsimony_sdmx``:
+
+| Export               | Role                                                                          |
+|----------------------|-------------------------------------------------------------------------------|
+| ``CATALOGS``         | Async generator — yields every catalog this plugin can publish.               |
+| ``RESOLVE_CATALOG``  | ``namespace -> Callable \| None`` — cheap reverse lookup for ``--only``.      |
+| ``CONNECTORS``       | Enumerators + live-fetch connector discovered via ``parsimony list``.         |
+| ``ENV_VARS``         | Required environment variables (empty — SDMX endpoints are public).           |
+| ``PROVIDER_METADATA``| Static provider facts (agency list, namespace pattern, plugin version).       |
 
 ## Architecture
 
-Four packages under `parsimony_sdmx/`:
+```
+parsimony_sdmx/
+├── core/         pure domain logic: record dataclasses, title composition,
+│                 codelist resolution, outcome types, domain exceptions
+├── io/           boundary effects: atomic parquet writers, hardened lxml
+│                 iterparse, HTTPS-only bounded session, path safety
+├── providers/    per-agency adapters behind a narrow `CatalogProvider`
+│                 protocol; ECB/ESTAT/IMF share a common sdmx1 flow helper,
+│                 WB diverges with a path × decade sweep
+├── connectors/   parsimony `@enumerator` surface + ``sdmx_fetch`` live
+│                 observation connector
+└── _isolation/   subprocess-spawning boundary for every sdmx1 call
+```
 
-- **`core/`** — pure, I/O-free: record dataclasses, title composition, codelist resolution, outcome types, domain exceptions.
-- **`io/`** — boundary effects: atomic parquet writers, hardened lxml iterparse, HTTPS-only bounded HTTP session, path safety helpers, exception classification.
-- **`providers/`** — per-agency adapters behind a narrow `CatalogProvider` protocol; ECB/ESTAT/IMF share a common sdmx1 flow helper, WB diverges with a path × decade sweep because its SDMX endpoint doesn't expose `series_keys`.
-- **`cli/`** — argparse front-end, orchestrator that forks one subprocess per dataset (`mp.spawn`) for memory isolation, a psutil-backed memory monitor that kills the largest child above a threshold and writes OOM markers, atomic `.tmp/` cleanup, and an operator-readable end-of-run summary.
+### Why subprocess isolation
 
-### Why subprocess-per-dataset
+``sdmx1`` caches parsed structure messages (DSDs, codelists, dataflows) at module scope with no public invalidation hook. A long-lived Python process that imports it accumulates cache monotonically until OOM. Process death is the only working way to flush that cache.
 
-`sdmx1` caches structure messages at module level with no public invalidation hook. Running every dataset in its own subprocess is the only reliable way to start each fetch with a clean cache. Large catalogs (8 k+ Eurostat dataflows) have hit real OOMs in production; the memory monitor catches runaway workers before the kernel OOM killer does, preserving a classifiable failure instead of an opaque `exit 137`.
+Every sdmx1-touching call (``list_datasets`` for listings, ``fetch_series`` for per-dataset sweeps) runs inside a freshly spawned process that is discarded after the call — never pooled. A ``ProcessPoolExecutor`` would retain sdmx1 in each worker across tasks and defeat the invariant.
 
-### Resume
+The two entry points in ``_isolation`` handle payload size differently:
 
-Filesystem-backed: a dataset is skipped if `outputs/{AGENCY}/series/{DATASET}.parquet` already exists. Writes land in `.tmp/` first and are `os.replace`-d atomically, so the canonical path exists iff the previous run completed. `--force` overrides (and logs a count of overwrites).
+- ``list_datasets`` returns up to ~8 k dataflow tuples through an ``mp.Queue`` that the parent drains *before* ``proc.join()`` — the feeder thread blocks on the OS pipe buffer once pickled bytes exceed ~64 KB, so join-before-read deadlocks. Regression-guarded by ``test_listing.py::test_large_payload_does_not_deadlock``.
+- ``fetch_series`` writes the series parquet to a caller-supplied tmpdir inside the child and returns only a small ``DatasetOutcome`` envelope. The parent reads the parquet back and the tmpdir is discarded. Disk is the transport.
+
+Under load (ESTAT with ~8 k dataflows, ECB YC with ~2 k series) the parent process stays sdmx1-free — verified by ``test_listing.py::test_plugin_surface_import_does_not_pull_sdmx``.
 
 ## Development
 
 ```bash
-make check         # ruff + mypy strict + fast tests
-make test          # fast tests only (skip subprocess-path tests)
-make test-slow     # subprocess tests (fork real mp.Process children)
-make test-all      # everything
-make format        # ruff format + --fix
-make clean         # wipe caches + build artifacts
+# Fast tier (306 tests, ~3 s) — excludes slow + integration markers
+uv run --package parsimony-sdmx pytest packages/sdmx/tests -q
+
+# Subprocess regression tier (2 tests, ~2 s) — real mp.Process children
+uv run --package parsimony-sdmx pytest packages/sdmx/tests -m slow -v
+
+# Lint + type check
+uv run --package parsimony-sdmx ruff check packages/sdmx/
+uv run --package parsimony-sdmx mypy packages/sdmx/parsimony_sdmx/
 ```
 
-Hardening enforced by default:
-
-- `mypy --strict` across source and tests
-- `ruff` with `E, F, W, I, B, UP, S` (security rules on)
-- Hardened `lxml.iterparse` (no entity resolution, no DTD load, no network)
-- HTTPS-only `bounded_get` with a configurable byte cap
-- Path traversal guards on every on-disk write
-
-## Project layout
-
-```
-parsimony_sdmx/
-├── core/      # pure domain logic
-├── io/        # boundary-layer effects
-├── providers/ # per-agency adapters
-└── cli/       # argparse → orchestrator → worker → parquet
-
-tests/        # flat: test_<module>.py per source module
-```
-
-Test suite: 312 tests. 4 of them (`@pytest.mark.slow`) fork real subprocesses to exercise the orchestrator's timeout / OOM classification / clean-exit paths; the other 308 run in < 2 s.
+Hardening defaults: HTTPS-only bounded HTTP session, hardened `lxml.iterparse` (no entity resolution, no DTD load, no network), path traversal guards on every on-disk write.
