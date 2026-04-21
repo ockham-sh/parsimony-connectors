@@ -18,7 +18,7 @@ from parsimony.errors import (
     RateLimitError,
     UnauthorizedError,
 )
-from parsimony.http import HttpClient
+from parsimony.transport import HttpClient
 from parsimony.result import (
     Column,
     ColumnRole,

@@ -22,7 +22,7 @@ from parsimony.errors import (
     RateLimitError,
     UnauthorizedError,
 )
-from parsimony.http import HttpClient
+from parsimony.transport import HttpClient
 from parsimony.result import OutputConfig
 
 _DEFAULT_BASE_URL: str = "https://api.coingecko.com/api/v3"

@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 import pandas as pd
-from parsimony.connector import Connectors, Namespace, connector, enumerator
+from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import (
     Column,
@@ -24,7 +24,7 @@ from parsimony.result import (
     Provenance,
     Result,
 )
-from parsimony.transport.http import HttpClient
+from parsimony.transport import HttpClient
 from pydantic import BaseModel, Field, field_validator
 
 __all__ = [
@@ -63,7 +63,7 @@ class FredSearchParams(BaseModel):
 class FredFetchParams(BaseModel):
     """Parameters for fetching FRED time series observations."""
 
-    series_id: Annotated[str, Namespace("fred")] = Field(..., description="FRED series identifier (e.g. GDPC1, UNRATE)")
+    series_id: Annotated[str, "ns:fred"] = Field(..., description="FRED series identifier (e.g. GDPC1, UNRATE)")
     observation_start: str | None = Field(default=None, description="Start date (YYYY-MM-DD)")
     observation_end: str | None = Field(default=None, description="End date (YYYY-MM-DD)")
 

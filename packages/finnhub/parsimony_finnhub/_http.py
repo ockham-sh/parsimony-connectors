@@ -23,7 +23,7 @@ from parsimony.errors import (
     RateLimitError,
     UnauthorizedError,
 )
-from parsimony.http import HttpClient
+from parsimony.transport import HttpClient
 from parsimony.result import OutputConfig
 
 # Per-request timeout. Finnhub's REST endpoints are not streaming; 15s is a

@@ -11,7 +11,7 @@ from typing import Annotated, Any
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
-from parsimony.http import HttpClient
+from parsimony.transport import HttpClient
 from parsimony.result import (
     Column,
     ColumnRole,

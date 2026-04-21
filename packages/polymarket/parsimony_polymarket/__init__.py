@@ -10,7 +10,7 @@ import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector
 from parsimony.errors import ProviderError
-from parsimony.http import HttpClient
+from parsimony.transport import HttpClient
 from parsimony.result import Provenance, Result
 from pydantic import BaseModel, ConfigDict, Field
 

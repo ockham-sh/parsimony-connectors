@@ -18,7 +18,7 @@ from typing import Any
 
 import pandas as pd
 from parsimony.errors import EmptyDataError, ParseError, PaymentRequiredError, UnauthorizedError
-from parsimony.http import HttpClient
+from parsimony.transport import HttpClient
 from parsimony.result import Provenance, Result
 
 from parsimony_fmp._http import fetch_json, pooled_client
