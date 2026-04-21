@@ -9,10 +9,11 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Any
 
+import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
-from parsimony.transport import HttpClient
+from parsimony.transport import HttpClient, map_http_error
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -131,7 +132,10 @@ async def riksbank_fetch(params: RiksbankFetchParams, *, api_key: str = "") -> R
         path = f"/Observations/Latest/{params.series_id}"
 
     response = await http.request("GET", path)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="riksbank", op_name="Observations")
     data = response.json()
 
     # Resolve series title from /Series endpoint
@@ -192,7 +196,10 @@ async def enumerate_riksbank(params: RiksbankEnumerateParams, *, api_key: str = 
     http = _make_http(api_key)
 
     groups_resp = await http.request("GET", "/Groups")
-    groups_resp.raise_for_status()
+    try:
+        groups_resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="riksbank", op_name="Groups")
     groups_data = groups_resp.json()
 
     group_lookup: dict[str, str] = {}
@@ -212,7 +219,10 @@ async def enumerate_riksbank(params: RiksbankEnumerateParams, *, api_key: str = 
     _flatten(groups_data)
 
     series_resp = await http.request("GET", "/Series")
-    series_resp.raise_for_status()
+    try:
+        series_resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="riksbank", op_name="Series")
     series_data = series_resp.json()
     if isinstance(series_data, dict):
         series_data = [series_data]

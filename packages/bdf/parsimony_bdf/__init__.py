@@ -18,6 +18,7 @@ import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError, ParseError
+from parsimony.transport import map_http_error
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -110,7 +111,10 @@ async def bdf_fetch(params: BdfFetchParams, *, api_key: str) -> Result:
 
     async with httpx.AsyncClient(timeout=60.0, headers=headers) as client:
         response = await client.get(url, params=req_params)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            map_http_error(exc, provider="bdf", op_name="data")
 
     text = response.text
     if text.startswith("\ufeff"):
@@ -173,7 +177,10 @@ async def enumerate_bdf(params: BdfEnumerateParams, *, api_key: str) -> pd.DataF
 
     async with httpx.AsyncClient(timeout=60.0, headers=headers) as client:
         response = await client.get(url, params={"format": "csv"})
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            map_http_error(exc, provider="bdf", op_name="catalogue")
 
     text = response.text
     if text.startswith("\ufeff"):

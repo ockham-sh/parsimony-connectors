@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
+import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError, ProviderError
-from parsimony.transport import HttpClient
+from parsimony.transport import HttpClient, map_http_error
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -138,7 +139,10 @@ async def bls_fetch(params: BlsFetchParams, *, api_key: str = "") -> Result:
 
     http = HttpClient(_BASE_URL, timeout=60.0)
     response = await http.request("POST", "/timeseries/data/", json=payload)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="bls", op_name="timeseries/data")
     body = response.json()
 
     status = body.get("status", "")
@@ -202,15 +206,16 @@ async def enumerate_bls(params: BlsEnumerateParams, *, api_key: str = "") -> pd.
     """
     import asyncio
 
-    import httpx
-
     base_params: dict[str, str] = {}
     if api_key:
         base_params["registrationkey"] = api_key
 
     async with httpx.AsyncClient(base_url=_BASE_URL, timeout=60.0) as client:
         resp = await client.get("/surveys", params=base_params)
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            map_http_error(exc, provider="bls", op_name="surveys")
         surveys_data = resp.json()
 
         surveys: list[dict[str, str]] = []
