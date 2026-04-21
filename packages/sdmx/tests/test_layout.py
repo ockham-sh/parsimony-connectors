@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from parsimony_sdmx.cli.layout import (
+from parsimony_sdmx._isolation.layout import (
     agency_dir,
     datasets_parquet,
     oom_dir,

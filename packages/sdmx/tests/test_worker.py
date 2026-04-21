@@ -2,7 +2,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from parsimony_sdmx.cli.worker import run_dataset
+from parsimony_sdmx._isolation.worker import run_dataset
 from parsimony_sdmx.core.models import SeriesRecord
 from parsimony_sdmx.core.outcomes import FailureKind, OutcomeStatus
 

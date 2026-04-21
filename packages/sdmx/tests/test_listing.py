@@ -11,7 +11,11 @@ from typing import Any
 
 import pytest
 
-from parsimony_sdmx.cli.listing import ListDatasetsError, list_datasets, run_in_child
+from parsimony_sdmx._isolation.listing import (
+    ListDatasetsError,
+    list_datasets,
+    run_in_child,
+)
 
 
 def _emit_large_payload_child(
@@ -42,16 +46,16 @@ class TestParentStaysSdmxFree:
     """The architectural guarantee: parent must not import sdmx1.
 
     Run in a fresh subprocess because pytest's own process may have
-    imported sdmx1 via other tests (e.g. test_registry). This test
-    fails iff merely importing ``parsimony_sdmx.cli.main`` drags
-    sdmx1 into the parent's module table.
+    imported sdmx1 via other tests. This test fails iff merely importing
+    :mod:`parsimony_sdmx._isolation` drags sdmx1 into the parent's
+    module table.
     """
 
-    def test_main_import_does_not_pull_sdmx(self) -> None:
+    def test_isolation_import_does_not_pull_sdmx(self) -> None:
         script = textwrap.dedent(
             """
             import sys
-            import parsimony_sdmx.cli.main  # noqa: F401
+            import parsimony_sdmx._isolation  # noqa: F401
 
             leaked = sorted(m for m in sys.modules if m == "sdmx" or m.startswith("sdmx."))
             if leaked:
@@ -72,16 +76,15 @@ class TestParentStaysSdmxFree:
         )
         assert "CLEAN" in result.stdout
 
-    def test_args_parse_does_not_pull_sdmx(self) -> None:
-        # argparse choices used to be sourced from providers.registry.AGENCIES,
-        # which transitively imported sdmx. The lightweight agencies module
-        # must keep parse_args() sdmx-free.
+    def test_plugin_surface_import_does_not_pull_sdmx(self) -> None:
+        # ``parsimony publish`` imports ``parsimony_sdmx`` to read
+        # ``CATALOGS`` / ``RESOLVE_CATALOG`` / ``CONNECTORS``. That
+        # import must stay sdmx-free — sdmx1 only gets loaded inside
+        # spawned children.
         script = textwrap.dedent(
             """
             import sys
-            from parsimony_sdmx.cli.args import parse_args
-            cfg = parse_args(["-a", "ECB", "-d", "YC"])
-            assert cfg.agency_id == "ECB"
+            import parsimony_sdmx  # noqa: F401
 
             leaked = sorted(m for m in sys.modules if m == "sdmx" or m.startswith("sdmx."))
             if leaked:
@@ -97,7 +100,7 @@ class TestParentStaysSdmxFree:
             timeout=30,
         )
         assert result.returncode == 0, (
-            f"parse_args leaked sdmx — stdout={result.stdout!r} "
+            f"plugin surface leaked sdmx — stdout={result.stdout!r} "
             f"stderr={result.stderr!r}"
         )
 

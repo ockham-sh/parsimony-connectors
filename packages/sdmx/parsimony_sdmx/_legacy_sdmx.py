@@ -9,8 +9,8 @@ from urllib.parse import quote
 
 import pandas as pd
 import sdmx as sdmx_lib
-from parsimony.catalog.models import code_token as _code_token
-from parsimony.catalog.models import normalize_code
+from parsimony.catalog import code_token as _code_token
+from parsimony.catalog import normalize_code
 from parsimony.connector import Connectors, connector
 from parsimony.errors import EmptyDataError, ParseError, ProviderError
 from parsimony.result import (
@@ -19,7 +19,6 @@ from parsimony.result import (
     OutputConfig,
     Provenance,
     Result,
-    SemanticTableResult,
 )
 from pydantic import BaseModel, Field, field_validator
 from requests.exceptions import HTTPError
@@ -733,13 +732,13 @@ async def sdmx_series_keys(params: SdmxSeriesKeysParams) -> Result:
     return out_cfg.build_table_result(df, provenance=prov, params=params.model_dump())
 
 
-def _build_dataset_codelists_tables_sync(dataset_key: str) -> list[SemanticTableResult]:
+def _build_dataset_codelists_tables_sync(dataset_key: str) -> list[Result]:
     """Resolve DSD and build one catalog-indexable table per non-time codelist dimension."""
     agency_id, dataset_id = dataset_key.split("-", 1)
     with _sdmx_client(agency_id) as client:
         _dataflow, dsd, msg = _fetch_dsd(client, dataset_id)
 
-    out: list[SemanticTableResult] = []
+    out: list[Result] = []
     for dim in dsd.dimensions:
         dim_id = str(getattr(dim, "id", "")).strip()
         if not dim_id or dim_id == "TIME_PERIOD":
@@ -782,8 +781,8 @@ def _build_dataset_codelists_tables_sync(dataset_key: str) -> list[SemanticTable
 
 async def enumerate_sdmx_dataset_codelists(
     params: SdmxDatasetCodelistsParams,
-) -> list[SemanticTableResult]:
-    """Return one :class:`~parsimony.result.SemanticTableResult` per dimension codelist.
+) -> list[Result]:
+    """Return one :class:`~parsimony.result.Result` per dimension codelist.
 
     Each result uses the same schema as :func:`sdmx_codelist` (KEY ``namespace`` from
     :func:`sdmx_codelist_namespace`). Suitable for :meth:`parsimony.BaseCatalog.index_result`.

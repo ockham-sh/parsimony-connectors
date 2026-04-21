@@ -1,6 +1,6 @@
 [project]
 name = "parsimony-sdmx"
-version = "0.2.0"
+version = "0.3.0"
 description = "SDMX protocol connector (ECB, Eurostat, IMF, OECD, BIS, World Bank, ILO) for the parsimony framework"
 authors = [{ name = "Ockham.sh", email = "team@ockham.sh" }]
 license = "Apache-2.0"
@@ -21,7 +21,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "parsimony-core>=0.1.0a0,<0.3",
+    "parsimony-core>=0.3,<0.5",
     "pydantic>=2.11.1,<3",
     "pandas>=2.3.0,<3",
     "pyarrow>=16.0",
@@ -47,9 +47,6 @@ dev = [
 Homepage = "https://parsimony.dev"
 Repository = "https://github.com/ockham-sh/parsimony-connectors"
 Issues = "https://github.com/ockham-sh/parsimony-connectors/issues"
-
-[project.scripts]
-parsimony-sdmx = "parsimony_sdmx.cli.main:main"
 
 [project.entry-points."parsimony.providers"]
 sdmx = "parsimony_sdmx"
@@ -83,5 +80,5 @@ addopts = "--import-mode=importlib -m 'not integration and not slow'"
 asyncio_mode = "auto"
 markers = [
     "integration: hits live APIs (may be slow, requires env vars)",
-    "slow: long-running test (subprocess / heavy I/O; tests use pickle-spawn which needs tests to be a package — excluded by default)",
+    "slow: spawns real subprocesses / large payloads (excluded from default run)",
 ]
