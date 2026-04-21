@@ -12,7 +12,7 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
-from parsimony.connector import Connectors, Namespace, connector, enumerator
+from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import (
     Column,
@@ -21,6 +21,7 @@ from parsimony.result import (
     Provenance,
     Result,
 )
+from parsimony.transport import map_http_error
 from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ class BdpFetchParams(BaseModel):
     """Parameters for fetching Banco de Portugal time series."""
 
     domain_id: int = Field(..., description="Domain ID (use enumerate to discover)")
-    dataset_id: Annotated[str, Namespace("bdp")] = Field(..., description="Dataset ID within the domain")
+    dataset_id: Annotated[str, "ns:bdp"] = Field(..., description="Dataset ID within the domain")
     series_ids: str | None = Field(
         default=None,
         description="Comma-separated series IDs to filter (optional)",
@@ -133,7 +134,10 @@ async def bdp_fetch(params: BdpFetchParams) -> Result:
 
     async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
         response = await client.get(url, params=req_params)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            map_http_error(exc, provider="bdp", op_name="observations")
         json_data = response.json()
 
     # Parse JSON-stat style response
@@ -227,7 +231,10 @@ async def enumerate_bdp(params: BdpEnumerateParams) -> pd.DataFrame:
     async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
         # Get all domains (trailing slash required)
         domain_resp = await client.get(f"{_BASE_URL}/domains/", params={"lang": "EN"})
-        domain_resp.raise_for_status()
+        try:
+            domain_resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            map_http_error(exc, provider="bdp", op_name="domains")
         domains = domain_resp.json()
 
         if not isinstance(domains, list):

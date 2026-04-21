@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
+import httpx
 import pandas as pd
-from parsimony.bundles import CatalogSpec
-from parsimony.connector import Connectors, Namespace, connector, enumerator
+from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import (
     Column,
@@ -19,7 +19,7 @@ from parsimony.result import (
     Provenance,
     Result,
 )
-from parsimony.transport.http import HttpClient
+from parsimony.transport import HttpClient, map_http_error
 from pydantic import BaseModel, Field
 
 _BASE_URL = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service"
@@ -34,7 +34,7 @@ _METADATA_URL = "https://api.fiscaldata.treasury.gov/services/dtg/metadata/"
 class TreasuryFetchParams(BaseModel):
     """Parameters for fetching US Treasury fiscal data."""
 
-    endpoint: Annotated[str, Namespace("treasury")] = Field(
+    endpoint: Annotated[str, "ns:treasury"] = Field(
         ..., description="API endpoint path (e.g. v2/accounting/od/debt_to_penny)"
     )
     filter: str | None = Field(
@@ -103,7 +103,10 @@ async def treasury_fetch(params: TreasuryFetchParams) -> Result:
         req_params["sort"] = params.sort
 
     response = await http.request("GET", f"/{params.endpoint}", params=req_params)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="treasury", op_name=params.endpoint)
     body = response.json()
 
     data = body.get("data", [])
@@ -150,15 +153,15 @@ async def treasury_fetch(params: TreasuryFetchParams) -> Result:
 @enumerator(
     output=TREASURY_ENUMERATE_OUTPUT,
     tags=["macro", "us"],
-    catalog=CatalogSpec.static(namespace="treasury"),
 )
 async def enumerate_treasury(params: TreasuryEnumerateParams) -> pd.DataFrame:
     """Enumerate all US Treasury Fiscal Data API endpoints for catalog indexing."""
-    import httpx
-
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.get(_METADATA_URL)
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            map_http_error(exc, provider="treasury", op_name="datasets/metadata")
         raw = resp.json()
 
     datasets: list[dict] = []
@@ -211,5 +214,7 @@ async def enumerate_treasury(params: TreasuryEnumerateParams) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Exports
 # ---------------------------------------------------------------------------
+
+CATALOGS: list[tuple[str, object]] = [("treasury", enumerate_treasury)]
 
 CONNECTORS = Connectors([treasury_fetch, enumerate_treasury])

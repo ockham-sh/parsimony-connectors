@@ -12,9 +12,9 @@ import logging
 import re
 from typing import Annotated
 
+import httpx
 import pandas as pd
-from parsimony.bundles import CatalogSpec
-from parsimony.connector import Connectors, Namespace, connector, enumerator
+from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import (
     Column,
@@ -23,7 +23,7 @@ from parsimony.result import (
     Provenance,
     Result,
 )
-from parsimony.transport.http import HttpClient
+from parsimony.transport import HttpClient, map_http_error
 from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
@@ -72,7 +72,7 @@ _CATEGORY_KEYWORDS: dict[str, list[str]] = {
 class SnbFetchParams(BaseModel):
     """Parameters for fetching SNB data from a cube."""
 
-    cube_id: Annotated[str, Namespace("snb")] = Field(..., description="SNB cube identifier (e.g. rendoblim, devkum)")
+    cube_id: Annotated[str, "ns:snb"] = Field(..., description="SNB cube identifier (e.g. rendoblim, devkum)")
     from_date: str | None = Field(default=None, description="Start date (YYYY or YYYY-MM or YYYY-MM-DD)")
     to_date: str | None = Field(default=None, description="End date (YYYY or YYYY-MM or YYYY-MM-DD)")
     dim_sel: str | None = Field(default=None, description="Dimension selection (e.g. D0(V0,V1),D1(ALL))")
@@ -220,7 +220,10 @@ async def snb_fetch(params: SnbFetchParams) -> Result:
         f"/api/cube/{params.cube_id}/data/csv/{params.lang}",
         params=req_params,
     )
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="snb", op_name="cube/data")
 
     df = _parse_snb_csv(response.text)
     if df.empty:
@@ -254,15 +257,12 @@ async def snb_fetch(params: SnbFetchParams) -> Result:
 @enumerator(
     output=SNB_ENUMERATE_OUTPUT,
     tags=["macro", "ch"],
-    catalog=CatalogSpec.static(namespace="snb"),
 )
 async def enumerate_snb(params: SnbEnumerateParams) -> pd.DataFrame:
     """Enumerate well-known SNB data cubes for catalog indexing.
 
     Uses a curated list of SNB cubes and probes each for frequency inference.
     """
-    import httpx
-
     cubes = [{"cube_id": cid, "title": title} for cid, title in _KNOWN_CUBES]
 
     rows: list[dict[str, str]] = []
@@ -305,5 +305,7 @@ async def enumerate_snb(params: SnbEnumerateParams) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Exports
 # ---------------------------------------------------------------------------
+
+CATALOGS: list[tuple[str, object]] = [("snb", enumerate_snb)]
 
 CONNECTORS = Connectors([snb_fetch, enumerate_snb])

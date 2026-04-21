@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
+import httpx
 import pandas as pd
-from parsimony.connector import Connectors, Namespace, connector, enumerator
+from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError, ProviderError
 from parsimony.result import (
     Column,
@@ -18,7 +19,7 @@ from parsimony.result import (
     Provenance,
     Result,
 )
-from parsimony.transport.http import HttpClient
+from parsimony.transport import HttpClient, map_http_error
 from pydantic import BaseModel, Field, field_validator
 
 _BASE_URL = "https://api.bls.gov/publicAPI/v2"
@@ -34,7 +35,7 @@ ENV_VARS: dict[str, str] = {"api_key": "BLS_API_KEY"}
 class BlsFetchParams(BaseModel):
     """Parameters for fetching a BLS time series."""
 
-    series_id: Annotated[str, Namespace("bls")] = Field(..., description="BLS series ID (e.g. LNS14000000)")
+    series_id: Annotated[str, "ns:bls"] = Field(..., description="BLS series ID (e.g. LNS14000000)")
     start_year: str = Field(..., description="Start year (YYYY)")
     end_year: str = Field(..., description="End year (YYYY)")
 
@@ -138,7 +139,10 @@ async def bls_fetch(params: BlsFetchParams, *, api_key: str = "") -> Result:
 
     http = HttpClient(_BASE_URL, timeout=60.0)
     response = await http.request("POST", "/timeseries/data/", json=payload)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="bls", op_name="timeseries/data")
     body = response.json()
 
     status = body.get("status", "")
@@ -202,15 +206,16 @@ async def enumerate_bls(params: BlsEnumerateParams, *, api_key: str = "") -> pd.
     """
     import asyncio
 
-    import httpx
-
     base_params: dict[str, str] = {}
     if api_key:
         base_params["registrationkey"] = api_key
 
     async with httpx.AsyncClient(base_url=_BASE_URL, timeout=60.0) as client:
         resp = await client.get("/surveys", params=base_params)
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            map_http_error(exc, provider="bls", op_name="surveys")
         surveys_data = resp.json()
 
         surveys: list[dict[str, str]] = []

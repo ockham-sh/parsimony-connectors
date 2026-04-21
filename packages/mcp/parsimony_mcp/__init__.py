@@ -12,7 +12,8 @@ from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
 
-from parsimony_mcp.server import connector_to_tool, create_server, result_to_content
+from parsimony_mcp.bridge import connector_to_tool, result_to_content
+from parsimony_mcp.server import create_server
 
 try:
     __version__ = version("parsimony-mcp")

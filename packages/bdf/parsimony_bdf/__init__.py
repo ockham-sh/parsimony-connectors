@@ -16,7 +16,7 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
-from parsimony.connector import Connectors, Namespace, connector, enumerator
+from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError, ParseError
 from parsimony.result import (
     Column,
@@ -25,6 +25,7 @@ from parsimony.result import (
     Provenance,
     Result,
 )
+from parsimony.transport import map_http_error
 from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,7 @@ ENV_VARS: dict[str, str] = {"api_key": "BANQUEDEFRANCE_KEY"}
 class BdfFetchParams(BaseModel):
     """Parameters for fetching Banque de France time series."""
 
-    key: Annotated[str, Namespace("bdf")] = Field(
+    key: Annotated[str, "ns:bdf"] = Field(
         ...,
         description=(
             "SDMX series key, optionally prefixed with dataset (e.g. EXR.M.USD.EUR.SP00.E or ICP.M.FR.N.000000.4.ANR)"
@@ -110,7 +111,10 @@ async def bdf_fetch(params: BdfFetchParams, *, api_key: str) -> Result:
 
     async with httpx.AsyncClient(timeout=60.0, headers=headers) as client:
         response = await client.get(url, params=req_params)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            map_http_error(exc, provider="bdf", op_name="data")
 
     text = response.text
     if text.startswith("\ufeff"):
@@ -173,7 +177,10 @@ async def enumerate_bdf(params: BdfEnumerateParams, *, api_key: str) -> pd.DataF
 
     async with httpx.AsyncClient(timeout=60.0, headers=headers) as client:
         response = await client.get(url, params={"format": "csv"})
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            map_http_error(exc, provider="bdf", op_name="catalogue")
 
     text = response.text
     if text.startswith("\ufeff"):

@@ -12,59 +12,62 @@ Provides 11 connectors:
   - Historical: market chart (days or range), OHLC candlesticks
   - On-chain: token price by contract address (GeckoTerminal)
   - Enumerator: full coin list for catalog indexing
+
+Internal layout (not part of the public contract):
+
+* :mod:`parsimony_coingecko._http` — shared transport, unified error
+  mapping (401/403, 402, 429, other), plan-restriction body parsing, and
+  the ``coingecko_fetch`` helper used by every connector.
+* :mod:`parsimony_coingecko.params` — Pydantic parameter models,
+  including the path-component validators for coin id, network and
+  contract-address interpolation.
+* :mod:`parsimony_coingecko.outputs` — declarative
+  :class:`OutputConfig` schemas.
+
+This ``__init__.py`` stays at the top level so ``tools/gen_registry.py``
+can AST-parse ``@connector`` decorators (it does not follow re-exports).
 """
 
 from __future__ import annotations
 
-import re
 from datetime import UTC, datetime
-from typing import Annotated, Any, Literal
+from typing import Any
 
 import httpx
 import pandas as pd
-from parsimony.connector import (
-    Connectors,
-    Namespace,
-    connector,
-    enumerator,
-)
-from parsimony.errors import (
-    EmptyDataError,
-    ParseError,
-    PaymentRequiredError,
-    ProviderError,
-    RateLimitError,
-    UnauthorizedError,
-)
-from parsimony.result import (
-    Column,
-    ColumnRole,
-    OutputConfig,
-    Provenance,
-    Result,
-)
-from parsimony.transport.http import HttpClient
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from parsimony.connector import Connectors, connector, enumerator
+from parsimony.errors import EmptyDataError, ParseError
+from parsimony.result import Provenance, Result
 
-_PATH_SAFE_RE = re.compile(r"^[a-zA-Z0-9._\-]+$")
+from parsimony_coingecko._http import coingecko_fetch as _cg_fetch
+from parsimony_coingecko._http import make_http as _make_http
+from parsimony_coingecko.outputs import ENUMERATE_OUTPUT as _ENUMERATE_OUTPUT
+from parsimony_coingecko.outputs import GAINERS_LOSERS_OUTPUT as _GAINERS_LOSERS_OUTPUT
+from parsimony_coingecko.outputs import MARKET_CHART_OUTPUT as _MARKET_CHART_OUTPUT
+from parsimony_coingecko.outputs import MARKETS_OUTPUT as _MARKETS_OUTPUT
+from parsimony_coingecko.outputs import OHLC_OUTPUT as _OHLC_OUTPUT
+from parsimony_coingecko.outputs import ONCHAIN_PRICE_OUTPUT as _ONCHAIN_PRICE_OUTPUT
+from parsimony_coingecko.outputs import PRICE_OUTPUT as _PRICE_OUTPUT
+from parsimony_coingecko.outputs import SEARCH_OUTPUT as _SEARCH_OUTPUT
+from parsimony_coingecko.outputs import TRENDING_OUTPUT as _TRENDING_OUTPUT
+from parsimony_coingecko.params import (
+    CoinGeckoCoinDetailParams,
+    CoinGeckoEnumerateParams,
+    CoinGeckoMarketChartParams,
+    CoinGeckoMarketChartRangeParams,
+    CoinGeckoMarketsParams,
+    CoinGeckoOhlcParams,
+    CoinGeckoPriceParams,
+    CoinGeckoSearchParams,
+    CoinGeckoTokenPriceOnchainParams,
+    CoinGeckoTopMoversParams,
+    CoinGeckoTrendingParams,
+)
 
 ENV_VARS: dict[str, str] = {"api_key": "COINGECKO_API_KEY"}
 
+_PROVIDER = "coingecko"
 _BASE_URL = "https://api.coingecko.com/api/v3"
-_TIMEOUT = 15.0
-
-
-# ---------------------------------------------------------------------------
-# Transport helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_http(api_key: str) -> HttpClient:
-    return HttpClient(
-        _BASE_URL,
-        headers={"x-cg-demo-api-key": api_key},
-        timeout=_TIMEOUT,
-    )
 
 
 def _iso_to_unix(date_str: str) -> int:
@@ -73,122 +76,9 @@ def _iso_to_unix(date_str: str) -> int:
     return int(dt.timestamp())
 
 
-async def _cg_fetch(
-    http: HttpClient,
-    *,
-    path: str,
-    params: dict[str, Any] | None = None,
-    op_name: str,
-) -> Any:
-    """Shared CoinGecko GET with typed error mapping.
-
-    Returns the parsed JSON body. Raises typed connector exceptions.
-    """
-    try:
-        response = await http.request("GET", path, params=params or None)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        status = e.response.status_code
-        match status:
-            case 401:
-                # CoinGecko reuses 401 for plan-gated restrictions:
-                #   error_code 10005 = Pro-only endpoint
-                #   error_code 10012 = date range exceeds Demo limit (365 days)
-                # Body format: {"status": {"error_code": N, "error_message": "..."}}
-                # or:          {"error": {"status": {"error_code": N, ...}}}
-                try:
-                    body = e.response.json()
-                    status = body.get("status") or body.get("error", {}).get("status", {})
-                    code = status.get("error_code", 0)
-                    msg = status.get("error_message", "")
-                    if code in (10005, 10006, 10012):
-                        raise PaymentRequiredError(
-                            provider="coingecko",
-                            message=f"CoinGecko plan restriction (error_code={code}): {msg}",
-                        ) from e
-                except (ValueError, AttributeError):
-                    pass
-                raise UnauthorizedError(
-                    provider="coingecko",
-                    message="Invalid or missing CoinGecko API key",
-                ) from e
-            case 402:
-                raise PaymentRequiredError(
-                    provider="coingecko",
-                    message="Your CoinGecko plan does not include this endpoint",
-                ) from e
-            case 429:
-                retry_after = float(e.response.headers.get("Retry-After", "60"))
-                raise RateLimitError(
-                    provider="coingecko",
-                    retry_after=retry_after,
-                    message=f"CoinGecko rate limit hit on '{op_name}', retry after {retry_after:.0f}s",
-                ) from e
-            case _:
-                # CoinGecko returns plan-gated errors as non-standard codes in the body
-                try:
-                    body = e.response.json()
-                    code = body.get("status", {}).get("error_code", 0)
-                    if code in (10005, 10006):
-                        raise PaymentRequiredError(
-                            provider="coingecko",
-                            message=f"CoinGecko endpoint requires a higher plan (error_code={code})",
-                        ) from e
-                except (ValueError, AttributeError):
-                    pass
-                raise ProviderError(
-                    provider="coingecko",
-                    status_code=status,
-                    message=f"CoinGecko API error {status} on '{op_name}'",
-                ) from e
-
-    return response.json()
-
-
 # ---------------------------------------------------------------------------
-# Search / Discovery — OutputConfigs
+# Search / Discovery — Connectors
 # ---------------------------------------------------------------------------
-
-_SEARCH_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="id", role=ColumnRole.KEY, namespace="coingecko_coin"),
-        Column(name="name", role=ColumnRole.TITLE),
-        Column(name="symbol", role=ColumnRole.METADATA),
-        Column(name="market_cap_rank", role=ColumnRole.METADATA),
-        Column(name="thumb", role=ColumnRole.METADATA, exclude_from_llm_view=True),
-    ]
-)
-
-_TRENDING_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="id", role=ColumnRole.KEY, namespace="coingecko_coin"),
-        Column(name="name", role=ColumnRole.TITLE),
-        Column(name="symbol", role=ColumnRole.METADATA),
-        Column(name="market_cap_rank", role=ColumnRole.METADATA),
-        Column(name="score", role=ColumnRole.METADATA),
-    ]
-)
-
-_GAINERS_LOSERS_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="id", role=ColumnRole.KEY, namespace="coingecko_coin"),
-        Column(name="name", role=ColumnRole.TITLE),
-        Column(name="symbol", role=ColumnRole.METADATA),
-        Column(name="direction", role=ColumnRole.METADATA),
-        Column(name="usd_price_percent_change", dtype="numeric"),
-    ]
-)
-
-
-# ---------------------------------------------------------------------------
-# Search / Discovery — Params + Connectors
-# ---------------------------------------------------------------------------
-
-
-class CoinGeckoSearchParams(BaseModel):
-    """Search CoinGecko for coins, exchanges, or NFTs by name or symbol."""
-
-    query: str = Field(..., min_length=1, description="Search term, e.g. 'solana' or 'SOL'")
 
 
 @connector(output=_SEARCH_OUTPUT, tags=["crypto", "tool"])
@@ -229,12 +119,6 @@ async def coingecko_search(params: CoinGeckoSearchParams, *, api_key: str) -> Re
     )
 
 
-class CoinGeckoTrendingParams(BaseModel):
-    """No parameters — trending is always the last 24 hours."""
-
-    pass
-
-
 @connector(output=_TRENDING_OUTPUT, tags=["crypto", "tool"])
 async def coingecko_trending(params: CoinGeckoTrendingParams, *, api_key: str) -> Result:
     """[Demo+] Fetch trending coins on CoinGecko in the last 24 hours.
@@ -263,23 +147,6 @@ async def coingecko_trending(params: CoinGeckoTrendingParams, *, api_key: str) -
     df = pd.DataFrame(rows)
     return _TRENDING_OUTPUT.build_table_result(
         df, provenance=Provenance(source="coingecko_trending", params={}), params={}
-    )
-
-
-class CoinGeckoTopMoversParams(BaseModel):
-    """Parameters for top gainers and losers."""
-
-    vs_currency: str = Field(
-        default="usd",
-        description="Target currency for price data, e.g. usd, eur, btc",
-    )
-    duration: Literal["1h", "24h", "7d", "14d", "30d", "60d", "1y"] = Field(
-        default="24h",
-        description="Time window: 1h, 24h, 7d, 14d, 30d, 60d, or 1y",
-    )
-    top_coins: Literal["300", "1000"] = Field(
-        default="1000",
-        description="Pool size to rank from: 300 or 1000 top coins by market cap",
     )
 
 
@@ -335,74 +202,8 @@ async def coingecko_top_gainers_losers(params: CoinGeckoTopMoversParams, *, api_
 
 
 # ---------------------------------------------------------------------------
-# Market Data — OutputConfigs
+# Market Data — Connectors
 # ---------------------------------------------------------------------------
-
-_PRICE_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="id", role=ColumnRole.KEY, namespace="coingecko_coin"),
-    ]
-)
-
-_MARKETS_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="id", role=ColumnRole.KEY, namespace="coingecko_coin"),
-        Column(name="name", role=ColumnRole.TITLE),
-        Column(name="symbol", role=ColumnRole.METADATA),
-        Column(name="market_cap_rank", role=ColumnRole.METADATA),
-        Column(name="current_price", dtype="numeric"),
-        Column(name="market_cap", dtype="numeric"),
-        Column(name="total_volume", dtype="numeric"),
-        Column(name="high_24h", dtype="numeric"),
-        Column(name="low_24h", dtype="numeric"),
-        Column(name="price_change_percentage_24h", dtype="numeric"),
-        Column(name="ath", dtype="numeric"),
-        Column(name="atl", dtype="numeric"),
-        Column(name="circulating_supply", dtype="numeric"),
-        Column(name="total_supply", dtype="numeric"),
-        Column(name="last_updated", role=ColumnRole.METADATA),
-    ]
-)
-
-_MARKET_CHART_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="timestamp", role=ColumnRole.KEY, dtype="timestamp"),
-        Column(name="price", dtype="numeric"),
-        Column(name="market_cap", dtype="numeric"),
-        Column(name="total_volume", dtype="numeric"),
-    ]
-)
-
-_OHLC_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="timestamp", role=ColumnRole.KEY, dtype="timestamp"),
-        Column(name="open", dtype="numeric"),
-        Column(name="high", dtype="numeric"),
-        Column(name="low", dtype="numeric"),
-        Column(name="close", dtype="numeric"),
-    ]
-)
-
-
-# ---------------------------------------------------------------------------
-# Market Data — Params + Connectors
-# ---------------------------------------------------------------------------
-
-
-class CoinGeckoPriceParams(BaseModel):
-    """Parameters for simple price lookup."""
-
-    ids: str = Field(
-        ...,
-        description="Comma-separated CoinGecko coin IDs, e.g. 'bitcoin,ethereum'. Use coingecko_search to resolve IDs.",
-    )
-    vs_currencies: str = Field(
-        default="usd",
-        description="Comma-separated target currencies, e.g. 'usd,eur,btc'",
-    )
-    include_market_cap: bool = Field(default=True, description="Include market cap values")
-    include_24hr_vol: bool = Field(default=True, description="Include 24h trading volume")
-    include_24hr_change: bool = Field(default=True, description="Include 24h price change percentage")
 
 
 @connector(output=_PRICE_OUTPUT, tags=["crypto"])
@@ -442,27 +243,6 @@ async def coingecko_price(params: CoinGeckoPriceParams, *, api_key: str) -> Resu
     )
 
 
-class CoinGeckoMarketsParams(BaseModel):
-    """Parameters for paginated coin market listings."""
-
-    vs_currency: str = Field(default="usd", description="Target currency, e.g. usd, eur, btc")
-    ids: str | None = Field(
-        default=None,
-        description="Comma-separated coin IDs to filter, e.g. 'bitcoin,ethereum'. Omit for top N by market cap.",
-    )
-    order: Literal[
-        "market_cap_desc",
-        "market_cap_asc",
-        "volume_desc",
-        "volume_asc",
-        "id_desc",
-        "id_asc",
-    ] = Field(default="market_cap_desc", description="Sort order")
-    per_page: int = Field(default=100, ge=1, le=250, description="Results per page (max 250)")
-    page: int = Field(default=1, ge=1, description="Page number")
-    sparkline: bool = Field(default=False, description="Include 7-day sparkline data")
-
-
 @connector(output=_MARKETS_OUTPUT, tags=["crypto"])
 async def coingecko_markets(params: CoinGeckoMarketsParams, *, api_key: str) -> Result:
     """[Demo+] Fetch ranked market data for coins: price, market cap, volume, ATH/ATL,
@@ -496,26 +276,6 @@ async def coingecko_markets(params: CoinGeckoMarketsParams, *, api_key: str) -> 
     )
 
 
-class CoinGeckoCoinDetailParams(BaseModel):
-    """Parameters for fetching full coin metadata."""
-
-    coin_id: Annotated[str, Namespace("coingecko_coin")] = Field(
-        ..., description="CoinGecko coin ID, e.g. 'bitcoin'. Use coingecko_search to resolve."
-    )
-    localization: bool = Field(default=False, description="Include localized language data (inflates response)")
-    tickers: bool = Field(default=False, description="Include exchange ticker data")
-    market_data: bool = Field(default=True, description="Include current market data")
-    community_data: bool = Field(default=False, description="Include community stats")
-    developer_data: bool = Field(default=False, description="Include developer/GitHub stats")
-
-    @field_validator("coin_id")
-    @classmethod
-    def _path_safe_coin_id(cls, v: str) -> str:
-        if not _PATH_SAFE_RE.match(v):
-            raise ValueError(f"coin_id contains unsafe characters for URL path: {v!r}")
-        return v
-
-
 @connector(tags=["crypto"])
 async def coingecko_coin_detail(params: CoinGeckoCoinDetailParams, *, api_key: str) -> Result:
     """[Demo+] Fetch full metadata for a single coin: description, links, categories,
@@ -546,36 +306,8 @@ async def coingecko_coin_detail(params: CoinGeckoCoinDetailParams, *, api_key: s
 
 
 # ---------------------------------------------------------------------------
-# Historical Data — Params + Connectors
+# Historical Data — Connectors
 # ---------------------------------------------------------------------------
-
-
-class CoinGeckoMarketChartParams(BaseModel):
-    """Parameters for historical price chart by number of days."""
-
-    coin_id: Annotated[str, Namespace("coingecko_coin")] = Field(
-        ..., description="CoinGecko coin ID, e.g. 'bitcoin'. Use coingecko_search to resolve."
-    )
-    vs_currency: str = Field(default="usd", description="Target currency, e.g. usd, eur, btc")
-    days: str = Field(
-        ...,
-        description=(
-            "Number of days of data: integer (e.g. '30') or 'max' for full history. "
-            "Auto-granularity: 1d→5-min, 2-90d→hourly, 90d+→daily. "
-            "Override with interval= parameter."
-        ),
-    )
-    interval: Literal["5m", "hourly", "daily"] | None = Field(
-        default=None,
-        description="Force data interval: '5m', 'hourly', or 'daily'. None = auto.",
-    )
-
-    @field_validator("coin_id")
-    @classmethod
-    def _path_safe_coin_id(cls, v: str) -> str:
-        if not _PATH_SAFE_RE.match(v):
-            raise ValueError(f"coin_id contains unsafe characters for URL path: {v!r}")
-        return v
 
 
 @connector(output=_MARKET_CHART_OUTPUT, tags=["crypto"])
@@ -606,34 +338,6 @@ async def coingecko_market_chart(params: CoinGeckoMarketChartParams, *, api_key:
         ),
         params={"coin_id": params.coin_id},
     )
-
-
-class CoinGeckoMarketChartRangeParams(BaseModel):
-    """Parameters for historical price chart between two dates."""
-
-    model_config = ConfigDict(populate_by_name=True)
-
-    coin_id: Annotated[str, Namespace("coingecko_coin")] = Field(
-        ..., description="CoinGecko coin ID, e.g. 'bitcoin'. Use coingecko_search to resolve."
-    )
-    vs_currency: str = Field(default="usd", description="Target currency, e.g. usd, eur, btc")
-    from_date: str = Field(
-        ...,
-        alias="from",
-        description="Start date ISO 8601, e.g. '2024-01-01'. Use as from_date='2024-01-01'",
-    )
-    to_date: str = Field(
-        ...,
-        alias="to",
-        description="End date ISO 8601, e.g. '2024-12-31'. Use as to_date='2024-12-31'",
-    )
-
-    @field_validator("coin_id")
-    @classmethod
-    def _path_safe_coin_id(cls, v: str) -> str:
-        if not _PATH_SAFE_RE.match(v):
-            raise ValueError(f"coin_id contains unsafe characters for URL path: {v!r}")
-        return v
 
 
 @connector(output=_MARKET_CHART_OUTPUT, tags=["crypto"])
@@ -695,25 +399,6 @@ def _build_market_chart_df(data: Any, *, op_name: str) -> pd.DataFrame:
     return df
 
 
-class CoinGeckoOhlcParams(BaseModel):
-    """Parameters for OHLC candlestick data."""
-
-    coin_id: Annotated[str, Namespace("coingecko_coin")] = Field(
-        ..., description="CoinGecko coin ID, e.g. 'bitcoin'. Use coingecko_search to resolve."
-    )
-    vs_currency: str = Field(default="usd", description="Target currency, e.g. usd, eur, btc")
-    days: Literal[1, 7, 14, 30, 90, 180, 365] = Field(
-        default=30, description="Candle range in days: 1, 7, 14, 30, 90, 180, or 365"
-    )
-
-    @field_validator("coin_id")
-    @classmethod
-    def _path_safe_coin_id(cls, v: str) -> str:
-        if not _PATH_SAFE_RE.match(v):
-            raise ValueError(f"coin_id contains unsafe characters for URL path: {v!r}")
-        return v
-
-
 @connector(output=_OHLC_OUTPUT, tags=["crypto"])
 async def coingecko_ohlc(params: CoinGeckoOhlcParams, *, api_key: str) -> Result:
     """[Demo+] Fetch OHLC (open-high-low-close) candlestick data for a coin.
@@ -746,56 +431,8 @@ async def coingecko_ohlc(params: CoinGeckoOhlcParams, *, api_key: str) -> Result
 
 
 # ---------------------------------------------------------------------------
-# On-Chain / GeckoTerminal — OutputConfigs + Connectors
+# On-Chain / GeckoTerminal — Connectors
 # ---------------------------------------------------------------------------
-
-_ONCHAIN_PRICE_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="contract_address", role=ColumnRole.KEY, namespace="coingecko_onchain"),
-        Column(name="price_usd", dtype="numeric"),
-    ]
-)
-
-
-_NETWORK_RE = re.compile(r"^[a-zA-Z0-9_\-]+$")
-_CONTRACT_ADDR_RE = re.compile(r"^[a-zA-Z0-9x,]+$")
-
-
-class CoinGeckoTokenPriceOnchainParams(BaseModel):
-    """Parameters for on-chain token price lookup via GeckoTerminal."""
-
-    network: str = Field(
-        ...,
-        description=(
-            "Blockchain network ID, e.g. 'eth' (Ethereum), 'bsc' (BNB Chain), "
-            "'polygon-pos', 'arbitrum-one', 'solana'. Use lowercase with hyphens."
-        ),
-    )
-    contract_addresses: str = Field(
-        ...,
-        description=(
-            "Comma-separated token contract addresses (checksum or lowercase),"
-            " e.g. '0xdac17f958d2ee523a2206206994597c13d831ec7'"
-        ),
-    )
-    vs_currencies: str = Field(
-        default="usd",
-        description="Comma-separated target currencies for price. Only 'usd' is reliably available.",
-    )
-
-    @field_validator("network")
-    @classmethod
-    def _path_safe_network(cls, v: str) -> str:
-        if not _NETWORK_RE.match(v):
-            raise ValueError(f"network contains unsafe characters for URL path: {v!r}")
-        return v
-
-    @field_validator("contract_addresses")
-    @classmethod
-    def _path_safe_addresses(cls, v: str) -> str:
-        if not _CONTRACT_ADDR_RE.match(v):
-            raise ValueError(f"contract_addresses contains unsafe characters for URL path: {v!r}")
-        return v
 
 
 @connector(output=_ONCHAIN_PRICE_OUTPUT, tags=["crypto", "onchain"])
@@ -836,24 +473,6 @@ async def coingecko_token_price_onchain(params: CoinGeckoTokenPriceOnchainParams
 # Enumerator — full coin list for catalog indexing
 # ---------------------------------------------------------------------------
 
-_ENUMERATE_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="id", role=ColumnRole.KEY, namespace="coingecko_coin"),
-        Column(name="name", role=ColumnRole.TITLE),
-        Column(name="symbol", role=ColumnRole.METADATA),
-        Column(name="platforms", role=ColumnRole.METADATA, exclude_from_llm_view=True),
-    ]
-)
-
-
-class CoinGeckoEnumerateParams(BaseModel):
-    """No parameters — enumerates the full CoinGecko coin catalog (~15 000 entries)."""
-
-    include_platform: bool = Field(
-        default=False,
-        description="Include contract address platforms (significantly increases response size)",
-    )
-
 
 @enumerator(output=_ENUMERATE_OUTPUT, tags=["crypto"])
 async def enumerate_coingecko(params: CoinGeckoEnumerateParams, *, api_key: str) -> pd.DataFrame:
@@ -891,7 +510,8 @@ async def enumerate_coingecko(params: CoinGeckoEnumerateParams, *, api_key: str)
 
 
 # ---------------------------------------------------------------------------
-# Connector collections
+# Collection — kept as a literal ``Connectors([...])`` assignment so
+# ``tools/gen_registry.py`` can AST-extract it.
 # ---------------------------------------------------------------------------
 
 CONNECTORS = Connectors(
@@ -912,3 +532,34 @@ CONNECTORS = Connectors(
         enumerate_coingecko,
     ]
 )
+
+
+__all__ = [
+    "CONNECTORS",
+    "ENV_VARS",
+    # Parameter models (public — downstream callers type against these)
+    "CoinGeckoCoinDetailParams",
+    "CoinGeckoEnumerateParams",
+    "CoinGeckoMarketChartParams",
+    "CoinGeckoMarketChartRangeParams",
+    "CoinGeckoMarketsParams",
+    "CoinGeckoOhlcParams",
+    "CoinGeckoPriceParams",
+    "CoinGeckoSearchParams",
+    "CoinGeckoTokenPriceOnchainParams",
+    "CoinGeckoTopMoversParams",
+    "CoinGeckoTrendingParams",
+    # Connector functions
+    "coingecko_coin_detail",
+    "coingecko_market_chart",
+    "coingecko_market_chart_range",
+    "coingecko_markets",
+    "coingecko_ohlc",
+    "coingecko_price",
+    "coingecko_search",
+    "coingecko_token_price_onchain",
+    "coingecko_top_gainers_losers",
+    "coingecko_trending",
+    # Enumerator
+    "enumerate_coingecko",
+]

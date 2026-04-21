@@ -20,15 +20,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 import time
 from collections.abc import Sequence
+from pathlib import Path
 
 import mcp.server.stdio
 from parsimony.discovery import build_connectors_from_env
 
+from parsimony_mcp import init as init_command
+from parsimony_mcp._env import load_env
 from parsimony_mcp._logging import configure_logging
-from parsimony_mcp.cli import init as cli_init
 from parsimony_mcp.server import create_server
 
 logger = logging.getLogger("parsimony_mcp.main")
@@ -38,7 +41,28 @@ _SLOW_DISCOVERY_MS = 2000
 _KNOWN_SUBCOMMANDS = frozenset({"init"})
 
 
+def _load_env_from_environment() -> None:
+    """Apply the .env precedence chain to ``os.environ`` before discovery.
+
+    Sequence is load-bearing — configuration sources must load in the
+    order their consumers read them:
+
+    1. ``load_env`` runs first so ``.env`` and any caller-provided
+       overrides are visible by the time
+    2. ``configure_logging`` reads ``PARSIMONY_MCP_LOG_LEVEL`` and
+    3. ``build_connectors_from_env`` snapshots the rest of the env
+       vars at construction time.
+
+    Reordering breaks ``.env``-driven config silently (the level
+    override or the API key both vanish).
+    """
+    project_dir_pin_str = os.environ.get("PARSIMONY_MCP_PROJECT_DIR")
+    project_dir_pin = Path(project_dir_pin_str) if project_dir_pin_str else None
+    load_env(cwd=Path.cwd(), project_dir_pin=project_dir_pin)
+
+
 async def _run_server() -> None:
+    _load_env_from_environment()
     configure_logging()
 
     start = time.monotonic()
@@ -66,7 +90,7 @@ async def _run_server() -> None:
             extra={"discovery_ms": discovery_ms, "threshold_ms": _SLOW_DISCOVERY_MS},
         )
 
-    server = create_server(tool_connectors)
+    server = create_server(all_connectors)
     async with mcp.server.stdio.stdio_server() as (read, write):
         await server.run(read, write, server.create_initialization_options())
 
@@ -83,15 +107,15 @@ def _dispatch(argv: Sequence[str]) -> int:
         sub = argv[0]
         rest = argv[1:]
         if sub == "init":
-            return cli_init.run(rest)
+            return init_command.run(rest)
         # Unreachable: _KNOWN_SUBCOMMANDS is a closed set.
         raise AssertionError(f"no dispatch for subcommand {sub!r}")
 
     try:
         asyncio.run(_run_server())
     except KeyboardInterrupt:
-        return int(cli_init.ExitCode.SIGINT)
-    return int(cli_init.ExitCode.OK)
+        return 130  # SIGINT — Python's default handler exit code.
+    return int(init_command.ExitCode.OK)
 
 
 def main() -> None:
@@ -99,7 +123,7 @@ def main() -> None:
     try:
         code = _dispatch(sys.argv[1:])
     except KeyboardInterrupt:
-        code = int(cli_init.ExitCode.SIGINT)
+        code = 130
     sys.exit(code)
 
 

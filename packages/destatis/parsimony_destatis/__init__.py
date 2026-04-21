@@ -10,8 +10,9 @@ import io
 import re
 from typing import Annotated, Any
 
+import httpx
 import pandas as pd
-from parsimony.connector import Connectors, Namespace, connector, enumerator
+from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError, ParseError, ProviderError
 from parsimony.result import (
     Column,
@@ -20,7 +21,7 @@ from parsimony.result import (
     Provenance,
     Result,
 )
-from parsimony.transport.http import HttpClient
+from parsimony.transport import HttpClient, map_http_error
 from pydantic import BaseModel, Field, field_validator
 
 _BASE_URL = "https://www-genesis.destatis.de/genesisWS/rest/2020"
@@ -51,7 +52,7 @@ _GERMAN_MONTHS = {
 class DestatisFetchParams(BaseModel):
     """Parameters for fetching Destatis table data."""
 
-    table_id: Annotated[str, Namespace("destatis")] = Field(..., description="GENESIS table ID (e.g. 61111-0001)")
+    table_id: Annotated[str, "ns:destatis"] = Field(..., description="GENESIS table ID (e.g. 61111-0001)")
     start_year: str | None = Field(default=None, description="Start year (YYYY)")
     end_year: str | None = Field(default=None, description="End year (YYYY)")
 
@@ -154,17 +155,12 @@ async def destatis_fetch(
     if params.end_year:
         req_params["endyear"] = params.end_year
 
-    import httpx as _httpx
-
-    async with _httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
         response = await client.get(f"{_BASE_URL}/data/tablefile", params=req_params)
-
-    if response.status_code != 200:
-        raise ProviderError(
-            provider="destatis",
-            status_code=response.status_code,
-            message=f"Destatis API error: HTTP {response.status_code}",
-        )
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="destatis", op_name="data")
 
     text = response.text
     if "<html" in text.lower() or "announcement" in text.lower() or "datenbank/online" in str(response.url):
@@ -249,7 +245,10 @@ async def enumerate_destatis(
             "pagelength": "500",
         },
     )
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="destatis", op_name="catalogue/tables")
     body = response.json()
 
     tables = body.get("Tables", body.get("tables", []))

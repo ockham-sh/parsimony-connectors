@@ -15,7 +15,7 @@ from typing import Any, Literal
 
 import pandas as pd
 from parsimony.connector import Connectors, connector
-from parsimony.errors import EmptyDataError, RateLimitError
+from parsimony.errors import EmptyDataError, PaymentRequiredError, RateLimitError, UnauthorizedError
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -99,6 +99,10 @@ async def _with_retry(coro_factory: Any, api_key: str) -> Any:
             try:
                 return await coro_factory(client)
             except ApiException as exc:
+                if exc.status == 401:
+                    raise UnauthorizedError(provider="financial_reports") from exc
+                if exc.status == 402:
+                    raise PaymentRequiredError(provider="financial_reports") from exc
                 if exc.status != 429:
                     raise
                 retry_after = _parse_retry_after(exc)

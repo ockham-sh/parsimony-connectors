@@ -45,7 +45,6 @@ These providers are candidates for inclusion in the monorepo. Every entry is cur
 | Eurostat | `parsimony-eurostat` | pending | pending | via SDMX |
 | Federal Reserve Economic Data | `parsimony-fred` | pending | pending | U.S. government — already shipping |
 | Financial Modeling Prep | `parsimony-fmp` | pending | pending | commercial subscription |
-| Financial Modeling Prep Screener | `parsimony-fmp-screener` | pending | pending | same as FMP |
 | FinancialReports.eu | `parsimony-financial-reports` | pending | pending | commercial |
 | Finnhub | `parsimony-finnhub` | pending | pending | commercial subscription |
 | International Labour Organization | `parsimony-ilo` | pending | pending | via SDMX |

@@ -1,7 +1,7 @@
 """EODHD source: typed connectors per endpoint.
 
 API docs: https://eodhd.com/financial-apis/api-for-historical-data-and-volumes/
-Authentication: API key via ?api_token= query param.
+Authentication: API token via ``?api_token=<key>`` query param.
 Base URL: https://eodhd.com/api
 
 Provides 17 connectors covering the full EODHD REST surface:
@@ -15,38 +15,62 @@ Provides 17 connectors covering the full EODHD REST surface:
   - Technical indicators
   - Insider transactions
   - Screener
+
+Internal layout (not part of the public contract):
+
+* :mod:`parsimony_eodhd._http` — shared transport, unified error mapping,
+  URL redaction, Retry-After parsing, JSON fetch helper.
+* :mod:`parsimony_eodhd.params` — Pydantic parameter models.
+* :mod:`parsimony_eodhd.outputs` — declarative :class:`OutputConfig` schemas.
+
+This ``__init__.py`` stays at the top level so ``tools/gen_registry.py``
+can AST-parse ``@connector`` decorators (it does not follow re-exports).
 """
 
 from __future__ import annotations
 
 import json
-import re
-from typing import Annotated, Any, Literal
+from typing import Any
 
-import httpx
-import pandas as pd
-from parsimony.connector import (
-    Connectors,
-    Namespace,
-    connector,
+from parsimony.connector import Connectors, connector
+from parsimony.result import Result
+
+from parsimony_eodhd._http import eodhd_fetch as _eodhd_fetch
+from parsimony_eodhd._http import make_http as _make_http
+from parsimony_eodhd.outputs import BULK_EOD_OUTPUT as _BULK_EOD_OUTPUT
+from parsimony_eodhd.outputs import CALENDAR_OUTPUT as _CALENDAR_OUTPUT
+from parsimony_eodhd.outputs import DIVIDENDS_OUTPUT as _DIVIDENDS_OUTPUT
+from parsimony_eodhd.outputs import EOD_OUTPUT as _EOD_OUTPUT
+from parsimony_eodhd.outputs import EXCHANGE_SYMBOLS_OUTPUT as _EXCHANGE_SYMBOLS_OUTPUT
+from parsimony_eodhd.outputs import EXCHANGES_OUTPUT as _EXCHANGES_OUTPUT
+from parsimony_eodhd.outputs import INSIDER_OUTPUT as _INSIDER_OUTPUT
+from parsimony_eodhd.outputs import INTRADAY_OUTPUT as _INTRADAY_OUTPUT
+from parsimony_eodhd.outputs import LIVE_OUTPUT as _LIVE_OUTPUT
+from parsimony_eodhd.outputs import MACRO_OUTPUT as _MACRO_OUTPUT
+from parsimony_eodhd.outputs import NEWS_OUTPUT as _NEWS_OUTPUT
+from parsimony_eodhd.outputs import SCREENER_OUTPUT as _SCREENER_OUTPUT
+from parsimony_eodhd.outputs import SEARCH_OUTPUT as _SEARCH_OUTPUT
+from parsimony_eodhd.outputs import SPLITS_OUTPUT as _SPLITS_OUTPUT
+from parsimony_eodhd.outputs import TECHNICAL_OUTPUT as _TECHNICAL_OUTPUT
+from parsimony_eodhd.params import (
+    EodhdBulkEodParams,
+    EodhdCalendarParams,
+    EodhdDividendsParams,
+    EodhdEodParams,
+    EodhdExchangesParams,
+    EodhdExchangeSymbolsParams,
+    EodhdFundamentalsParams,
+    EodhdInsiderParams,
+    EodhdIntradayParams,
+    EodhdLiveParams,
+    EodhdMacroBulkParams,
+    EodhdMacroParams,
+    EodhdNewsParams,
+    EodhdScreenerParams,
+    EodhdSearchParams,
+    EodhdSplitsParams,
+    EodhdTechnicalParams,
 )
-from parsimony.errors import (
-    EmptyDataError,
-    ParseError,
-    PaymentRequiredError,
-    ProviderError,
-    RateLimitError,
-    UnauthorizedError,
-)
-from parsimony.result import (
-    Column,
-    ColumnRole,
-    OutputConfig,
-    Provenance,
-    Result,
-)
-from parsimony.transport.http import HttpClient
-from pydantic import BaseModel, ConfigDict, Field
 
 ENV_VARS: dict[str, str] = {"api_key": "EODHD_API_KEY"}
 
@@ -55,233 +79,8 @@ _BULK_TIMEOUT: float = 60.0
 
 
 # ---------------------------------------------------------------------------
-# Transport helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_http(api_key: str, timeout: float = _LATENCY_TIMEOUT) -> HttpClient:
-    return HttpClient(
-        "https://eodhd.com/api",
-        timeout=timeout,
-        query_params={"api_token": api_key, "fmt": "json"},
-    )
-
-
-def _to_bracket_params(params: dict[str, Any]) -> dict[str, Any]:
-    """Transform filter_x → filter[x] and page_x → page[x] for EODHD bracket syntax.
-
-    Pure function: does not mutate input. None values are dropped.
-    """
-    result: dict[str, Any] = {}
-    for k, v in params.items():
-        if v is None:
-            continue
-        if k.startswith("filter_"):
-            result[f"filter[{k[7:]}]"] = v
-        elif k.startswith("page_"):
-            result[f"page[{k[5:]}]"] = v
-        else:
-            result[k] = v
-    return result
-
-
-async def _eodhd_fetch(
-    http: HttpClient,
-    *,
-    path: str,
-    params: dict[str, Any],
-    op_name: str,
-    output_config: OutputConfig | None = None,
-    raw: bool = False,
-) -> Result:
-    """Shared EODHD fetch: path interpolation, bracket params, JSON extraction, Result building.
-
-    Error mapping:
-      401 → UnauthorizedError
-      402 → PaymentRequiredError
-      429 → RateLimitError (surfaces immediately — no retry)
-      5xx → ProviderError
-
-    The EODHD API key is never included in exception messages.
-    asyncio.CancelledError propagates unchanged.
-    """
-    # Path template substitution: {key} → value; remainder → query params
-    rendered = path
-    query_params: dict[str, Any] = {}
-
-    for key, value in params.items():
-        if value is None:
-            continue
-        placeholder = f"{{{key}}}"
-        if placeholder in rendered:
-            rendered = rendered.replace(placeholder, str(value))
-        else:
-            query_params[key] = value
-
-    # Remove any unfilled optional placeholders
-    rendered = re.sub(r"\{[^}]+\}", "", rendered)
-
-    # Apply EODHD bracket syntax transformation (filter_x → filter[x], page_x → page[x])
-    query_params = _to_bracket_params(query_params)
-
-    try:
-        response = await http.request("GET", f"/{rendered.lstrip('/')}", params=query_params or None)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        status = e.response.status_code
-        match status:
-            case 401:
-                raise UnauthorizedError(
-                    provider="eodhd",
-                    message="Invalid or missing EODHD API token",
-                ) from e
-            case 402:
-                raise PaymentRequiredError(
-                    provider="eodhd",
-                    message="Your EODHD plan is not eligible for this data request",
-                ) from e
-            case 429:
-                try:
-                    retry_after = float(e.response.headers.get("Retry-After", "60"))
-                except ValueError:
-                    retry_after = 60.0
-                raise RateLimitError(
-                    provider="eodhd",
-                    retry_after=retry_after,
-                    message=f"EODHD rate limit hit on '{op_name}', retry after {retry_after:.0f}s",
-                ) from e
-            case _:
-                raise ProviderError(
-                    provider="eodhd",
-                    status_code=status,
-                    message=f"EODHD API error {status} on '{op_name}'",
-                ) from e
-
-    data = response.json()
-    prov = Provenance(source=op_name, params=dict(params))
-
-    # 200-body error detection (EODHD returns error strings in the body on some endpoints)
-    if isinstance(data, dict) and "error" in data and isinstance(data["error"], str):
-        raise ProviderError(
-            provider="eodhd",
-            status_code=200,
-            message=f"EODHD error on '{op_name}': {data['error']}",
-        )
-
-    # Raw return path (fundamentals): bypass DataFrame pipeline entirely
-    if raw:
-        return Result(data=data, provenance=prov)
-
-    # DataFrame construction
-    if isinstance(data, list):
-        df = pd.DataFrame(data)
-    elif isinstance(data, dict):
-        for key in ("earnings", "ipos", "splits", "trends", "data", "results"):
-            if key in data and isinstance(data[key], list):
-                df = pd.DataFrame(data[key])
-                break
-        else:
-            df = pd.DataFrame([data])
-    else:
-        raise ParseError(
-            provider="eodhd",
-            message=f"Unexpected response type from EODHD '{op_name}': {type(data).__name__}",
-        )
-
-    if df.empty:
-        raise EmptyDataError(
-            provider="eodhd",
-            message=f"No data returned from EODHD endpoint '{op_name}'",
-            query_params=dict(params),
-        )
-
-    if output_config is not None:
-        return output_config.build_table_result(df, provenance=prov, params=dict(params))
-    return Result.from_dataframe(df, prov)
-
-
-# ---------------------------------------------------------------------------
-# Market Data — OutputConfigs
-# ---------------------------------------------------------------------------
-
-_EOD_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="date", role=ColumnRole.KEY, dtype="date"),
-        Column(name="open", dtype="numeric"),
-        Column(name="high", dtype="numeric"),
-        Column(name="low", dtype="numeric"),
-        Column(name="close", dtype="numeric"),
-        Column(name="adjusted_close", dtype="numeric"),
-        Column(name="volume", dtype="numeric"),
-    ]
-)
-
-_LIVE_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="code", role=ColumnRole.KEY),
-        Column(name="timestamp", role=ColumnRole.METADATA, dtype="timestamp"),
-        Column(name="open", dtype="numeric"),
-        Column(name="high", dtype="numeric"),
-        Column(name="low", dtype="numeric"),
-        Column(name="close", dtype="numeric"),
-        Column(name="volume", dtype="numeric"),
-        Column(name="previousClose", dtype="numeric"),
-        Column(name="change", dtype="numeric"),
-        Column(name="change_p", dtype="numeric"),
-    ]
-)
-
-_INTRADAY_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="timestamp", role=ColumnRole.KEY, dtype="timestamp"),
-        Column(name="datetime", role=ColumnRole.METADATA),
-        Column(name="open", dtype="numeric"),
-        Column(name="high", dtype="numeric"),
-        Column(name="low", dtype="numeric"),
-        Column(name="close", dtype="numeric"),
-        Column(name="volume", dtype="numeric"),
-    ]
-)
-
-_BULK_EOD_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="code", role=ColumnRole.KEY),
-        Column(name="name", role=ColumnRole.TITLE),
-        Column(name="exchange_short_name", role=ColumnRole.METADATA),
-        Column(name="date", dtype="date"),
-        Column(name="open", dtype="numeric"),
-        Column(name="high", dtype="numeric"),
-        Column(name="low", dtype="numeric"),
-        Column(name="close", dtype="numeric"),
-        Column(name="adjusted_close", dtype="numeric"),
-        Column(name="volume", dtype="numeric"),
-    ]
-)
-
-
-# ---------------------------------------------------------------------------
 # Market Data — Connectors
 # ---------------------------------------------------------------------------
-
-
-class EodhdEodParams(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    ticker: Annotated[str, Namespace("eodhd_symbols")] = Field(
-        ...,
-        pattern=r"^[A-Z0-9._\-]+$",
-        description="Ticker in EODHD format, e.g. AAPL.US or BARC.LSE",
-    )
-    from_date: str | None = Field(
-        default=None, alias="from", description="Start date ISO 8601 e.g. 2024-01-15. Use as from_date='2024-01-15'"
-    )
-    to_date: str | None = Field(
-        default=None, alias="to", description="End date ISO 8601 e.g. 2024-12-31. Use as to_date='2024-12-31'"
-    )
-    period: Literal["d", "w", "m"] | None = Field(
-        default=None,
-        description="Aggregation period: d (daily), w (weekly), m (monthly). Default: d",
-    )
 
 
 @connector(output=_EOD_OUTPUT, tags=["eodhd", "equity"])
@@ -300,16 +99,6 @@ async def eodhd_eod(params: EodhdEodParams, *, api_key: str) -> Result:
     return await _eodhd_fetch(http, path="/eod/{ticker}", params=p, op_name="eodhd_eod", output_config=_EOD_OUTPUT)
 
 
-class EodhdLiveParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    ticker: Annotated[str, Namespace("eodhd_symbols")] = Field(
-        ...,
-        pattern=r"^[A-Z0-9._\-]+$",
-        description="Ticker in EODHD format, e.g. AAPL.US",
-    )
-
-
 @connector(output=_LIVE_OUTPUT, tags=["eodhd", "equity", "tool"])
 async def eodhd_live(params: EodhdLiveParams, *, api_key: str) -> Result:
     """[Free+] Fetch live (real-time or 15-min delayed) quote for a ticker. Use eodhd_search
@@ -322,19 +111,6 @@ async def eodhd_live(params: EodhdLiveParams, *, api_key: str) -> Result:
         op_name="eodhd_live",
         output_config=_LIVE_OUTPUT,
     )
-
-
-class EodhdIntradayParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    ticker: Annotated[str, Namespace("eodhd_symbols")] = Field(
-        ...,
-        pattern=r"^[A-Z0-9._\-]+$",
-        description="Ticker in EODHD format, e.g. AAPL.US",
-    )
-    interval: Literal["1m", "5m", "1h"] = Field(..., description="Intraday interval: 1m, 5m, or 1h")
-    from_unix: int | None = Field(default=None, description="Start time as Unix timestamp (seconds since epoch)")
-    to_unix: int | None = Field(default=None, description="End time as Unix timestamp (seconds since epoch)")
 
 
 @connector(output=_INTRADAY_OUTPUT, tags=["eodhd", "equity"])
@@ -353,19 +129,6 @@ async def eodhd_intraday(params: EodhdIntradayParams, *, api_key: str) -> Result
     )
 
 
-class EodhdBulkEodParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    exchange: str = Field(
-        ...,
-        pattern=r"^[A-Z0-9._\-]+$",
-        description="Exchange code, e.g. US, LSE, XETRA, TSX",
-    )
-    date: str | None = Field(
-        default=None, description="Trading date, ISO 8601, e.g. 2024-01-15. Defaults to last trading day."
-    )
-
-
 @connector(output=_BULK_EOD_OUTPUT, tags=["eodhd", "equity"])
 async def eodhd_bulk_eod(params: EodhdBulkEodParams, *, api_key: str) -> Result:
     """[EOD Historical+] Fetch end-of-day prices for all symbols on an exchange in a single request.
@@ -381,45 +144,8 @@ async def eodhd_bulk_eod(params: EodhdBulkEodParams, *, api_key: str) -> Result:
 
 
 # ---------------------------------------------------------------------------
-# Corporate Actions — OutputConfigs
-# ---------------------------------------------------------------------------
-
-_DIVIDENDS_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="date", role=ColumnRole.KEY, dtype="date"),
-        Column(name="declarationDate", dtype="date"),
-        Column(name="recordDate", dtype="date"),
-        Column(name="paymentDate", dtype="date"),
-        Column(name="period", role=ColumnRole.METADATA),
-        Column(name="value", dtype="numeric"),
-        Column(name="unadjustedValue", dtype="numeric"),
-        Column(name="currency", role=ColumnRole.METADATA),
-    ]
-)
-
-_SPLITS_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="date", role=ColumnRole.KEY, dtype="date"),
-        Column(name="split", dtype="auto"),
-    ]
-)
-
-
-# ---------------------------------------------------------------------------
 # Corporate Actions — Connectors
 # ---------------------------------------------------------------------------
-
-
-class EodhdDividendsParams(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    ticker: Annotated[str, Namespace("eodhd_symbols")] = Field(
-        ..., pattern=r"^[A-Z0-9._\-]+$", description="Ticker in EODHD format, e.g. AAPL.US"
-    )
-    from_date: str | None = Field(
-        default=None, alias="from", description="Start date ISO 8601. Use as from_date='2024-01-15'"
-    )
-    to_date: str | None = Field(default=None, alias="to", description="End date ISO 8601. Use as to_date='2024-12-31'")
 
 
 @connector(output=_DIVIDENDS_OUTPUT, tags=["eodhd", "equity"])
@@ -434,18 +160,6 @@ async def eodhd_dividends(params: EodhdDividendsParams, *, api_key: str) -> Resu
     return await _eodhd_fetch(
         http, path="/div/{ticker}", params=p, op_name="eodhd_dividends", output_config=_DIVIDENDS_OUTPUT
     )
-
-
-class EodhdSplitsParams(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    ticker: Annotated[str, Namespace("eodhd_symbols")] = Field(
-        ..., pattern=r"^[A-Z0-9._\-]+$", description="Ticker in EODHD format, e.g. AAPL.US"
-    )
-    from_date: str | None = Field(
-        default=None, alias="from", description="Start date ISO 8601. Use as from_date='2024-01-15'"
-    )
-    to_date: str | None = Field(default=None, alias="to", description="End date ISO 8601. Use as to_date='2024-12-31'")
 
 
 @connector(output=_SPLITS_OUTPUT, tags=["eodhd", "equity"])
@@ -464,58 +178,8 @@ async def eodhd_splits(params: EodhdSplitsParams, *, api_key: str) -> Result:
 
 
 # ---------------------------------------------------------------------------
-# Reference Data — OutputConfigs
-# ---------------------------------------------------------------------------
-
-_SEARCH_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="Code", role=ColumnRole.KEY, namespace="eodhd_symbols"),
-        Column(name="Name", role=ColumnRole.TITLE),
-        Column(name="Exchange", role=ColumnRole.METADATA),
-        Column(name="Type", role=ColumnRole.METADATA),
-        Column(name="Country", role=ColumnRole.METADATA),
-        Column(name="Currency", role=ColumnRole.METADATA),
-        Column(name="ISIN", role=ColumnRole.METADATA),
-    ]
-)
-
-_EXCHANGES_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="Code", role=ColumnRole.KEY),
-        Column(name="Name", role=ColumnRole.TITLE),
-        Column(name="OperatingMIC", role=ColumnRole.METADATA),
-        Column(name="Country", role=ColumnRole.METADATA),
-        Column(name="Currency", role=ColumnRole.METADATA),
-        Column(name="CountryISO2", role=ColumnRole.METADATA),
-        Column(name="CountryISO3", role=ColumnRole.METADATA),
-    ]
-)
-
-_EXCHANGE_SYMBOLS_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="Code", role=ColumnRole.KEY, namespace="eodhd_symbols"),
-        Column(name="Name", role=ColumnRole.TITLE),
-        Column(name="Country", role=ColumnRole.METADATA),
-        Column(name="Exchange", role=ColumnRole.METADATA),
-        Column(name="Currency", role=ColumnRole.METADATA),
-        Column(name="Type", role=ColumnRole.METADATA),
-    ]
-)
-
-
-# ---------------------------------------------------------------------------
 # Reference Data — Connectors
 # ---------------------------------------------------------------------------
-
-
-class EodhdSearchParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    query: str = Field(..., description="Company name or partial ticker to search for, e.g. 'Apple' or 'AAPL'")
-    limit: int = Field(default=50, description="Maximum number of results (default 50)")
-    type: Literal["Q", "ETF", "FUND", "BOND", "INDEX"] | None = Field(
-        default=None, description="Instrument type filter: Q (equity), ETF, FUND, BOND, INDEX"
-    )
 
 
 @connector(output=_SEARCH_OUTPUT, tags=["eodhd", "tool"])
@@ -532,10 +196,6 @@ async def eodhd_search(params: EodhdSearchParams, *, api_key: str) -> Result:
     )
 
 
-class EodhdExchangesParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-
 @connector(output=_EXCHANGES_OUTPUT, tags=["eodhd", "tool"])
 async def eodhd_exchanges(params: EodhdExchangesParams, *, api_key: str) -> Result:
     """[Free+] List all exchanges supported by EODHD. Use to find valid exchange codes for
@@ -543,19 +203,6 @@ async def eodhd_exchanges(params: EodhdExchangesParams, *, api_key: str) -> Resu
     http = _make_http(api_key)
     return await _eodhd_fetch(
         http, path="/exchanges-list", params={}, op_name="eodhd_exchanges", output_config=_EXCHANGES_OUTPUT
-    )
-
-
-class EodhdExchangeSymbolsParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    exchange: str = Field(
-        ...,
-        pattern=r"^[A-Z0-9._\-]+$",
-        description="Exchange code, e.g. US, LSE, XETRA. Use eodhd_exchanges to list valid codes.",
-    )
-    type: Literal["common_stock", "preferred_stock", "stock", "etf", "fund"] | None = Field(
-        default=None, description="Instrument type filter: common_stock, preferred_stock, stock, etf, fund"
     )
 
 
@@ -582,16 +229,6 @@ async def eodhd_exchange_symbols(params: EodhdExchangeSymbolsParams, *, api_key:
 # ---------------------------------------------------------------------------
 
 
-class EodhdFundamentalsParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    ticker: Annotated[str, Namespace("eodhd_symbols")] = Field(
-        ...,
-        pattern=r"^[A-Z0-9._\-]+$",
-        description="Ticker in EODHD format, e.g. AAPL.US or SPY.US (ETFs supported)",
-    )
-
-
 @connector(tags=["eodhd", "equity"])
 async def eodhd_fundamentals(params: EodhdFundamentalsParams, *, api_key: str) -> Result:
     """[Fundamentals+] Fetch full fundamentals for a stock or ETF. Returns a large nested dict
@@ -615,7 +252,7 @@ async def eodhd_fundamentals(params: EodhdFundamentalsParams, *, api_key: str) -
 
 
 # ---------------------------------------------------------------------------
-# Calendars — Dispatch map + OutputConfig + Connector
+# Calendars — Dispatch map + Connector
 # ---------------------------------------------------------------------------
 
 _CALENDAR_PATHS: dict[str, str] = {
@@ -623,37 +260,6 @@ _CALENDAR_PATHS: dict[str, str] = {
     "ipo": "calendar/ipo",
     "trends": "calendar/trends",
 }
-
-_CALENDAR_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="code", role=ColumnRole.KEY),
-        Column(name="date", dtype="date"),
-        Column(name="report_date", dtype="date"),
-        Column(name="before_after_market", role=ColumnRole.METADATA),
-        Column(name="currency", role=ColumnRole.METADATA),
-        Column(name="actual", dtype="numeric"),
-        Column(name="estimate", dtype="numeric"),
-        Column(name="difference", dtype="numeric"),
-        Column(name="percent", dtype="numeric"),
-    ]
-)
-
-
-class EodhdCalendarParams(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    type: Literal["earnings", "ipo", "trends"] = Field(
-        ..., description="Calendar type: earnings (EPS calendar), ipo (IPO calendar), trends (analyst trends)"
-    )
-    from_date: str | None = Field(
-        default=None, alias="from", description="Start date ISO 8601 e.g. 2024-01-01. Use as from_date='2024-01-01'"
-    )
-    to_date: str | None = Field(
-        default=None, alias="to", description="End date ISO 8601 e.g. 2024-03-31. Use as to_date='2024-03-31'"
-    )
-    symbols: str | None = Field(
-        default=None, description="Comma-separated EODHD ticker codes to filter, e.g. AAPL.US,MSFT.US"
-    )
 
 
 @connector(output=_CALENDAR_OUTPUT, tags=["eodhd", "equity"])
@@ -677,36 +283,8 @@ async def eodhd_calendar(params: EodhdCalendarParams, *, api_key: str) -> Result
 
 
 # ---------------------------------------------------------------------------
-# News — OutputConfig + Connector
+# News — Connector
 # ---------------------------------------------------------------------------
-
-_NEWS_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="date", role=ColumnRole.KEY, dtype="datetime"),
-        Column(name="title", role=ColumnRole.TITLE),
-        Column(name="content"),
-        Column(name="link", role=ColumnRole.METADATA),
-        Column(name="symbols", role=ColumnRole.METADATA),
-        Column(name="tags", role=ColumnRole.METADATA),
-    ]
-)
-
-
-class EodhdNewsParams(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    ticker: str | None = Field(
-        default=None,
-        description="EODHD ticker to filter news, e.g. AAPL.US. Omit for market-wide news.",
-    )
-    from_date: str | None = Field(
-        default=None, alias="from", description="Start date ISO 8601 e.g. 2024-01-15. Use as from_date='2024-01-15'"
-    )
-    to_date: str | None = Field(
-        default=None, alias="to", description="End date ISO 8601 e.g. 2024-12-31. Use as to_date='2024-12-31'"
-    )
-    limit: int = Field(default=50, description="Max number of articles to return (default 50)")
-    offset: int = Field(default=0, description="Offset for pagination (0-indexed)")
 
 
 @connector(output=_NEWS_OUTPUT, tags=["eodhd", "tool"])
@@ -726,34 +304,8 @@ async def eodhd_news(params: EodhdNewsParams, *, api_key: str) -> Result:
 
 
 # ---------------------------------------------------------------------------
-# Macro Indicators — OutputConfig + Connectors
+# Macro Indicators — Connectors
 # ---------------------------------------------------------------------------
-
-_MACRO_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="Date", role=ColumnRole.KEY, dtype="date"),
-        Column(name="Value", dtype="numeric"),
-        Column(name="Period", role=ColumnRole.METADATA),
-        Column(name="LastUpdated", role=ColumnRole.METADATA),
-    ]
-)
-
-
-class EodhdMacroParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    country: str = Field(
-        ...,
-        pattern=r"^[A-Z]{3}$",
-        description="ISO 3-letter country code, e.g. USA, DEU, GBR, FRA, JPN",
-    )
-    indicator: str = Field(
-        ...,
-        description=(
-            "Macro indicator code, e.g. gdp_current_usd, unemployment_total_percent, "
-            "inflation_consumer_prices_annual, real_interest_rate, population_total"
-        ),
-    )
 
 
 @connector(output=_MACRO_OUTPUT, tags=["eodhd", "macro"])
@@ -772,23 +324,6 @@ async def eodhd_macro(params: EodhdMacroParams, *, api_key: str) -> Result:
     )
 
 
-class EodhdMacroBulkParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    country: str = Field(
-        ...,
-        pattern=r"^[A-Z]{3}$",
-        description="ISO 3-letter country code, e.g. USA, DEU, GBR",
-    )
-    topic: str | None = Field(
-        default=None,
-        description=(
-            "Optional topic filter to narrow the result set. "
-            "Verify valid values against EODHD macro-indicator documentation."
-        ),
-    )
-
-
 @connector(output=_MACRO_OUTPUT, tags=["eodhd", "macro"])
 async def eodhd_macro_bulk(params: EodhdMacroBulkParams, *, api_key: str) -> Result:
     """[Fundamentals+] Fetch all available macro indicators for a country in a single request.
@@ -804,67 +339,8 @@ async def eodhd_macro_bulk(params: EodhdMacroBulkParams, *, api_key: str) -> Res
 
 
 # ---------------------------------------------------------------------------
-# Technical Indicators — OutputConfig + Connector
+# Technical Indicators — Connector
 # ---------------------------------------------------------------------------
-
-_TECHNICAL_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="date", role=ColumnRole.KEY, dtype="date"),
-        Column(name="open", dtype="numeric"),
-        Column(name="high", dtype="numeric"),
-        Column(name="low", dtype="numeric"),
-        Column(name="close", dtype="numeric"),
-        Column(name="volume", dtype="numeric"),
-        Column(name="*"),  # indicator-specific columns vary by function
-    ]
-)
-
-_EodhdTechnicalFunction = Literal[
-    "sma",
-    "ema",
-    "wma",
-    "volatility",
-    "stochastic",
-    "rsi",
-    "stddev",
-    "stochrsi",
-    "slope",
-    "dmi",
-    "adx",
-    "macd",
-    "atr",
-    "cci",
-    "sar",
-    "bbands",
-    "splitadjusted",
-    "avgvol",
-    "avgvolacave",
-    "williams_r",
-]
-
-
-class EodhdTechnicalParams(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    ticker: Annotated[str, Namespace("eodhd_symbols")] = Field(
-        ..., pattern=r"^[A-Z0-9._\-]+$", description="Ticker in EODHD format, e.g. AAPL.US"
-    )
-    function: _EodhdTechnicalFunction = Field(
-        ...,
-        description=(
-            "Technical indicator function: sma, ema, rsi, macd, bbands, atr, stochastic, "
-            "adx, cci, sar, williams_r, wma, volatility, stddev, dmi, slope, stochrsi, avgvol — "
-            "see EODHD docs for full parameter set per function"
-        ),
-    )
-    period: int = Field(default=50, description="Lookback period (number of bars, default 50)")
-    from_date: str | None = Field(
-        default=None, alias="from", description="Start date ISO 8601 e.g. 2024-01-01. Use as from_date='2024-01-01'"
-    )
-    to_date: str | None = Field(
-        default=None, alias="to", description="End date ISO 8601 e.g. 2024-12-31. Use as to_date='2024-12-31'"
-    )
-    order: Literal["a", "d"] = Field(default="d", description="Sort order: a (ascending) or d (descending, default)")
 
 
 @connector(output=_TECHNICAL_OUTPUT, tags=["eodhd", "equity"])
@@ -895,52 +371,8 @@ async def eodhd_technical(params: EodhdTechnicalParams, *, api_key: str) -> Resu
 
 
 # ---------------------------------------------------------------------------
-# Insider Transactions & Screener — OutputConfigs
-# ---------------------------------------------------------------------------
-
-_INSIDER_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="code", role=ColumnRole.KEY),
-        Column(name="date", dtype="date"),
-        Column(name="ownerName", role=ColumnRole.METADATA),
-        Column(name="ownerCik", role=ColumnRole.METADATA),
-        Column(name="transactionType", role=ColumnRole.METADATA),
-        Column(name="transactionDate", dtype="date"),
-        Column(name="value", dtype="numeric"),
-        Column(name="sharesOwned", dtype="numeric"),
-        Column(name="change", dtype="numeric"),
-        Column(name="*"),
-    ]
-)
-
-_SCREENER_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="code", role=ColumnRole.KEY, namespace="eodhd_symbols"),
-        Column(name="name", role=ColumnRole.TITLE),
-        Column(name="exchange", role=ColumnRole.METADATA),
-        Column(name="currency", role=ColumnRole.METADATA),
-        Column(name="sector", role=ColumnRole.METADATA),
-        Column(name="industry", role=ColumnRole.METADATA),
-        Column(name="market_capitalization", dtype="numeric"),
-        Column(name="*"),
-    ]
-)
-
-
-# ---------------------------------------------------------------------------
 # Insider Transactions & Screener — Connectors
 # ---------------------------------------------------------------------------
-
-
-class EodhdInsiderParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    ticker: Annotated[str, Namespace("eodhd_symbols")] | None = Field(
-        default=None,
-        description="EODHD ticker to filter by, e.g. AAPL.US. Omit for all recent transactions.",
-    )
-    limit: int = Field(default=100, description="Max transactions to return (default 100)")
-    offset: int = Field(default=0, description="Offset for pagination (0-indexed)")
 
 
 @connector(output=_INSIDER_OUTPUT, tags=["eodhd", "equity"])
@@ -954,32 +386,6 @@ async def eodhd_insider(params: EodhdInsiderParams, *, api_key: str) -> Result:
     return await _eodhd_fetch(
         http, path="/insider-transactions", params=p, op_name="eodhd_insider", output_config=_INSIDER_OUTPUT
     )
-
-
-class EodhdScreenerParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    filters: list[tuple[str, str, str]] | None = Field(
-        default=None,
-        description=(
-            "List of filter triples [field, operator, value], e.g. "
-            "[['market_capitalization', '>', '1000000000'], ['exchange', '=', 'US']]. "
-            "Valid operators: >, <, =, >=, <=. "
-            "Common fields: market_capitalization, earnings_share, dividend_yield, "
-            "pe_ratio, revenue, sector, exchange."
-        ),
-    )
-    signals: str | None = Field(
-        default=None,
-        description="Signal filter, e.g. 'bookvalue_neg,wallstreet_lo'. See EODHD screener docs.",
-    )
-    sort: str | None = Field(
-        default=None,
-        description="Field to sort by, e.g. market_capitalization",
-    )
-    order: Literal["asc", "desc"] = Field(default="desc", description="Sort order: asc or desc (default)")
-    limit: int = Field(default=50, description="Max results (default 50)")
-    offset: int = Field(default=0, description="Offset for pagination (0-indexed)")
 
 
 @connector(output=_SCREENER_OUTPUT, tags=["eodhd", "equity", "tool"])
@@ -1035,3 +441,45 @@ CONNECTORS = Connectors(
         eodhd_insider,
     ]
 )
+
+
+__all__ = [
+    "CONNECTORS",
+    "ENV_VARS",
+    # Connectors
+    "eodhd_bulk_eod",
+    "eodhd_calendar",
+    "eodhd_dividends",
+    "eodhd_eod",
+    "eodhd_exchange_symbols",
+    "eodhd_exchanges",
+    "eodhd_fundamentals",
+    "eodhd_insider",
+    "eodhd_intraday",
+    "eodhd_live",
+    "eodhd_macro",
+    "eodhd_macro_bulk",
+    "eodhd_news",
+    "eodhd_screener",
+    "eodhd_search",
+    "eodhd_splits",
+    "eodhd_technical",
+    # Param classes
+    "EodhdBulkEodParams",
+    "EodhdCalendarParams",
+    "EodhdDividendsParams",
+    "EodhdEodParams",
+    "EodhdExchangeSymbolsParams",
+    "EodhdExchangesParams",
+    "EodhdFundamentalsParams",
+    "EodhdInsiderParams",
+    "EodhdIntradayParams",
+    "EodhdLiveParams",
+    "EodhdMacroBulkParams",
+    "EodhdMacroParams",
+    "EodhdNewsParams",
+    "EodhdScreenerParams",
+    "EodhdSearchParams",
+    "EodhdSplitsParams",
+    "EodhdTechnicalParams",
+]

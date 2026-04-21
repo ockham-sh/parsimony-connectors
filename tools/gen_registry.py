@@ -26,44 +26,73 @@ from __future__ import annotations
 import argparse
 import ast
 import difflib
-import importlib.util
 import json
 import sys
 import tomllib
 from collections.abc import Iterable
 from pathlib import Path
-from types import ModuleType
-from typing import Any
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def _load_schema_module() -> ModuleType:
-    """Load ``registry_schema.py`` directly, without importing its package.
+# ---------------------------------------------------------------------------
+# Registry schema — the single owner for registry.json shape.
+#
+# Inlined here after the mcp ``cli/`` subpackage was deleted in e5c464e.
+# The new init wizard introspects entry points directly and no longer
+# consumes the schema, so the only remaining reader is this generator.
+# Inlining removes the importlib.util-based dance the split version
+# required and keeps pydantic off the runtime path of the mcp package.
+#
+# ``strict`` + ``extra="forbid"``: a malformed or future-schema
+# registry fails fast with actionable pydantic errors at the boundary,
+# not deep in a consumer's loop where the user sees ``KeyError``.
+# ---------------------------------------------------------------------------
 
-    We deliberately bypass the ``parsimony_mcp`` package hierarchy —
-    importing ``parsimony_mcp`` eagerly pulls the MCP SDK and pandas
-    (via ``parsimony_mcp/__init__.py``), which the generator doesn't
-    need and shouldn't need. This preserves the "single owner" rule
-    (one Pydantic model) without forcing the generator to install the
-    consumer's runtime deps.
+SCHEMA_VERSION: Literal[1] = 1
+"""Current registry schema version. Bump on any breaking change."""
+
+
+class EnvVar(BaseModel):
+    """A single environment variable a connector needs."""
+
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+
+    name: str = Field(..., min_length=1)
+    get_url: str | None = None
+    required: bool = True
+
+
+class ConnectorPackage(BaseModel):
+    """One installable connector distribution."""
+
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+
+    package: str = Field(..., min_length=1)
+    display: str = Field(..., min_length=1)
+    summary: str = Field(..., min_length=1)
+    homepage: str | None = None
+    pricing: str | None = None
+    rate_limits: str | None = None
+    tags: tuple[str, ...] = ()
+    env_vars: tuple[EnvVar, ...] = ()
+
+
+class Registry(BaseModel):
+    """Top-level registry document.
+
+    ``schema_version`` is pinned as a Literal so a registry carrying
+    ``schema_version = 2`` fails validation against a v1 client with
+    an actionable message, not a silent success.
     """
-    schema_path = _REPO_ROOT / "packages" / "mcp" / "parsimony_mcp" / "cli" / "registry_schema.py"
-    spec = importlib.util.spec_from_file_location(
-        "_parsimony_mcp_registry_schema", schema_path
-    )
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"could not load registry_schema from {schema_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
-_schema = _load_schema_module()
-SCHEMA_VERSION: int = _schema.SCHEMA_VERSION
-ConnectorPackage = _schema.ConnectorPackage
-EnvVar = _schema.EnvVar
-Registry = _schema.Registry
+    schema_version: Literal[1]
+    connectors: tuple[ConnectorPackage, ...]
 
 _PACKAGES_DIR = _REPO_ROOT / "packages"
 _REGISTRY_PATH = _REPO_ROOT / "registry.json"

@@ -12,8 +12,7 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
-from parsimony.bundles import CatalogSpec
-from parsimony.connector import Connectors, Namespace, connector, enumerator
+from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import (
     Column,
@@ -22,6 +21,7 @@ from parsimony.result import (
     Provenance,
     Result,
 )
+from parsimony.transport import map_http_error
 from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ _BASE_URL = "https://www.bankofcanada.ca/valet"
 class BocFetchParams(BaseModel):
     """Parameters for fetching Bank of Canada time series."""
 
-    series_name: Annotated[str, Namespace("boc")] = Field(
+    series_name: Annotated[str, "ns:boc"] = Field(
         ...,
         description=(
             "Comma-separated BoC series names (e.g. FXUSDCAD,FXEURCAD) "
@@ -164,7 +164,10 @@ async def boc_fetch(params: BocFetchParams) -> Result:
             url = f"/observations/{params.series_name}/json"
 
         response = await client.get(url, params=req_params)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            map_http_error(exc, provider="boc", op_name="observations")
         json_data = response.json()
 
     series_details = json_data.get("seriesDetail")
@@ -185,7 +188,6 @@ async def boc_fetch(params: BocFetchParams) -> Result:
 @enumerator(
     output=BOC_ENUMERATE_OUTPUT,
     tags=["macro", "ca"],
-    catalog=CatalogSpec.static(namespace="boc"),
 )
 async def enumerate_boc(params: BocEnumerateParams) -> pd.DataFrame:
     """Enumerate all Bank of Canada series via /lists/series/json.
@@ -194,7 +196,10 @@ async def enumerate_boc(params: BocEnumerateParams) -> pd.DataFrame:
     """
     async with httpx.AsyncClient(base_url=_BASE_URL, timeout=60.0) as client:
         resp = await client.get("/lists/series/json")
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            map_http_error(exc, provider="boc", op_name="series/list")
         data = resp.json()
 
     series = data.get("series", {})
@@ -219,5 +224,7 @@ async def enumerate_boc(params: BocEnumerateParams) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Exports
 # ---------------------------------------------------------------------------
+
+CATALOGS: list[tuple[str, object]] = [("boc", enumerate_boc)]
 
 CONNECTORS = Connectors([boc_fetch, enumerate_boc])

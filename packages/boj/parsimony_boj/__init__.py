@@ -12,7 +12,7 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
-from parsimony.connector import Connectors, Namespace, connector, enumerator
+from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import (
     Column,
@@ -21,6 +21,7 @@ from parsimony.result import (
     Provenance,
     Result,
 )
+from parsimony.transport import map_http_error
 from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ class BojFetchParams(BaseModel):
         ...,
         description="Database code (e.g. FM08 for FX rates, PR01 for prices)",
     )
-    code: Annotated[str, Namespace("boj")] = Field(
+    code: Annotated[str, "ns:boj"] = Field(
         ...,
         description="Comma-separated series codes (max 250, e.g. FXERD01)",
     )
@@ -162,7 +163,10 @@ async def boj_fetch(params: BojFetchParams) -> Result:
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.get(url, params=req_params)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            map_http_error(exc, provider="boj", op_name="series")
         json_data = response.json()
 
     result_set = json_data.get("RESULTSET", [])

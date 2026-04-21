@@ -11,13 +11,8 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
-from parsimony.connector import Connectors, Namespace, connector, enumerator
-from parsimony.errors import (
-    EmptyDataError,
-    ProviderError,
-    RateLimitError,
-    UnauthorizedError,
-)
+from parsimony.connector import Connectors, connector, enumerator
+from parsimony.errors import EmptyDataError
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -25,35 +20,8 @@ from parsimony.result import (
     Provenance,
     Result,
 )
-from parsimony.transport.http import HttpClient
+from parsimony.transport import HttpClient, map_http_error
 from pydantic import BaseModel, Field, field_validator
-
-
-def _raise_for_status_mapped(response: httpx.Response, op_name: str) -> None:
-    """Map 401/429 to the kernel hierarchy; other errors as ProviderError.
-
-    Does NOT echo the URL/query string into the message — ``api_key`` travels
-    as a query param via ``HttpClient(query_params=...)`` and must not leak
-    into exception text.
-    """
-    try:
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        status = exc.response.status_code
-        if status == 401:
-            raise UnauthorizedError(
-                provider="eia", message=f"EIA rejected the API key on '{op_name}'"
-            ) from exc
-        if status == 429:
-            retry_after = float(exc.response.headers.get("Retry-After", "60"))
-            raise RateLimitError(
-                provider="eia",
-                retry_after=retry_after,
-                message=f"EIA rate limit on '{op_name}', retry after {retry_after:.0f}s",
-            ) from exc
-        raise ProviderError(
-            provider="eia", status_code=status, message=f"EIA API error {status} on '{op_name}'"
-        ) from exc
 
 _BASE_URL = "https://api.eia.gov/v2"
 
@@ -68,7 +36,7 @@ ENV_VARS: dict[str, str] = {"api_key": "EIA_API_KEY"}
 class EiaFetchParams(BaseModel):
     """Parameters for fetching EIA energy data."""
 
-    route: Annotated[str, Namespace("eia")] = Field(..., description="API route (e.g. petroleum/pri/spt)")
+    route: Annotated[str, "ns:eia"] = Field(..., description="API route (e.g. petroleum/pri/spt)")
     frequency: str | None = Field(default=None, description="Data frequency: monthly, weekly, daily, annual")
     start: str | None = Field(default=None, description="Start date (YYYY-MM or YYYY)")
     end: str | None = Field(default=None, description="End date (YYYY-MM or YYYY)")
@@ -133,7 +101,10 @@ async def eia_fetch(params: EiaFetchParams, *, api_key: str) -> Result:
         req_params["end"] = params.end
 
     response = await http.request("GET", f"/{params.route}/data", params=req_params)
-    _raise_for_status_mapped(response, "eia_fetch")
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="eia", op_name="eia_fetch")
     body = response.json()
 
     resp = body.get("response", {})
@@ -175,7 +146,10 @@ async def enumerate_eia(params: EiaEnumerateParams, *, api_key: str) -> pd.DataF
     http = HttpClient(_BASE_URL, query_params={"api_key": api_key})
 
     response = await http.request("GET", "/")
-    _raise_for_status_mapped(response, "enumerate_eia")
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="eia", op_name="enumerate_eia")
     body = response.json()
 
     routes = body.get("response", {}).get("routes", [])

@@ -17,117 +17,68 @@ Provides 12 connectors:
 
 Premium-only endpoints (403 on free tier): /stock/candle, /forex/rates,
   /stock/splits, /stock/dividend, /stock/price-target.
+
+Internal layout (not part of the public contract):
+
+* :mod:`parsimony_finnhub._http` — shared transport, unified error mapping,
+  ``Retry-After`` parsing, JSON fetch helper.
+* :mod:`parsimony_finnhub.params` — Pydantic parameter models.
+* :mod:`parsimony_finnhub.outputs` — declarative :class:`OutputConfig`
+  schemas.
+
+This ``__init__.py`` stays at the top level so ``tools/gen_registry.py``
+can AST-parse ``@connector`` decorators (it does not follow re-exports).
 """
 
 from __future__ import annotations
 
-import time
-from typing import Annotated, Any, Literal
+from typing import Any
 
-import httpx
 import pandas as pd
-from parsimony.connector import (
-    Connectors,
-    Namespace,
-    connector,
-    enumerator,
+from parsimony.connector import Connectors, connector, enumerator
+from parsimony.errors import EmptyDataError
+from parsimony.result import Provenance, Result
+from parsimony.transport import HttpClient
+
+from parsimony_finnhub._http import finnhub_fetch as _fh_fetch
+from parsimony_finnhub._http import make_http as _make_http
+from parsimony_finnhub.outputs import EARNINGS_CAL_OUTPUT as _EARNINGS_CAL_OUTPUT
+from parsimony_finnhub.outputs import EARNINGS_OUTPUT as _EARNINGS_OUTPUT
+from parsimony_finnhub.outputs import ENUMERATE_OUTPUT as _ENUMERATE_OUTPUT
+from parsimony_finnhub.outputs import IPO_CAL_OUTPUT as _IPO_CAL_OUTPUT
+from parsimony_finnhub.outputs import NEWS_OUTPUT as _NEWS_OUTPUT
+from parsimony_finnhub.outputs import PEERS_OUTPUT as _PEERS_OUTPUT
+from parsimony_finnhub.outputs import QUOTE_OUTPUT as _QUOTE_OUTPUT
+from parsimony_finnhub.outputs import RECOMMENDATION_OUTPUT as _RECOMMENDATION_OUTPUT
+from parsimony_finnhub.outputs import SEARCH_OUTPUT as _SEARCH_OUTPUT
+from parsimony_finnhub.params import (
+    FinnhubBasicFinancialsParams,
+    FinnhubCompanyNewsParams,
+    FinnhubEarningsCalendarParams,
+    FinnhubEarningsParams,
+    FinnhubEnumerateParams,
+    FinnhubIpoCalendarParams,
+    FinnhubMarketNewsParams,
+    FinnhubPeersParams,
+    FinnhubProfileParams,
+    FinnhubQuoteParams,
+    FinnhubRecommendationParams,
+    FinnhubSearchParams,
 )
-from parsimony.errors import (
-    EmptyDataError,
-    PaymentRequiredError,
-    ProviderError,
-    RateLimitError,
-    UnauthorizedError,
-)
-from parsimony.result import (
-    Column,
-    ColumnRole,
-    OutputConfig,
-    Provenance,
-    Result,
-)
-from parsimony.transport.http import HttpClient
-from pydantic import BaseModel, Field
 
 ENV_VARS: dict[str, str] = {"api_key": "FINNHUB_API_KEY"}
 
+_PROVIDER = "finnhub"
+
+# Used by ``enumerate_finnhub`` below, which constructs its own
+# ``HttpClient`` with a longer timeout and redirect following because the
+# ``/stock/symbol`` endpoint is a large CDN-served static file.
 _BASE_URL = "https://finnhub.io/api/v1"
-_TIMEOUT = 15.0
 
 
 # ---------------------------------------------------------------------------
-# Transport helpers
+# Discovery — Symbol Search
 # ---------------------------------------------------------------------------
-
-
-def _make_http(api_key: str) -> HttpClient:
-    return HttpClient(
-        _BASE_URL,
-        headers={"X-Finnhub-Token": api_key},
-        timeout=_TIMEOUT,
-    )
-
-
-async def _fh_fetch(
-    http: HttpClient,
-    *,
-    path: str,
-    params: dict[str, Any] | None = None,
-    op_name: str,
-) -> Any:
-    """Shared Finnhub GET with typed error mapping. Returns parsed JSON body."""
-    try:
-        response = await http.request("GET", path, params=params or None)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        status = e.response.status_code
-        match status:
-            case 401:
-                raise UnauthorizedError(
-                    provider="finnhub",
-                    message="Invalid or missing Finnhub API key",
-                ) from e
-            case 403:
-                raise PaymentRequiredError(
-                    provider="finnhub",
-                    message=f"Finnhub endpoint '{op_name}' requires a premium plan",
-                ) from e
-            case 429:
-                reset_ts = float(e.response.headers.get("X-Ratelimit-Reset", 0))
-                retry_after = max(1.0, reset_ts - time.time()) if reset_ts else 60.0
-                raise RateLimitError(
-                    provider="finnhub",
-                    retry_after=retry_after,
-                    message=f"Finnhub rate limit hit on '{op_name}' (60 req/min)",
-                ) from e
-            case _:
-                raise ProviderError(
-                    provider="finnhub",
-                    status_code=status,
-                    message=f"Finnhub API error {status} on '{op_name}'",
-                ) from e
-
-    return response.json()
-
-
-# ---------------------------------------------------------------------------
-# Discovery — OutputConfigs + Connectors
-# ---------------------------------------------------------------------------
-
-_SEARCH_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="symbol", role=ColumnRole.KEY, namespace="finnhub_symbol"),
-        Column(name="description", role=ColumnRole.TITLE),
-        Column(name="display_symbol", role=ColumnRole.METADATA),
-        Column(name="type", role=ColumnRole.METADATA),
-    ]
-)
-
-
-class FinnhubSearchParams(BaseModel):
-    """Search Finnhub for stocks, ETFs, and indices by name or ticker."""
-
-    query: str = Field(..., min_length=1, description="Search term, e.g. 'apple' or 'AAPL'")
 
 
 @connector(output=_SEARCH_OUTPUT, tags=["equities", "tool"])
@@ -168,30 +119,8 @@ async def finnhub_search(params: FinnhubSearchParams, *, api_key: str) -> Result
 
 
 # ---------------------------------------------------------------------------
-# Market Data — OutputConfigs + Connectors
+# Market Data — Real-time Quote
 # ---------------------------------------------------------------------------
-
-_QUOTE_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="symbol", role=ColumnRole.KEY, namespace="finnhub_symbol"),
-        Column(name="current_price", dtype="numeric"),
-        Column(name="change", dtype="numeric"),
-        Column(name="change_percent", dtype="numeric"),
-        Column(name="high", dtype="numeric"),
-        Column(name="low", dtype="numeric"),
-        Column(name="open", dtype="numeric"),
-        Column(name="prev_close", dtype="numeric"),
-        Column(name="timestamp", role=ColumnRole.METADATA, dtype="timestamp"),
-    ]
-)
-
-
-class FinnhubQuoteParams(BaseModel):
-    """Real-time quote for a single stock symbol."""
-
-    symbol: Annotated[str, Namespace("finnhub_symbol")] = Field(
-        ..., description="Stock ticker, e.g. 'AAPL'. Use finnhub_search to resolve symbols."
-    )
 
 
 @connector(output=_QUOTE_OUTPUT, tags=["equities"])
@@ -230,45 +159,8 @@ async def finnhub_quote(params: FinnhubQuoteParams, *, api_key: str) -> Result:
 
 
 # ---------------------------------------------------------------------------
-# Company — Connectors
+# Company — Profile, Peers, Recommendations, Earnings, Fundamentals
 # ---------------------------------------------------------------------------
-
-_PEERS_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="symbol", role=ColumnRole.KEY, namespace="finnhub_symbol"),
-    ]
-)
-
-_RECOMMENDATION_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="period", role=ColumnRole.KEY, dtype="date"),
-        Column(name="strong_buy", dtype="numeric"),
-        Column(name="buy", dtype="numeric"),
-        Column(name="hold", dtype="numeric"),
-        Column(name="sell", dtype="numeric"),
-        Column(name="strong_sell", dtype="numeric"),
-    ]
-)
-
-_EARNINGS_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="period", role=ColumnRole.KEY, dtype="date"),
-        Column(name="quarter", role=ColumnRole.METADATA),
-        Column(name="year", role=ColumnRole.METADATA),
-        Column(name="eps_actual", dtype="numeric"),
-        Column(name="eps_estimate", dtype="numeric"),
-        Column(name="eps_surprise", dtype="numeric"),
-        Column(name="eps_surprise_percent", dtype="numeric"),
-    ]
-)
-
-
-class FinnhubProfileParams(BaseModel):
-    """Company profile for a single stock symbol."""
-
-    symbol: Annotated[str, Namespace("finnhub_symbol")] = Field(
-        ..., description="Stock ticker, e.g. 'AAPL'. Use finnhub_search to resolve symbols."
-    )
 
 
 @connector(tags=["equities"])
@@ -293,14 +185,6 @@ async def finnhub_profile(params: FinnhubProfileParams, *, api_key: str) -> Resu
     )
 
 
-class FinnhubPeersParams(BaseModel):
-    """Peer companies for a given stock symbol."""
-
-    symbol: Annotated[str, Namespace("finnhub_symbol")] = Field(
-        ..., description="Stock ticker, e.g. 'AAPL'. Use finnhub_search to resolve symbols."
-    )
-
-
 @connector(output=_PEERS_OUTPUT, tags=["equities"])
 async def finnhub_peers(params: FinnhubPeersParams, *, api_key: str) -> Result:
     """Fetch peer/comparable companies for a stock. Returns a list of ticker
@@ -321,14 +205,6 @@ async def finnhub_peers(params: FinnhubPeersParams, *, api_key: str) -> Result:
         df,
         provenance=Provenance(source="finnhub_peers", params={"symbol": params.symbol}),
         params={"symbol": params.symbol},
-    )
-
-
-class FinnhubRecommendationParams(BaseModel):
-    """Analyst buy/sell/hold recommendations for a stock."""
-
-    symbol: Annotated[str, Namespace("finnhub_symbol")] = Field(
-        ..., description="Stock ticker, e.g. 'AAPL'. Use finnhub_search to resolve symbols."
     )
 
 
@@ -375,14 +251,6 @@ async def finnhub_recommendation(params: FinnhubRecommendationParams, *, api_key
     )
 
 
-class FinnhubEarningsParams(BaseModel):
-    """Historical EPS actuals and estimates for a stock."""
-
-    symbol: Annotated[str, Namespace("finnhub_symbol")] = Field(
-        ..., description="Stock ticker, e.g. 'AAPL'. Use finnhub_search to resolve symbols."
-    )
-
-
 @connector(output=_EARNINGS_OUTPUT, tags=["equities"])
 async def finnhub_earnings(params: FinnhubEarningsParams, *, api_key: str) -> Result:
     """Fetch historical earnings per share (EPS) for a stock: actual EPS,
@@ -422,14 +290,6 @@ async def finnhub_earnings(params: FinnhubEarningsParams, *, api_key: str) -> Re
     )
 
 
-class FinnhubBasicFinancialsParams(BaseModel):
-    """Fundamental financial metrics for a stock."""
-
-    symbol: Annotated[str, Namespace("finnhub_symbol")] = Field(
-        ..., description="Stock ticker, e.g. 'AAPL'. Use finnhub_search to resolve symbols."
-    )
-
-
 @connector(tags=["equities"])
 async def finnhub_basic_financials(params: FinnhubBasicFinancialsParams, *, api_key: str) -> Result:
     """Fetch ~120 fundamental metrics for a stock: PE, EPS, beta, 52-week
@@ -460,38 +320,8 @@ async def finnhub_basic_financials(params: FinnhubBasicFinancialsParams, *, api_
 
 
 # ---------------------------------------------------------------------------
-# News — OutputConfigs + Connectors
+# News — Company and Market
 # ---------------------------------------------------------------------------
-
-_NEWS_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="id", role=ColumnRole.KEY),
-        Column(name="datetime", role=ColumnRole.METADATA, dtype="timestamp"),
-        Column(name="headline", role=ColumnRole.TITLE),
-        Column(name="source", role=ColumnRole.METADATA),
-        Column(name="category", role=ColumnRole.METADATA),
-        Column(name="related", role=ColumnRole.METADATA),
-        Column(name="summary", role=ColumnRole.METADATA),
-        Column(name="url", role=ColumnRole.METADATA, exclude_from_llm_view=True),
-        Column(name="image", role=ColumnRole.METADATA, exclude_from_llm_view=True),
-    ]
-)
-
-
-class FinnhubCompanyNewsParams(BaseModel):
-    """News articles for a specific company."""
-
-    symbol: Annotated[str, Namespace("finnhub_symbol")] = Field(
-        ..., description="Stock ticker, e.g. 'AAPL'. Use finnhub_search to resolve symbols."
-    )
-    from_date: str = Field(
-        ...,
-        description="Start date ISO 8601, e.g. '2024-01-01'. Free tier: recent months only.",
-    )
-    to_date: str = Field(
-        ...,
-        description="End date ISO 8601, e.g. '2024-01-31'.",
-    )
 
 
 @connector(output=_NEWS_OUTPUT, tags=["equities", "news"])
@@ -541,15 +371,6 @@ async def finnhub_company_news(params: FinnhubCompanyNewsParams, *, api_key: str
     )
 
 
-class FinnhubMarketNewsParams(BaseModel):
-    """Market-wide news by category."""
-
-    category: Literal["general", "forex", "crypto", "merger"] = Field(
-        default="general",
-        description="News category: 'general', 'forex', 'crypto', or 'merger'",
-    )
-
-
 @connector(output=_NEWS_OUTPUT, tags=["news"])
 async def finnhub_market_news(params: FinnhubMarketNewsParams, *, api_key: str) -> Result:
     """Fetch latest market-wide news by category. Categories: 'general' (top
@@ -589,49 +410,8 @@ async def finnhub_market_news(params: FinnhubMarketNewsParams, *, api_key: str) 
 
 
 # ---------------------------------------------------------------------------
-# Calendars — OutputConfigs + Connectors
+# Calendars — Earnings and IPO
 # ---------------------------------------------------------------------------
-
-_EARNINGS_CAL_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="symbol", role=ColumnRole.KEY, namespace="finnhub_symbol"),
-        Column(name="date", role=ColumnRole.METADATA, dtype="date"),
-        Column(name="year", role=ColumnRole.METADATA),
-        Column(name="quarter", role=ColumnRole.METADATA),
-        Column(name="hour", role=ColumnRole.METADATA),
-        Column(name="eps_estimate", dtype="numeric"),
-        Column(name="eps_actual", dtype="numeric"),
-        Column(name="revenue_estimate", dtype="numeric"),
-        Column(name="revenue_actual", dtype="numeric"),
-    ]
-)
-
-_IPO_CAL_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="symbol", role=ColumnRole.KEY, namespace="finnhub_symbol"),
-        Column(name="name", role=ColumnRole.TITLE),
-        Column(name="date", role=ColumnRole.METADATA, dtype="date"),
-        Column(name="exchange", role=ColumnRole.METADATA),
-        Column(name="status", role=ColumnRole.METADATA),
-        Column(name="price", dtype="numeric"),
-        Column(name="number_of_shares", dtype="numeric"),
-        Column(name="total_shares_value", dtype="numeric"),
-    ]
-)
-
-
-class FinnhubEarningsCalendarParams(BaseModel):
-    """Earnings release calendar between two dates."""
-
-    from_date: str = Field(
-        ...,
-        description="Start date ISO 8601, e.g. '2024-01-01'. Free tier: recent/upcoming dates.",
-    )
-    to_date: str = Field(..., description="End date ISO 8601, e.g. '2024-01-31'.")
-    symbol: str | None = Field(
-        default=None,
-        description="Optional ticker to filter by, e.g. 'AAPL'. Omit for all companies.",
-    )
 
 
 @connector(output=_EARNINGS_CAL_OUTPUT, tags=["equities", "calendars"])
@@ -683,16 +463,6 @@ async def finnhub_earnings_calendar(params: FinnhubEarningsCalendarParams, *, ap
         ),
         params={"from": params.from_date, "to": params.to_date},
     )
-
-
-class FinnhubIpoCalendarParams(BaseModel):
-    """IPO calendar between two dates."""
-
-    from_date: str = Field(
-        ...,
-        description="Start date ISO 8601, e.g. '2024-01-01'.",
-    )
-    to_date: str = Field(..., description="End date ISO 8601, e.g. '2024-03-31'.")
 
 
 @connector(output=_IPO_CAL_OUTPUT, tags=["equities", "calendars"])
@@ -758,28 +528,6 @@ async def finnhub_ipo_calendar(params: FinnhubIpoCalendarParams, *, api_key: str
 # Enumerator — full US symbol list for catalog indexing
 # ---------------------------------------------------------------------------
 
-_ENUMERATE_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="symbol", role=ColumnRole.KEY, namespace="finnhub_symbol"),
-        Column(name="description", role=ColumnRole.TITLE),
-        Column(name="display_symbol", role=ColumnRole.METADATA),
-        Column(name="type", role=ColumnRole.METADATA),
-        Column(name="currency", role=ColumnRole.METADATA),
-        Column(name="mic", role=ColumnRole.METADATA, exclude_from_llm_view=True),
-        Column(name="exchange", role=ColumnRole.METADATA),
-        Column(name="isin", role=ColumnRole.METADATA, exclude_from_llm_view=True),
-    ]
-)
-
-
-class FinnhubEnumerateParams(BaseModel):
-    """Parameters for enumerating Finnhub symbols."""
-
-    exchange: str = Field(
-        default="US",
-        description="Exchange code, e.g. 'US' for all US-listed equities (~30 000 symbols).",
-    )
-
 
 @enumerator(output=_ENUMERATE_OUTPUT, tags=["equities"])
 async def enumerate_finnhub(params: FinnhubEnumerateParams, *, api_key: str) -> pd.DataFrame:
@@ -823,7 +571,8 @@ async def enumerate_finnhub(params: FinnhubEnumerateParams, *, api_key: str) -> 
 
 
 # ---------------------------------------------------------------------------
-# Connector collections
+# Collection — kept as a literal ``Connectors([...])`` assignment so
+# ``tools/gen_registry.py`` can AST-extract it.
 # ---------------------------------------------------------------------------
 
 CONNECTORS = Connectors(
@@ -845,3 +594,36 @@ CONNECTORS = Connectors(
         enumerate_finnhub,
     ]
 )
+
+
+__all__ = [
+    "CONNECTORS",
+    "ENV_VARS",
+    # Parameter models (public — downstream callers type against these)
+    "FinnhubBasicFinancialsParams",
+    "FinnhubCompanyNewsParams",
+    "FinnhubEarningsCalendarParams",
+    "FinnhubEarningsParams",
+    "FinnhubEnumerateParams",
+    "FinnhubIpoCalendarParams",
+    "FinnhubMarketNewsParams",
+    "FinnhubPeersParams",
+    "FinnhubProfileParams",
+    "FinnhubQuoteParams",
+    "FinnhubRecommendationParams",
+    "FinnhubSearchParams",
+    # Connector functions
+    "finnhub_basic_financials",
+    "finnhub_company_news",
+    "finnhub_earnings",
+    "finnhub_earnings_calendar",
+    "finnhub_ipo_calendar",
+    "finnhub_market_news",
+    "finnhub_peers",
+    "finnhub_profile",
+    "finnhub_quote",
+    "finnhub_recommendation",
+    "finnhub_search",
+    # Enumerator
+    "enumerate_finnhub",
+]
