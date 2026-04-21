@@ -22,12 +22,11 @@ from parsimony.errors import (
     RateLimitError,
     UnauthorizedError,
 )
-from parsimony.transport import HttpClient
+from parsimony.transport import HttpClient, parse_retry_after
 from parsimony.result import OutputConfig
 
 _DEFAULT_BASE_URL: str = "https://api.coingecko.com/api/v3"
 _DEFAULT_TIMEOUT_SECONDS: float = 15.0
-_DEFAULT_RATE_LIMIT_RETRY_AFTER: float = 60.0
 _PROVIDER: str = "coingecko"
 
 # CoinGecko plan-restriction error codes surfaced inside 401 (and some
@@ -48,19 +47,6 @@ def make_http(api_key: str, base_url: str = _DEFAULT_BASE_URL) -> HttpClient:
         headers={"x-cg-demo-api-key": api_key},
         timeout=_DEFAULT_TIMEOUT_SECONDS,
     )
-
-
-def _parse_retry_after(response: httpx.Response) -> float:
-    """Extract ``Retry-After`` seconds from a 429 response, with a safe default."""
-    header = response.headers.get("Retry-After", "").strip()
-    if header:
-        try:
-            value = float(header)
-            if 0 < value <= 86_400:
-                return value
-        except ValueError:
-            pass
-    return _DEFAULT_RATE_LIMIT_RETRY_AFTER
 
 
 def _extract_plan_error_code(response: httpx.Response) -> tuple[int, str]:
@@ -118,7 +104,7 @@ def _raise_mapped_status(exc: httpx.HTTPStatusError, op_name: str) -> NoReturn:
                 message="Your CoinGecko plan does not include this endpoint",
             ) from exc
         case 429:
-            retry_after = _parse_retry_after(exc.response)
+            retry_after = parse_retry_after(exc.response)
             raise RateLimitError(
                 provider=_PROVIDER,
                 retry_after=retry_after,

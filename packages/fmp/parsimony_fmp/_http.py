@@ -1,14 +1,14 @@
-"""FMP transport — shared HTTP helpers, unified error mapping, URL redaction.
+"""FMP transport — shared fetch helpers and pooled-client escape hatch.
 
-Every FMP connector in this package routes through the helpers defined here.
-That single chokepoint is what guarantees:
+Error mapping is delegated to :func:`parsimony.transport.map_http_error`.
+API-key redaction is delegated to :func:`parsimony.transport.redact_url` —
+the ``apikey`` query param is already in the kernel's sensitive-name set.
 
-- One canonical error mapping (401/402/429/other → typed exception).
-- No FMP API key ever appears in an exception message, even though FMP auth
-  is a query-string parameter (``?apikey=<key>``) that lives in every
-  ``httpx.Request.url``.
-- One documented reach into the kernel's private ``HttpClient._client_kwargs``,
-  isolated to the pooled-client context manager used only by the screener.
+This module owns two things that remain FMP-specific: the
+DataFrame-shaping :func:`fmp_fetch` envelope for the 18 simple
+connectors, and the pooled-client context manager used by the screener
+(the only place in ``parsimony-fmp`` that reaches into the kernel's
+private ``HttpClient._client_kwargs`` — isolated here on purpose).
 """
 
 from __future__ import annotations
@@ -47,18 +47,6 @@ def make_http(api_key: str, base_url: str = _DEFAULT_BASE_URL) -> HttpClient:
         query_params={"apikey": api_key},
         timeout=_DEFAULT_TIMEOUT_SECONDS,
     )
-
-
-def _redact_url(url: str) -> str:
-    """Replace the ``apikey`` query value with ``***``.
-
-    FMP auth is in the URL, so every ``httpx.Request.url`` carries the key.
-    This helper is the last line of defence before any URL or message text
-    leaves the transport layer. Applied defensively — the mapped errors
-    below never format the URL directly, but if a future change does, the
-    redaction still runs.
-    """
-    return re.sub(r"(apikey=)[^&\s]+", r"\1***", url)
 
 
 async def fetch_json(

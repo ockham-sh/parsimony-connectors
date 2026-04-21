@@ -1,15 +1,14 @@
-"""EODHD transport — shared HTTP helpers, unified error mapping, URL redaction.
+"""EODHD transport — shared HTTP helpers and timeout handling.
 
-Every EODHD connector in this package routes through the helpers defined
-here. That single chokepoint is what guarantees:
+Error mapping and Retry-After parsing are delegated to the kernel
+(:func:`parsimony.transport.map_http_error`,
+:func:`parsimony.transport.parse_retry_after`). API-token redaction is
+delegated to :func:`parsimony.transport.redact_url` — the ``api_token``
+query param is already in the kernel's sensitive-name set.
 
-- One canonical error mapping (401/403/402/429/other → typed exception).
-- No EODHD API token ever appears in an exception message or log line, even
-  though EODHD auth is a query-string parameter (``?api_token=<key>``) that
-  lives in every ``httpx.Request.url``. ``_redact_url`` is the last line of
-  defence before any URL text leaves the transport layer.
-- ``Retry-After`` header parsing for 429 responses, with a safe fallback.
-- Unified timeout handling (``httpx.TimeoutException`` → ``ProviderError``).
+This module only owns what is EODHD-specific: bracket-syntax query
+parameter encoding (``filter_x`` → ``filter[x]``) and 200-body error
+detection.
 """
 
 from __future__ import annotations
@@ -53,18 +52,6 @@ def make_http(
         query_params={"api_token": api_key, "fmt": "json"},
         timeout=timeout,
     )
-
-
-def _redact_url(url: str) -> str:
-    """Replace the ``api_token`` query value with ``***``.
-
-    EODHD auth is in the URL, so every ``httpx.Request.url`` carries the
-    secret. This helper is the last line of defence before any URL or
-    message text leaves the transport layer. Applied defensively — the
-    mapped errors below never format the URL directly, but if a future
-    change does, the redaction still runs.
-    """
-    return re.sub(r"(api_token=)[^&\s]+", r"\1***", url)
 
 
 def _to_bracket_params(params: dict[str, Any]) -> dict[str, Any]:

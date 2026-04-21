@@ -1,21 +1,18 @@
-"""Alpha Vantage transport — shared HTTP helpers, unified error mapping, URL redaction.
+"""Alpha Vantage transport — shared HTTP helpers and in-body error detection.
 
-Alpha Vantage has two quirks that the shared helpers below absorb:
+Alpha Vantage's quirk: JSON endpoints return HTTP 200 with one of
+``Error Message`` / ``Note`` / ``Information`` as the only top-level key
+when something is wrong. CSV endpoints do the same with a plain-text
+``Information`` body. The helpers inspect the body and raise the
+semantically-correct typed exception.
 
-- **Errors in 200 responses.** JSON endpoints return HTTP 200 with one of
-  ``Error Message`` / ``Note`` / ``Information`` as the only top-level key
-  when something is wrong. CSV endpoints do the same with a plain-text
-  ``Information`` body. The helpers inspect the body and raise the
-  semantically-correct typed exception.
-- **API key in the URL.** Auth rides as ``?apikey=<key>``, which means
-  every ``httpx.Request.url`` carries the secret. ``_redact_url`` replaces
-  the value with ``***`` before any URL text can leave the transport layer.
+API-key redaction is handled by :func:`parsimony.transport.redact_url` —
+the ``apikey`` query param is already in the kernel's sensitive-name set.
 """
 
 from __future__ import annotations
 
 import io
-import re
 from typing import Any
 
 import httpx
@@ -45,11 +42,6 @@ def make_http(api_key: str, base_url: str = _DEFAULT_BASE_URL) -> HttpClient:
         query_params={"apikey": api_key},
         timeout=_DEFAULT_TIMEOUT_SECONDS,
     )
-
-
-def _redact_url(url: str) -> str:
-    """Replace the ``apikey`` query value with ``***``."""
-    return re.sub(r"(apikey=)[^&\s]+", r"\1***", url)
 
 
 def _raise_for_in_body_error(body: Any, op_name: str) -> None:
