@@ -90,7 +90,7 @@ async def _run_server() -> None:
             extra={"discovery_ms": discovery_ms, "threshold_ms": _SLOW_DISCOVERY_MS},
         )
 
-    server = create_server(tool_connectors)
+    server = create_server(all_connectors)
     async with mcp.server.stdio.stdio_server() as (read, write):
         await server.run(read, write, server.create_initialization_options())
 

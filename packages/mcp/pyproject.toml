@@ -19,7 +19,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "parsimony-core>=0.1.0a1,<0.3",
+    "parsimony-core>=0.3.0,<0.4",
     "mcp>=1.0,<2",
     "pandas>=2.0,<3",
     # pydantic is used at the bridge boundary (validate_input=False on
@@ -29,6 +29,10 @@ dependencies = [
     # source is used by the MCP server and the user's code-execution
     # tool (both share the project venv and CWD).
     "python-dotenv>=1.0,<2",
+    # TOON encoder for `result_to_content`'s tabular preview. Replaces
+    # the in-tree ``parsimony_mcp._toon`` module — same spec, same agent
+    # tokens, but tracks the official spec as it evolves.
+    "toon-format>=0.9.0b1,<0.10",
 ]
 
 [project.optional-dependencies]

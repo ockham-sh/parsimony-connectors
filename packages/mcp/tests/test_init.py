@@ -53,9 +53,9 @@ def two_connectors() -> list[ConnectorInfo]:
 
 
 class TestRenderFiles:
-    def test_returns_three_files(self, two_connectors: list[ConnectorInfo]) -> None:
+    def test_returns_two_files(self, two_connectors: list[ConnectorInfo]) -> None:
         files = render_files(two_connectors)
-        assert set(files) == {".mcp.json", ".env", "AGENTS.md"}
+        assert set(files) == {".mcp.json", ".env"}
 
     def test_mcp_json_is_fixed_template(self, two_connectors: list[ConnectorInfo]) -> None:
         files = render_files(two_connectors)
@@ -65,37 +65,6 @@ class TestRenderFiles:
         assert "parsimony-coingecko" not in files[".mcp.json"]
         assert '"command": "uv"' in files[".mcp.json"]
         assert '"--env-file"' in files[".mcp.json"]
-
-    def test_agents_md_does_not_interpolate_plugin_metadata(
-        self, two_connectors: list[ConnectorInfo]
-    ) -> None:
-        # Per Hunt + Willison: AGENTS.md is loaded into every agent
-        # turn; any plugin string here is a prompt-injection vector.
-        files = render_files(two_connectors)
-        assert "parsimony-fred" not in files["AGENTS.md"]
-        assert "FRED_API_KEY" not in files["AGENTS.md"]
-        assert "fred.stlouisfed.org" not in files["AGENTS.md"]
-
-    def test_agents_md_teaches_discover_fetch_handshake(
-        self, two_connectors: list[ConnectorInfo]
-    ) -> None:
-        files = render_files(two_connectors)
-        # The two-step handshake must appear verbatim.
-        assert "discover" in files["AGENTS.md"].lower()
-        assert "from parsimony import client" in files["AGENTS.md"]
-        assert "do not invent connector names" in files["AGENTS.md"].lower()
-
-    def test_agents_md_handles_truncation_directive(
-        self, two_connectors: list[ConnectorInfo]
-    ) -> None:
-        files = render_files(two_connectors)
-        assert "50-row" in files["AGENTS.md"] or "truncation" in files["AGENTS.md"]
-
-    def test_agents_md_handles_do_not_retry_directive(
-        self, two_connectors: list[ConnectorInfo]
-    ) -> None:
-        files = render_files(two_connectors)
-        assert "DO NOT retry" in files["AGENTS.md"]
 
     def test_env_grouped_by_connector_with_homepage(
         self, two_connectors: list[ConnectorInfo]
@@ -158,15 +127,14 @@ class TestRenderFiles:
 
 
 class TestWriteFiles:
-    def test_writes_three_files_into_clean_dir(
+    def test_writes_two_files_into_clean_dir(
         self, project: Path, two_connectors: list[ConnectorInfo]
     ) -> None:
         files = render_files(two_connectors)
         result = write_files(files, project)
         assert (project / ".mcp.json").is_file()
         assert (project / ".env").is_file()
-        assert (project / "AGENTS.md").is_file()
-        assert len(result.written) == 3
+        assert len(result.written) == 2
 
     def test_env_is_mode_0600(
         self, project: Path, two_connectors: list[ConnectorInfo]
@@ -177,13 +145,12 @@ class TestWriteFiles:
         assert (st.st_mode & 0o077) == 0
         assert (st.st_mode & 0o600) == 0o600
 
-    def test_other_files_are_mode_0644(
+    def test_mcp_json_is_mode_0644(
         self, project: Path, two_connectors: list[ConnectorInfo]
     ) -> None:
         write_files(render_files(two_connectors), project)
-        for name in (".mcp.json", "AGENTS.md"):
-            st = (project / name).stat()
-            assert stat.S_IMODE(st.st_mode) == 0o644
+        st = (project / ".mcp.json").stat()
+        assert stat.S_IMODE(st.st_mode) == 0o644
 
     def test_refuses_to_overwrite_existing_files(
         self, project: Path, two_connectors: list[ConnectorInfo]
@@ -191,10 +158,9 @@ class TestWriteFiles:
         (project / ".mcp.json").write_text("{}")
         with pytest.raises(InitError, match="already exist"):
             write_files(render_files(two_connectors), project)
-        # The other files should NOT have been written either —
+        # The other file should NOT have been written either —
         # refusal is atomic.
         assert not (project / ".env").exists()
-        assert not (project / "AGENTS.md").exists()
 
     def test_force_overwrites(
         self, project: Path, two_connectors: list[ConnectorInfo]
@@ -202,7 +168,7 @@ class TestWriteFiles:
         (project / ".mcp.json").write_text("{}")
         result = write_files(render_files(two_connectors), project, force=True)
         assert (project / ".mcp.json").read_text().strip() != "{}"
-        assert len(result.written) == 3
+        assert len(result.written) == 2
 
     def test_refuse_message_names_three_recovery_paths(
         self, project: Path, two_connectors: list[ConnectorInfo]
@@ -291,7 +257,6 @@ class TestRenderSummary:
         summary = render_summary(result, two_connectors)
         assert ".mcp.json" in summary
         assert ".env" in summary
-        assert "AGENTS.md" in summary
 
     def test_lists_discovered_connectors(
         self, project: Path, two_connectors: list[ConnectorInfo]
@@ -341,7 +306,7 @@ class TestRenderSummary:
         from parsimony_mcp.init import WriteResult
 
         result = WriteResult(
-            target_dir=project, written=tuple(project / n for n in (".mcp.json", "AGENTS.md", ".env"))
+            target_dir=project, written=tuple(project / n for n in (".mcp.json", ".env"))
         )
         summary = render_summary(result, two_connectors, dry_run=True)
         assert "would write" in summary
@@ -353,7 +318,6 @@ class TestRenderPrintBundle:
         files = render_files(two_connectors)
         bundle = render_print_bundle(files)
         assert "# === FILE: .mcp.json ===" in bundle
-        assert "# === FILE: AGENTS.md ===" in bundle
         assert "# === FILE: .env ===" in bundle
 
 
@@ -394,7 +358,6 @@ class TestRunCLI:
         assert code == ExitCode.OK
         assert (project / ".mcp.json").is_file()
         assert (project / ".env").is_file()
-        assert (project / "AGENTS.md").is_file()
         assert "Connectors discovered" in out.getvalue()
 
     def test_existing_file_returns_usage_error(
