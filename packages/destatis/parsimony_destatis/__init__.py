@@ -6,15 +6,14 @@ Uses guest credentials (GAST/GAST) by default.
 
 from __future__ import annotations
 
-import httpx
 import io
 import re
 from typing import Annotated, Any
 
+import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError, ParseError, ProviderError
-from parsimony.transport import HttpClient, map_http_error
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -22,6 +21,7 @@ from parsimony.result import (
     Provenance,
     Result,
 )
+from parsimony.transport import HttpClient, map_http_error
 from pydantic import BaseModel, Field, field_validator
 
 _BASE_URL = "https://www-genesis.destatis.de/genesisWS/rest/2020"

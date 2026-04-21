@@ -24,8 +24,8 @@ from parsimony.errors import (
     EmptyDataError,
     ParseError,
 )
-from parsimony.transport import HttpClient, map_http_error, map_timeout_error, pooled_client
 from parsimony.result import OutputConfig, Provenance, Result
+from parsimony.transport import HttpClient, map_http_error, map_timeout_error, pooled_client
 
 # Per-request timeout. 15s matches the Tiingo connector's precedent and is
 # defensible for FMP's equity REST endpoints, which are not streaming.

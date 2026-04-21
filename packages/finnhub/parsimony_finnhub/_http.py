@@ -22,8 +22,8 @@ from parsimony.errors import (
     RateLimitError,
     UnauthorizedError,
 )
-from parsimony.transport import HttpClient, map_timeout_error, parse_retry_after
 from parsimony.result import OutputConfig
+from parsimony.transport import HttpClient, map_timeout_error, parse_retry_after
 
 # Per-request timeout. Finnhub's REST endpoints are not streaming; 15s is a
 # conservative ceiling that matches the FMP connector's precedent.

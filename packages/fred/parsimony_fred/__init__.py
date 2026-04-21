@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
+import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
@@ -24,8 +25,6 @@ from parsimony.result import (
     Provenance,
     Result,
 )
-import httpx
-
 from parsimony.transport import HttpClient, map_http_error
 from pydantic import BaseModel, Field, field_validator
 

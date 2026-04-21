@@ -22,8 +22,8 @@ from parsimony.errors import (
     RateLimitError,
     UnauthorizedError,
 )
-from parsimony.transport import HttpClient, map_timeout_error, parse_retry_after
 from parsimony.result import OutputConfig
+from parsimony.transport import HttpClient, map_timeout_error, parse_retry_after
 
 _DEFAULT_BASE_URL: str = "https://api.coingecko.com/api/v3"
 _DEFAULT_TIMEOUT_SECONDS: float = 15.0

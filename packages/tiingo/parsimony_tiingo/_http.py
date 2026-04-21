@@ -16,8 +16,8 @@ from __future__ import annotations
 from typing import Any
 
 import httpx
-from parsimony.transport import HttpClient, map_http_error, map_timeout_error
 from parsimony.result import OutputConfig
+from parsimony.transport import HttpClient, map_http_error, map_timeout_error
 
 # Per-request timeout. 15s matches the long-standing Tiingo connector
 # default; endpoints are REST, not streaming.

@@ -9,8 +9,8 @@ from typing import Any, Literal
 import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector
-from parsimony.transport import HttpClient, map_http_error
 from parsimony.result import Provenance, Result
+from parsimony.transport import HttpClient, map_http_error
 from pydantic import BaseModel, ConfigDict, Field
 
 

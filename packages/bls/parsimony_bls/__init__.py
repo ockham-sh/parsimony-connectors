@@ -12,7 +12,6 @@ import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError, ProviderError
-from parsimony.transport import HttpClient, map_http_error
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -20,6 +19,7 @@ from parsimony.result import (
     Provenance,
     Result,
 )
+from parsimony.transport import HttpClient, map_http_error
 from pydantic import BaseModel, Field, field_validator
 
 _BASE_URL = "https://api.bls.gov/publicAPI/v2"

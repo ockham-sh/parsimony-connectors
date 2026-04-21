@@ -23,8 +23,8 @@ from parsimony.errors import (
     ParseError,
     ProviderError,
 )
-from parsimony.transport import HttpClient, map_http_error, map_timeout_error
 from parsimony.result import OutputConfig, Provenance, Result
+from parsimony.transport import HttpClient, map_http_error, map_timeout_error
 
 # Per-request timeout. 15s is defensible for EODHD's REST endpoints, which
 # are not streaming. Bulk endpoints (fundamentals, macro_bulk, bulk_eod,
