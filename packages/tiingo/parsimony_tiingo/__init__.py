@@ -15,122 +15,66 @@ Provides 13 connectors:
   - Enumerator: supported tickers list for catalog indexing
 
 Free-tier restrictions: news (403), fundamentals daily/statements (404).
+
+Internal layout (not part of the public contract):
+
+* :mod:`parsimony_tiingo._http` — shared transport, unified error
+  mapping, ``Retry-After`` parsing, the ``tiingo_fetch`` JSON helper.
+* :mod:`parsimony_tiingo.params` — Pydantic parameter models.
+* :mod:`parsimony_tiingo.outputs` — declarative
+  :class:`OutputConfig` schemas.
+
+This ``__init__.py`` stays at the top level so ``tools/gen_registry.py``
+can AST-parse ``@connector`` decorators (it does not follow re-exports).
 """
 
 from __future__ import annotations
 
-import re
-from typing import Annotated, Any
+from typing import Any
 
 import httpx
 import pandas as pd
-from parsimony.connector import (
-    Connectors,
-    Namespace,
-    connector,
-    enumerator,
-)
-from parsimony.errors import (
-    EmptyDataError,
-    PaymentRequiredError,
-    ProviderError,
-    RateLimitError,
-    UnauthorizedError,
-)
-from parsimony.result import (
-    Column,
-    ColumnRole,
-    OutputConfig,
-    Provenance,
-    Result,
-)
-from parsimony.transport.http import HttpClient
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from parsimony.connector import Connectors, connector, enumerator
+from parsimony.errors import EmptyDataError
+from parsimony.result import Provenance, Result
 
-_TICKER_RE = re.compile(r"^[a-zA-Z0-9._\-]+$")
-_TICKERS_RE = re.compile(r"^[a-zA-Z0-9._,\-/]+$")
+from parsimony_tiingo._http import make_http as _make_http
+from parsimony_tiingo._http import tiingo_fetch as _tiingo_fetch
+from parsimony_tiingo.outputs import CRYPTO_PRICES_OUTPUT as _CRYPTO_PRICES_OUTPUT
+from parsimony_tiingo.outputs import CRYPTO_TOP_OUTPUT as _CRYPTO_TOP_OUTPUT
+from parsimony_tiingo.outputs import DEFINITIONS_OUTPUT as _DEFINITIONS_OUTPUT
+from parsimony_tiingo.outputs import ENUMERATE_OUTPUT as _ENUMERATE_OUTPUT
+from parsimony_tiingo.outputs import EOD_OUTPUT as _EOD_OUTPUT
+from parsimony_tiingo.outputs import FX_PRICES_OUTPUT as _FX_PRICES_OUTPUT
+from parsimony_tiingo.outputs import FX_TOP_OUTPUT as _FX_TOP_OUTPUT
+from parsimony_tiingo.outputs import IEX_HIST_OUTPUT as _IEX_HIST_OUTPUT
+from parsimony_tiingo.outputs import IEX_OUTPUT as _IEX_OUTPUT
+from parsimony_tiingo.outputs import NEWS_OUTPUT as _NEWS_OUTPUT
+from parsimony_tiingo.outputs import SEARCH_OUTPUT as _SEARCH_OUTPUT
+from parsimony_tiingo.params import (
+    TiingoCryptoPricesParams,
+    TiingoCryptoTopParams,
+    TiingoDefinitionsParams,
+    TiingoEnumerateParams,
+    TiingoEodParams,
+    TiingoFundamentalsMetaParams,
+    TiingoFxPricesParams,
+    TiingoFxTopParams,
+    TiingoIexHistParams,
+    TiingoIexParams,
+    TiingoMetaParams,
+    TiingoNewsParams,
+    TiingoSearchParams,
+)
 
 ENV_VARS: dict[str, str] = {"api_key": "TIINGO_API_KEY"}
 
-_BASE_URL = "https://api.tiingo.com"
-_TIMEOUT = 15.0
-
-
-# ---------------------------------------------------------------------------
-# Transport helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_http(api_key: str) -> HttpClient:
-    return HttpClient(
-        _BASE_URL,
-        headers={"Authorization": f"Token {api_key}"},
-        timeout=_TIMEOUT,
-    )
-
-
-async def _tiingo_fetch(
-    http: HttpClient,
-    *,
-    path: str,
-    params: dict[str, Any] | None = None,
-    op_name: str,
-) -> Any:
-    """Shared Tiingo GET with typed error mapping. Returns parsed JSON body."""
-    try:
-        response = await http.request("GET", path, params=params or None)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        status = e.response.status_code
-        match status:
-            case 401:
-                raise UnauthorizedError(
-                    provider="tiingo",
-                    message="Invalid or missing Tiingo API key",
-                ) from e
-            case 403:
-                raise PaymentRequiredError(
-                    provider="tiingo",
-                    message=f"Tiingo endpoint '{op_name}' requires a higher-tier plan",
-                ) from e
-            case 429:
-                raise RateLimitError(
-                    provider="tiingo",
-                    retry_after=60.0,
-                    message=f"Tiingo rate limit hit on '{op_name}'",
-                ) from e
-            case _:
-                raise ProviderError(
-                    provider="tiingo",
-                    status_code=status,
-                    message=f"Tiingo API error {status} on '{op_name}'",
-                ) from e
-
-    return response.json()
+_PROVIDER = "tiingo"
 
 
 # ---------------------------------------------------------------------------
 # Discovery — search
 # ---------------------------------------------------------------------------
-
-_SEARCH_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="ticker", role=ColumnRole.KEY, namespace="tiingo_ticker"),
-        Column(name="name", role=ColumnRole.TITLE),
-        Column(name="asset_type", role=ColumnRole.METADATA),
-        Column(name="is_active", role=ColumnRole.METADATA, dtype="bool"),
-        Column(name="country_code", role=ColumnRole.METADATA),
-        Column(name="perma_ticker", role=ColumnRole.METADATA, exclude_from_llm_view=True),
-        Column(name="open_figi", role=ColumnRole.METADATA, exclude_from_llm_view=True),
-    ]
-)
-
-
-class TiingoSearchParams(BaseModel):
-    """Search Tiingo for stocks, ETFs, mutual funds, and crypto by name or ticker."""
-
-    query: str = Field(..., min_length=1, description="Search term, e.g. 'apple' or 'AAPL'")
-    limit: int = Field(default=25, ge=1, le=100, description="Max results to return (1-100)")
 
 
 @connector(output=_SEARCH_OUTPUT, tags=["equities", "tool"])
@@ -180,42 +124,6 @@ async def tiingo_search(params: TiingoSearchParams, *, api_key: str) -> Result:
 # ---------------------------------------------------------------------------
 # Equities — EOD prices
 # ---------------------------------------------------------------------------
-
-_EOD_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="ticker", role=ColumnRole.KEY, param_key="ticker", namespace="tiingo_ticker"),
-        Column(name="date", role=ColumnRole.DATA, dtype="datetime"),
-        Column(name="close", dtype="numeric"),
-        Column(name="high", dtype="numeric"),
-        Column(name="low", dtype="numeric"),
-        Column(name="open", dtype="numeric"),
-        Column(name="volume", dtype="numeric"),
-        Column(name="adj_close", dtype="numeric"),
-        Column(name="adj_high", dtype="numeric"),
-        Column(name="adj_low", dtype="numeric"),
-        Column(name="adj_open", dtype="numeric"),
-        Column(name="adj_volume", dtype="numeric"),
-        Column(name="div_cash", dtype="numeric"),
-        Column(name="split_factor", dtype="numeric"),
-    ]
-)
-
-
-class TiingoEodParams(BaseModel):
-    """Historical end-of-day prices for a stock."""
-
-    ticker: Annotated[str, Namespace("tiingo_ticker")] = Field(
-        ..., description="Stock ticker, e.g. 'AAPL'. Use tiingo_search to resolve tickers."
-    )
-    start_date: str | None = Field(default=None, description="Start date ISO 8601, e.g. '2024-01-01'.")
-    end_date: str | None = Field(default=None, description="End date ISO 8601, e.g. '2024-12-31'.")
-
-    @field_validator("ticker")
-    @classmethod
-    def _path_safe_ticker(cls, v: str) -> str:
-        if not _TICKER_RE.match(v):
-            raise ValueError(f"ticker contains unsafe characters for URL path: {v!r}")
-        return v
 
 
 @connector(output=_EOD_OUTPUT, tags=["equities"])
@@ -277,33 +185,6 @@ async def tiingo_eod(params: TiingoEodParams, *, api_key: str) -> Result:
 # Equities — IEX real-time quotes
 # ---------------------------------------------------------------------------
 
-_IEX_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="ticker", role=ColumnRole.KEY, namespace="tiingo_ticker"),
-        Column(name="timestamp", role=ColumnRole.METADATA, dtype="datetime"),
-        Column(name="tngo_last", dtype="numeric"),
-        Column(name="open", dtype="numeric"),
-        Column(name="high", dtype="numeric"),
-        Column(name="low", dtype="numeric"),
-        Column(name="volume", dtype="numeric"),
-        Column(name="prev_close", dtype="numeric"),
-        Column(name="mid", dtype="numeric"),
-        Column(name="bid_price", dtype="numeric"),
-        Column(name="ask_price", dtype="numeric"),
-        Column(name="bid_size", dtype="numeric"),
-        Column(name="ask_size", dtype="numeric"),
-    ]
-)
-
-
-class TiingoIexParams(BaseModel):
-    """Real-time IEX quote for one or more stock tickers."""
-
-    tickers: str = Field(
-        ...,
-        description="Comma-separated tickers, e.g. 'AAPL' or 'AAPL,MSFT,TSLA'. Use tiingo_search to resolve.",
-    )
-
 
 @connector(output=_IEX_OUTPUT, tags=["equities"])
 async def tiingo_iex(params: TiingoIexParams, *, api_key: str) -> Result:
@@ -357,38 +238,6 @@ async def tiingo_iex(params: TiingoIexParams, *, api_key: str) -> Result:
 # Equities — IEX historical intraday
 # ---------------------------------------------------------------------------
 
-_IEX_HIST_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="ticker", role=ColumnRole.KEY, param_key="ticker", namespace="tiingo_ticker"),
-        Column(name="date", role=ColumnRole.DATA, dtype="datetime"),
-        Column(name="open", dtype="numeric"),
-        Column(name="high", dtype="numeric"),
-        Column(name="low", dtype="numeric"),
-        Column(name="close", dtype="numeric"),
-    ]
-)
-
-
-class TiingoIexHistParams(BaseModel):
-    """Historical IEX intraday prices for a stock."""
-
-    ticker: Annotated[str, Namespace("tiingo_ticker")] = Field(
-        ..., description="Stock ticker, e.g. 'AAPL'. Use tiingo_search to resolve tickers."
-    )
-    start_date: str | None = Field(default=None, description="Start date ISO 8601, e.g. '2024-01-01'.")
-    end_date: str | None = Field(default=None, description="End date ISO 8601, e.g. '2024-01-05'.")
-    resample_freq: str = Field(
-        default="1hour",
-        description="Resample frequency: '1min', '5min', '15min', '30min', '1hour', '2hour', '4hour'.",
-    )
-
-    @field_validator("ticker")
-    @classmethod
-    def _path_safe_ticker(cls, v: str) -> str:
-        if not _TICKER_RE.match(v):
-            raise ValueError(f"ticker contains unsafe characters for URL path: {v!r}")
-        return v
-
 
 @connector(output=_IEX_HIST_OUTPUT, tags=["equities"])
 async def tiingo_iex_historical(params: TiingoIexHistParams, *, api_key: str) -> Result:
@@ -441,21 +290,6 @@ async def tiingo_iex_historical(params: TiingoIexHistParams, *, api_key: str) ->
 # ---------------------------------------------------------------------------
 
 
-class TiingoMetaParams(BaseModel):
-    """Company metadata for a stock ticker."""
-
-    ticker: Annotated[str, Namespace("tiingo_ticker")] = Field(
-        ..., description="Stock ticker, e.g. 'AAPL'. Use tiingo_search to resolve tickers."
-    )
-
-    @field_validator("ticker")
-    @classmethod
-    def _path_safe_ticker(cls, v: str) -> str:
-        if not _TICKER_RE.match(v):
-            raise ValueError(f"ticker contains unsafe characters for URL path: {v!r}")
-        return v
-
-
 @connector(tags=["equities"])
 async def tiingo_meta(params: TiingoMetaParams, *, api_key: str) -> Result:
     """Fetch company metadata for a stock: name, description, exchange,
@@ -485,15 +319,6 @@ async def tiingo_meta(params: TiingoMetaParams, *, api_key: str) -> Result:
 # ---------------------------------------------------------------------------
 # Fundamentals — company metadata (sector, industry, SIC)
 # ---------------------------------------------------------------------------
-
-
-class TiingoFundamentalsMetaParams(BaseModel):
-    """Fundamentals metadata: sector, industry, SIC codes, and more."""
-
-    tickers: str = Field(
-        ...,
-        description="Comma-separated tickers, e.g. 'AAPL' or 'AAPL,MSFT'. Use tiingo_search to resolve.",
-    )
 
 
 @connector(tags=["equities"])
@@ -528,22 +353,6 @@ async def tiingo_fundamentals_meta(params: TiingoFundamentalsMetaParams, *, api_
 # ---------------------------------------------------------------------------
 # Fundamentals — definitions (reference data)
 # ---------------------------------------------------------------------------
-
-_DEFINITIONS_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="data_code", role=ColumnRole.KEY, namespace="tiingo_data_code"),
-        Column(name="name", role=ColumnRole.TITLE),
-        Column(name="description", role=ColumnRole.METADATA),
-        Column(name="statement_type", role=ColumnRole.METADATA),
-        Column(name="units", role=ColumnRole.METADATA),
-    ]
-)
-
-
-class TiingoDefinitionsParams(BaseModel):
-    """List all fundamental metric definitions (codes, names, units)."""
-
-    pass
 
 
 @connector(output=_DEFINITIONS_OUTPUT, tags=["equities"])
@@ -589,34 +398,6 @@ async def tiingo_fundamentals_definitions(params: TiingoDefinitionsParams, *, ap
 # ---------------------------------------------------------------------------
 # News (Power+ plan required)
 # ---------------------------------------------------------------------------
-
-_NEWS_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="id", role=ColumnRole.KEY),
-        Column(name="title", role=ColumnRole.TITLE),
-        Column(name="published_date", role=ColumnRole.METADATA, dtype="datetime"),
-        Column(name="source", role=ColumnRole.METADATA),
-        Column(name="tickers", role=ColumnRole.METADATA),
-        Column(name="tags", role=ColumnRole.METADATA),
-        Column(name="description", role=ColumnRole.METADATA),
-        Column(name="url", role=ColumnRole.METADATA, exclude_from_llm_view=True),
-    ]
-)
-
-
-class TiingoNewsParams(BaseModel):
-    """News articles from Tiingo (requires Power+ plan)."""
-
-    model_config = ConfigDict(populate_by_name=True)
-
-    tickers: str | None = Field(
-        default=None,
-        description="Comma-separated tickers to filter, e.g. 'AAPL,MSFT'. Omit for all.",
-    )
-    source: str | None = Field(default=None, description="News source filter, e.g. 'bloomberg.com'.")
-    start_date: str | None = Field(default=None, description="Start date ISO 8601, e.g. '2024-01-01'.")
-    end_date: str | None = Field(default=None, description="End date ISO 8601, e.g. '2024-12-31'.")
-    limit: int = Field(default=50, ge=1, le=100, description="Max articles (1-100)")
 
 
 @connector(output=_NEWS_OUTPUT, tags=["equities", "news"])
@@ -668,32 +449,6 @@ async def tiingo_news(params: TiingoNewsParams, *, api_key: str) -> Result:
 # ---------------------------------------------------------------------------
 # Crypto — historical prices
 # ---------------------------------------------------------------------------
-
-_CRYPTO_PRICES_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="ticker", role=ColumnRole.KEY, param_key="tickers", namespace="tiingo_crypto"),
-        Column(name="date", role=ColumnRole.DATA, dtype="datetime"),
-        Column(name="open", dtype="numeric"),
-        Column(name="high", dtype="numeric"),
-        Column(name="low", dtype="numeric"),
-        Column(name="close", dtype="numeric"),
-        Column(name="volume", dtype="numeric"),
-        Column(name="volume_notional", dtype="numeric"),
-        Column(name="trades_done", dtype="numeric"),
-    ]
-)
-
-
-class TiingoCryptoPricesParams(BaseModel):
-    """Historical crypto prices."""
-
-    tickers: str = Field(..., description="Crypto pair, e.g. 'btcusd' or 'ethusd'. Use lowercase.")
-    start_date: str | None = Field(default=None, description="Start date ISO 8601, e.g. '2024-01-01'.")
-    end_date: str | None = Field(default=None, description="End date ISO 8601, e.g. '2024-12-31'.")
-    resample_freq: str = Field(
-        default="1day",
-        description="Resample frequency: '1min', '5min', '15min', '30min', '1hour', '4hour', '1day'.",
-    )
 
 
 @connector(output=_CRYPTO_PRICES_OUTPUT, tags=["crypto"])
@@ -760,26 +515,6 @@ async def tiingo_crypto_prices(params: TiingoCryptoPricesParams, *, api_key: str
 # Crypto — real-time top-of-book
 # ---------------------------------------------------------------------------
 
-_CRYPTO_TOP_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="ticker", role=ColumnRole.KEY, namespace="tiingo_crypto"),
-        Column(name="last_price", dtype="numeric"),
-        Column(name="quote_timestamp", role=ColumnRole.METADATA, dtype="datetime"),
-        Column(name="bid_price", dtype="numeric"),
-        Column(name="ask_price", dtype="numeric"),
-        Column(name="bid_size", dtype="numeric"),
-        Column(name="ask_size", dtype="numeric"),
-        Column(name="last_size_notional", dtype="numeric"),
-        Column(name="last_exchange", role=ColumnRole.METADATA),
-    ]
-)
-
-
-class TiingoCryptoTopParams(BaseModel):
-    """Real-time crypto top-of-book quotes."""
-
-    tickers: str = Field(..., description="Comma-separated crypto pairs, e.g. 'btcusd' or 'btcusd,ethusd'. Lowercase.")
-
 
 @connector(output=_CRYPTO_TOP_OUTPUT, tags=["crypto"])
 async def tiingo_crypto_top(params: TiingoCryptoTopParams, *, api_key: str) -> Result:
@@ -838,29 +573,6 @@ async def tiingo_crypto_top(params: TiingoCryptoTopParams, *, api_key: str) -> R
 # Forex — historical prices
 # ---------------------------------------------------------------------------
 
-_FX_PRICES_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="ticker", role=ColumnRole.KEY, param_key="tickers", namespace="tiingo_fx"),
-        Column(name="date", role=ColumnRole.DATA, dtype="datetime"),
-        Column(name="open", dtype="numeric"),
-        Column(name="high", dtype="numeric"),
-        Column(name="low", dtype="numeric"),
-        Column(name="close", dtype="numeric"),
-    ]
-)
-
-
-class TiingoFxPricesParams(BaseModel):
-    """Historical forex prices."""
-
-    tickers: str = Field(..., description="Forex pair, e.g. 'eurusd' or 'gbpjpy'. Use lowercase.")
-    start_date: str | None = Field(default=None, description="Start date ISO 8601, e.g. '2024-01-01'.")
-    end_date: str | None = Field(default=None, description="End date ISO 8601, e.g. '2024-12-31'.")
-    resample_freq: str = Field(
-        default="1day",
-        description="Resample frequency: '1min', '5min', '15min', '30min', '1hour', '4hour', '1day'.",
-    )
-
 
 @connector(output=_FX_PRICES_OUTPUT, tags=["forex"])
 async def tiingo_fx_prices(params: TiingoFxPricesParams, *, api_key: str) -> Result:
@@ -911,24 +623,6 @@ async def tiingo_fx_prices(params: TiingoFxPricesParams, *, api_key: str) -> Res
 # Forex — real-time top-of-book
 # ---------------------------------------------------------------------------
 
-_FX_TOP_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="ticker", role=ColumnRole.KEY, namespace="tiingo_fx"),
-        Column(name="quote_timestamp", role=ColumnRole.METADATA, dtype="datetime"),
-        Column(name="mid_price", dtype="numeric"),
-        Column(name="bid_price", dtype="numeric"),
-        Column(name="ask_price", dtype="numeric"),
-        Column(name="bid_size", dtype="numeric"),
-        Column(name="ask_size", dtype="numeric"),
-    ]
-)
-
-
-class TiingoFxTopParams(BaseModel):
-    """Real-time forex top-of-book quotes."""
-
-    tickers: str = Field(..., description="Comma-separated forex pairs, e.g. 'eurusd' or 'eurusd,gbpjpy'. Lowercase.")
-
 
 @connector(output=_FX_TOP_OUTPUT, tags=["forex"])
 async def tiingo_fx_top(params: TiingoFxTopParams, *, api_key: str) -> Result:
@@ -973,25 +667,6 @@ async def tiingo_fx_top(params: TiingoFxTopParams, *, api_key: str) -> Result:
 # ---------------------------------------------------------------------------
 # Enumerator — supported tickers for catalog indexing
 # ---------------------------------------------------------------------------
-
-_ENUMERATE_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="ticker", role=ColumnRole.KEY, namespace="tiingo_ticker"),
-        Column(name="name", role=ColumnRole.TITLE),
-        Column(name="asset_type", role=ColumnRole.METADATA),
-        Column(name="exchange", role=ColumnRole.METADATA),
-        Column(name="is_active", role=ColumnRole.METADATA, dtype="bool"),
-        Column(name="country_code", role=ColumnRole.METADATA),
-        Column(name="start_date", role=ColumnRole.METADATA),
-        Column(name="end_date", role=ColumnRole.METADATA),
-    ]
-)
-
-
-class TiingoEnumerateParams(BaseModel):
-    """Parameters for enumerating Tiingo supported tickers."""
-
-    pass
 
 
 @enumerator(output=_ENUMERATE_OUTPUT, tags=["equities"])
@@ -1060,3 +735,37 @@ CONNECTORS = Connectors(
         enumerate_tiingo,
     ]
 )
+
+
+__all__ = [
+    "CONNECTORS",
+    "ENV_VARS",
+    # Parameter models (public — downstream callers type against these)
+    "TiingoCryptoPricesParams",
+    "TiingoCryptoTopParams",
+    "TiingoDefinitionsParams",
+    "TiingoEnumerateParams",
+    "TiingoEodParams",
+    "TiingoFundamentalsMetaParams",
+    "TiingoFxPricesParams",
+    "TiingoFxTopParams",
+    "TiingoIexHistParams",
+    "TiingoIexParams",
+    "TiingoMetaParams",
+    "TiingoNewsParams",
+    "TiingoSearchParams",
+    # Connector functions
+    "enumerate_tiingo",
+    "tiingo_crypto_prices",
+    "tiingo_crypto_top",
+    "tiingo_eod",
+    "tiingo_fundamentals_definitions",
+    "tiingo_fundamentals_meta",
+    "tiingo_fx_prices",
+    "tiingo_fx_top",
+    "tiingo_iex",
+    "tiingo_iex_historical",
+    "tiingo_meta",
+    "tiingo_news",
+    "tiingo_search",
+]

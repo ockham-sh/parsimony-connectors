@@ -15,6 +15,10 @@
 # /packages/sdmx/         @espinetandreu
 /packages/fmp/           @espinetandreu
 /packages/alpha_vantage/ @espinetandreu
+/packages/coingecko/     @espinetandreu
+/packages/eodhd/         @espinetandreu
+/packages/finnhub/       @espinetandreu
+/packages/tiingo/        @espinetandreu
 # ---------------------------------------------------------------------------
 
 # packages/mcp/ — the MCP host adapter. This package is NOT a connector
