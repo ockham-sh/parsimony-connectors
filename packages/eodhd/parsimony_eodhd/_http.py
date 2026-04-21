@@ -15,29 +15,22 @@ here. That single chokepoint is what guarantees:
 from __future__ import annotations
 
 import re
-from typing import Any, NoReturn
+from typing import Any
 
 import httpx
 import pandas as pd
 from parsimony.errors import (
     EmptyDataError,
     ParseError,
-    PaymentRequiredError,
     ProviderError,
-    RateLimitError,
-    UnauthorizedError,
 )
-from parsimony.transport import HttpClient
+from parsimony.transport import HttpClient, map_http_error
 from parsimony.result import OutputConfig, Provenance, Result
 
 # Per-request timeout. 15s is defensible for EODHD's REST endpoints, which
 # are not streaming. Bulk endpoints (fundamentals, macro_bulk, bulk_eod,
 # exchange_symbols) override this via the ``timeout`` kwarg on ``make_http``.
 _DEFAULT_TIMEOUT_SECONDS: float = 15.0
-
-# Fallback when a 429 response omits ``Retry-After``. RateLimitError requires
-# a positive retry_after value; 60s is conservative for an unknown backoff.
-_DEFAULT_RATE_LIMIT_RETRY_AFTER: float = 60.0
 
 _DEFAULT_BASE_URL: str = "https://eodhd.com/api"
 
@@ -74,55 +67,6 @@ def _redact_url(url: str) -> str:
     return re.sub(r"(api_token=)[^&\s]+", r"\1***", url)
 
 
-def _parse_retry_after(response: httpx.Response) -> float:
-    """Extract ``Retry-After`` seconds from a 429 response, with a safe default."""
-    header = response.headers.get("Retry-After", "").strip()
-    if header:
-        try:
-            value = float(header)
-            if 0 < value <= 86_400:
-                return value
-        except ValueError:
-            pass
-    return _DEFAULT_RATE_LIMIT_RETRY_AFTER
-
-
-def _raise_mapped_status(exc: httpx.HTTPStatusError, op_name: str) -> NoReturn:
-    """Translate an ``httpx.HTTPStatusError`` into a parsimony-typed exception.
-
-    Every connector path funnels through here so the mapping contract is
-    uniform: 401/403 → UnauthorizedError, 402 → PaymentRequiredError,
-    429 → RateLimitError, else → ProviderError. Messages never carry the
-    request URL; the raw exception is chained via ``from exc`` for traceback
-    visibility but the message itself is token-free.
-    """
-    status = exc.response.status_code
-    match status:
-        case 401 | 403:
-            raise UnauthorizedError(
-                provider=_PROVIDER,
-                message="Invalid or missing EODHD API token",
-            ) from exc
-        case 402:
-            raise PaymentRequiredError(
-                provider=_PROVIDER,
-                message="Your EODHD plan is not eligible for this data request",
-            ) from exc
-        case 429:
-            retry_after = _parse_retry_after(exc.response)
-            raise RateLimitError(
-                provider=_PROVIDER,
-                retry_after=retry_after,
-                message=f"EODHD rate limit hit on '{op_name}', retry after {retry_after:.0f}s",
-            ) from exc
-        case _:
-            raise ProviderError(
-                provider=_PROVIDER,
-                status_code=status,
-                message=f"EODHD API error {status} on '{op_name}'",
-            ) from exc
-
-
 def _to_bracket_params(params: dict[str, Any]) -> dict[str, Any]:
     """Transform ``filter_x`` → ``filter[x]`` and ``page_x`` → ``page[x]`` for EODHD bracket syntax.
 
@@ -152,7 +96,7 @@ async def eodhd_fetch(
 ) -> Result:
     """Shared EODHD fetch: path interpolation, bracket params, JSON extraction, Result building.
 
-    Error mapping is delegated to :func:`_raise_mapped_status`:
+    Error mapping is delegated to :func:`~parsimony.transport.map_http_error`:
       401/403 → UnauthorizedError
       402     → PaymentRequiredError
       429     → RateLimitError (Retry-After parsed when present)
@@ -188,7 +132,7 @@ async def eodhd_fetch(
         response = await http.request("GET", f"/{rendered.lstrip('/')}", params=query_params or None)
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
-        _raise_mapped_status(exc, op_name)
+        map_http_error(exc, provider=_PROVIDER, op_name=op_name)
     except httpx.TimeoutException as exc:
         raise ProviderError(
             provider=_PROVIDER,

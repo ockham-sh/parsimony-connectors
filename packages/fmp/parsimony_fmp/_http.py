@@ -16,28 +16,21 @@ from __future__ import annotations
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, NoReturn
+from typing import Any
 
 import httpx
 import pandas as pd
 from parsimony.errors import (
     EmptyDataError,
     ParseError,
-    PaymentRequiredError,
     ProviderError,
-    RateLimitError,
-    UnauthorizedError,
 )
-from parsimony.transport import HttpClient
+from parsimony.transport import HttpClient, map_http_error
 from parsimony.result import OutputConfig, Provenance, Result
 
 # Per-request timeout. 15s matches the Tiingo connector's precedent and is
 # defensible for FMP's equity REST endpoints, which are not streaming.
 _DEFAULT_TIMEOUT_SECONDS: float = 15.0
-
-# Fallback when a 429 response omits ``Retry-After``. RateLimitError requires
-# a positive retry_after value; 60s is conservative for an unknown backoff.
-_DEFAULT_RATE_LIMIT_RETRY_AFTER: float = 60.0
 
 _DEFAULT_BASE_URL: str = "https://financialmodelingprep.com/stable"
 
@@ -68,55 +61,6 @@ def _redact_url(url: str) -> str:
     return re.sub(r"(apikey=)[^&\s]+", r"\1***", url)
 
 
-def _parse_retry_after(response: httpx.Response) -> float:
-    """Extract ``Retry-After`` seconds from a 429 response, with a safe default."""
-    header = response.headers.get("Retry-After", "").strip()
-    if header:
-        try:
-            value = float(header)
-            if 0 < value <= 86_400:
-                return value
-        except ValueError:
-            pass
-    return _DEFAULT_RATE_LIMIT_RETRY_AFTER
-
-
-def _raise_mapped_error(exc: httpx.HTTPStatusError, op_name: str) -> NoReturn:
-    """Translate an ``httpx.HTTPStatusError`` into a parsimony-typed exception.
-
-    The only FMP-specific error mapping in the package. Every connector path
-    — simple or screener enrichment — funnels through here, so the contract
-    is uniform: 401 → UnauthorizedError, 402 → PaymentRequiredError,
-    429 → RateLimitError, else → ProviderError. Messages never carry the
-    request URL; the raw exception is chained via ``from exc`` for traceback
-    visibility but the message itself is key-free.
-    """
-    status = exc.response.status_code
-    match status:
-        case 401:
-            raise UnauthorizedError(
-                provider="fmp",
-                message="Invalid or missing FMP API key",
-            ) from exc
-        case 402:
-            raise PaymentRequiredError(
-                provider="fmp",
-                message="Your FMP plan is not eligible for this data request",
-            ) from exc
-        case 429:
-            raise RateLimitError(
-                provider="fmp",
-                retry_after=_parse_retry_after(exc.response),
-                message=f"FMP rate limit reached on endpoint '{op_name}'",
-            ) from exc
-        case _:
-            raise ProviderError(
-                provider="fmp",
-                status_code=status,
-                message=f"FMP API error {status} on endpoint '{op_name}'",
-            ) from exc
-
-
 async def fetch_json(
     http: HttpClient,
     *,
@@ -136,7 +80,7 @@ async def fetch_json(
         response = await http.request("GET", f"/{path.lstrip('/')}", params=filtered or None)
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
-        _raise_mapped_error(exc, op_name)
+        map_http_error(exc, provider="fmp", op_name=op_name)
     except httpx.TimeoutException as exc:
         raise ProviderError(
             provider="fmp",

@@ -13,25 +13,16 @@ here. That single chokepoint is what guarantees:
 
 from __future__ import annotations
 
-from typing import Any, NoReturn
+from typing import Any
 
 import httpx
-from parsimony.errors import (
-    PaymentRequiredError,
-    ProviderError,
-    RateLimitError,
-    UnauthorizedError,
-)
-from parsimony.transport import HttpClient
+from parsimony.errors import ProviderError
+from parsimony.transport import HttpClient, map_http_error
 from parsimony.result import OutputConfig
 
 # Per-request timeout. 15s matches the long-standing Tiingo connector
 # default; endpoints are REST, not streaming.
 _DEFAULT_TIMEOUT_SECONDS: float = 15.0
-
-# Fallback when a 429 response omits ``Retry-After``. RateLimitError requires
-# a positive retry_after value; 60s is conservative for an unknown backoff.
-_DEFAULT_RATE_LIMIT_RETRY_AFTER: float = 60.0
 
 _DEFAULT_BASE_URL: str = "https://api.tiingo.com"
 _PROVIDER: str = "tiingo"
@@ -49,54 +40,6 @@ def make_http(api_key: str, base_url: str = _DEFAULT_BASE_URL) -> HttpClient:
         headers={"Authorization": f"Token {api_key}"},
         timeout=_DEFAULT_TIMEOUT_SECONDS,
     )
-
-
-def _parse_retry_after(response: httpx.Response) -> float:
-    """Extract ``Retry-After`` seconds from a 429 response, with a safe default."""
-    header = response.headers.get("Retry-After", "").strip()
-    if header:
-        try:
-            value = float(header)
-            if 0 < value <= 86_400:
-                return value
-        except ValueError:
-            pass
-    return _DEFAULT_RATE_LIMIT_RETRY_AFTER
-
-
-def _raise_mapped_status(exc: httpx.HTTPStatusError, op_name: str) -> NoReturn:
-    """Translate an ``httpx.HTTPStatusError`` into a parsimony-typed exception.
-
-    Every HTTP error path in this package funnels through here so the
-    mapping contract is uniform: 401/403 → UnauthorizedError,
-    402 → PaymentRequiredError, 429 → RateLimitError,
-    else → ProviderError. Messages never echo the API key; the raw
-    exception is chained via ``from exc`` for traceback visibility.
-    """
-    status = exc.response.status_code
-    match status:
-        case 401 | 403:
-            raise UnauthorizedError(
-                provider=_PROVIDER,
-                message=f"Tiingo endpoint '{op_name}' requires a valid API key or a higher-tier plan",
-            ) from exc
-        case 402:
-            raise PaymentRequiredError(
-                provider=_PROVIDER,
-                message=f"Tiingo endpoint '{op_name}' requires a higher-tier plan",
-            ) from exc
-        case 429:
-            raise RateLimitError(
-                provider=_PROVIDER,
-                retry_after=_parse_retry_after(exc.response),
-                message=f"Tiingo rate limit hit on '{op_name}'",
-            ) from exc
-        case _:
-            raise ProviderError(
-                provider=_PROVIDER,
-                status_code=status,
-                message=f"Tiingo API error {status} on '{op_name}'",
-            ) from exc
 
 
 async def tiingo_fetch(
@@ -120,7 +63,7 @@ async def tiingo_fetch(
         response = await http.request("GET", path, params=params or None)
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
-        _raise_mapped_status(exc, op_name)
+        map_http_error(exc, provider=_PROVIDER, op_name=op_name)
     except httpx.TimeoutException as exc:
         raise ProviderError(
             provider=_PROVIDER,

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import io
 import re
-from typing import Any, NoReturn
+from typing import Any
 
 import httpx
 import pandas as pd
@@ -25,9 +25,8 @@ from parsimony.errors import (
     PaymentRequiredError,
     ProviderError,
     RateLimitError,
-    UnauthorizedError,
 )
-from parsimony.transport import HttpClient
+from parsimony.transport import HttpClient, map_http_error
 
 _DEFAULT_BASE_URL: str = "https://www.alphavantage.co"
 _DEFAULT_TIMEOUT_SECONDS: float = 20.0
@@ -51,51 +50,6 @@ def make_http(api_key: str, base_url: str = _DEFAULT_BASE_URL) -> HttpClient:
 def _redact_url(url: str) -> str:
     """Replace the ``apikey`` query value with ``***``."""
     return re.sub(r"(apikey=)[^&\s]+", r"\1***", url)
-
-
-def _parse_retry_after(response: httpx.Response) -> float:
-    header = response.headers.get("Retry-After", "").strip()
-    if header:
-        try:
-            value = float(header)
-            if 0 < value <= 86_400:
-                return value
-        except ValueError:
-            pass
-    return _DEFAULT_RATE_LIMIT_RETRY_AFTER
-
-
-def _raise_mapped_status(exc: httpx.HTTPStatusError, op_name: str) -> NoReturn:
-    """Translate an HTTP error status into a typed connector exception.
-
-    Every HTTP error path funnels through here so the mapping contract is
-    uniform: 401/403 → UnauthorizedError, 402 → PaymentRequiredError,
-    429 → RateLimitError, else → ProviderError.
-    """
-    status = exc.response.status_code
-    match status:
-        case 401 | 403:
-            raise UnauthorizedError(
-                provider=_PROVIDER,
-                message="Invalid or missing Alpha Vantage API key",
-            ) from exc
-        case 402:
-            raise PaymentRequiredError(
-                provider=_PROVIDER,
-                message="Your Alpha Vantage plan is not eligible for this data request",
-            ) from exc
-        case 429:
-            raise RateLimitError(
-                provider=_PROVIDER,
-                retry_after=_parse_retry_after(exc.response),
-                message=f"Alpha Vantage rate limit hit on '{op_name}'",
-            ) from exc
-        case _:
-            raise ProviderError(
-                provider=_PROVIDER,
-                status_code=status,
-                message=f"Alpha Vantage API error {status} on '{op_name}'",
-            ) from exc
 
 
 def _raise_for_in_body_error(body: Any, op_name: str) -> None:
@@ -156,7 +110,7 @@ async def av_fetch(
         response = await http.request("GET", "/query", params=req_params)
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
-        _raise_mapped_status(exc, op_name)
+        map_http_error(exc, provider=_PROVIDER, op_name=op_name)
     except httpx.TimeoutException as exc:
         raise ProviderError(
             provider=_PROVIDER,
@@ -190,7 +144,7 @@ async def av_fetch_csv(
         response = await http.request("GET", "/query", params=req_params)
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
-        _raise_mapped_status(exc, op_name)
+        map_http_error(exc, provider=_PROVIDER, op_name=op_name)
     except httpx.TimeoutException as exc:
         raise ProviderError(
             provider=_PROVIDER,
