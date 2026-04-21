@@ -212,21 +212,6 @@
       ]
     },
     {
-      "package": "parsimony-fmp-screener",
-      "display": "FMP SCREENER",
-      "summary": "Financial Modeling Prep screener connector for the parsimony framework",
-      "tags": [
-        "equity",
-        "tool"
-      ],
-      "env_vars": [
-        {
-          "name": "FMP_API_KEY",
-          "required": true
-        }
-      ]
-    },
-    {
       "package": "parsimony-fred",
       "display": "FRED",
       "summary": "FRED (Federal Reserve Economic Data) connector for the parsimony framework",

@@ -13,6 +13,7 @@
 #
 # /packages/fred/         @espinetandreu
 # /packages/sdmx/         @espinetandreu
+/packages/fmp/          @espinetandreu
 # ---------------------------------------------------------------------------
 
 # packages/mcp/ — the MCP host adapter. This package is NOT a connector
