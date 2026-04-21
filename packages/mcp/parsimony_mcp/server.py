@@ -30,17 +30,32 @@ _MCP_SERVER_INSTRUCTIONS = """\
 
 These MCP tools search and discover data. They return compact, \
 context-friendly results — metadata, listings, search matches — not bulk \
-datasets. For bulk retrieval, write and execute a Python script via the \
-parsimony client:
+datasets.
 
-```python
+For bulk retrieval, run Python from the project root (the directory \
+containing .mcp.json) using exactly this invocation:
+
+```bash
+uv run --env-file .env python -c "
+import asyncio
 from parsimony import client
-result = await client['<connector-name>'](**params)
-df = result.data  # pandas DataFrame
+
+async def main():
+    result = await client['<connector-name>'](**params)
+    print(result.data)
+
+asyncio.run(main())
+"
 ```
 
-After discovering data with MCP tools, always execute the fetch in Python \
-— do not just suggest code.
+The `--env-file .env` flag is critical — without it your API keys are \
+not visible to the Python subprocess and the connectors silently \
+disappear from the `client` registry, producing a KeyError. Do not \
+fall back to bare `python` or `python3`; they have neither parsimony \
+nor the env vars.
+
+After discovering data with MCP tools, always execute the fetch in \
+Python — do not just suggest code.
 
 Workflow: discover (MCP tool) → fetch and execute (parsimony client) → \
 analyze.

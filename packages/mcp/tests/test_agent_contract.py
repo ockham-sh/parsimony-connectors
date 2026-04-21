@@ -45,6 +45,20 @@ class TestHostInstructionTemplate:
     def test_tells_agent_to_execute_not_suggest_code(self):
         assert "do not just suggest code" in _MCP_SERVER_INSTRUCTIONS
 
+    def test_names_the_uv_run_env_file_invocation(self):
+        """The shell invocation MUST include --env-file or the agent's
+        Python subprocess loses access to the API keys and the kernel
+        silently drops connectors from the client registry."""
+        assert "uv run --env-file .env python" in _MCP_SERVER_INSTRUCTIONS
+
+    def test_warns_against_bare_python_invocations(self):
+        """Without this guard the agent reaches for bare `python` /
+        `python3` and gets ModuleNotFoundError on parsimony."""
+        assert "Do not" in _MCP_SERVER_INSTRUCTIONS
+        # The phrase must be emphatic enough that the agent doesn't
+        # silently fall back during error recovery.
+        assert "bare `python`" in _MCP_SERVER_INSTRUCTIONS or "bare python" in _MCP_SERVER_INSTRUCTIONS
+
 
 class TestCatalogDelimiter:
     """The <catalog> block separates host instructions from plugin data."""

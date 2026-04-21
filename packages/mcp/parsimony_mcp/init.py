@@ -206,14 +206,27 @@ tools you can call.
 
 1. Call a `parsimony.*` MCP tool to discover or search — these
    return compact, context-friendly results.
-2. For bulk retrieval (full time series, multi-year history), write
-   and execute Python in the same venv:
+2. For bulk retrieval (full time series, multi-year history), run
+   Python from this project root using exactly this invocation:
 
-   ```python
+   ```bash
+   uv run --env-file .env python -c "
+   import asyncio
    from parsimony import client
-   result = await client['<connector-name>'](**params)
-   df = result.data  # pandas DataFrame
+
+   async def main():
+       result = await client['<connector-name>'](**params)
+       print(result.data)
+
+   asyncio.run(main())
+   "
    ```
+
+   The `--env-file .env` flag is critical — without it your API keys
+   are not visible to the Python subprocess and the connectors
+   silently disappear from the `client` registry. Do not use bare
+   `python` or `python3`; they have neither parsimony nor the env
+   vars.
 
    Do not invent connector names — only call connectors you saw in
    the catalog returned by an MCP tool.
