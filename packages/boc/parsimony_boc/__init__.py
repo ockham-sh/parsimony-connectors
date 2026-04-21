@@ -14,6 +14,7 @@ import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
+from parsimony.transport import map_http_error
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -163,7 +164,10 @@ async def boc_fetch(params: BocFetchParams) -> Result:
             url = f"/observations/{params.series_name}/json"
 
         response = await client.get(url, params=req_params)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            map_http_error(exc, provider="boc", op_name="observations")
         json_data = response.json()
 
     series_details = json_data.get("seriesDetail")
@@ -192,7 +196,10 @@ async def enumerate_boc(params: BocEnumerateParams) -> pd.DataFrame:
     """
     async with httpx.AsyncClient(base_url=_BASE_URL, timeout=60.0) as client:
         resp = await client.get("/lists/series/json")
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            map_http_error(exc, provider="boc", op_name="series/list")
         data = resp.json()
 
     series = data.get("series", {})

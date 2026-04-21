@@ -12,10 +12,11 @@ import logging
 import re
 from typing import Annotated
 
+import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
-from parsimony.transport import HttpClient
+from parsimony.transport import HttpClient, map_http_error
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -219,7 +220,10 @@ async def snb_fetch(params: SnbFetchParams) -> Result:
         f"/api/cube/{params.cube_id}/data/csv/{params.lang}",
         params=req_params,
     )
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="snb", op_name="cube/data")
 
     df = _parse_snb_csv(response.text)
     if df.empty:
@@ -259,8 +263,6 @@ async def enumerate_snb(params: SnbEnumerateParams) -> pd.DataFrame:
 
     Uses a curated list of SNB cubes and probes each for frequency inference.
     """
-    import httpx
-
     cubes = [{"cube_id": cid, "title": title} for cid, title in _KNOWN_CUBES]
 
     rows: list[dict[str, str]] = []

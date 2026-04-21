@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
+import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
-from parsimony.transport import HttpClient
+from parsimony.transport import HttpClient, map_http_error
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -102,7 +103,10 @@ async def treasury_fetch(params: TreasuryFetchParams) -> Result:
         req_params["sort"] = params.sort
 
     response = await http.request("GET", f"/{params.endpoint}", params=req_params)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="treasury", op_name=params.endpoint)
     body = response.json()
 
     data = body.get("data", [])
@@ -152,11 +156,12 @@ async def treasury_fetch(params: TreasuryFetchParams) -> Result:
 )
 async def enumerate_treasury(params: TreasuryEnumerateParams) -> pd.DataFrame:
     """Enumerate all US Treasury Fiscal Data API endpoints for catalog indexing."""
-    import httpx
-
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.get(_METADATA_URL)
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            map_http_error(exc, provider="treasury", op_name="datasets/metadata")
         raw = resp.json()
 
     datasets: list[dict] = []

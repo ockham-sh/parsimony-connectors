@@ -14,6 +14,7 @@ import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
+from parsimony.transport import map_http_error
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -162,7 +163,10 @@ async def boj_fetch(params: BojFetchParams) -> Result:
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.get(url, params=req_params)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            map_http_error(exc, provider="boj", op_name="series")
         json_data = response.json()
 
     result_set = json_data.get("RESULTSET", [])

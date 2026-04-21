@@ -17,6 +17,7 @@ import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
+from parsimony.transport import map_http_error
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -204,7 +205,10 @@ async def bde_fetch(params: BdeFetchParams) -> Result:
                 req_params["rango"] = str(params.time_range)
 
             response = await client.get(url, params=req_params)
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                map_http_error(exc, provider="bde", op_name="series")
             data = response.json()
             if isinstance(data, list):
                 json_data.extend(data)

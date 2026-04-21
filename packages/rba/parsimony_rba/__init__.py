@@ -21,9 +21,11 @@ import re
 from datetime import datetime
 from typing import Annotated, Any
 
+import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
+from parsimony.transport import map_http_error
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -129,11 +131,12 @@ async def _http_get(url: str) -> str:
     except ImportError:
         pass
 
-    import httpx
-
     async with httpx.AsyncClient(timeout=30.0, headers={"User-Agent": _USER_AGENT}) as client:
         resp = await client.get(url)
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            map_http_error(exc, provider="rba", op_name="csv")
         return resp.text
 
 

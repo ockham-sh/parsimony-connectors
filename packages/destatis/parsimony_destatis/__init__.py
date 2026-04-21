@@ -6,6 +6,7 @@ Uses guest credentials (GAST/GAST) by default.
 
 from __future__ import annotations
 
+import httpx
 import io
 import re
 from typing import Annotated, Any
@@ -13,7 +14,7 @@ from typing import Annotated, Any
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError, ParseError, ProviderError
-from parsimony.transport import HttpClient
+from parsimony.transport import HttpClient, map_http_error
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -154,17 +155,12 @@ async def destatis_fetch(
     if params.end_year:
         req_params["endyear"] = params.end_year
 
-    import httpx as _httpx
-
-    async with _httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
         response = await client.get(f"{_BASE_URL}/data/tablefile", params=req_params)
-
-    if response.status_code != 200:
-        raise ProviderError(
-            provider="destatis",
-            status_code=response.status_code,
-            message=f"Destatis API error: HTTP {response.status_code}",
-        )
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="destatis", op_name="data")
 
     text = response.text
     if "<html" in text.lower() or "announcement" in text.lower() or "datenbank/online" in str(response.url):
@@ -249,7 +245,10 @@ async def enumerate_destatis(
             "pagelength": "500",
         },
     )
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="destatis", op_name="catalogue/tables")
     body = response.json()
 
     tables = body.get("Tables", body.get("tables", []))
