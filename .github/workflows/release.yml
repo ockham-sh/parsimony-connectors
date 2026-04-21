@@ -178,14 +178,17 @@ jobs:
             echo "::notice::Skipping conformance verify for $PKG — package opts out via [tool.parsimony.conformance] skip=true"
             exit 0
           fi
-          pkg_name=$(python3 -c "
-          import os, tomllib
-          pkg = os.environ['PKG']
-          with open(f'packages/{pkg}/pyproject.toml', 'rb') as fp:
-              data = tomllib.load(fp)
-          print(data['project']['name'])
-          ")
-          uv run parsimony conformance verify "${pkg_name}"
+          # Conformance is a library-API call after the kernel CLI removal —
+          # parsimony.testing.assert_plugin_valid raises ConformanceError on
+          # the first failing check. Module name follows the repo convention
+          # `parsimony_<PKG>` for every package.
+          uv run python -c "
+          import importlib, os
+          from parsimony.testing import assert_plugin_valid
+          name = 'parsimony_' + os.environ['PKG']
+          assert_plugin_valid(importlib.import_module(name))
+          print(f'Conformance OK: {name}')
+          "
 
       - name: Build wheel + sdist
         working-directory: parsimony-connectors/packages/${{ github.event.inputs.package }}
