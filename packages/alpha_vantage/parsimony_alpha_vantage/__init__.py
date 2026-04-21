@@ -12,7 +12,7 @@ Quirks:
   - All values are strings — numeric coercion required.
   - Missing data represented as ``"None"`` (string) or ``"."`` (commodities/economic).
 
-Provides 28 connectors:
+Provides 29 connectors (28 ``@connector`` + 1 ``@enumerator``):
   - Discovery: symbol search
   - Market data: real-time quote, daily/weekly/monthly/intraday OHLCV
   - Company: overview, income statement, balance sheet, cash flow, earnings, ETF profile
@@ -28,161 +28,90 @@ Provides 28 connectors:
 
 Commodity data (WTI, Brent, natural gas, copper, etc.) is omitted — use the
 FRED connector instead, which has superior historical coverage for those series.
+
+Internal layout (not part of the public contract):
+
+* :mod:`parsimony_alpha_vantage._http` — shared transport, unified error
+  mapping (HTTP + Alpha Vantage's in-body error envelopes), URL redaction,
+  JSON and CSV fetch helpers, key normalisers.
+* :mod:`parsimony_alpha_vantage.params` — Pydantic parameter models.
+* :mod:`parsimony_alpha_vantage.outputs` — declarative
+  :class:`OutputConfig` schemas.
+
+This ``__init__.py`` stays at the top level so ``tools/gen_registry.py``
+can AST-parse ``@connector`` decorators (it does not follow re-exports).
 """
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Any
 
-import httpx
 import pandas as pd
-from parsimony.connector import (
-    Connectors,
-    Namespace,
-    connector,
-    enumerator,
+from parsimony.connector import Connectors, connector, enumerator
+from parsimony.errors import EmptyDataError
+from parsimony.result import Provenance, Result
+
+from parsimony_alpha_vantage._http import av_fetch as _av_fetch
+from parsimony_alpha_vantage._http import av_fetch_csv as _av_fetch_csv
+from parsimony_alpha_vantage._http import clean_none_strings as _clean_none_strings
+from parsimony_alpha_vantage._http import make_http as _make_http
+from parsimony_alpha_vantage._http import strip_numbered_keys as _strip_numbered_keys
+from parsimony_alpha_vantage.outputs import CRYPTO_DAILY_OUTPUT as _CRYPTO_DAILY_OUTPUT
+from parsimony_alpha_vantage.outputs import DAILY_OUTPUT as _DAILY_OUTPUT
+from parsimony_alpha_vantage.outputs import EARNINGS_CAL_OUTPUT as _EARNINGS_CAL_OUTPUT
+from parsimony_alpha_vantage.outputs import EARNINGS_OUTPUT as _EARNINGS_OUTPUT
+from parsimony_alpha_vantage.outputs import ECON_OUTPUT as _ECON_OUTPUT
+from parsimony_alpha_vantage.outputs import FX_DAILY_OUTPUT as _FX_DAILY_OUTPUT
+from parsimony_alpha_vantage.outputs import FX_RATE_OUTPUT as _FX_RATE_OUTPUT
+from parsimony_alpha_vantage.outputs import INTRADAY_OUTPUT as _INTRADAY_OUTPUT
+from parsimony_alpha_vantage.outputs import IPO_CAL_OUTPUT as _IPO_CAL_OUTPUT
+from parsimony_alpha_vantage.outputs import LISTING_OUTPUT as _LISTING_OUTPUT
+from parsimony_alpha_vantage.outputs import METAL_HISTORY_OUTPUT as _METAL_HISTORY_OUTPUT
+from parsimony_alpha_vantage.outputs import METAL_SPOT_OUTPUT as _METAL_SPOT_OUTPUT
+from parsimony_alpha_vantage.outputs import MOVERS_OUTPUT as _MOVERS_OUTPUT
+from parsimony_alpha_vantage.outputs import NEWS_OUTPUT as _NEWS_OUTPUT
+from parsimony_alpha_vantage.outputs import OPTIONS_OUTPUT as _OPTIONS_OUTPUT
+from parsimony_alpha_vantage.outputs import QUOTE_OUTPUT as _QUOTE_OUTPUT
+from parsimony_alpha_vantage.outputs import SEARCH_OUTPUT as _SEARCH_OUTPUT
+from parsimony_alpha_vantage.outputs import TECHNICAL_OUTPUT as _TECHNICAL_OUTPUT
+from parsimony_alpha_vantage.params import (
+    AlphaVantageCryptoDailyParams,
+    AlphaVantageCryptoMonthlyParams,
+    AlphaVantageCryptoWeeklyParams,
+    AlphaVantageDailyParams,
+    AlphaVantageEarningsCalendarParams,
+    AlphaVantageEarningsParams,
+    AlphaVantageEconParams,
+    AlphaVantageEtfProfileParams,
+    AlphaVantageFxDailyParams,
+    AlphaVantageFxMonthlyParams,
+    AlphaVantageFxRateParams,
+    AlphaVantageFxWeeklyParams,
+    AlphaVantageIntradayParams,
+    AlphaVantageIpoCalendarParams,
+    AlphaVantageListingParams,
+    AlphaVantageMetalHistoryParams,
+    AlphaVantageMetalSpotParams,
+    AlphaVantageMonthlyParams,
+    AlphaVantageNewsParams,
+    AlphaVantageOptionsParams,
+    AlphaVantageOverviewParams,
+    AlphaVantageQuoteParams,
+    AlphaVantageSearchParams,
+    AlphaVantageStatementParams,
+    AlphaVantageTechnicalParams,
+    AlphaVantageTopMoversParams,
+    AlphaVantageWeeklyParams,
 )
-from parsimony.errors import (
-    EmptyDataError,
-    PaymentRequiredError,
-    ProviderError,
-    RateLimitError,
-    UnauthorizedError,
-)
-from parsimony.result import (
-    Column,
-    ColumnRole,
-    OutputConfig,
-    Provenance,
-    Result,
-)
-from parsimony.transport.http import HttpClient
-from pydantic import BaseModel, Field
 
 ENV_VARS: dict[str, str] = {"api_key": "ALPHA_VANTAGE_API_KEY"}
-
-_BASE_URL = "https://www.alphavantage.co"
-_TIMEOUT = 20.0
 
 _PROVIDER = "alpha_vantage"
 
 
 # ---------------------------------------------------------------------------
-# Transport helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_http(api_key: str) -> HttpClient:
-    return HttpClient(
-        _BASE_URL,
-        query_params={"apikey": api_key},
-        timeout=_TIMEOUT,
-    )
-
-
-def _strip_numbered_keys(d: dict[str, Any]) -> dict[str, Any]:
-    """Strip numbered prefixes from Alpha Vantage keys.
-
-    ``"1. open"`` → ``"open"``, ``"01. symbol"`` → ``"symbol"``.
-    """
-    return {k.split(". ", 1)[-1] if ". " in k else k: v for k, v in d.items()}
-
-
-def _clean_none_strings(d: dict[str, Any]) -> dict[str, Any]:
-    """Replace ``"None"`` string values with ``None`` for proper NaN coercion."""
-    return {k: (None if v == "None" else v) for k, v in d.items()}
-
-
-async def _av_fetch(
-    http: HttpClient,
-    *,
-    function: str,
-    params: dict[str, Any] | None = None,
-    op_name: str,
-) -> Any:
-    """Shared Alpha Vantage GET with error detection. Returns parsed JSON body.
-
-    Alpha Vantage always returns HTTP 200 — errors are embedded in the JSON body
-    as ``Error Message``, ``Note`` (rate limit), or ``Information`` keys.
-    """
-    req_params: dict[str, Any] = {"function": function}
-    if params:
-        req_params.update(params)
-
-    try:
-        response = await http.request("GET", "/query", params=req_params)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        status = e.response.status_code
-        match status:
-            case 401 | 403:
-                raise UnauthorizedError(
-                    provider=_PROVIDER,
-                    message="Invalid or missing Alpha Vantage API key",
-                ) from e
-            case 429:
-                raise RateLimitError(
-                    provider=_PROVIDER,
-                    retry_after=60.0,
-                    message=f"Alpha Vantage rate limit hit on '{op_name}'",
-                ) from e
-            case _:
-                raise ProviderError(
-                    provider=_PROVIDER,
-                    status_code=status,
-                    message=f"Alpha Vantage API error {status} on '{op_name}'",
-                ) from e
-
-    body = response.json()
-
-    # Alpha Vantage embeds errors in 200 responses
-    if "Error Message" in body:
-        raise EmptyDataError(
-            provider=_PROVIDER,
-            message=f"Alpha Vantage error on '{op_name}': {body['Error Message']}",
-        )
-    if "Note" in body:
-        raise RateLimitError(
-            provider=_PROVIDER,
-            retry_after=60.0,
-            message=f"Alpha Vantage rate limit: {body['Note']}",
-        )
-    if "Information" in body and len(body) == 1:
-        info_msg = body["Information"]
-        if "per-second" in info_msg.lower() or "rate limit" in info_msg.lower():
-            raise RateLimitError(
-                provider=_PROVIDER,
-                retry_after=60.0,
-                message=f"Alpha Vantage rate limit: {info_msg}",
-            )
-        raise PaymentRequiredError(
-            provider=_PROVIDER,
-            message=f"Alpha Vantage: {info_msg}",
-        )
-
-    return body
-
-
-# ---------------------------------------------------------------------------
 # Discovery — Symbol Search
 # ---------------------------------------------------------------------------
-
-_SEARCH_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="symbol", role=ColumnRole.KEY, namespace="alpha_vantage"),
-        Column(name="name", role=ColumnRole.TITLE),
-        Column(name="type", role=ColumnRole.METADATA),
-        Column(name="region", role=ColumnRole.METADATA),
-        Column(name="currency", role=ColumnRole.METADATA),
-        Column(name="matchScore", role=ColumnRole.METADATA),
-    ]
-)
-
-
-class AlphaVantageSearchParams(BaseModel):
-    """Search Alpha Vantage for stocks, ETFs, and mutual funds by name or ticker."""
-
-    keywords: str = Field(..., min_length=1, description="Search term, e.g. 'apple' or 'AAPL'")
 
 
 @connector(output=_SEARCH_OUTPUT, tags=["equities", "tool"])
@@ -236,30 +165,6 @@ async def alpha_vantage_search(params: AlphaVantageSearchParams, *, api_key: str
 # Market Data — Real-time Quote
 # ---------------------------------------------------------------------------
 
-_QUOTE_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="symbol", role=ColumnRole.KEY, namespace="alpha_vantage"),
-        Column(name="price", dtype="numeric"),
-        Column(name="open", dtype="numeric"),
-        Column(name="high", dtype="numeric"),
-        Column(name="low", dtype="numeric"),
-        Column(name="volume", dtype="numeric"),
-        Column(name="latest_trading_day", role=ColumnRole.METADATA, dtype="date"),
-        Column(name="previous_close", dtype="numeric"),
-        Column(name="change", dtype="numeric"),
-        Column(name="change_percent", dtype="numeric"),
-    ]
-)
-
-
-class AlphaVantageQuoteParams(BaseModel):
-    """Real-time quote for a single stock symbol."""
-
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
-        ...,
-        description="Stock ticker, e.g. 'IBM'. Use alpha_vantage_search to resolve symbols.",
-    )
-
 
 @connector(output=_QUOTE_OUTPUT, tags=["equities"])
 async def alpha_vantage_quote(params: AlphaVantageQuoteParams, *, api_key: str) -> Result:
@@ -310,36 +215,6 @@ async def alpha_vantage_quote(params: AlphaVantageQuoteParams, *, api_key: str) 
 # ---------------------------------------------------------------------------
 # Market Data — Daily Time Series
 # ---------------------------------------------------------------------------
-
-_DAILY_OUTPUT = OutputConfig(
-    columns=[
-        Column(
-            name="symbol",
-            role=ColumnRole.KEY,
-            param_key="symbol",
-            namespace="alpha_vantage",
-        ),
-        Column(name="date", dtype="date", role=ColumnRole.DATA),
-        Column(name="open", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="high", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="low", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="close", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="volume", dtype="numeric", role=ColumnRole.DATA),
-    ]
-)
-
-
-class AlphaVantageDailyParams(BaseModel):
-    """Daily OHLCV time series for a stock symbol."""
-
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
-        ...,
-        description="Stock ticker, e.g. 'IBM'. Use alpha_vantage_search to resolve symbols.",
-    )
-    outputsize: Literal["compact", "full"] = Field(
-        default="compact",
-        description="'compact' returns last 100 data points; 'full' returns 20+ years of history.",
-    )
 
 
 @connector(output=_DAILY_OUTPUT, tags=["equities"])
@@ -404,15 +279,6 @@ async def alpha_vantage_daily(params: AlphaVantageDailyParams, *, api_key: str) 
 # ---------------------------------------------------------------------------
 
 
-class AlphaVantageOverviewParams(BaseModel):
-    """Company overview / fundamentals for a stock symbol."""
-
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
-        ...,
-        description="Stock ticker, e.g. 'IBM'. Use alpha_vantage_search to resolve symbols.",
-    )
-
-
 @connector(tags=["equities"])
 async def alpha_vantage_overview(params: AlphaVantageOverviewParams, *, api_key: str) -> Result:
     """Fetch company fundamentals for a stock: name, exchange, sector, industry,
@@ -444,25 +310,6 @@ async def alpha_vantage_overview(params: AlphaVantageOverviewParams, *, api_key:
 # ---------------------------------------------------------------------------
 # Company — Financial Statements (income, balance sheet, cash flow)
 # ---------------------------------------------------------------------------
-
-_STATEMENT_FUNCTIONS = {
-    "income_statement": "INCOME_STATEMENT",
-    "balance_sheet": "BALANCE_SHEET",
-    "cash_flow": "CASH_FLOW",
-}
-
-
-class AlphaVantageStatementParams(BaseModel):
-    """Financial statement for a stock symbol."""
-
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
-        ...,
-        description="Stock ticker, e.g. 'IBM'. Use alpha_vantage_search to resolve symbols.",
-    )
-    period: Literal["annual", "quarterly"] = Field(
-        default="annual",
-        description="'annual' for yearly reports; 'quarterly' for quarterly.",
-    )
 
 
 @connector(tags=["equities"])
@@ -568,33 +415,6 @@ async def alpha_vantage_cash_flow(params: AlphaVantageStatementParams, *, api_ke
 # Company — Earnings
 # ---------------------------------------------------------------------------
 
-_EARNINGS_OUTPUT = OutputConfig(
-    columns=[
-        Column(
-            name="symbol",
-            role=ColumnRole.KEY,
-            param_key="symbol",
-            namespace="alpha_vantage",
-        ),
-        Column(name="fiscalDateEnding", dtype="date", role=ColumnRole.DATA),
-        Column(name="reportedDate", dtype="date", role=ColumnRole.DATA),
-        Column(name="reportedEPS", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="estimatedEPS", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="surprise", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="surprisePercentage", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="reportTime", role=ColumnRole.METADATA),
-    ]
-)
-
-
-class AlphaVantageEarningsParams(BaseModel):
-    """Earnings data for a stock symbol."""
-
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
-        ...,
-        description="Stock ticker, e.g. 'IBM'. Use alpha_vantage_search to resolve symbols.",
-    )
-
 
 @connector(output=_EARNINGS_OUTPUT, tags=["equities"])
 async def alpha_vantage_earnings(params: AlphaVantageEarningsParams, *, api_key: str) -> Result:
@@ -632,26 +452,6 @@ async def alpha_vantage_earnings(params: AlphaVantageEarningsParams, *, api_key:
 # ---------------------------------------------------------------------------
 # Forex — Real-time Exchange Rate
 # ---------------------------------------------------------------------------
-
-_FX_RATE_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="from_currency", role=ColumnRole.KEY, namespace="alpha_vantage_fx"),
-        Column(name="from_currency_name", role=ColumnRole.TITLE),
-        Column(name="to_currency", role=ColumnRole.METADATA),
-        Column(name="to_currency_name", role=ColumnRole.METADATA),
-        Column(name="exchange_rate", dtype="numeric"),
-        Column(name="bid_price", dtype="numeric"),
-        Column(name="ask_price", dtype="numeric"),
-        Column(name="last_refreshed", role=ColumnRole.METADATA),
-    ]
-)
-
-
-class AlphaVantageFxRateParams(BaseModel):
-    """Real-time exchange rate between two currencies (forex or crypto)."""
-
-    from_currency: str = Field(..., description="Source currency code, e.g. 'EUR', 'BTC'")
-    to_currency: str = Field(..., description="Target currency code, e.g. 'USD', 'JPY'")
 
 
 @connector(output=_FX_RATE_OUTPUT, tags=["forex", "crypto", "tool"])
@@ -706,33 +506,6 @@ async def alpha_vantage_fx_rate(params: AlphaVantageFxRateParams, *, api_key: st
 # ---------------------------------------------------------------------------
 # Forex — Historical Daily
 # ---------------------------------------------------------------------------
-
-_FX_DAILY_OUTPUT = OutputConfig(
-    columns=[
-        Column(
-            name="pair",
-            role=ColumnRole.KEY,
-            param_key="pair",
-            namespace="alpha_vantage_fx",
-        ),
-        Column(name="date", dtype="date", role=ColumnRole.DATA),
-        Column(name="open", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="high", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="low", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="close", dtype="numeric", role=ColumnRole.DATA),
-    ]
-)
-
-
-class AlphaVantageFxDailyParams(BaseModel):
-    """Daily forex time series."""
-
-    from_symbol: str = Field(..., description="Source currency code, e.g. 'EUR'")
-    to_symbol: str = Field(..., description="Target currency code, e.g. 'USD'")
-    outputsize: Literal["compact", "full"] = Field(
-        default="compact",
-        description="'compact' returns last 100 data points; 'full' returns full history.",
-    )
 
 
 @connector(output=_FX_DAILY_OUTPUT, tags=["forex"])
@@ -795,30 +568,6 @@ async def alpha_vantage_fx_daily(params: AlphaVantageFxDailyParams, *, api_key: 
 # Crypto — Historical Daily
 # ---------------------------------------------------------------------------
 
-_CRYPTO_DAILY_OUTPUT = OutputConfig(
-    columns=[
-        Column(
-            name="symbol",
-            role=ColumnRole.KEY,
-            param_key="symbol",
-            namespace="alpha_vantage_crypto",
-        ),
-        Column(name="date", dtype="date", role=ColumnRole.DATA),
-        Column(name="open", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="high", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="low", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="close", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="volume", dtype="numeric", role=ColumnRole.DATA),
-    ]
-)
-
-
-class AlphaVantageCryptoDailyParams(BaseModel):
-    """Daily crypto time series."""
-
-    symbol: str = Field(..., description="Crypto symbol, e.g. 'BTC', 'ETH'")
-    market: str = Field(default="USD", description="Exchange market currency, e.g. 'USD', 'EUR'")
-
 
 @connector(output=_CRYPTO_DAILY_OUTPUT, tags=["crypto"])
 async def alpha_vantage_crypto_daily(params: AlphaVantageCryptoDailyParams, *, api_key: str) -> Result:
@@ -870,54 +619,6 @@ async def alpha_vantage_crypto_daily(params: AlphaVantageCryptoDailyParams, *, a
 # ---------------------------------------------------------------------------
 # Economic Indicators
 # ---------------------------------------------------------------------------
-
-_ECON_FUNCTIONS = (
-    "REAL_GDP",
-    "REAL_GDP_PER_CAPITA",
-    "TREASURY_YIELD",
-    "FEDERAL_FUNDS_RATE",
-    "CPI",
-    "INFLATION",
-    "RETAIL_SALES",
-    "DURABLES",
-    "UNEMPLOYMENT",
-    "NONFARM_PAYROLL",
-)
-
-_ECON_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="name", role=ColumnRole.KEY, namespace="alpha_vantage_econ"),
-        Column(name="series_name", role=ColumnRole.TITLE),
-        Column(name="date", dtype="date", role=ColumnRole.DATA),
-        Column(name="value", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="unit", role=ColumnRole.METADATA),
-        Column(name="interval", role=ColumnRole.METADATA),
-    ]
-)
-
-
-class AlphaVantageEconParams(BaseModel):
-    """US economic indicator time series."""
-
-    function: Literal[_ECON_FUNCTIONS] = Field(  # type: ignore[valid-type]
-        ...,
-        description=(
-            "Indicator: REAL_GDP, REAL_GDP_PER_CAPITA, TREASURY_YIELD, "
-            "FEDERAL_FUNDS_RATE, CPI, INFLATION, RETAIL_SALES, DURABLES, "
-            "UNEMPLOYMENT, NONFARM_PAYROLL."
-        ),
-    )
-    interval: Literal["daily", "weekly", "monthly", "quarterly", "annual"] | None = Field(
-        default=None,
-        description=(
-            "Data frequency. GDP: quarterly/annual. Rates: daily/weekly/monthly. "
-            "Most indicators: monthly or annual only. Invalid values silently ignored."
-        ),
-    )
-    maturity: Literal["3month", "2year", "5year", "7year", "10year", "30year"] | None = Field(
-        default=None,
-        description="Treasury maturity (TREASURY_YIELD only). Default: 10year.",
-    )
 
 
 @connector(output=_ECON_OUTPUT, tags=["macro"])
@@ -988,39 +689,6 @@ async def alpha_vantage_econ(params: AlphaVantageEconParams, *, api_key: str) ->
 # Alpha Intelligence — News Sentiment
 # ---------------------------------------------------------------------------
 
-_NEWS_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="title", role=ColumnRole.TITLE),
-        Column(name="url", role=ColumnRole.KEY, namespace="alpha_vantage_news"),
-        Column(name="time_published", role=ColumnRole.METADATA),
-        Column(name="source", role=ColumnRole.METADATA),
-        Column(name="overall_sentiment_score", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="overall_sentiment_label", role=ColumnRole.METADATA),
-        Column(name="summary", role=ColumnRole.METADATA),
-        Column(name="banner_image", role=ColumnRole.METADATA, exclude_from_llm_view=True),
-    ]
-)
-
-
-class AlphaVantageNewsParams(BaseModel):
-    """News sentiment articles."""
-
-    tickers: str | None = Field(
-        default=None,
-        description="Comma-separated ticker(s), e.g. 'AAPL' or 'AAPL,MSFT'. Omit for general news.",
-    )
-    topics: str | None = Field(
-        default=None,
-        description=(
-            "Comma-separated topics: technology, earnings, ipo, mergers_and_acquisitions, "
-            "financial_markets, economy_fiscal, economy_monetary, economy_macro, "
-            "energy_transportation, finance, life_sciences, manufacturing, real_estate, "
-            "retail_wholesale, blockchain."
-        ),
-    )
-    sort: Literal["LATEST", "EARLIEST", "RELEVANCE"] = Field(default="LATEST", description="Sort order for results.")
-    limit: int = Field(default=50, ge=1, le=1000, description="Number of results (max 1000).")
-
 
 @connector(output=_NEWS_OUTPUT, tags=["news", "tool"])
 async def alpha_vantage_news(params: AlphaVantageNewsParams, *, api_key: str) -> Result:
@@ -1082,23 +750,6 @@ async def alpha_vantage_news(params: AlphaVantageNewsParams, *, api_key: str) ->
 # Alpha Intelligence — Top Gainers/Losers
 # ---------------------------------------------------------------------------
 
-_MOVERS_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="ticker", role=ColumnRole.KEY, namespace="alpha_vantage"),
-        Column(name="category", role=ColumnRole.TITLE),
-        Column(name="price", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="change_amount", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="change_percentage", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="volume", dtype="numeric", role=ColumnRole.DATA),
-    ]
-)
-
-
-class AlphaVantageTopMoversParams(BaseModel):
-    """Top gainers, losers, and most actively traded."""
-
-    pass
-
 
 @connector(output=_MOVERS_OUTPUT, tags=["equities", "tool"])
 async def alpha_vantage_top_movers(params: AlphaVantageTopMoversParams, *, api_key: str) -> Result:
@@ -1146,39 +797,6 @@ async def alpha_vantage_top_movers(params: AlphaVantageTopMoversParams, *, api_k
 # Options — Historical Options Chain (premium only)
 # ---------------------------------------------------------------------------
 
-_OPTIONS_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="contractID", role=ColumnRole.KEY, namespace="alpha_vantage_options"),
-        Column(name="symbol", role=ColumnRole.TITLE),
-        Column(name="expiration", dtype="date", role=ColumnRole.DATA),
-        Column(name="strike", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="type", role=ColumnRole.METADATA),
-        Column(name="last", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="bid", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="ask", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="volume", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="open_interest", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="implied_volatility", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="delta", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="gamma", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="theta", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="vega", dtype="numeric", role=ColumnRole.DATA),
-    ]
-)
-
-
-class AlphaVantageOptionsParams(BaseModel):
-    """Historical options chain for a stock symbol."""
-
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
-        ...,
-        description="Stock ticker, e.g. 'IBM'. Use alpha_vantage_search to resolve symbols.",
-    )
-    date: str | None = Field(
-        default=None,
-        description="Options date (YYYY-MM-DD). Omit for latest available.",
-    )
-
 
 @connector(output=_OPTIONS_OUTPUT, tags=["equities", "options"])
 async def alpha_vantage_options(params: AlphaVantageOptionsParams, *, api_key: str) -> Result:
@@ -1224,15 +842,6 @@ async def alpha_vantage_options(params: AlphaVantageOptionsParams, *, api_key: s
 # ---------------------------------------------------------------------------
 
 
-class AlphaVantageWeeklyParams(BaseModel):
-    """Weekly OHLCV time series for a stock symbol."""
-
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
-        ...,
-        description="Stock ticker, e.g. 'IBM'. Use alpha_vantage_search to resolve symbols.",
-    )
-
-
 @connector(output=_DAILY_OUTPUT, tags=["equities"])
 async def alpha_vantage_weekly(params: AlphaVantageWeeklyParams, *, api_key: str) -> Result:
     """Fetch weekly OHLCV (open, high, low, close, volume) time series for a stock.
@@ -1276,15 +885,6 @@ async def alpha_vantage_weekly(params: AlphaVantageWeeklyParams, *, api_key: str
         df,
         provenance=Provenance(source="alpha_vantage_weekly", params={"symbol": params.symbol}),
         params={"symbol": params.symbol},
-    )
-
-
-class AlphaVantageMonthlyParams(BaseModel):
-    """Monthly OHLCV time series for a stock symbol."""
-
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
-        ...,
-        description="Stock ticker, e.g. 'IBM'. Use alpha_vantage_search to resolve symbols.",
     )
 
 
@@ -1337,40 +937,6 @@ async def alpha_vantage_monthly(params: AlphaVantageMonthlyParams, *, api_key: s
 # ---------------------------------------------------------------------------
 # Market Data — Intraday Time Series
 # ---------------------------------------------------------------------------
-
-_INTRADAY_OUTPUT = OutputConfig(
-    columns=[
-        Column(
-            name="symbol",
-            role=ColumnRole.KEY,
-            param_key="symbol",
-            namespace="alpha_vantage",
-        ),
-        Column(name="timestamp", dtype="datetime", role=ColumnRole.DATA),
-        Column(name="open", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="high", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="low", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="close", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="volume", dtype="numeric", role=ColumnRole.DATA),
-    ]
-)
-
-
-class AlphaVantageIntradayParams(BaseModel):
-    """Intraday OHLCV time series for a stock symbol."""
-
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
-        ...,
-        description="Stock ticker, e.g. 'IBM'. Use alpha_vantage_search to resolve symbols.",
-    )
-    interval: Literal["1min", "5min", "15min", "30min", "60min"] = Field(
-        default="60min",
-        description="Time interval: 1min, 5min, 15min, 30min, or 60min.",
-    )
-    outputsize: Literal["compact", "full"] = Field(
-        default="compact",
-        description="'compact' returns last 100 data points; 'full' returns full intraday history.",
-    )
 
 
 @connector(output=_INTRADAY_OUTPUT, tags=["equities"])
@@ -1436,13 +1002,6 @@ async def alpha_vantage_intraday(params: AlphaVantageIntradayParams, *, api_key:
 # ---------------------------------------------------------------------------
 
 
-class AlphaVantageFxWeeklyParams(BaseModel):
-    """Weekly forex time series."""
-
-    from_symbol: str = Field(..., description="Source currency code, e.g. 'EUR'")
-    to_symbol: str = Field(..., description="Target currency code, e.g. 'USD'")
-
-
 @connector(output=_FX_DAILY_OUTPUT, tags=["forex"])
 async def alpha_vantage_fx_weekly(params: AlphaVantageFxWeeklyParams, *, api_key: str) -> Result:
     """Fetch weekly forex OHLC time series for a currency pair.
@@ -1495,13 +1054,6 @@ async def alpha_vantage_fx_weekly(params: AlphaVantageFxWeeklyParams, *, api_key
         ),
         params={"pair": pair},
     )
-
-
-class AlphaVantageFxMonthlyParams(BaseModel):
-    """Monthly forex time series."""
-
-    from_symbol: str = Field(..., description="Source currency code, e.g. 'EUR'")
-    to_symbol: str = Field(..., description="Target currency code, e.g. 'USD'")
 
 
 @connector(output=_FX_DAILY_OUTPUT, tags=["forex"])
@@ -1563,13 +1115,6 @@ async def alpha_vantage_fx_monthly(params: AlphaVantageFxMonthlyParams, *, api_k
 # ---------------------------------------------------------------------------
 
 
-class AlphaVantageCryptoWeeklyParams(BaseModel):
-    """Weekly crypto time series."""
-
-    symbol: str = Field(..., description="Crypto symbol, e.g. 'BTC', 'ETH'")
-    market: str = Field(default="USD", description="Exchange market currency, e.g. 'USD', 'EUR'")
-
-
 @connector(output=_CRYPTO_DAILY_OUTPUT, tags=["crypto"])
 async def alpha_vantage_crypto_weekly(params: AlphaVantageCryptoWeeklyParams, *, api_key: str) -> Result:
     """Fetch weekly OHLCV time series for a cryptocurrency. Returns full history.
@@ -1614,13 +1159,6 @@ async def alpha_vantage_crypto_weekly(params: AlphaVantageCryptoWeeklyParams, *,
         ),
         params={"symbol": params.symbol},
     )
-
-
-class AlphaVantageCryptoMonthlyParams(BaseModel):
-    """Monthly crypto time series."""
-
-    symbol: str = Field(..., description="Crypto symbol, e.g. 'BTC', 'ETH'")
-    market: str = Field(default="USD", description="Exchange market currency, e.g. 'USD', 'EUR'")
 
 
 @connector(output=_CRYPTO_DAILY_OUTPUT, tags=["crypto"])
@@ -1674,15 +1212,6 @@ async def alpha_vantage_crypto_monthly(params: AlphaVantageCryptoMonthlyParams, 
 # ---------------------------------------------------------------------------
 
 
-class AlphaVantageEtfProfileParams(BaseModel):
-    """ETF profile including holdings and sector allocation."""
-
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
-        ...,
-        description="ETF ticker, e.g. 'SPY', 'QQQ'. Use alpha_vantage_search to find ETFs.",
-    )
-
-
 @connector(tags=["equities", "etf"])
 async def alpha_vantage_etf_profile(params: AlphaVantageEtfProfileParams, *, api_key: str) -> Result:
     """Fetch ETF profile: net assets, expense ratio, portfolio turnover,
@@ -1714,86 +1243,6 @@ async def alpha_vantage_etf_profile(params: AlphaVantageEtfProfileParams, *, api
 # ---------------------------------------------------------------------------
 # Calendars — Earnings Calendar & IPO Calendar (CSV endpoints)
 # ---------------------------------------------------------------------------
-
-
-async def _av_fetch_csv(
-    http: HttpClient,
-    *,
-    function: str,
-    params: dict[str, Any] | None = None,
-    op_name: str,
-) -> pd.DataFrame:
-    """Fetch Alpha Vantage CSV endpoints (calendars, listing status).
-
-    Returns a parsed DataFrame. Handles the rate-limit edge case where the CSV
-    body starts with 'Information' instead of column headers.
-    """
-    import io
-
-    req_params: dict[str, Any] = {"function": function}
-    if params:
-        req_params.update(params)
-
-    try:
-        response = await http.request("GET", "/query", params=req_params)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        status = e.response.status_code
-        match status:
-            case 401 | 403:
-                raise UnauthorizedError(
-                    provider=_PROVIDER,
-                    message="Invalid or missing Alpha Vantage API key",
-                ) from e
-            case 429:
-                raise RateLimitError(
-                    provider=_PROVIDER,
-                    retry_after=60.0,
-                    message=f"Alpha Vantage rate limit hit on '{op_name}'",
-                ) from e
-            case _:
-                raise ProviderError(
-                    provider=_PROVIDER,
-                    status_code=status,
-                    message=f"Alpha Vantage API error {status} on '{op_name}'",
-                ) from e
-
-    text = response.text
-    # Rate-limit responses come as CSV with "Information" as header
-    if text.startswith("Information"):
-        raise RateLimitError(
-            provider=_PROVIDER,
-            retry_after=60.0,
-            message=f"Alpha Vantage rate limit on '{op_name}'",
-        )
-
-    df = pd.read_csv(io.StringIO(text))
-    return df
-
-
-_EARNINGS_CAL_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="symbol", role=ColumnRole.KEY, namespace="alpha_vantage"),
-        Column(name="name", role=ColumnRole.TITLE),
-        Column(name="reportDate", dtype="date", role=ColumnRole.DATA),
-        Column(name="fiscalDateEnding", dtype="date", role=ColumnRole.DATA),
-        Column(name="estimate", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="currency", role=ColumnRole.METADATA),
-    ]
-)
-
-
-class AlphaVantageEarningsCalendarParams(BaseModel):
-    """Upcoming earnings release dates."""
-
-    horizon: Literal["3month", "6month", "12month"] = Field(
-        default="3month",
-        description="Lookahead window: 3month, 6month, or 12month.",
-    )
-    symbol: str | None = Field(
-        default=None,
-        description="Optional ticker to filter by, e.g. 'IBM'. Omit for all companies.",
-    )
 
 
 @connector(output=_EARNINGS_CAL_OUTPUT, tags=["equities", "calendars"])
@@ -1832,25 +1281,6 @@ async def alpha_vantage_earnings_calendar(params: AlphaVantageEarningsCalendarPa
     )
 
 
-_IPO_CAL_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="symbol", role=ColumnRole.KEY, namespace="alpha_vantage"),
-        Column(name="name", role=ColumnRole.TITLE),
-        Column(name="ipoDate", dtype="date", role=ColumnRole.DATA),
-        Column(name="priceRangeLow", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="priceRangeHigh", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="currency", role=ColumnRole.METADATA),
-        Column(name="exchange", role=ColumnRole.METADATA),
-    ]
-)
-
-
-class AlphaVantageIpoCalendarParams(BaseModel):
-    """Upcoming and recent IPOs."""
-
-    pass
-
-
 @connector(output=_IPO_CAL_OUTPUT, tags=["equities", "calendars"])
 async def alpha_vantage_ipo_calendar(params: AlphaVantageIpoCalendarParams, *, api_key: str) -> Result:
     """Fetch upcoming and recent IPOs: company name, expected IPO date,
@@ -1880,103 +1310,6 @@ async def alpha_vantage_ipo_calendar(params: AlphaVantageIpoCalendarParams, *, a
 # ---------------------------------------------------------------------------
 # Technical Indicators (unified)
 # ---------------------------------------------------------------------------
-
-_TECHNICAL_INDICATORS = (
-    "SMA",
-    "EMA",
-    "WMA",
-    "DEMA",
-    "TEMA",
-    "TRIMA",
-    "KAMA",
-    "MAMA",
-    "VWAP",
-    "T3",
-    "RSI",
-    "WILLR",
-    "ADX",
-    "ADXR",
-    "APO",
-    "PPO",
-    "MOM",
-    "BOP",
-    "CCI",
-    "CMO",
-    "ROC",
-    "ROCR",
-    "AROON",
-    "AROONOSC",
-    "MFI",
-    "TRIX",
-    "ULTOSC",
-    "DX",
-    "MINUS_DI",
-    "PLUS_DI",
-    "MINUS_DM",
-    "PLUS_DM",
-    "BBANDS",
-    "MIDPOINT",
-    "MIDPRICE",
-    "SAR",
-    "TRANGE",
-    "ATR",
-    "NATR",
-    "AD",
-    "ADOSC",
-    "OBV",
-    "HT_TRENDLINE",
-    "HT_SINE",
-    "HT_TRENDMODE",
-    "HT_DCPERIOD",
-    "HT_DCPHASE",
-    "HT_PHASOR",
-    "STOCH",
-    "STOCHF",
-    "STOCHRSI",
-    "MACD",
-    "MACDEXT",
-)
-
-_TECHNICAL_OUTPUT = OutputConfig(
-    columns=[
-        Column(
-            name="symbol",
-            role=ColumnRole.KEY,
-            param_key="symbol",
-            namespace="alpha_vantage",
-        ),
-        Column(name="date", dtype="date", role=ColumnRole.DATA),
-    ]
-)
-
-
-class AlphaVantageTechnicalParams(BaseModel):
-    """Technical indicator for a stock symbol."""
-
-    symbol: Annotated[str, Namespace("alpha_vantage")] = Field(
-        ...,
-        description="Stock ticker, e.g. 'IBM'. Use alpha_vantage_search to resolve symbols.",
-    )
-    function: Literal[_TECHNICAL_INDICATORS] = Field(  # type: ignore[valid-type]
-        ...,
-        description=(
-            "Indicator function. Common: SMA, EMA, RSI, MACD, BBANDS, STOCH, ADX, "
-            "CCI, WILLR, MFI, OBV, ATR, VWAP, AROON, SAR, TRIX, APO, PPO."
-        ),
-    )
-    interval: Literal["1min", "5min", "15min", "30min", "60min", "daily", "weekly", "monthly"] = Field(
-        default="daily",
-        description="Time interval for the indicator.",
-    )
-    time_period: int = Field(
-        default=20,
-        ge=1,
-        description="Number of data points for the calculation (e.g. 20 for SMA-20).",
-    )
-    series_type: Literal["close", "open", "high", "low"] = Field(
-        default="close",
-        description="Price type to use for the calculation.",
-    )
 
 
 @connector(output=_TECHNICAL_OUTPUT, tags=["equities", "technical"])
@@ -2041,37 +1374,6 @@ async def alpha_vantage_technical(params: AlphaVantageTechnicalParams, *, api_ke
 # Precious Metals — Spot Price & Historical
 # ---------------------------------------------------------------------------
 
-_METAL_SPOT_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="symbol", role=ColumnRole.KEY, namespace="alpha_vantage_metal"),
-        Column(name="nominal", role=ColumnRole.TITLE),
-        Column(name="price", dtype="numeric", role=ColumnRole.DATA),
-        Column(name="timestamp", role=ColumnRole.METADATA),
-    ]
-)
-
-_METAL_HISTORY_OUTPUT = OutputConfig(
-    columns=[
-        Column(
-            name="symbol",
-            role=ColumnRole.KEY,
-            param_key="symbol",
-            namespace="alpha_vantage_metal",
-        ),
-        Column(name="date", dtype="date", role=ColumnRole.DATA),
-        Column(name="price", dtype="numeric", role=ColumnRole.DATA),
-    ]
-)
-
-
-class AlphaVantageMetalSpotParams(BaseModel):
-    """Real-time spot price for gold or silver."""
-
-    symbol: Literal["GOLD", "XAU", "SILVER", "XAG"] = Field(
-        ...,
-        description="Metal symbol: GOLD or XAU (gold), SILVER or XAG (silver).",
-    )
-
 
 @connector(output=_METAL_SPOT_OUTPUT, tags=["commodities"])
 async def alpha_vantage_metal_spot(params: AlphaVantageMetalSpotParams, *, api_key: str) -> Result:
@@ -2104,19 +1406,6 @@ async def alpha_vantage_metal_spot(params: AlphaVantageMetalSpotParams, *, api_k
         df,
         provenance=Provenance(source="alpha_vantage_metal_spot", params={"symbol": params.symbol}),
         params={"symbol": params.symbol},
-    )
-
-
-class AlphaVantageMetalHistoryParams(BaseModel):
-    """Historical prices for gold or silver."""
-
-    symbol: Literal["GOLD", "XAU", "SILVER", "XAG"] = Field(
-        ...,
-        description="Metal symbol: GOLD or XAU (gold), SILVER or XAG (silver).",
-    )
-    interval: Literal["daily", "weekly", "monthly"] = Field(
-        default="monthly",
-        description="Data frequency: daily, weekly, or monthly.",
     )
 
 
@@ -2163,26 +1452,6 @@ async def alpha_vantage_metal_history(params: AlphaVantageMetalHistoryParams, *,
 # Listing Status — Enumerator
 # ---------------------------------------------------------------------------
 
-_LISTING_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="symbol", role=ColumnRole.KEY, namespace="alpha_vantage"),
-        Column(name="name", role=ColumnRole.TITLE),
-        Column(name="exchange", role=ColumnRole.METADATA),
-        Column(name="assetType", role=ColumnRole.METADATA),
-        Column(name="ipoDate", role=ColumnRole.METADATA),
-        Column(name="status", role=ColumnRole.METADATA),
-    ]
-)
-
-
-class AlphaVantageListingParams(BaseModel):
-    """Parameters for enumerating listed securities."""
-
-    state: Literal["active", "delisted"] = Field(
-        default="active",
-        description="'active' for current listings; 'delisted' for historical.",
-    )
-
 
 @enumerator(output=_LISTING_OUTPUT, tags=["equities"])
 async def enumerate_alpha_vantage(params: AlphaVantageListingParams, *, api_key: str) -> pd.DataFrame:
@@ -2209,7 +1478,8 @@ async def enumerate_alpha_vantage(params: AlphaVantageListingParams, *, api_key:
 
 
 # ---------------------------------------------------------------------------
-# Connector collections
+# Collection — kept as a literal ``Connectors([...])`` assignment so
+# ``tools/gen_registry.py`` can AST-extract it.
 # ---------------------------------------------------------------------------
 
 CONNECTORS = Connectors(
@@ -2257,3 +1527,67 @@ CONNECTORS = Connectors(
         enumerate_alpha_vantage,
     ]
 )
+
+
+__all__ = [
+    "CONNECTORS",
+    "ENV_VARS",
+    # Parameter models (public — downstream callers type against these)
+    "AlphaVantageCryptoDailyParams",
+    "AlphaVantageCryptoMonthlyParams",
+    "AlphaVantageCryptoWeeklyParams",
+    "AlphaVantageDailyParams",
+    "AlphaVantageEarningsCalendarParams",
+    "AlphaVantageEarningsParams",
+    "AlphaVantageEconParams",
+    "AlphaVantageEtfProfileParams",
+    "AlphaVantageFxDailyParams",
+    "AlphaVantageFxMonthlyParams",
+    "AlphaVantageFxRateParams",
+    "AlphaVantageFxWeeklyParams",
+    "AlphaVantageIntradayParams",
+    "AlphaVantageIpoCalendarParams",
+    "AlphaVantageListingParams",
+    "AlphaVantageMetalHistoryParams",
+    "AlphaVantageMetalSpotParams",
+    "AlphaVantageMonthlyParams",
+    "AlphaVantageNewsParams",
+    "AlphaVantageOptionsParams",
+    "AlphaVantageOverviewParams",
+    "AlphaVantageQuoteParams",
+    "AlphaVantageSearchParams",
+    "AlphaVantageStatementParams",
+    "AlphaVantageTechnicalParams",
+    "AlphaVantageTopMoversParams",
+    "AlphaVantageWeeklyParams",
+    # Connector functions
+    "alpha_vantage_balance_sheet",
+    "alpha_vantage_cash_flow",
+    "alpha_vantage_crypto_daily",
+    "alpha_vantage_crypto_monthly",
+    "alpha_vantage_crypto_weekly",
+    "alpha_vantage_daily",
+    "alpha_vantage_earnings",
+    "alpha_vantage_earnings_calendar",
+    "alpha_vantage_econ",
+    "alpha_vantage_etf_profile",
+    "alpha_vantage_fx_daily",
+    "alpha_vantage_fx_monthly",
+    "alpha_vantage_fx_rate",
+    "alpha_vantage_fx_weekly",
+    "alpha_vantage_income_statement",
+    "alpha_vantage_intraday",
+    "alpha_vantage_ipo_calendar",
+    "alpha_vantage_metal_history",
+    "alpha_vantage_metal_spot",
+    "alpha_vantage_monthly",
+    "alpha_vantage_news",
+    "alpha_vantage_options",
+    "alpha_vantage_overview",
+    "alpha_vantage_quote",
+    "alpha_vantage_search",
+    "alpha_vantage_top_movers",
+    "alpha_vantage_weekly",
+    # Enumerator
+    "enumerate_alpha_vantage",
+]
