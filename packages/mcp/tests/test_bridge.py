@@ -18,6 +18,8 @@ from parsimony.result import Provenance, Result
 from pydantic import BaseModel, Field, ValidationError
 
 from parsimony_mcp.bridge import (
+    _MAX_CELL_CHARS,
+    _cap_cell,
     connector_to_tool,
     result_to_content,
     translate_error,
@@ -103,15 +105,51 @@ class TestResultToContent:
         assert "value,42" in text
 
     def test_compromised_upstream_cell_quoted_not_injected(self):
-        """A cell with a pipe / newline / SYSTEM marker must not break out of its row."""
+        """A cell with a newline / comma / SYSTEM marker must not break out of its row."""
         df = pd.DataFrame({"a": ["safe\nfake_row,fake_value"]})
         result = Result(data=df, provenance=Provenance(source="test"))
         content = result_to_content(result)
         text = content[0].text
         # Header announces exactly one row regardless of the cell content.
         assert text.startswith("preview[1]{a}:")
-        # The malicious newline + comma is contained inside the quoted cell.
-        assert '"safe\nfake_row,fake_value"' in text
+        # The cell is quoted AND the newline is escaped to ``\n`` (two chars,
+        # backslash + n) so no real newline can break the TOON row layout.
+        assert '"safe\\nfake_row,fake_value"' in text
+        # No raw newline leaks out of the quoted cell into the row stream
+        # (only the trailing newline at end-of-cell is allowed).
+        body = text.split("preview[1]{a}:\n", 1)[1]
+        assert "\n" not in body  # exactly one row, no embedded newlines
+
+    def test_dataframe_with_long_string_truncated_in_preview(self):
+        """A 10000-character cell from an upstream is bounded to ~500 chars."""
+        long = "x" * 10_000
+        df = pd.DataFrame({"a": [long]})
+        result = Result(data=df, provenance=Provenance(source="test"))
+        text = result_to_content(result)[0].text
+        assert long not in text
+        assert "…" in text
+
+
+class TestCapCell:
+    def test_short_string_passes_through(self):
+        assert _cap_cell("abc") == "abc"
+
+    def test_long_string_truncated_to_max_chars(self):
+        long = "x" * 600
+        capped = _cap_cell(long, max_chars=500)
+        assert isinstance(capped, str)
+        assert len(capped) == 500
+        assert capped.endswith("…")
+
+    def test_default_cap_is_500(self):
+        assert _MAX_CELL_CHARS == 500
+        assert len(_cap_cell("y" * 10_000)) == 500
+
+    def test_int_passes_through(self):
+        assert _cap_cell(42) == 42
+
+    def test_none_passes_through(self):
+        assert _cap_cell(None) is None
 
 
 class _ArgsModel(BaseModel):

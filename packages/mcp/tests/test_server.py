@@ -103,35 +103,47 @@ class TestListTools:
         assert len(result.tools) == 1
         assert result.tools[0].name == "ok_tool"
 
-    async def test_tool_count_matches_filtered(self, tool_connectors) -> None:
-        server = create_server(tool_connectors)
+    async def test_tool_count_matches_tool_tagged_subset(self, all_connectors) -> None:
+        """``create_server`` accepts the FULL bundle but the MCP tool list
+        is filtered to the ``"tool"``-tagged subset. mock_search + mock_profile
+        are tagged 'tool'; mock_fetch is not."""
+        server = create_server(all_connectors)
         result = await _list_tools(server)
-        # fixture filters to ["tool"] tag — mock_search + mock_profile
         assert len(result.tools) == 2
+        names = {t.name for t in result.tools}
+        assert names == {"mock_search", "mock_profile"}
 
 
 class TestInstructions:
-    def test_instructions_contain_framing(self, tool_connectors) -> None:
-        server = create_server(tool_connectors)
+    def test_instructions_contain_framing(self, all_connectors) -> None:
+        server = create_server(all_connectors)
         assert server.instructions is not None
         assert "parsimony" in server.instructions.lower()
         assert "discover" in server.instructions.lower()
         assert "fetch" in server.instructions.lower()
 
-    def test_instructions_contain_tool_descriptions(self, tool_connectors) -> None:
-        server = create_server(tool_connectors)
+    def test_instructions_contain_tool_tagged_in_discovery_block(
+        self, all_connectors
+    ) -> None:
+        server = create_server(all_connectors)
         assert server.instructions is not None
+        assert "MCP discovery tools" in server.instructions
         assert "mock_search" in server.instructions
 
-    def test_instructions_exclude_non_tool_connectors(self, tool_connectors) -> None:
-        server = create_server(tool_connectors)
+    def test_instructions_contain_fetch_only_in_bulk_block(self, all_connectors) -> None:
+        """Non-tool-tagged connectors MUST appear in the catalog under the
+        bulk-fetch heading so the agent can route ``client[name]`` calls
+        without guessing names from the discovery surface alone."""
+        server = create_server(all_connectors)
         assert server.instructions is not None
-        # mock_fetch is not tagged 'tool' so must not appear
-        assert "mock_fetch" not in server.instructions
+        assert "Bulk fetch connectors" in server.instructions
+        # mock_fetch is NOT tagged 'tool' — it must appear here so the
+        # agent knows to dispatch via parsimony.client['mock_fetch'].
+        assert "mock_fetch" in server.instructions
 
-    def test_catalog_is_delimited(self, tool_connectors) -> None:
+    def test_catalog_is_delimited(self, all_connectors) -> None:
         """Plugin-author prose must be clearly scoped as data, not instructions."""
-        server = create_server(tool_connectors)
+        server = create_server(all_connectors)
         assert server.instructions is not None
         assert "<catalog>" in server.instructions
         assert "</catalog>" in server.instructions

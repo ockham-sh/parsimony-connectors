@@ -19,7 +19,7 @@ prose) while TOON's CSV-style row format only needs quoting for
 structural characters that are easier to reason about; and (b)
 TOON's tabular form spends column names once in a header rather
 than once per row, saving 30-50% of tokens for typical preview
-tables. See :mod:`parsimony_mcp._toon` for the encoder.
+tables. The encoder is the official ``toon-format`` library.
 """
 
 from __future__ import annotations
@@ -38,11 +38,19 @@ from parsimony.errors import (
 )
 from parsimony.result import Result
 from pydantic import ValidationError
-
-from parsimony_mcp._toon import _quote, encode_dataframe, encode_kv, encode_series
+from toon_format import encode
 
 _MAX_ROWS = 50
 _MAX_VALIDATION_ERRORS = 5
+_MAX_CELL_CHARS = 500
+
+
+def _cap_cell(value: Any, max_chars: int = _MAX_CELL_CHARS) -> Any:
+    """Truncate string cells so a single rogue upstream value can't blow the
+    agent's context budget. Non-strings pass through unchanged."""
+    if isinstance(value, str) and len(value) > max_chars:
+        return value[: max_chars - 1] + "…"
+    return value
 
 
 def connector_to_tool(conn: Connector) -> Tool:
@@ -67,23 +75,24 @@ def result_to_content(result: Result, max_rows: int = _MAX_ROWS) -> list[TextCon
     render as a single ``value:`` line.
     """
     data = result.data
+    payload: dict[str, Any]
     if isinstance(data, pd.DataFrame):
         total = len(data)
-        preview = data.head(max_rows)
-        text = encode_dataframe(preview, name="preview")
+        preview = data.head(max_rows).map(_cap_cell)
+        payload = {"preview": preview.to_dict("records")}
         if total > max_rows:
-            truncation = (
+            payload["total_rows"] = total
+            payload["truncation"] = (
                 f"Discovery preview only — for the full {total} rows, "
                 f"call parsimony.client['<connector>'](...) in Python. "
                 f"Do not call this MCP tool again hoping for more rows."
             )
-            text += "\n\n" + encode_kv("total_rows", total)
-            text += "\n" + encode_kv("truncation", truncation)
     elif isinstance(data, pd.Series):
-        text = encode_series(data, name="result")
+        capped = data.map(_cap_cell)
+        payload = {"result": [{"key": str(k), "value": v} for k, v in capped.items()]}
     else:
-        text = encode_kv("value", data)
-    return [TextContent(type="text", text=text)]
+        payload = {"value": _cap_cell(data) if isinstance(data, str) else data}
+    return [TextContent(type="text", text=encode(payload))]
 
 
 def _error_content(message: str) -> list[TextContent]:
@@ -164,6 +173,4 @@ def translate_error(exc: BaseException, tool_name: str) -> list[TextContent]:
     )
 
 
-# Re-export _quote for tests that exercise quoting edge cases through
-# the bridge (e.g. compromised-upstream cell defenses).
-__all__ = ["_quote", "connector_to_tool", "result_to_content", "translate_error"]
+__all__ = ["_cap_cell", "connector_to_tool", "result_to_content", "translate_error"]
