@@ -4,8 +4,12 @@ Reads every ``outputs/{AGENCY}/datasets.parquet`` file produced by the
 flat-catalog pipeline and yields one row per ``(agency, dataset_id)``.
 
 Agents consume this via ``Catalog.search(query, namespaces=["sdmx_datasets"])``
-after the HF Parquet+FAISS bundle ``parsimony-dev/sdmx_datasets`` has been
-loaded (or this enumerator runs live as fallback when the bundle is missing).
+after the HF Parquet+FAISS bundle has been loaded (or this enumerator runs
+live as fallback when the bundle is missing).
+
+Publish wiring: the plugin module exports
+``CATALOGS = [("sdmx_datasets", enumerate_sdmx_datasets), ...]`` (see
+``parsimony_sdmx/__init__.py``), which is what ``parsimony publish`` reads.
 """
 
 from __future__ import annotations
@@ -14,10 +18,9 @@ from pathlib import Path
 
 import pandas as pd
 import pyarrow.parquet as pq
-from parsimony.bundles import CatalogSpec
 from parsimony.connector import enumerator
 from parsimony.errors import EmptyDataError
-from parsimony.result import Column, ColumnRole, OutputConfig, Provenance, Result
+from parsimony.result import Column, ColumnRole, OutputConfig
 from pydantic import BaseModel
 
 from parsimony_sdmx.connectors._agencies import ALL_AGENCIES
@@ -67,19 +70,20 @@ def _read_agency_datasets(outputs_root: Path, agency: str) -> pd.DataFrame:
 @enumerator(
     output=ENUMERATE_DATASETS_OUTPUT,
     tags=["sdmx"],
-    catalog=CatalogSpec.static(namespace=DATASETS_NAMESPACE),
 )
 async def enumerate_sdmx_datasets(
     params: EnumerateDatasetsParams,
     *,
     outputs_root: Path = DEFAULT_OUTPUTS_ROOT,
-) -> Result:
+) -> pd.DataFrame:
     """List every SDMX dataset from the flat-catalog parquet outputs.
 
     Walks every agency in :data:`ALL_AGENCIES`, reads its
-    ``datasets.parquet``, and yields rows shaped for the kernel's
-    ``Catalog.index_result`` ingest path — KEY + TITLE + METADATA columns
-    only, no observation DATA.
+    ``datasets.parquet``, and returns rows shaped for the kernel's
+    ``Catalog.add_from_result`` ingest path — KEY + TITLE + METADATA columns
+    only, no observation DATA. The ``@enumerator`` decorator attaches
+    :data:`ENUMERATE_DATASETS_OUTPUT` to the resulting :class:`Result` so
+    ``catalog.add_from_result()`` can read the schema.
 
     The composite KEY ``code`` is ``"{agency}|{dataset_id}"`` so agents can
     round-trip it back into :func:`sdmx_fetch` without reconstructing fields.
@@ -101,10 +105,4 @@ async def enumerate_sdmx_datasets(
             message=f"No datasets.parquet found under {outputs_root}; build catalogs first.",
         )
 
-    merged = pd.concat(frames, ignore_index=True)
-    provenance = Provenance(
-        source="sdmx",
-        params={},
-        properties={"outputs_root": str(outputs_root)},
-    )
-    return Result.from_dataframe(merged, provenance)
+    return pd.concat(frames, ignore_index=True)

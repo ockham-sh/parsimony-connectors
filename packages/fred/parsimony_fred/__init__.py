@@ -4,10 +4,15 @@ Exports:
 
 * :data:`CONNECTORS` — the :class:`parsimony.Connectors` collection exposed
   via the ``parsimony.providers`` entry point. Includes ``fred_search``
-  (tool-tagged for MCP) and ``fred_fetch``.
+  (tool-tagged for MCP), ``fred_fetch``, ``enumerate_fred``,
+  and ``enumerate_fred_release``.
 * :data:`ENV_VARS` — maps the ``api_key`` dependency to ``FRED_API_KEY``.
-* :func:`enumerate_fred_release` — catalog-enumeration connector for
-  indexing FRED releases.
+* :data:`CATALOGS` — publish-target list consumed by
+  :func:`parsimony.publish.publish`. One catalog named ``fred`` backed by
+  :func:`enumerate_fred` (param-less; walks every FRED release).
+* :func:`enumerate_fred` — param-less catalog enumerator.
+* :func:`enumerate_fred_release` — per-release catalog enumerator (retains
+  targeted indexing for users who want a single release).
 """
 
 from __future__ import annotations
@@ -15,8 +20,9 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 import pandas as pd
-from parsimony.connector import Connectors, Namespace, connector, enumerator
+from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
+from parsimony.http import HttpClient
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -24,22 +30,24 @@ from parsimony.result import (
     Provenance,
     Result,
 )
-from parsimony.transport.http import HttpClient
 from pydantic import BaseModel, Field, field_validator
 
 __all__ = [
+    "CATALOGS",
     "CONNECTORS",
     "ENV_VARS",
     "PROVIDER_METADATA",
     "FredSearchParams",
     "FredFetchParams",
     "FredEnumerateParams",
+    "FredEnumerateAllParams",
     "fred_search",
     "fred_fetch",
+    "enumerate_fred",
     "enumerate_fred_release",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
 
 ENV_VARS: dict[str, str] = {"api_key": "FRED_API_KEY"}
 
@@ -63,7 +71,9 @@ class FredSearchParams(BaseModel):
 class FredFetchParams(BaseModel):
     """Parameters for fetching FRED time series observations."""
 
-    series_id: Annotated[str, Namespace("fred")] = Field(..., description="FRED series identifier (e.g. GDPC1, UNRATE)")
+    series_id: Annotated[str, "ns:fred"] = Field(
+        ..., description="FRED series identifier (e.g. GDPC1, UNRATE)"
+    )
     observation_start: str | None = Field(default=None, description="Start date (YYYY-MM-DD)")
     observation_end: str | None = Field(default=None, description="End date (YYYY-MM-DD)")
 
@@ -80,6 +90,15 @@ class FredEnumerateParams(BaseModel):
     """Parameters for enumerating FRED series in a release (catalog indexing)."""
 
     release_id: int = Field(..., ge=1, description="FRED release ID")
+
+
+class FredEnumerateAllParams(BaseModel):
+    """No parameters — :func:`enumerate_fred` walks every release.
+
+    Declared as an empty pydantic model rather than ``None`` so the kernel's
+    ``Connector.param_type()()`` construction in
+    :func:`parsimony.publish.publish` succeeds without args.
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -240,9 +259,6 @@ async def fred_fetch(params: FredFetchParams, *, api_key: str) -> Result:
     )
 
 
-CONNECTORS = Connectors([fred_search, fred_fetch])
-
-
 # ---------------------------------------------------------------------------
 # Catalog enumeration
 # ---------------------------------------------------------------------------
@@ -285,6 +301,50 @@ async def _enumerate_release_series(
     return all_series
 
 
+async def _list_releases(http: HttpClient, *, page_size: int = 1000) -> list[int]:
+    """Enumerate every FRED release id.
+
+    FRED currently hosts <400 releases so one page is typically sufficient,
+    but we paginate defensively.
+    """
+    ids: list[int] = []
+    offset = 0
+    while True:
+        response = await http.request(
+            "GET",
+            "/releases",
+            params={"limit": page_size, "offset": offset, "file_type": "json"},
+        )
+        response.raise_for_status()
+        batch = response.json().get("releases") or []
+        if not batch:
+            break
+        for row in batch:
+            try:
+                ids.append(int(row["id"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+        if len(batch) < page_size:
+            break
+        offset += page_size
+    return ids
+
+
+def _series_row(series: dict[str, Any], release_id: int) -> dict[str, Any] | None:
+    series_id = str(series.get("id", "")).strip()
+    if not series_id:
+        return None
+    title = str(series.get("title", "")).strip() or series_id
+    return {
+        "series_id": series_id,
+        "title": title,
+        "frequency_short": series.get("frequency_short"),
+        "units_short": series.get("units_short"),
+        "seasonal_adjustment_short": series.get("seasonal_adjustment_short"),
+        "release_id": release_id,
+    }
+
+
 @enumerator(
     output=FRED_ENUMERATE_OUTPUT,
     tags=["fred"],
@@ -294,27 +354,55 @@ async def enumerate_fred_release(
     *,
     api_key: str,
 ) -> pd.DataFrame:
-    """Enumerate FRED series for a release (catalog indexing).
+    """Enumerate FRED series for a single release (catalog indexing).
 
     Return one row per series in the release with id, title, and metadata columns.
     """
     http = _make_http(api_key)
     seriess = await _enumerate_release_series(http, params.release_id, page_size=1000)
     rows: list[dict[str, Any]] = []
-    rid = params.release_id
     for item in seriess:
-        series_id = str(item.get("id", "")).strip()
-        if not series_id:
-            continue
-        title = str(item.get("title", "")).strip() or series_id
-        rows.append(
-            {
-                "series_id": series_id,
-                "title": title,
-                "frequency_short": item.get("frequency_short"),
-                "units_short": item.get("units_short"),
-                "seasonal_adjustment_short": item.get("seasonal_adjustment_short"),
-                "release_id": rid,
-            }
-        )
+        row = _series_row(item, params.release_id)
+        if row is not None:
+            rows.append(row)
     return pd.DataFrame(rows)
+
+
+@enumerator(
+    output=FRED_ENUMERATE_OUTPUT,
+    tags=["fred"],
+)
+async def enumerate_fred(
+    params: FredEnumerateAllParams,
+    *,
+    api_key: str,
+) -> pd.DataFrame:
+    """Enumerate every FRED series across every release (catalog indexing).
+
+    Walks ``/releases`` then ``/release/series`` for each release. Used by
+    the ``parsimony publish --provider fred`` canonical catalog build —
+    single namespace ``fred``, one row per series. Duplicate series (a
+    series belonging to multiple releases) are kept on their first-seen
+    release to preserve per-series ``release_id`` provenance.
+    """
+    http = _make_http(api_key)
+    release_ids = await _list_releases(http)
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for release_id in release_ids:
+        seriess = await _enumerate_release_series(http, release_id, page_size=1000)
+        for item in seriess:
+            row = _series_row(item, release_id)
+            if row is None:
+                continue
+            if row["series_id"] in seen:
+                continue
+            seen.add(row["series_id"])
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+CONNECTORS = Connectors([fred_search, fred_fetch, enumerate_fred, enumerate_fred_release])
+
+#: Publish target: one canonical ``fred`` catalog covering every release.
+CATALOGS: list[tuple[str, Any]] = [("fred", enumerate_fred)]

@@ -7,7 +7,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from parsimony.catalog.catalog import entries_from_table_result
+from parsimony.catalog import entries_from_result
 
 from parsimony_sdmx.connectors.enumerate_datasets import (
     DATASETS_NAMESPACE,
@@ -55,7 +55,7 @@ async def test_ingests_into_expected_namespace(outputs_root: Path) -> None:
     output_config = enumerate_sdmx_datasets.output_config
     assert output_config is not None  # enumerator was declared with output=
     table = result.to_table(output_config)
-    entries = entries_from_table_result(table)
+    entries = entries_from_result(table)
 
     assert len(entries) == 3
     # Static namespace — every entry lands in sdmx_datasets.
@@ -91,5 +91,3 @@ def test_enumerator_metadata_shape() -> None:
     key_cols = [c for c in cols if c.role.value == "key"]
     assert len(key_cols) == 1
     assert key_cols[0].namespace == "sdmx_datasets"
-    # Static namespace — no placeholders.
-    assert key_cols[0].namespace_is_template is False

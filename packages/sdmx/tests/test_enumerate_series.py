@@ -1,10 +1,9 @@
-"""Tests for ``enumerate_sdmx_series`` — template-namespace enumerator.
+"""Tests for ``enumerate_sdmx_series`` — per-dataset series enumerator.
 
-Exercises the kernel's template-namespace support end-to-end: the enumerator
-declares a ``{agency}_{dataset_id}`` template, emits rows, and the kernel
-resolves them into per-dataset namespaces. The reverse path (``_find_enumerator``
-matching a resolved namespace back to this connector with extracted params)
-is verified in the parsimony kernel test suite.
+The namespace is composed per-dataset at publish time by
+``parsimony_sdmx.CATALOGS`` / ``RESOLVE_CATALOG``; the enumerator itself
+leaves the KEY column's namespace unset and lets the catalog supply its
+own ``name`` as the default at ingest time.
 """
 
 from __future__ import annotations
@@ -14,14 +13,13 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from parsimony.bundles.lazy_catalog import _find_enumerator
-from parsimony.catalog.catalog import entries_from_table_result
+from parsimony.catalog import entries_from_result
 
 from parsimony_sdmx.connectors._agencies import AgencyId
 from parsimony_sdmx.connectors.enumerate_series import (
-    SERIES_NAMESPACE_TEMPLATE,
     EnumerateSeriesParams,
     enumerate_sdmx_series,
+    series_namespace,
 )
 
 
@@ -77,25 +75,30 @@ async def test_enumerates_one_dataset(outputs_root: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_per_row_template_resolution_produces_correct_namespace(outputs_root: Path) -> None:
+async def test_entries_use_catalog_name_as_default_namespace(outputs_root: Path) -> None:
+    """The enumerator leaves KEY.namespace unset; ``entries_from_result``
+    falls back to the caller-supplied default — which in production is the
+    catalog's own ``name`` (composed by :func:`series_namespace`).
+    """
     result = await enumerate_sdmx_series.bind_deps(outputs_root=outputs_root)(
         EnumerateSeriesParams(agency=AgencyId.ECB, dataset_id="YC"),
     )
     output_config = enumerate_sdmx_series.output_config
     assert output_config is not None
     table = result.to_table(output_config)
-    entries = entries_from_table_result(table)
 
-    # Kernel lowercases placeholder values — namespace is snake_case lowercase.
+    ns = series_namespace(AgencyId.ECB, "YC")
+    entries = entries_from_result(table, namespace=ns)
+
     assert all(e.namespace == "sdmx_series_ecb_yc" for e in entries)
     assert len(entries) == 2
 
 
 @pytest.mark.asyncio
-async def test_accepts_lowercase_agency_from_kernel_reverse_resolution(outputs_root: Path) -> None:
-    """When the kernel reverse-resolves ``sdmx_series_ecb_yc``, it passes
-    ``agency="ecb"`` (lowercase) to the enumerator. The Pydantic ``before``
-    validator upcases it back to the canonical ``AgencyId.ECB``.
+async def test_accepts_lowercase_agency_from_resolve_catalog() -> None:
+    """When ``RESOLVE_CATALOG`` parses ``sdmx_series_ecb_yc`` it passes
+    ``agency="ecb"`` (lowercase). The Pydantic ``before`` validator upcases
+    it back to the canonical ``AgencyId.ECB``.
     """
     params = EnumerateSeriesParams(agency="ecb", dataset_id="YC")  # type: ignore[arg-type]
     assert params.agency is AgencyId.ECB
@@ -111,25 +114,17 @@ async def test_missing_dataset_raises_emptydata(outputs_root: Path) -> None:
         )
 
 
-def test_find_enumerator_reverse_resolves_against_this_connector() -> None:
-    """Kernel's ``_find_enumerator`` must locate this enumerator from a
-    resolved namespace like ``sdmx_series_ecb_yc`` and extract the routing
-    params so the live-fallback invocation can target the right dataset.
+def test_series_namespace_lowercases_agency_and_dataset() -> None:
+    assert series_namespace(AgencyId.ECB, "YC") == "sdmx_series_ecb_yc"
+    assert series_namespace(AgencyId.IMF_DATA, "PGI") == "sdmx_series_imf_data_pgi"
+
+
+def test_enumerator_output_has_no_namespace_on_key() -> None:
+    """Per-dataset namespace is supplied at ingest time via the catalog's
+    ``name`` — the enumerator's KEY column itself must carry no namespace.
     """
-    from parsimony.connector import Connectors
-
-    match = _find_enumerator(Connectors([enumerate_sdmx_series]), "sdmx_series_ecb_yc")
-    assert match is not None
-    conn, extracted = match
-    assert conn is enumerate_sdmx_series
-    assert extracted == {"agency": "ecb", "dataset_id": "yc"}
-
-
-def test_enumerator_output_declares_template_namespace() -> None:
     output_config = enumerate_sdmx_series.output_config
     assert output_config is not None
     cols = output_config.columns
     key_col = next(c for c in cols if c.role.value == "key")
-    assert key_col.namespace == SERIES_NAMESPACE_TEMPLATE
-    assert key_col.namespace_is_template is True
-    assert key_col.namespace_placeholders == ["agency", "dataset_id"]
+    assert key_col.namespace is None

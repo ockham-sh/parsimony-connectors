@@ -27,7 +27,11 @@ import yaml
 from parsimony_sdmx.connectors import (
     enumerate_sdmx_datasets,
 )
-from parsimony_sdmx.connectors.enumerate_series import SERIES_NAMESPACE_TEMPLATE
+
+# Per-dataset namespaces all share the ``sdmx_series_`` prefix (one catalog
+# per ``(agency, dataset_id)`` — composed by
+# ``parsimony_sdmx.connectors.enumerate_series.series_namespace``).
+_SERIES_NAMESPACE_PREFIX = "sdmx_series_"
 
 _QUERIES_PATH = Path(__file__).parent / "evals" / "queries.yaml"
 
@@ -60,12 +64,12 @@ def test_dataset_queries_use_datasets_namespace(eval_set: dict) -> None:
 
 
 def test_two_hop_series_namespaces_match_template(eval_set: dict) -> None:
-    """Every two-hop query's series namespace must be a valid resolution of the template."""
-    tmpl = SERIES_NAMESPACE_TEMPLATE
-    prefix = tmpl.split("{", 1)[0]
+    """Every two-hop query's series namespace must live under the per-dataset prefix."""
     for q in eval_set["two_hop_queries"]:
         ns = q["series_step"]["namespace"]
-        assert ns.startswith(prefix), f"{q['id']}: series namespace {ns!r} should start with {prefix!r}"
+        assert ns.startswith(_SERIES_NAMESPACE_PREFIX), (
+            f"{q['id']}: series namespace {ns!r} should start with {_SERIES_NAMESPACE_PREFIX!r}"
+        )
 
 
 def test_thresholds_are_in_0_to_1_range(eval_set: dict) -> None:
@@ -102,7 +106,7 @@ _BUNDLE_URL_TEMPLATE = os.environ.get("SDMX_BUNDLE_URL_TEMPLATE", "hf://ockham/c
 
 async def _load_bundle_for(namespace: str):
     """Load the standard Catalog for *namespace* from the configured HF org."""
-    from parsimony._standard.catalog import Catalog
+    from parsimony.catalog import Catalog
 
     return await Catalog.from_url(_BUNDLE_URL_TEMPLATE.format(namespace=namespace))
 
@@ -114,7 +118,7 @@ async def _load_bundle_for(namespace: str):
 @pytest.mark.asyncio
 async def test_dataset_queries_recall(eval_set: dict) -> None:
     """Single-hop: every dataset_query's expected code must appear in top-10."""
-    from parsimony.catalog.models import catalog_key
+    from parsimony.catalog import catalog_key
 
     hits = misses = 0
     for q in eval_set["dataset_queries"]:
@@ -139,7 +143,7 @@ async def test_dataset_queries_recall(eval_set: dict) -> None:
 @pytest.mark.asyncio
 async def test_two_hop_joint_recall(eval_set: dict) -> None:
     """Two-hop: dataset_search → series_search — both must hit in top-10."""
-    from parsimony.catalog.models import catalog_key
+    from parsimony.catalog import catalog_key
 
     joint_hits = total = 0
     for q in eval_set["two_hop_queries"]:
