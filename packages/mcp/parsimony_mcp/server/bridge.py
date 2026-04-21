@@ -156,4 +156,9 @@ def translate_error(exc: BaseException, tool_name: str) -> list[TextContent]:
     # Catch-all — caller (server.call_tool) is expected to log full context
     # before returning this, never log exc here because _logging's JSON
     # formatter omits tracebacks by default and we're relying on that.
-    return _error_content(f"Internal error in {tool_name}; see server logs")
+    # ``type(exc).__name__`` is a Python class identifier and carries no user
+    # data, so exposing it is safe and lets the agent distinguish transient
+    # upstream faults (e.g. HTTPStatusError) from local bugs.
+    return _error_content(
+        f"Internal error in {tool_name} ({type(exc).__name__}); see server logs"
+    )

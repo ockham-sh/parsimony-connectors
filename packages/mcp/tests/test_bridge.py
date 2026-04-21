@@ -189,4 +189,25 @@ class TestTranslateError:
         text = content[0].text
         assert "Internal error" in text
         assert "mystery_tool" in text
+        # Class name appears so the agent can distinguish upstream faults
+        # from local bugs; the raw message (which could embed secrets) does not.
+        assert "RuntimeError" in text
         assert "unexpected" not in text
+
+    def test_unknown_exception_does_not_leak_url_with_api_key(self):
+        """Class name is safe; str(exc) for httpx-style errors is not."""
+
+        class HTTPStatusError(Exception):
+            """Mimics httpx.HTTPStatusError whose message embeds the full URL."""
+
+        raw = (
+            "Server error '500 Internal Server Error' for url "
+            "'https://api.stlouisfed.org/fred/series/search?api_key=REAL_KEY&search_text=x'"
+        )
+        exc = HTTPStatusError(raw)
+        content = translate_error(exc, "fred_search")
+        text = content[0].text
+        assert "HTTPStatusError" in text
+        assert "REAL_KEY" not in text
+        assert "api_key=" not in text
+        assert "api.stlouisfed.org" not in text
