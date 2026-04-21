@@ -23,7 +23,7 @@ from parsimony.errors import (
     UnauthorizedError,
 )
 from parsimony.result import OutputConfig
-from parsimony.transport.http import HttpClient
+from parsimony.http import HttpClient
 
 _DEFAULT_BASE_URL: str = "https://api.coingecko.com/api/v3"
 _DEFAULT_TIMEOUT_SECONDS: float = 15.0
