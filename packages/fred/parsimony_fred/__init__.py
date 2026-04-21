@@ -24,7 +24,9 @@ from parsimony.result import (
     Provenance,
     Result,
 )
-from parsimony.transport import HttpClient
+import httpx
+
+from parsimony.transport import HttpClient, map_http_error
 from pydantic import BaseModel, Field, field_validator
 
 __all__ = [
@@ -155,7 +157,10 @@ async def fred_search(params: FredSearchParams, *, api_key: str) -> Result:
         "/series/search",
         params={"search_text": params.search_text},
     )
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="fred", op_name="series/search")
     seriess = response.json().get("seriess", [])
     if not seriess:
         raise EmptyDataError(provider="fred", message=f"No series found for: {params.search_text}")
@@ -184,11 +189,17 @@ async def fred_fetch(params: FredFetchParams, *, api_key: str) -> Result:
         req_params["observation_end"] = params.observation_end
 
     obs_response = await http.request("GET", "/series/observations", params=req_params)
-    obs_response.raise_for_status()
+    try:
+        obs_response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="fred", op_name="series/observations")
     obs_data = obs_response.json()["observations"]
 
     series_response = await http.request("GET", "/series", params={"series_id": series_id})
-    series_response.raise_for_status()
+    try:
+        series_response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="fred", op_name="series")
     series_data = series_response.json()["seriess"][0]
 
     df = pd.DataFrame(obs_data)
@@ -262,7 +273,10 @@ async def _fetch_release_series_page(
         "file_type": "json",
     }
     response = await http.request("GET", "/release/series", params=params)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="fred", op_name="release/series")
     return response.json().get("seriess") or []
 
 
