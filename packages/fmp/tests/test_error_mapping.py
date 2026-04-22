@@ -50,7 +50,7 @@ async def test_simple_connector_maps_status_and_does_not_leak_key(
         return_value=httpx.Response(status, text="provider said no")
     )
 
-    bound = fmp_search.bind_deps(api_key=_KEY)
+    bound = fmp_search.bind(api_key=_KEY)
     with pytest.raises(exc_type) as exc_info:
         await bound(FmpSearchParams(query="x"))
 
@@ -69,7 +69,7 @@ async def test_screener_initial_fetch_maps_status_and_does_not_leak_key(
         return_value=httpx.Response(status, text="provider said no")
     )
 
-    bound = fmp_screener.bind_deps(api_key=_KEY)
+    bound = fmp_screener.bind(api_key=_KEY)
     with pytest.raises(exc_type) as exc_info:
         await bound(FmpScreenerParams(sector="Technology"))
 
@@ -84,7 +84,7 @@ async def test_rate_limit_error_carries_retry_after() -> None:
     respx.get("https://financialmodelingprep.com/stable/search-name").mock(
         return_value=httpx.Response(429, text="too fast", headers={"Retry-After": "42"})
     )
-    bound = fmp_search.bind_deps(api_key=_KEY)
+    bound = fmp_search.bind(api_key=_KEY)
     with pytest.raises(RateLimitError) as exc_info:
         await bound(FmpSearchParams(query="x"))
     assert exc_info.value.retry_after == 42.0
@@ -96,7 +96,7 @@ async def test_provider_error_carries_status_code() -> None:
     respx.get("https://financialmodelingprep.com/stable/search-name").mock(
         return_value=httpx.Response(503, text="unavailable")
     )
-    bound = fmp_search.bind_deps(api_key=_KEY)
+    bound = fmp_search.bind(api_key=_KEY)
     with pytest.raises(ProviderError) as exc_info:
         await bound(FmpSearchParams(query="x"))
     assert exc_info.value.status_code == 503

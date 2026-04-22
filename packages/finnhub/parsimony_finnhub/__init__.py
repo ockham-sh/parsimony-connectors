@@ -25,9 +25,6 @@ Internal layout (not part of the public contract):
 * :mod:`parsimony_finnhub.params` — Pydantic parameter models.
 * :mod:`parsimony_finnhub.outputs` — declarative :class:`OutputConfig`
   schemas.
-
-This ``__init__.py`` stays at the top level so ``tools/gen_registry.py``
-can AST-parse ``@connector`` decorators (it does not follow re-exports).
 """
 
 from __future__ import annotations
@@ -66,8 +63,6 @@ from parsimony_finnhub.params import (
     FinnhubSearchParams,
 )
 
-ENV_VARS: dict[str, str] = {"api_key": "FINNHUB_API_KEY"}
-
 _PROVIDER = "finnhub"
 
 # Used by ``enumerate_finnhub`` below, which constructs its own
@@ -81,7 +76,7 @@ _BASE_URL = "https://finnhub.io/api/v1"
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_SEARCH_OUTPUT, tags=["equities", "tool"])
+@connector(env={"api_key": "FINNHUB_API_KEY"}, output=_SEARCH_OUTPUT, tags=["equities", "tool"])
 async def finnhub_search(params: FinnhubSearchParams, *, api_key: str) -> Result:
     """Search Finnhub for stocks, ETFs, and indices by name or ticker symbol.
     Returns symbol (the stable API identifier), description (company name),
@@ -123,7 +118,7 @@ async def finnhub_search(params: FinnhubSearchParams, *, api_key: str) -> Result
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_QUOTE_OUTPUT, tags=["equities"])
+@connector(env={"api_key": "FINNHUB_API_KEY"}, output=_QUOTE_OUTPUT, tags=["equities"])
 async def finnhub_quote(params: FinnhubQuoteParams, *, api_key: str) -> Result:
     """Fetch real-time quote for a stock: current price, day high/low/open,
     previous close, and absolute/percent change vs prior close. Timestamp
@@ -163,7 +158,7 @@ async def finnhub_quote(params: FinnhubQuoteParams, *, api_key: str) -> Result:
 # ---------------------------------------------------------------------------
 
 
-@connector(tags=["equities"])
+@connector(env={"api_key": "FINNHUB_API_KEY"}, tags=["equities"])
 async def finnhub_profile(params: FinnhubProfileParams, *, api_key: str) -> Result:
     """Fetch company profile for a stock: name, exchange, country, currency,
     IPO date, industry, market cap (in millions USD), shares outstanding (millions),
@@ -185,7 +180,7 @@ async def finnhub_profile(params: FinnhubProfileParams, *, api_key: str) -> Resu
     )
 
 
-@connector(output=_PEERS_OUTPUT, tags=["equities"])
+@connector(env={"api_key": "FINNHUB_API_KEY"}, output=_PEERS_OUTPUT, tags=["equities"])
 async def finnhub_peers(params: FinnhubPeersParams, *, api_key: str) -> Result:
     """Fetch peer/comparable companies for a stock. Returns a list of ticker
     symbols in the same industry and market cap range. Use finnhub_quote or
@@ -208,7 +203,7 @@ async def finnhub_peers(params: FinnhubPeersParams, *, api_key: str) -> Result:
     )
 
 
-@connector(output=_RECOMMENDATION_OUTPUT, tags=["equities"])
+@connector(env={"api_key": "FINNHUB_API_KEY"}, output=_RECOMMENDATION_OUTPUT, tags=["equities"])
 async def finnhub_recommendation(params: FinnhubRecommendationParams, *, api_key: str) -> Result:
     """Fetch analyst buy/hold/sell recommendation trends for a stock.
     Returns monthly aggregated counts: strongBuy, buy, hold, sell, strongSell.
@@ -251,7 +246,7 @@ async def finnhub_recommendation(params: FinnhubRecommendationParams, *, api_key
     )
 
 
-@connector(output=_EARNINGS_OUTPUT, tags=["equities"])
+@connector(env={"api_key": "FINNHUB_API_KEY"}, output=_EARNINGS_OUTPUT, tags=["equities"])
 async def finnhub_earnings(params: FinnhubEarningsParams, *, api_key: str) -> Result:
     """Fetch historical earnings per share (EPS) for a stock: actual EPS,
     consensus estimate, surprise, and surprise percent for the last ~4 quarters.
@@ -290,7 +285,7 @@ async def finnhub_earnings(params: FinnhubEarningsParams, *, api_key: str) -> Re
     )
 
 
-@connector(tags=["equities"])
+@connector(env={"api_key": "FINNHUB_API_KEY"}, tags=["equities"])
 async def finnhub_basic_financials(params: FinnhubBasicFinancialsParams, *, api_key: str) -> Result:
     """Fetch ~120 fundamental metrics for a stock: PE, EPS, beta, 52-week
     high/low, gross margin, ROE, dividend yield, market cap, and more.
@@ -324,7 +319,7 @@ async def finnhub_basic_financials(params: FinnhubBasicFinancialsParams, *, api_
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_NEWS_OUTPUT, tags=["equities", "news"])
+@connector(env={"api_key": "FINNHUB_API_KEY"}, output=_NEWS_OUTPUT, tags=["equities", "news"])
 async def finnhub_company_news(params: FinnhubCompanyNewsParams, *, api_key: str) -> Result:
     """Fetch news articles for a specific company between two dates.
     Returns headline, source, publish datetime (unix timestamp), summary,
@@ -371,7 +366,7 @@ async def finnhub_company_news(params: FinnhubCompanyNewsParams, *, api_key: str
     )
 
 
-@connector(output=_NEWS_OUTPUT, tags=["news"])
+@connector(env={"api_key": "FINNHUB_API_KEY"}, output=_NEWS_OUTPUT, tags=["news"])
 async def finnhub_market_news(params: FinnhubMarketNewsParams, *, api_key: str) -> Result:
     """Fetch latest market-wide news by category. Categories: 'general' (top
     business/market headlines), 'forex', 'crypto', 'merger'. Returns up to
@@ -414,7 +409,7 @@ async def finnhub_market_news(params: FinnhubMarketNewsParams, *, api_key: str) 
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_EARNINGS_CAL_OUTPUT, tags=["equities", "calendars"])
+@connector(env={"api_key": "FINNHUB_API_KEY"}, output=_EARNINGS_CAL_OUTPUT, tags=["equities", "calendars"])
 async def finnhub_earnings_calendar(params: FinnhubEarningsCalendarParams, *, api_key: str) -> Result:
     """Fetch upcoming or recent earnings release dates for all (or one) stock.
     Returns per-report: date, fiscal year/quarter, release timing (bmo=before
@@ -465,7 +460,7 @@ async def finnhub_earnings_calendar(params: FinnhubEarningsCalendarParams, *, ap
     )
 
 
-@connector(output=_IPO_CAL_OUTPUT, tags=["equities", "calendars"])
+@connector(env={"api_key": "FINNHUB_API_KEY"}, output=_IPO_CAL_OUTPUT, tags=["equities", "calendars"])
 async def finnhub_ipo_calendar(params: FinnhubIpoCalendarParams, *, api_key: str) -> Result:
     """Fetch IPO calendar for a date range: company name, ticker, exchange,
     status (expected/priced/filed/withdrawn), IPO price, number of shares, and
@@ -529,7 +524,7 @@ async def finnhub_ipo_calendar(params: FinnhubIpoCalendarParams, *, api_key: str
 # ---------------------------------------------------------------------------
 
 
-@enumerator(output=_ENUMERATE_OUTPUT, tags=["equities"])
+@enumerator(env={"api_key": "FINNHUB_API_KEY"}, output=_ENUMERATE_OUTPUT, tags=["equities"])
 async def enumerate_finnhub(params: FinnhubEnumerateParams, *, api_key: str) -> pd.DataFrame:
     """Enumerate all symbols from Finnhub for catalog indexing.
 
@@ -570,11 +565,6 @@ async def enumerate_finnhub(params: FinnhubEnumerateParams, *, api_key: str) -> 
     return pd.DataFrame(rows)
 
 
-# ---------------------------------------------------------------------------
-# Collection — kept as a literal ``Connectors([...])`` assignment so
-# ``tools/gen_registry.py`` can AST-extract it.
-# ---------------------------------------------------------------------------
-
 CONNECTORS = Connectors(
     [
         # Discovery
@@ -598,7 +588,6 @@ CONNECTORS = Connectors(
 
 __all__ = [
     "CONNECTORS",
-    "ENV_VARS",
     # Parameter models (public — downstream callers type against these)
     "FinnhubBasicFinancialsParams",
     "FinnhubCompanyNewsParams",

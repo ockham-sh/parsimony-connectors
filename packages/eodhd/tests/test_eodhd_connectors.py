@@ -14,7 +14,6 @@ from parsimony.errors import RateLimitError, UnauthorizedError
 
 from parsimony_eodhd import (
     CONNECTORS,
-    ENV_VARS,
     EodhdEodParams,
     EodhdExchangesParams,
     EodhdSearchParams,
@@ -31,7 +30,7 @@ _KEY = "live-looking-key-eodhd-xyz"
 
 
 def test_env_vars_maps_api_key() -> None:
-    assert ENV_VARS == {"api_key": "EODHD_API_KEY"}
+    assert CONNECTORS["eodhd_eod"].env_map == {"api_key": "EODHD_API_KEY"}
 
 
 def test_connectors_count_matches_docstring() -> None:
@@ -70,7 +69,7 @@ async def test_eodhd_search_returns_rows() -> None:
         )
     )
 
-    bound = eodhd_search.bind_deps(api_key=_KEY)
+    bound = eodhd_search.bind(api_key=_KEY)
     result = await bound(EodhdSearchParams(query="apple"))
 
     assert result.provenance.source == "eodhd_search"
@@ -85,7 +84,7 @@ async def test_eodhd_search_maps_401_without_leaking_key() -> None:
         return_value=httpx.Response(401, text="unauthorized")
     )
 
-    bound = eodhd_search.bind_deps(api_key=_KEY)
+    bound = eodhd_search.bind(api_key=_KEY)
     with pytest.raises(UnauthorizedError) as exc_info:
         await bound(EodhdSearchParams(query="apple"))
     assert _KEY not in str(exc_info.value)
@@ -98,7 +97,7 @@ async def test_eodhd_search_maps_429_without_leaking_key() -> None:
         return_value=httpx.Response(429, headers={"Retry-After": "15"}, text="too many requests")
     )
 
-    bound = eodhd_search.bind_deps(api_key=_KEY)
+    bound = eodhd_search.bind(api_key=_KEY)
     with pytest.raises(RateLimitError) as exc_info:
         await bound(EodhdSearchParams(query="apple"))
     assert _KEY not in str(exc_info.value)
@@ -129,7 +128,7 @@ async def test_eodhd_eod_returns_ohlc_rows() -> None:
         )
     )
 
-    bound = eodhd_eod.bind_deps(api_key=_KEY)
+    bound = eodhd_eod.bind(api_key=_KEY)
     result = await bound(EodhdEodParams(ticker="AAPL.US"))
 
     df = result.data
@@ -155,7 +154,7 @@ async def test_eodhd_exchanges_lists_exchanges() -> None:
         )
     )
 
-    bound = eodhd_exchanges.bind_deps(api_key=_KEY)
+    bound = eodhd_exchanges.bind(api_key=_KEY)
     result = await bound(EodhdExchangesParams())
 
     df = result.data

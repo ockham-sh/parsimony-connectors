@@ -16,14 +16,9 @@ from parsimony.errors import EmptyDataError
 
 from parsimony_riksbank import (
     CONNECTORS,
-    ENV_VARS,
     RiksbankFetchParams,
     riksbank_fetch,
 )
-
-
-def test_env_vars_maps_api_key() -> None:
-    assert ENV_VARS == {"api_key": "RIKSBANK_API_KEY"}
 
 
 def test_connectors_collection_exposes_expected_names() -> None:
@@ -51,7 +46,7 @@ async def test_riksbank_fetch_returns_observations() -> None:
         )
     )
 
-    bound = riksbank_fetch.bind_deps(api_key="")
+    bound = riksbank_fetch.bind(api_key="")
     result = await bound(RiksbankFetchParams(series_id="SEKEURPMI"))
 
     assert result.provenance.source == "riksbank"
@@ -67,7 +62,7 @@ async def test_riksbank_fetch_raises_empty_data_when_no_observations() -> None:
         return_value=httpx.Response(200, json=[])
     )
 
-    bound = riksbank_fetch.bind_deps(api_key="")
+    bound = riksbank_fetch.bind(api_key="")
     with pytest.raises(EmptyDataError):
         await bound(RiksbankFetchParams(series_id="XX"))
 

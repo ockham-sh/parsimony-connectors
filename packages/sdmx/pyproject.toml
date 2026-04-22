@@ -1,6 +1,6 @@
 [project]
 name = "parsimony-sdmx"
-version = "0.3.0"
+version = "0.4.0"
 description = "SDMX protocol connector (ECB, Eurostat, IMF, OECD, BIS, World Bank, ILO) for the parsimony framework"
 authors = [{ name = "Ockham.sh", email = "team@ockham.sh" }]
 license = "Apache-2.0"
@@ -21,7 +21,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "parsimony-core>=0.3,<0.5",
+    "parsimony-core>=0.4.0,<0.5",
     "pydantic>=2.11.1,<3",
     "pandas>=2.3.0,<3",
     "pyarrow>=16.0",
@@ -44,7 +44,7 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://parsimony.dev"
+Homepage = "https://sdmx.org"
 Repository = "https://github.com/ockham-sh/parsimony-connectors"
 Issues = "https://github.com/ockham-sh/parsimony-connectors/issues"
 

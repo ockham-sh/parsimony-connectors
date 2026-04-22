@@ -1,6 +1,6 @@
 [project]
 name = "parsimony-snb"
-version = "0.1.0"
+version = "0.4.0"
 description = "Swiss National Bank connector for the parsimony framework"
 authors = [{ name = "Ockham.sh", email = "team@ockham.sh" }]
 license = "Apache-2.0"
@@ -21,7 +21,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "parsimony-core>=0.1.0a0,<0.3",
+    "parsimony-core>=0.4.0,<0.5",
     "pydantic>=2.11.1,<3",
     "pandas>=2.3.0,<3",
 ]
@@ -37,7 +37,7 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://parsimony.dev"
+Homepage = "https://www.snb.ch"
 Repository = "https://github.com/ockham-sh/parsimony-connectors"
 Issues = "https://github.com/ockham-sh/parsimony-connectors/issues"
 

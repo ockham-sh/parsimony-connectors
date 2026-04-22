@@ -15,7 +15,6 @@ from parsimony.errors import EmptyDataError
 
 from parsimony_bdf import (
     CONNECTORS,
-    ENV_VARS,
     BdfFetchParams,
     bdf_fetch,
 )
@@ -30,7 +29,7 @@ _BDF_CSV = (
 
 
 def test_env_vars_maps_api_key() -> None:
-    assert ENV_VARS == {"api_key": "BANQUEDEFRANCE_KEY"}
+    assert CONNECTORS["bdf_fetch"].env_map == {"api_key": "BANQUEDEFRANCE_KEY"}
 
 
 def test_connectors_collection_exposes_expected_names() -> None:
@@ -45,7 +44,7 @@ async def test_bdf_fetch_parses_csv_response() -> None:
         "https://api.webstat.banque-france.fr/webstat-en/v1/data/EXR.M.USD.EUR.SP00.E"
     ).mock(return_value=httpx.Response(200, text=_BDF_CSV))
 
-    bound = bdf_fetch.bind_deps(api_key=_KEY)
+    bound = bdf_fetch.bind(api_key=_KEY)
     result = await bound(BdfFetchParams(key="EXR.M.USD.EUR.SP00.E"))
 
     assert result.provenance.source == "bdf"
@@ -67,7 +66,7 @@ async def test_bdf_fetch_raises_empty_data_on_header_only_csv() -> None:
         )
     )
 
-    bound = bdf_fetch.bind_deps(api_key=_KEY)
+    bound = bdf_fetch.bind(api_key=_KEY)
     with pytest.raises(EmptyDataError):
         await bound(BdfFetchParams(key="XX"))
 

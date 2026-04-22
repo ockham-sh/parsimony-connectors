@@ -27,8 +27,6 @@ logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://api.riksbank.se/swea/v1"
 
-ENV_VARS: dict[str, str] = {"api_key": "RIKSBANK_API_KEY"}
-
 
 # ---------------------------------------------------------------------------
 # Parameter models
@@ -118,7 +116,7 @@ def _infer_frequency(series_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-@connector(output=RIKSBANK_FETCH_OUTPUT, tags=["macro", "se"])
+@connector(env={"api_key": "RIKSBANK_API_KEY"}, output=RIKSBANK_FETCH_OUTPUT, tags=["macro", "se"])
 async def riksbank_fetch(params: RiksbankFetchParams, *, api_key: str = "") -> Result:
     """Fetch a single Riksbank time series by series_id.
 
@@ -188,6 +186,7 @@ async def riksbank_fetch(params: RiksbankFetchParams, *, api_key: str = "") -> R
 
 
 @enumerator(
+    env={"api_key": "RIKSBANK_API_KEY"},
     output=RIKSBANK_ENUMERATE_OUTPUT,
     tags=["macro", "se"],
 )

@@ -6,33 +6,37 @@ live through :mod:`parsimony_sdmx._isolation`'s subprocess boundary.
 No on-disk parquet cache, no separate builder CLI — ``parsimony publish``
 is the only command you need.
 
+SDMX endpoints are public; no authentication required. Provider covers
+ECB, Eurostat, IMF (IMF_DATA), and World Bank (WB_WDI) via the
+``parsimony_sdmx.connectors._agencies`` registry.
+
 Exports:
 
 - :data:`CONNECTORS` — the plugin surface discovered via the
   ``parsimony.providers`` entry point group. Two enumerators
   (dataset-level + per-dataset series) and one live fetch connector.
-- :data:`ENV_VARS` — empty. SDMX endpoints are public.
 - :data:`CATALOGS` — async generator consumed by
   :func:`parsimony.publish.publish`. Yields one static
   ``sdmx_datasets`` catalog plus one
   ``sdmx_series_<agency>_<dataset_id>`` catalog per live-discovered
-  ``(agency, dataset_id)``.
+  ``(agency, dataset_id)``. The dynamic namespace pattern is
+  ``sdmx_series_<agency>_<dataset_id>`` — agency names lower-cased,
+  dataset IDs are parsed back to canonical upper-case by
+  :data:`RESOLVE_CATALOG`.
 - :data:`RESOLVE_CATALOG` — on-demand lookup used by
   ``parsimony publish --only <namespace>``. Parses namespace strings
   back into ``(agency, dataset_id)`` without enumerating the full
   listing first (cheap: no SDMX calls).
-- :data:`PROVIDER_METADATA` — static provider-level facts.
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Any
 
 from parsimony.result import Result
 
-from parsimony_sdmx.connectors import CONNECTORS, ENV_VARS
+from parsimony_sdmx.connectors import CONNECTORS
 from parsimony_sdmx.connectors._agencies import ALL_AGENCIES, AgencyId
 from parsimony_sdmx.connectors.enumerate_datasets import (
     DATASETS_NAMESPACE,
@@ -46,17 +50,6 @@ from parsimony_sdmx.connectors.enumerate_series import (
 )
 
 logger = logging.getLogger(__name__)
-
-__version__ = "0.3.0"
-
-PROVIDER_METADATA: dict[str, Any] = {
-    "agencies": [a.value for a in ALL_AGENCIES],
-    "namespaces": {
-        "static": [DATASETS_NAMESPACE],
-        "dynamic_pattern": "sdmx_series_<agency>_<dataset_id>",
-    },
-    "plugin_version": __version__,
-}
 
 
 #: Param-less callable yielded inside a ``CATALOGS`` tuple.
@@ -196,8 +189,5 @@ def RESOLVE_CATALOG(namespace: str) -> _CatalogFn | None:
 __all__ = [
     "CATALOGS",
     "CONNECTORS",
-    "ENV_VARS",
-    "PROVIDER_METADATA",
     "RESOLVE_CATALOG",
-    "__version__",
 ]

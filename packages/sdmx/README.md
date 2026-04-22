@@ -1,6 +1,8 @@
 # parsimony-sdmx
 
-SDMX connector plugin for the [parsimony](https://parsimony.dev) framework. Harvests dataflow listings and per-dataset series keys from statistical agencies (ECB, Eurostat, IMF, World Bank), composes human-readable titles from the DSD + codelists, and publishes one parquet + FAISS bundle per catalog via `parsimony publish`.
+SDMX connector plugin for parsimony. Harvests dataflow listings and per-dataset series keys from statistical agencies (ECB, Eurostat, IMF, World Bank), composes human-readable titles from the DSD + codelists, and publishes one parquet + FAISS bundle per catalog via `parsimony publish`.
+
+Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connectors) monorepo. Distributed standalone on PyPI as `parsimony-sdmx`.
 
 No separate builder CLI, no intermediate on-disk cache — every call hits the live agency endpoint inside a spawned subprocess.
 
@@ -13,26 +15,69 @@ No separate builder CLI, no intermediate on-disk cache — every call hits the l
 | `IMF_DATA` | IMF SDMX 3 (``sdmx.imf.org``)                    |
 | `WB_WDI`   | World Bank SDMX 2.1 (custom path × decade sweep) |
 
+## Connectors
+
+| Name | Kind | Description |
+|---|---|---|
+| `enumerate_sdmx_datasets` | enumerator | One row per dataflow across every supported agency. Drives the `sdmx_datasets` catalog. |
+| `enumerate_sdmx_series` | enumerator | One row per series key for a single `(agency, dataset_id)`. Drives one `sdmx_series_<agency>_<dataset_id>` catalog per dataset. |
+| `sdmx_fetch` | connector | Live observation fetch for a series key against the agency endpoint. |
+
 ## Install
 
-Requires Python ≥ 3.11 and [uv](https://docs.astral.sh/uv/).
-
 ```bash
-# From the monorepo root:
-uv sync --package parsimony-sdmx --extra dev
-uv pip install "parsimony-core[standard] @ file://$PWD/../parsimony"
+pip install parsimony-sdmx
 ```
 
-The `standard` extra on `parsimony-core` pulls FAISS, BM25, and sentence-transformers — the default embedder stack used at publish time.
+Pulls in `parsimony-core>=0.4,<0.5` automatically. For local publishing you also want the `standard` extra on parsimony-core, which adds FAISS, BM25, and sentence-transformers (the default embedder stack):
 
-## Publish a single catalog
+```bash
+pip install "parsimony-core[standard]"
+```
 
-The plugin exposes two kinds of namespace:
+Verify discovery:
+
+```bash
+python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
+```
+
+## Quick start
+
+```python
+import asyncio
+from parsimony_sdmx import CONNECTORS
+
+async def main():
+    connectors = CONNECTORS.bind_env()
+    result = await connectors["sdmx_fetch"](
+        agency="ECB",
+        dataset_id="YC",
+        key="B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y",
+    )
+    print(result.data.head())
+
+asyncio.run(main())
+```
+
+For multi-plugin composition:
+
+```python
+from parsimony import discover
+connectors = discover.load_all().bind_env()
+```
+
+## Catalog publishing
+
+This plugin's namespaces are dynamic — one per `(agency, dataset_id)` pair discovered at publish time, plus one static cross-agency catalog:
 
 - ``sdmx_datasets`` — one cross-agency catalog of every dataflow.
 - ``sdmx_series_<agency>_<dataset_id>`` — one per-dataset catalog of series keys, e.g. ``sdmx_series_ecb_yc``.
 
-Publish by name with ``--only`` (pure string lookup, no listing walk):
+The plugin exports ``CATALOGS`` as an **async generator function**: yielding the static `sdmx_datasets` namespace first, then one `sdmx_series_<agency>_<dataset_id>` namespace per dataflow returned by live agency listing. `RESOLVE_CATALOG(namespace)` provides the cheap reverse lookup used by `--only`, parsing namespace strings back into `(agency, dataset_id)` without enumerating the full listing.
+
+### Publish a single catalog
+
+Publish by name with ``--only`` (pure string lookup, no listing walk — `RESOLVE_CATALOG` fast-path):
 
 ```bash
 parsimony publish \
@@ -58,9 +103,9 @@ A local publish produces:
 └── meta.json         # catalog metadata + embedder fingerprint
 ```
 
-## Publish everything
+### Publish everything
 
-Omit ``--only`` to walk every agency listing and publish one bundle per discovered ``(agency, dataset_id)`` pair plus the static ``sdmx_datasets`` catalog. Expect a long run — ESTAT alone has 8 k+ dataflows:
+Omit ``--only`` to drive the async generator through every agency listing, publishing one bundle per discovered ``(agency, dataset_id)`` pair plus the static ``sdmx_datasets`` catalog. Expect a long run — ESTAT alone has 8 k+ dataflows:
 
 ```bash
 parsimony publish \
@@ -92,11 +137,11 @@ The package implements the standard parsimony plugin contract, exported at the t
 
 | Export               | Role                                                                          |
 |----------------------|-------------------------------------------------------------------------------|
-| ``CATALOGS``         | Async generator — yields every catalog this plugin can publish.               |
+| ``CONNECTORS``       | ``Connectors`` collection — two enumerators + the ``sdmx_fetch`` connector.   |
+| ``CATALOGS``         | Async generator function — yields every catalog this plugin can publish.      |
 | ``RESOLVE_CATALOG``  | ``namespace -> Callable \| None`` — cheap reverse lookup for ``--only``.      |
-| ``CONNECTORS``       | Enumerators + live-fetch connector discovered via ``parsimony list``.         |
-| ``ENV_VARS``         | Required environment variables (empty — SDMX endpoints are public).           |
-| ``PROVIDER_METADATA``| Static provider facts (agency list, namespace pattern, plugin version).       |
+
+SDMX endpoints are public; no environment variables are required.
 
 ## Architecture
 
@@ -142,3 +187,15 @@ uv run --package parsimony-sdmx mypy packages/sdmx/parsimony_sdmx/
 ```
 
 Hardening defaults: HTTPS-only bounded HTTP session, hardened `lxml.iterparse` (no entity resolution, no DTD load, no network), path traversal guards on every on-disk write.
+
+## Provider
+
+- SDMX standard: <https://sdmx.org>
+- ECB SDMX: <https://data.ecb.europa.eu/help/api/overview>
+- Eurostat SDMX: <https://wikis.ec.europa.eu/display/EUROSTATHELP/API+SDMX+2.1>
+- IMF SDMX: <https://datahelp.imf.org/knowledgebase/articles/667681-using-sdmx-to-query-imf-data>
+- World Bank SDMX: <https://datahelpdesk.worldbank.org/knowledgebase/articles/889398-developer-information-overview>
+
+## License
+
+See [LICENSE](./LICENSE).

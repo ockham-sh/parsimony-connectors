@@ -15,7 +15,6 @@ from parsimony.errors import EmptyDataError, ProviderError
 
 from parsimony_bls import (
     CONNECTORS,
-    ENV_VARS,
     BlsFetchParams,
     bls_fetch,
 )
@@ -26,7 +25,7 @@ from parsimony_bls import (
 
 
 def test_env_vars_maps_api_key() -> None:
-    assert ENV_VARS == {"api_key": "BLS_API_KEY"}
+    assert CONNECTORS["bls_fetch"].env_map == {"api_key": "BLS_API_KEY"}
 
 
 def test_connectors_collection_exposes_expected_names() -> None:

@@ -14,7 +14,6 @@ from parsimony.errors import EmptyDataError, RateLimitError, UnauthorizedError
 
 from parsimony_eia import (
     CONNECTORS,
-    ENV_VARS,
     EiaFetchParams,
     eia_fetch,
 )
@@ -27,7 +26,7 @@ _KEY = "live-looking-eia-xyz"
 
 
 def test_env_vars_maps_api_key() -> None:
-    assert ENV_VARS == {"api_key": "EIA_API_KEY"}
+    assert CONNECTORS["eia_fetch"].env_map == {"api_key": "EIA_API_KEY"}
 
 
 def test_connectors_collection_exposes_expected_names() -> None:
@@ -58,7 +57,7 @@ async def test_eia_fetch_returns_rows() -> None:
         )
     )
 
-    bound = eia_fetch.bind_deps(api_key=_KEY)
+    bound = eia_fetch.bind(api_key=_KEY)
     result = await bound(EiaFetchParams(route="petroleum/pri/spt"))
 
     assert result.provenance.source == "eia"
@@ -73,7 +72,7 @@ async def test_eia_fetch_maps_401_without_leaking_key() -> None:
         return_value=httpx.Response(401, text="invalid api key")
     )
 
-    bound = eia_fetch.bind_deps(api_key=_KEY)
+    bound = eia_fetch.bind(api_key=_KEY)
     with pytest.raises(UnauthorizedError) as exc_info:
         await bound(EiaFetchParams(route="petroleum/pri/spt"))
     assert _KEY not in str(exc_info.value)
@@ -86,7 +85,7 @@ async def test_eia_fetch_maps_429_without_leaking_key() -> None:
         return_value=httpx.Response(429, headers={"Retry-After": "30"}, text="too many")
     )
 
-    bound = eia_fetch.bind_deps(api_key=_KEY)
+    bound = eia_fetch.bind(api_key=_KEY)
     with pytest.raises(RateLimitError) as exc_info:
         await bound(EiaFetchParams(route="petroleum/pri/spt"))
     assert _KEY not in str(exc_info.value)
@@ -99,7 +98,7 @@ async def test_eia_fetch_raises_empty_data_when_no_records() -> None:
         return_value=httpx.Response(200, json={"response": {"data": []}})
     )
 
-    bound = eia_fetch.bind_deps(api_key=_KEY)
+    bound = eia_fetch.bind(api_key=_KEY)
     with pytest.raises(EmptyDataError):
         await bound(EiaFetchParams(route="petroleum/pri/spt"))
 

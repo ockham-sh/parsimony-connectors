@@ -27,7 +27,7 @@ different and shared fixtures leak across packages.
 For every connector exported in `CONNECTORS`, write one async test that:
 
 1. Mocks the upstream HTTP response with `respx` at the full upstream URL.
-2. Binds keyword-only deps via `connector.bind_deps(api_key="test-key", ...)`.
+2. Binds keyword-only deps via `connector.bind(api_key="test-key", ...)`.
 3. Awaits the bound callable with a valid `Params` instance.
 4. Asserts on the **public `Result` surface only** — never on internal helpers,
    request headers, or full DataFrame equality.
@@ -76,7 +76,7 @@ additional async tests:
 @pytest.mark.asyncio
 async def test_<name>_maps_401_to_unauthorized() -> None:
     respx.get("<upstream-url>").mock(return_value=httpx.Response(401, json={...}))
-    bound = <connector>.bind_deps(api_key="live-looking-key-123")
+    bound = <connector>.bind(api_key="live-looking-key-123")
     with pytest.raises(UnauthorizedError) as exc_info:
         await bound(<Params>(...))
     assert "live-looking-key-123" not in str(exc_info.value)

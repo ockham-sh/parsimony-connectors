@@ -11,7 +11,6 @@ on:
       - "uv.lock"
       - ".github/workflows/ci.yml"
       - "Makefile"
-      - "tools/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -29,30 +28,6 @@ env:
   KERNEL_REF: main
 
 jobs:
-  registry-drift:
-    name: Registry drift check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          python-version: "3.12"
-
-      - name: Verify registry.json is up to date
-        # gen_registry.py loads packages/mcp/parsimony_mcp/cli/registry_schema.py
-        # directly via importlib.util, so we only need pydantic — not
-        # the MCP server deps nor any connector's transitive tree.
-        # `uv run --no-project --with` creates an ephemeral
-        # environment with just that dep, skipping workspace
-        # resolution (and the developer-local `[tool.uv.sources]`
-        # entries pointing at sibling repos). Keeps drift-check fast
-        # and isolated from workspace flakiness. `uv pip install
-        # --system` is not an option — GitHub runners' system Python
-        # is externally managed (PEP 668).
-        run: uv run --no-project --with pydantic python tools/gen_registry.py --check
-
   discover:
     name: Discover workspace packages
     runs-on: ubuntu-latest
@@ -67,6 +42,26 @@ jobs:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
         with:
           path: parsimony-connectors
+
+      - name: Enforce plugin-only monorepo
+        # This monorepo is reserved for `parsimony.providers` plugins.
+        # Every `packages/*/pyproject.toml` must declare an entry point
+        # under `[project.entry-points."parsimony.providers"]` — fail
+        # fast on a PR that adds a non-plugin package (e.g. a consumer
+        # or an ancillary tool), which belongs in its own repo.
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in packages/*/pyproject.toml; do
+            if ! grep -q 'entry-points\."parsimony\.providers"' "$f"; then
+              echo "::error file=$f::missing [project.entry-points.\"parsimony.providers\"] stanza"
+              fail=1
+            fi
+          done
+          if [[ "$fail" == "1" ]]; then
+            exit 1
+          fi
 
       - id: list
         name: Enumerate packages/*/pyproject.toml
@@ -161,27 +156,12 @@ jobs:
       - name: Conformance verify
         run: |
           set -euo pipefail
-          # Packages that are adapters / consumers of the kernel contract
-          # (not `parsimony.providers` plugins) opt out via
-          # `[tool.parsimony.conformance] skip = true` in their own
-          # pyproject.toml — avoids hard-coding a per-package
-          # allow/deny list in the CI workflow. See packages/mcp/ for
-          # the canonical example.
-          skip=$(python3 -c "
-          import os, tomllib
-          pkg = os.environ['PKG']
-          with open(f'packages/{pkg}/pyproject.toml', 'rb') as fp:
-              data = tomllib.load(fp)
-          print('1' if data.get('tool', {}).get('parsimony', {}).get('conformance', {}).get('skip') else '0')
-          ")
-          if [[ "$skip" == "1" ]]; then
-            echo "::notice::Skipping conformance verify for $PKG — package opts out via [tool.parsimony.conformance] skip=true"
-            exit 0
-          fi
-          # Conformance is a library-API call after the kernel CLI removal —
-          # parsimony.testing.assert_plugin_valid raises ConformanceError on
-          # the first failing check. Module name follows the repo convention
-          # `parsimony_<PKG>` for every package.
+          # Every package in this monorepo is a `parsimony.providers` plugin
+          # (enforced by the `Enforce plugin-only monorepo` step in the
+          # `discover` job), so every package must pass conformance.
+          # Conformance is a library-API call: parsimony.testing.assert_plugin_valid
+          # raises ConformanceError on the first failing check. Module name
+          # follows the repo convention `parsimony_<PKG>` for every package.
           uv run python -c "
           import importlib, os
           from parsimony.testing import assert_plugin_valid

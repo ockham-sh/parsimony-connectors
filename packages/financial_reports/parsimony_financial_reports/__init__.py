@@ -27,8 +27,6 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
-ENV_VARS: dict[str, str] = {"api_key": "FINANCIAL_REPORTS_API_KEY"}
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -422,7 +420,7 @@ class FrReferenceDataParams(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@connector(output=COMPANIES_SEARCH_OUTPUT, tags=["financial_reports", "tool"])
+@connector(env={"api_key": "FINANCIAL_REPORTS_API_KEY"}, output=COMPANIES_SEARCH_OUTPUT, tags=["financial_reports", "tool"])
 async def fr_companies_search(params: FrCompaniesSearchParams, *, api_key: str) -> Result:
     """Search companies on Financial Reports by name, country, ISIN, ticker, or industry.
 
@@ -443,7 +441,7 @@ async def fr_companies_search(params: FrCompaniesSearchParams, *, api_key: str) 
     )
 
 
-@connector(output=COMPANY_RETRIEVE_OUTPUT, tags=["financial_reports"])
+@connector(env={"api_key": "FINANCIAL_REPORTS_API_KEY"}, output=COMPANY_RETRIEVE_OUTPUT, tags=["financial_reports"])
 async def fr_company_retrieve(params: FrCompanyRetrieveParams, *, api_key: str) -> Result:
     """Retrieve full company profile by ID from Financial Reports.
 
@@ -462,7 +460,7 @@ async def fr_company_retrieve(params: FrCompanyRetrieveParams, *, api_key: str) 
     )
 
 
-@connector(output=FILINGS_SEARCH_OUTPUT, tags=["financial_reports"])
+@connector(env={"api_key": "FINANCIAL_REPORTS_API_KEY"}, output=FILINGS_SEARCH_OUTPUT, tags=["financial_reports"])
 async def fr_filings_search(params: FrFilingsSearchParams, *, api_key: str) -> Result:
     """Search filings on Financial Reports by company, type, date, country, and more.
 
@@ -483,7 +481,7 @@ async def fr_filings_search(params: FrFilingsSearchParams, *, api_key: str) -> R
     )
 
 
-@connector(output=FILING_RETRIEVE_OUTPUT, tags=["financial_reports"])
+@connector(env={"api_key": "FINANCIAL_REPORTS_API_KEY"}, output=FILING_RETRIEVE_OUTPUT, tags=["financial_reports"])
 async def fr_filing_retrieve(params: FrFilingRetrieveParams, *, api_key: str) -> Result:
     """Retrieve full filing details by ID from Financial Reports.
 
@@ -502,7 +500,7 @@ async def fr_filing_retrieve(params: FrFilingRetrieveParams, *, api_key: str) ->
     )
 
 
-@connector(tags=["financial_reports"])
+@connector(env={"api_key": "FINANCIAL_REPORTS_API_KEY"}, tags=["financial_reports"])
 async def fr_filing_markdown(params: FrFilingMarkdownParams, *, api_key: str) -> Result:
     """Retrieve a filing's full content as markdown text (requires Level 2 API access).
 
@@ -521,7 +519,7 @@ async def fr_filing_markdown(params: FrFilingMarkdownParams, *, api_key: str) ->
     )
 
 
-@connector(output=FILING_HISTORY_OUTPUT, tags=["financial_reports"])
+@connector(env={"api_key": "FINANCIAL_REPORTS_API_KEY"}, output=FILING_HISTORY_OUTPUT, tags=["financial_reports"])
 async def fr_filing_history(params: FrFilingHistoryParams, *, api_key: str) -> Result:
     """Retrieve the audit trail of changes to a filing (reclassifications, metadata corrections).
 
@@ -539,7 +537,7 @@ async def fr_filing_history(params: FrFilingHistoryParams, *, api_key: str) -> R
     )
 
 
-@connector(tags=["financial_reports"])
+@connector(env={"api_key": "FINANCIAL_REPORTS_API_KEY"}, tags=["financial_reports"])
 async def fr_next_annual_report(params: FrNextAnnualReportParams, *, api_key: str) -> Result:
     """Predict when a company's next annual report will be published.
 
@@ -559,7 +557,7 @@ async def fr_next_annual_report(params: FrNextAnnualReportParams, *, api_key: st
     )
 
 
-@connector(output=ISIC_BROWSE_OUTPUT, tags=["financial_reports", "tool"])
+@connector(env={"api_key": "FINANCIAL_REPORTS_API_KEY"}, output=ISIC_BROWSE_OUTPUT, tags=["financial_reports", "tool"])
 async def fr_isic_browse(params: FrIsicBrowseParams, *, api_key: str) -> Result:
     """Browse ISIC industry classifications to find valid filter codes.
 
@@ -603,7 +601,7 @@ async def fr_isic_browse(params: FrIsicBrowseParams, *, api_key: str) -> Result:
     )
 
 
-@connector(output=ISIN_LOOKUP_OUTPUT, tags=["financial_reports", "tool"])
+@connector(env={"api_key": "FINANCIAL_REPORTS_API_KEY"}, output=ISIN_LOOKUP_OUTPUT, tags=["financial_reports", "tool"])
 async def fr_isin_lookup(params: FrIsinLookupParams, *, api_key: str) -> Result:
     """Look up ISINs with OpenFIGI enrichment (FIGI, security type, exchange).
 
@@ -640,7 +638,7 @@ _REFERENCE_OUTPUT_MAP: dict[str, OutputConfig] = {
 }
 
 
-@connector(output=REFERENCE_GENERIC_OUTPUT, tags=["financial_reports"])
+@connector(env={"api_key": "FINANCIAL_REPORTS_API_KEY"}, output=REFERENCE_GENERIC_OUTPUT, tags=["financial_reports"])
 async def fr_reference_data(params: FrReferenceDataParams, *, api_key: str) -> Result:
     """List reference/lookup data: filing types, categories, languages, countries, or sources.
 

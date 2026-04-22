@@ -21,15 +21,7 @@
 /packages/tiingo/        @espinetandreu
 # ---------------------------------------------------------------------------
 
-# packages/mcp/ — the MCP host adapter. This package is NOT a connector
-# and is NOT subject to the 90-day abandonment takeover rule in
-# GOVERNANCE.md §2; ownership transfers require explicit handoff.
-# Branch protection on `main` must require CODEOWNERS review on
-# touched paths for this restriction to be enforceable.
-/packages/mcp/      @espinetandreu
-
-# Tooling and workspace infrastructure — changes affect every package.
-/tools/             @espinetandreu
+# Workspace infrastructure — changes affect every package.
 /pyproject.toml     @espinetandreu
 /.github/           @espinetandreu
 /CONTRIBUTING.md    @espinetandreu

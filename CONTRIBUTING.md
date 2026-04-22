@@ -55,8 +55,8 @@ uv run pytest
 # One package:
 uv run pytest packages/fred
 
-# Conformance against the installed kernel:
-uv run parsimony conformance verify parsimony-fred
+# Conformance against the installed kernel (strict listing fails on any non-conforming plugin):
+uv run parsimony list --strict
 ```
 
 ### Iterating against unreleased kernel changes
@@ -75,31 +75,36 @@ Don't commit this — it's developer-local.
 
 ## 3. Adding a new connector
 
-```bash
-uv run python tools/gen_pyproject.py --name foo --pypi-name parsimony-foo
-```
+Scaffold `packages/foo/` by copying the smallest existing plugin (e.g.
+`packages/polymarket/`) and adapting it. Each plugin must contain:
 
-This scaffolds `packages/foo/` with the per-connector `pyproject.toml`
-template, an empty `parsimony_foo/__init__.py`, and `tests/test_conformance.py`.
-See `tools/pyproject_template.toml` for the source of truth on boilerplate.
-
-Fill in:
-
-- `parsimony_foo/__init__.py` — the connector module. Must export `CONNECTORS`; optionally `ENV_VARS`, `PROVIDER_METADATA`. See the kernel's [`docs/contract.md`](https://github.com/ockham-sh/parsimony/blob/main/docs/contract.md) for the full spec.
-- `tests/` — a conformance test (`test_conformance.py`) plus a happy-path / error-mapping test file (`test_<name>_connectors.py`) following [`docs/testing-template.md`](docs/testing-template.md).
+- `pyproject.toml` — pin `parsimony-core>=0.4,<0.5`, declare a
+  `[project.entry-points."parsimony.providers"]` line, and set
+  `[project.urls] Homepage`. See the kernel's
+  [`docs/guide-new-plugin.md`](https://github.com/ockham-sh/parsimony/blob/main/docs/guide-new-plugin.md)
+  for the canonical template.
+- `parsimony_foo/__init__.py` — the connector module. Must export
+  `CONNECTORS` (and `CATALOGS` if the plugin publishes a catalog).
+  Declare env vars on each `@connector(env={...})`. See the kernel's
+  [`docs/contract.md`](https://github.com/ockham-sh/parsimony/blob/main/docs/contract.md)
+  for the full spec.
+- `tests/` — a conformance test (`test_conformance.py`) plus a
+  happy-path / error-mapping test file (`test_<name>_connectors.py`)
+  following [`docs/testing-template.md`](docs/testing-template.md).
+- `README.md` — see any existing plugin for the standard shape.
 
 Before opening a PR:
 
 ```bash
-uv run python tools/check_pyproject.py packages/foo
 uv run pytest packages/foo
 uv run ruff check packages/foo
 uv run mypy packages/foo/parsimony_foo
+uv run parsimony list --strict   # conformance for every installed provider
 ```
 
-All four must pass. `check_pyproject.py` enforces that your pyproject
-matches the template on boilerplate (kernel contract pin, Python
-classifiers, build system); per-connector dep variation is explicit.
+All four must pass. `parsimony list --strict` imports every plugin and
+runs the kernel-side conformance check (`@connector(env=…)` keys map to
+declared deps; `CONNECTORS` is well-formed; etc.).
 
 ---
 
@@ -111,7 +116,7 @@ mergeable when every item below is satisfied:
 - [ ] The connector is under `packages/<snake_case_name>/`.
 - [ ] The PyPI distribution name is `parsimony-<name>` (hyphenated).
 - [ ] The Python package name is `parsimony_<name>` (underscored, matches the PyPI name).
-- [ ] `tools/check_pyproject.py` passes.
+- [ ] `uv run parsimony list --strict` passes (kernel-side conformance).
 - [ ] `uv run pytest packages/<name>` passes locally and in CI.
 - [ ] A conformance test exists under `packages/<name>/tests/` and passes.
 - [ ] The connector declares an active maintainer in `CODEOWNERS`.
@@ -122,48 +127,15 @@ mergeable when every item below is satisfied:
 
 ---
 
-## 5. Extending the MCP host
+## 5. MCP host
 
-The `packages/mcp/` directory is the MCP (Model Context Protocol) host
-adapter. It is a CONSUMER of the kernel contract — it receives a
-`Connectors` collection from whichever plugins the user has installed
-and serves them as MCP tools to coding agents — not a
-`parsimony.providers` plugin. It has different contribution dynamics
-than a connector package.
-
-### Adding a subcommand
-
-New CLI subcommands (e.g. `parsimony-mcp doctor`) live under
-`packages/mcp/parsimony_mcp/cli/`. The CLI entry point is in
-`__main__.py` and dispatches via argparse subparsers. Keep business
-logic in a typed library module; the CLI layer is a thin adapter that
-parses args and calls the library.
-
-### Adding a file-merge strategy
-
-The init wizard merges five file types (TOML, JSON, Markdown,
-`.env`, `.gitignore`) via pure functions in
-`packages/mcp/parsimony_mcp/cli/_merge.py`. Each function takes
-`(existing: str | None, incoming) -> str` and does no I/O. A new
-merge strategy adds one function and one unit test fixture; it does
-not require a new protocol or base class.
-
-### Modifying the registry schema
-
-The connector registry schema is shared between the generator
-(`tools/gen_registry.py`) and the init consumer
-(`parsimony_mcp.cli.registry`). Both import from a single Pydantic
-model in `tools/registry_schema.py`. Bumping the schema version is a
-coordinated change: update the model, the generator output, and the
-consumer's expected version — all in one PR.
-
-### What this section does NOT cover
-
-- Per-connector stewardship — see §2 (Stewardship).
-- Conformance testing — the MCP package opts out via
-  `[tool.parsimony.conformance] skip = true` in its own
-  `pyproject.toml`; see `packages/mcp/pyproject.toml` for the
-  canonical example.
+The MCP (Model Context Protocol) host adapter now lives in its own
+repository at [`ockham-sh/parsimony-mcp`](https://github.com/ockham-sh/parsimony-mcp).
+It is a CONSUMER of the kernel contract — it receives a `Connectors`
+collection from whichever plugins the user has installed and serves
+them as MCP tools to coding agents — not a `parsimony.providers`
+plugin, so it belongs outside this monorepo. Contributions to the MCP
+host should be sent to that repository, not here.
 
 ---
 
@@ -198,10 +170,11 @@ If a connector steward has been unresponsive to issues and PRs for 90 days,
 anyone may open a takeover PR. See [GOVERNANCE.md §2](GOVERNANCE.md#2-stewardship)
 for the full policy.
 
-**Note:** this rule applies to connector packages only. The
-`packages/mcp/` MCP host adapter is NOT subject to 90-day-abandonment
-takeover; ownership transfers require explicit handoff from the
-current owner.
+**Note:** this rule applies to connector packages in this monorepo.
+The MCP host adapter, which now lives in a separate repository
+(`ockham-sh/parsimony-mcp`), is NOT subject to the 90-day-abandonment
+takeover rule; ownership transfers there require explicit handoff
+from the current owner.
 
 ---
 
