@@ -26,8 +26,6 @@ from pydantic import BaseModel, Field, field_validator
 
 _BASE_URL = "https://www-genesis.destatis.de/genesisWS/rest/2020"
 
-ENV_VARS: dict[str, str] = {"username": "DESTATIS_USERNAME", "password": "DESTATIS_PASSWORD"}
-
 _GERMAN_MONTHS = {
     "Januar": "01",
     "Februar": "02",
@@ -128,7 +126,11 @@ def _normalize_german_date(s: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-@connector(output=DESTATIS_FETCH_OUTPUT, tags=["macro", "de"])
+@connector(
+    env={"username": "DESTATIS_USERNAME", "password": "DESTATIS_PASSWORD"},
+    output=DESTATIS_FETCH_OUTPUT,
+    tags=["macro", "de"],
+)
 async def destatis_fetch(
     params: DestatisFetchParams,
     *,
@@ -225,7 +227,11 @@ async def destatis_fetch(
     )
 
 
-@enumerator(output=DESTATIS_ENUMERATE_OUTPUT, tags=["macro", "de"])
+@enumerator(
+    env={"username": "DESTATIS_USERNAME", "password": "DESTATIS_PASSWORD"},
+    output=DESTATIS_ENUMERATE_OUTPUT,
+    tags=["macro", "de"],
+)
 async def enumerate_destatis(
     params: DestatisEnumerateParams,
     *,

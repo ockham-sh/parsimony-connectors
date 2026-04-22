@@ -46,7 +46,7 @@ async def test_fmp_screener_joins_screener_and_enrichment() -> None:
         return_value=httpx.Response(200, json=[{"symbol": "AAPL", "grossProfitMarginTTM": 0.45}])
     )
 
-    bound = fmp_screener.bind_deps(api_key=_KEY)
+    bound = fmp_screener.bind(api_key=_KEY)
     result = await bound(FmpScreenerParams(sector="Technology"))
 
     assert result.provenance.source.startswith("fmp")
@@ -62,7 +62,7 @@ async def test_fmp_screener_maps_401_without_leaking_key() -> None:
         return_value=httpx.Response(401, text="unauthorized")
     )
 
-    bound = fmp_screener.bind_deps(api_key=_KEY)
+    bound = fmp_screener.bind(api_key=_KEY)
     with pytest.raises(UnauthorizedError) as exc_info:
         await bound(FmpScreenerParams(sector="Technology"))
     assert _KEY not in str(exc_info.value)
@@ -76,7 +76,7 @@ async def test_fmp_screener_maps_402_to_payment_required() -> None:
         return_value=httpx.Response(402, text="plan upgrade required")
     )
 
-    bound = fmp_screener.bind_deps(api_key=_KEY)
+    bound = fmp_screener.bind(api_key=_KEY)
     with pytest.raises(PaymentRequiredError) as exc_info:
         await bound(FmpScreenerParams(sector="Technology"))
     assert _KEY not in str(exc_info.value)
@@ -103,7 +103,7 @@ async def test_fmp_screener_skips_enrichment_when_fields_are_native_only() -> No
     metrics_route = respx.get("https://financialmodelingprep.com/stable/key-metrics-ttm")
     ratios_route = respx.get("https://financialmodelingprep.com/stable/ratios-ttm")
 
-    bound = fmp_screener.bind_deps(api_key=_KEY)
+    bound = fmp_screener.bind(api_key=_KEY)
     result = await bound(
         FmpScreenerParams(
             sector="Technology",

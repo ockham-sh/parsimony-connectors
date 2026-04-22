@@ -14,7 +14,6 @@ from parsimony.errors import RateLimitError, UnauthorizedError
 
 from parsimony_coingecko import (
     CONNECTORS,
-    ENV_VARS,
     CoinGeckoEnumerateParams,
     CoinGeckoMarketChartParams,
     CoinGeckoMarketsParams,
@@ -35,7 +34,7 @@ _KEY = "live-looking-key-abc123"
 
 
 def test_env_vars_maps_api_key() -> None:
-    assert ENV_VARS == {"api_key": "COINGECKO_API_KEY"}
+    assert CONNECTORS["coingecko_search"].env_map == {"api_key": "COINGECKO_API_KEY"}
 
 
 def test_connectors_count_matches_docstring() -> None:
@@ -69,7 +68,7 @@ async def test_coingecko_search_returns_coin_rows() -> None:
         )
     )
 
-    bound = coingecko_search.bind_deps(api_key=_KEY)
+    bound = coingecko_search.bind(api_key=_KEY)
     result = await bound(CoinGeckoSearchParams(query="btc"))
 
     assert result.provenance.source == "coingecko_search"
@@ -83,7 +82,7 @@ async def test_coingecko_search_maps_401_to_unauthorized_without_leaking_key() -
         return_value=httpx.Response(401, json={"status": {"error_code": 1001, "error_message": "invalid key"}})
     )
 
-    bound = coingecko_search.bind_deps(api_key=_KEY)
+    bound = coingecko_search.bind(api_key=_KEY)
     with pytest.raises(UnauthorizedError) as exc_info:
         await bound(CoinGeckoSearchParams(query="x"))
     assert _KEY not in str(exc_info.value)
@@ -96,7 +95,7 @@ async def test_coingecko_search_maps_429_to_rate_limit_without_leaking_key() -> 
         return_value=httpx.Response(429, headers={"Retry-After": "10"}, json={"error": "rate limited"})
     )
 
-    bound = coingecko_search.bind_deps(api_key=_KEY)
+    bound = coingecko_search.bind(api_key=_KEY)
     with pytest.raises(RateLimitError) as exc_info:
         await bound(CoinGeckoSearchParams(query="x"))
     assert _KEY not in str(exc_info.value)
@@ -119,7 +118,7 @@ async def test_coingecko_price_returns_rows_per_coin() -> None:
         )
     )
 
-    bound = coingecko_price.bind_deps(api_key=_KEY)
+    bound = coingecko_price.bind(api_key=_KEY)
     result = await bound(CoinGeckoPriceParams(ids="bitcoin"))
 
     df = result.data
@@ -160,7 +159,7 @@ async def test_coingecko_markets_returns_ranked_rows() -> None:
         )
     )
 
-    bound = coingecko_markets.bind_deps(api_key=_KEY)
+    bound = coingecko_markets.bind(api_key=_KEY)
     result = await bound(CoinGeckoMarketsParams())
 
     df = result.data
@@ -186,7 +185,7 @@ async def test_coingecko_market_chart_merges_price_cap_volume() -> None:
         )
     )
 
-    bound = coingecko_market_chart.bind_deps(api_key=_KEY)
+    bound = coingecko_market_chart.bind(api_key=_KEY)
     result = await bound(CoinGeckoMarketChartParams(coin_id="bitcoin", days="1"))
 
     df = result.data
@@ -212,7 +211,7 @@ async def test_enumerate_coingecko_emits_catalog_rows() -> None:
         )
     )
 
-    bound = enumerate_coingecko.bind_deps(api_key=_KEY)
+    bound = enumerate_coingecko.bind(api_key=_KEY)
     result = await bound(CoinGeckoEnumerateParams())
 
     df = result.data

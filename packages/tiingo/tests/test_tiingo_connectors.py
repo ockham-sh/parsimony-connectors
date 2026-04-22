@@ -13,7 +13,6 @@ from parsimony.errors import RateLimitError, UnauthorizedError
 
 from parsimony_tiingo import (
     CONNECTORS,
-    ENV_VARS,
     TiingoEodParams,
     TiingoSearchParams,
     tiingo_eod,
@@ -27,8 +26,8 @@ _KEY = "live-looking-tiingo-xyz"
 # ---------------------------------------------------------------------------
 
 
-def test_env_vars_maps_api_key() -> None:
-    assert ENV_VARS == {"api_key": "TIINGO_API_KEY"}
+def test_env_map_matches_api_key() -> None:
+    assert tiingo_search.env_map == {"api_key": "TIINGO_API_KEY"}
 
 
 def test_connectors_count_matches_docstring() -> None:
@@ -65,7 +64,7 @@ async def test_tiingo_search_returns_rows() -> None:
         )
     )
 
-    bound = tiingo_search.bind_deps(api_key=_KEY)
+    bound = tiingo_search.bind(api_key=_KEY)
     result = await bound(TiingoSearchParams(query="apple"))
 
     assert result.provenance.source == "tiingo_search"
@@ -79,7 +78,7 @@ async def test_tiingo_search_maps_401_without_leaking_key() -> None:
         return_value=httpx.Response(401, text="unauthorized")
     )
 
-    bound = tiingo_search.bind_deps(api_key=_KEY)
+    bound = tiingo_search.bind(api_key=_KEY)
     with pytest.raises(UnauthorizedError) as exc_info:
         await bound(TiingoSearchParams(query="apple"))
     assert _KEY not in str(exc_info.value)
@@ -92,7 +91,7 @@ async def test_tiingo_search_maps_429_without_leaking_key() -> None:
         return_value=httpx.Response(429, text="rate limited")
     )
 
-    bound = tiingo_search.bind_deps(api_key=_KEY)
+    bound = tiingo_search.bind(api_key=_KEY)
     with pytest.raises(RateLimitError) as exc_info:
         await bound(TiingoSearchParams(query="apple"))
     assert _KEY not in str(exc_info.value)
@@ -129,7 +128,7 @@ async def test_tiingo_eod_returns_ohlcv() -> None:
         )
     )
 
-    bound = tiingo_eod.bind_deps(api_key=_KEY)
+    bound = tiingo_eod.bind(api_key=_KEY)
     result = await bound(TiingoEodParams(ticker="AAPL"))
 
     df = result.data

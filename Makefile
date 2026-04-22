@@ -1,6 +1,6 @@
 # parsimony-connectors developer workbench.
 #
-# The sweep loop per package is: ruff → mypy → pytest → conformance verify.
+# The sweep loop per package is: ruff → mypy → pytest → strict plugin listing.
 # This Makefile mirrors CI exactly so "green locally" means "green in CI".
 #
 # Usage:
@@ -17,7 +17,7 @@ PKG ?=
 help:
 	@echo "Targets:"
 	@echo "  sync                  — uv sync --all-extras --all-packages"
-	@echo "  verify PKG=<name>     — ruff + mypy + pytest + conformance on one package"
+	@echo "  verify PKG=<name>     — ruff + mypy + pytest + strict plugin listing"
 	@echo "  verify-all            — verify across every package under packages/*"
 	@echo "  clean                 — wipe caches (.pytest_cache, .mypy_cache, .ruff_cache)"
 
@@ -34,15 +34,14 @@ verify:
 		exit 2; \
 	fi
 	@set -e; \
-	dist_name=$$(python3 -c "import tomllib; print(tomllib.load(open('packages/$(PKG)/pyproject.toml','rb'))['project']['name'])"); \
 	echo "==> ruff $(PKG)"; \
 	uv run ruff check "packages/$(PKG)"; \
 	echo "==> mypy $(PKG)"; \
 	uv run mypy "packages/$(PKG)"; \
 	echo "==> pytest $(PKG)"; \
 	uv run pytest "packages/$(PKG)"; \
-	echo "==> conformance $${dist_name}"; \
-	uv run parsimony conformance verify "$${dist_name}"
+	echo "==> strict plugin listing"; \
+	uv run parsimony list --strict
 
 verify-all:
 	@set -e; \

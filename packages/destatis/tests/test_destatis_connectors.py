@@ -15,7 +15,6 @@ from parsimony.errors import ProviderError
 
 from parsimony_destatis import (
     CONNECTORS,
-    ENV_VARS,
     DestatisFetchParams,
     destatis_fetch,
 )
@@ -32,7 +31,7 @@ _FFCSV_FIXTURE = (
 
 
 def test_env_vars_maps_username_and_password() -> None:
-    assert ENV_VARS == {
+    assert CONNECTORS["destatis_fetch"].env_map == {
         "username": "DESTATIS_USERNAME",
         "password": "DESTATIS_PASSWORD",
     }

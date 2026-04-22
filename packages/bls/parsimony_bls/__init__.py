@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field, field_validator
 
 _BASE_URL = "https://api.bls.gov/publicAPI/v2"
 
-ENV_VARS: dict[str, str] = {"api_key": "BLS_API_KEY"}
+_ENV: dict[str, str] = {"api_key": "BLS_API_KEY"}
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +121,7 @@ def _infer_frequency(period: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-@connector(output=BLS_FETCH_OUTPUT, tags=["macro", "us"])
+@connector(env=_ENV, output=BLS_FETCH_OUTPUT, tags=["macro", "us"])
 async def bls_fetch(params: BlsFetchParams, *, api_key: str = "") -> Result:
     """Fetch a single BLS time series by series_id.
 
@@ -198,7 +198,7 @@ async def bls_fetch(params: BlsFetchParams, *, api_key: str = "") -> Result:
     )
 
 
-@enumerator(output=BLS_ENUMERATE_OUTPUT, tags=["macro", "us"])
+@enumerator(env=_ENV, output=BLS_ENUMERATE_OUTPUT, tags=["macro", "us"])
 async def enumerate_bls(params: BlsEnumerateParams, *, api_key: str = "") -> pd.DataFrame:
     """Enumerate popular BLS series across all surveys.
 

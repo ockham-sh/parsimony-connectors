@@ -18,7 +18,6 @@ import pytest
 
 from parsimony_financial_reports import (
     CONNECTORS,
-    ENV_VARS,
     FrCompaniesSearchParams,
     fr_companies_search,
 )
@@ -27,7 +26,7 @@ _KEY = "live-looking-fr-key"
 
 
 def test_env_vars_maps_api_key() -> None:
-    assert ENV_VARS == {"api_key": "FINANCIAL_REPORTS_API_KEY"}
+    assert CONNECTORS["fr_companies_search"].env_map == {"api_key": "FINANCIAL_REPORTS_API_KEY"}
 
 
 def test_connectors_count() -> None:
@@ -70,7 +69,7 @@ async def test_fr_companies_search_returns_rows() -> None:
         return fake
 
     with patch("parsimony_financial_reports._with_retry", side_effect=_fake_with_retry):
-        bound = fr_companies_search.bind_deps(api_key=_KEY)
+        bound = fr_companies_search.bind(api_key=_KEY)
         result = await bound(FrCompaniesSearchParams(countries="US"))
 
     assert result.provenance.source.startswith("financial_reports")

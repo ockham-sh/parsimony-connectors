@@ -6,7 +6,6 @@ Exports:
   via the ``parsimony.providers`` entry point. Includes ``fred_search``
   (tool-tagged for MCP), ``fred_fetch``, ``enumerate_fred``,
   and ``enumerate_fred_release``.
-* :data:`ENV_VARS` — maps the ``api_key`` dependency to ``FRED_API_KEY``.
 * :data:`CATALOGS` — publish-target list consumed by
   :func:`parsimony.publish.publish`. One catalog named ``fred`` backed by
   :func:`enumerate_fred` (param-less; walks every FRED release).
@@ -36,8 +35,6 @@ from pydantic import BaseModel, Field, field_validator
 __all__ = [
     "CATALOGS",
     "CONNECTORS",
-    "ENV_VARS",
-    "PROVIDER_METADATA",
     "FredSearchParams",
     "FredFetchParams",
     "FredEnumerateParams",
@@ -47,16 +44,6 @@ __all__ = [
     "enumerate_fred",
     "enumerate_fred_release",
 ]
-
-__version__ = "0.3.0"
-
-ENV_VARS: dict[str, str] = {"api_key": "FRED_API_KEY"}
-
-PROVIDER_METADATA: dict[str, Any] = {
-    "homepage": "https://fred.stlouisfed.org",
-    "pricing": "free",
-    "rate_limits": "120 requests/min with a free API key",
-}
 
 # ---------------------------------------------------------------------------
 # Parameter models
@@ -160,7 +147,7 @@ def _make_http(api_key: str) -> HttpClient:
 # ---------------------------------------------------------------------------
 
 
-@connector(tags=["macro", "tool"])
+@connector(env={"api_key": "FRED_API_KEY"}, tags=["macro", "tool"])
 async def fred_search(params: FredSearchParams, *, api_key: str) -> Result:
     """Keyword search for FRED economic time series.
 
@@ -189,7 +176,7 @@ async def fred_search(params: FredSearchParams, *, api_key: str) -> Result:
     )
 
 
-@connector(output=FETCH_OUTPUT, tags=["macro"])
+@connector(env={"api_key": "FRED_API_KEY"}, output=FETCH_OUTPUT, tags=["macro"])
 async def fred_fetch(params: FredFetchParams, *, api_key: str) -> Result:
     """Fetch FRED time series observations by series_id.
 
@@ -360,6 +347,7 @@ def _series_row(series: dict[str, Any], release_id: int) -> dict[str, Any] | Non
 
 
 @enumerator(
+    env={"api_key": "FRED_API_KEY"},
     output=FRED_ENUMERATE_OUTPUT,
     tags=["fred"],
 )
@@ -383,6 +371,7 @@ async def enumerate_fred_release(
 
 
 @enumerator(
+    env={"api_key": "FRED_API_KEY"},
     output=FRED_ENUMERATE_OUTPUT,
     tags=["fred"],
 )

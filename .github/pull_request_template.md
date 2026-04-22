@@ -21,7 +21,7 @@ the audit must complete before merge.
 - [ ] Connector lives under `packages/<snake_case_name>/`
 - [ ] PyPI distribution name is `parsimony-<name>` (hyphenated)
 - [ ] Python package name is `parsimony_<name>` (underscored)
-- [ ] `uv run python tools/check_pyproject.py packages/<name>` passes
+- [ ] `uv run parsimony list --strict` passes (kernel-side conformance)
 - [ ] `uv run pytest packages/<name>` passes
 - [ ] `uv run ruff check packages/<name>` clean
 - [ ] `uv run mypy packages/<name>/parsimony_<name>` clean

@@ -39,7 +39,7 @@ async def test_fmp_search_returns_matches() -> None:
         )
     )
 
-    bound = fmp_search.bind_deps(api_key=_KEY)
+    bound = fmp_search.bind(api_key=_KEY)
     result = await bound(FmpSearchParams(query="apple"))
 
     assert result.provenance.source.startswith("fmp")

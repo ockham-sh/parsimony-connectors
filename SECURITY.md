@@ -34,35 +34,20 @@ enforces:
 
 ## Migration provenance
 
-### `packages/mcp/` — imported from `ockham-sh/parsimony-mcp` on 2026-04-20
+### MCP host — now lives in `ockham-sh/parsimony-mcp`
 
-The MCP host adapter (`parsimony-mcp` on PyPI) was previously developed
-in its own repository at `ockham-sh/parsimony-mcp`. On 2026-04-20 that
-repository was consolidated into this monorepo as `packages/mcp/`,
-preserving full commit history via `git-filter-repo`.
+The MCP host adapter (`parsimony-mcp` on PyPI) briefly lived in this
+monorepo as `packages/mcp/` (imported from `ockham-sh/parsimony-mcp`
+on 2026-04-20 via `git-filter-repo`). With the introduction of the
+kernel's `parsimony.discover` surface, the MCP host became a pure
+consumer of the kernel contract and no longer shared build/test
+infrastructure with the `parsimony.providers` plugins in this repo,
+so it was moved back out to its own repository at
+[`ockham-sh/parsimony-mcp`](https://github.com/ockham-sh/parsimony-mcp).
+This monorepo is now reserved exclusively for `parsimony.providers`
+plugin packages (enforced by the `Enforce plugin-only monorepo` step
+in `.github/workflows/ci.yml`).
 
-- **Source repository:** `ockham-sh/parsimony-mcp`
-- **Source branch:** `feat/finalize-0.1.0a1`
-- **Source HEAD SHA at migration:** `475f6ee0350a6c0681923f482f8dfdc8fd636e00`
-- **git-filter-repo version:** `2.47.0`
-- **Rewrite command:**
-  ```
-  git filter-repo --force \
-      --path-rename ':packages/mcp/' \
-      --commit-callback 'commit.gpgsig = None'
-  ```
-- **Migration commit in this repo:** see the `chore(mcp): import parsimony-mcp history into packages/mcp/` merge commit.
-
-The `--commit-callback` strips `gpgsig` headers defensively; source
-commits were unsigned at the time of migration, so no verifiable
-signatures were invalidated. The original repository
-`ockham-sh/parsimony-mcp` was archived (not deleted) at migration time
-to preserve external links — it serves as a reference copy of the
-pre-migration history for auditors who wish to verify the rewrite was
-faithful.
-
-Auditing the rewrite: clone both repositories at the migration commit,
-and compare (in the source repo) every file's blob SHA against
-(in this monorepo) the same file under `packages/mcp/<path>`. Blob SHAs
-must match exactly, as `git-filter-repo --path-rename` changes only
-tree entries, never blob contents.
+Full commit history for the MCP host is preserved in the
+`ockham-sh/parsimony-mcp` repository. Contributions and
+security-sensitive reports for the MCP host belong there.

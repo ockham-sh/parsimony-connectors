@@ -15,8 +15,8 @@ commands, checklists — see [CONTRIBUTING.md](CONTRIBUTING.md).
 A new connector PR is merged when, and only when, all of the following are
 satisfied:
 
-1. **Passes the conformance suite.** `parsimony conformance verify <package>`
-   exits with code 0. This is the objective gate; CI enforces it.
+1. **Passes the conformance suite.** `parsimony list --strict` exits with
+   code 0 with the package installed. This is the objective gate; CI enforces it.
 2. **Belongs in the monorepo by the binary rule.** The connector's source
    can be shared publicly under Apache 2.0 (see §6).
 3. **Has an active maintainer.** The PR author commits to acting as the
@@ -150,9 +150,11 @@ centre for officially-maintained code. Graduation is the **exception**.
   publishes from this monorepo or its own repo.
 - **Contract.** The graduated connector continues to implement the kernel
   entry-point contract identically.
-- **Discoverability.** The graduated connector remains in the monorepo's
-  `registry.json` (regenerated from the package metadata in its new
-  location) so the MCP init wizard continues to advertise it.
+- **Discoverability.** A graduated connector continues to be discovered
+  at runtime by consumers (MCP hosts, agent frameworks) through the
+  kernel's `parsimony.discover` surface — entry-point metadata on the
+  installed distribution is the authoritative source, so moving the
+  repository does not affect discoverability.
 
 ### What graduation changes
 
@@ -169,11 +171,10 @@ centre for officially-maintained code. Graduation is the **exception**.
    conformance suite, the new repo's OIDC trusted-publisher config is in
    place, and a release note for users.
 2. Founder reviews for contract compliance and PyPI-naming continuity.
-3. On merge, this monorepo's `packages/<name>/` is deleted, its pyproject
-   entry in the matrix workflow is removed, `registry.json` is
-   regenerated (the graduated connector keeps its entry but the
-   package metadata now resolves to its new location), and the README
-   notes the graduation.
+3. On merge, this monorepo's `packages/<name>/` is deleted (its
+   pyproject is auto-discovered by the CI matrix via
+   `find packages/*/pyproject.toml`, so no workflow edit is needed)
+   and the README notes the graduation.
 4. The next publish event comes from the new repo, not this one. The PyPI
    trusted publisher switches in PyPI's project settings at the same time.
 

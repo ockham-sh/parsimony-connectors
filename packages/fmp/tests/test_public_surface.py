@@ -74,10 +74,6 @@ def test_connectors_exactly_expected_names() -> None:
     assert actual == _EXPECTED_CONNECTOR_NAMES
 
 
-def test_env_vars_maps_api_key() -> None:
-    assert parsimony_fmp.ENV_VARS == {"api_key": "FMP_API_KEY"}
-
-
 def test_every_param_class_importable_from_top_level() -> None:
     for name in _EXPECTED_PARAM_CLASSES:
         assert hasattr(parsimony_fmp, name), f"{name} not exported from parsimony_fmp"

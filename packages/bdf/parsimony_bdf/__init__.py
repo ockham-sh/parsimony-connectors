@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 _SDMX_BASE = "https://api.webstat.banque-france.fr/webstat-en/v1"
 
-ENV_VARS: dict[str, str] = {"api_key": "BANQUEDEFRANCE_KEY"}
+_ENV: dict[str, str] = {"api_key": "BANQUEDEFRANCE_KEY"}
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +93,7 @@ BDF_FETCH_OUTPUT = OutputConfig(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=BDF_FETCH_OUTPUT, tags=["macro", "fr"])
+@connector(env=_ENV, output=BDF_FETCH_OUTPUT, tags=["macro", "fr"])
 async def bdf_fetch(params: BdfFetchParams, *, api_key: str) -> Result:
     """Fetch Banque de France time series via SDMX API.
 
@@ -169,7 +169,7 @@ async def bdf_fetch(params: BdfFetchParams, *, api_key: str) -> Result:
     )
 
 
-@enumerator(output=BDF_ENUMERATE_OUTPUT, tags=["macro", "fr"])
+@enumerator(env=_ENV, output=BDF_ENUMERATE_OUTPUT, tags=["macro", "fr"])
 async def enumerate_bdf(params: BdfEnumerateParams, *, api_key: str) -> pd.DataFrame:
     """Enumerate all BdF datasets via the SDMX catalogue endpoint."""
     headers = {"X-IBM-Client-Id": api_key}

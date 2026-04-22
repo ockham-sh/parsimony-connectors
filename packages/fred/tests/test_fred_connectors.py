@@ -9,7 +9,6 @@ import respx
 from parsimony_fred import (
     CATALOGS,
     CONNECTORS,
-    ENV_VARS,
     FredEnumerateAllParams,
     FredFetchParams,
     FredSearchParams,
@@ -35,10 +34,6 @@ def test_catalogs_declares_canonical_fred_target() -> None:
     namespace, fn = CATALOGS[0]
     assert namespace == "fred"
     assert fn is enumerate_fred
-
-
-def test_env_vars_mapping_matches_declared_deps() -> None:
-    assert ENV_VARS == {"api_key": "FRED_API_KEY"}
 
 
 def test_fred_search_is_tool_tagged() -> None:
@@ -80,7 +75,7 @@ async def test_fred_search_returns_series_metadata() -> None:
         )
     )
 
-    bound = fred_search.bind_deps(api_key="test-key")
+    bound = fred_search.bind(api_key="test-key")
     result = await bound(FredSearchParams(search_text="unemployment"))
 
     assert result.provenance.source == "fred"
@@ -97,7 +92,7 @@ async def test_fred_search_raises_empty_data_when_no_matches() -> None:
         return_value=httpx.Response(200, json={"seriess": []})
     )
 
-    bound = fred_search.bind_deps(api_key="test-key")
+    bound = fred_search.bind(api_key="test-key")
     with pytest.raises(EmptyDataError):
         await bound(FredSearchParams(search_text="nonexistent"))
 
@@ -142,7 +137,7 @@ async def test_fred_fetch_returns_observations_with_metadata() -> None:
         )
     )
 
-    bound = fred_fetch.bind_deps(api_key="test-key")
+    bound = fred_fetch.bind(api_key="test-key")
     result = await bound(FredFetchParams(series_id="UNRATE"))
 
     assert result.provenance.source == "fred"
@@ -181,7 +176,7 @@ async def test_enumerate_release_emits_catalog_rows() -> None:
         ]
     )
 
-    bound = enumerate_fred_release.bind_deps(api_key="test-key")
+    bound = enumerate_fred_release.bind(api_key="test-key")
     result = await bound(release_id=53)
 
     df = result.data
@@ -249,7 +244,7 @@ async def test_enumerate_fred_walks_every_release_and_dedupes() -> None:
         ]
     )
 
-    bound = enumerate_fred.bind_deps(api_key="test-key")
+    bound = enumerate_fred.bind(api_key="test-key")
     result = await bound(FredEnumerateAllParams())
 
     df = result.data

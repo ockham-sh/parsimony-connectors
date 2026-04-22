@@ -5,9 +5,10 @@ Exports:
 - :data:`CONNECTORS` — collection passed to ``parsimony`` via the plugin
   entry point. Contains the two enumerators (dataset + series) and the
   live fetch connector.
-- :data:`ENV_VARS` — empty. SDMX endpoints are public; ``HF_TOKEN`` is
-  read by :mod:`huggingface_hub` directly when :meth:`parsimony.Catalog.push`
-  uploads an ``hf://`` snapshot, not via parsimony's dep-binding system.
+
+SDMX endpoints are public; no auth required. ``HF_TOKEN`` is
+read by :mod:`huggingface_hub` directly when :meth:`parsimony.Catalog.push`
+uploads an ``hf://`` snapshot, not via parsimony's dep-binding system.
 
 The three plugin surfaces:
 
@@ -29,12 +30,9 @@ from parsimony_sdmx.connectors.fetch import sdmx_fetch
 
 CONNECTORS: Connectors = Connectors([enumerate_sdmx_datasets, enumerate_sdmx_series, sdmx_fetch])
 
-ENV_VARS: dict[str, str] = {}
-
 
 __all__ = [
     "CONNECTORS",
-    "ENV_VARS",
     "enumerate_sdmx_datasets",
     "enumerate_sdmx_series",
     "sdmx_fetch",
