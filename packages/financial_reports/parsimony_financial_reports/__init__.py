@@ -420,7 +420,11 @@ class FrReferenceDataParams(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "FINANCIAL_REPORTS_API_KEY"}, output=COMPANIES_SEARCH_OUTPUT, tags=["financial_reports", "tool"])
+@connector(
+    env={"api_key": "FINANCIAL_REPORTS_API_KEY"},
+    output=COMPANIES_SEARCH_OUTPUT,
+    tags=["financial_reports", "tool"],
+)
 async def fr_companies_search(params: FrCompaniesSearchParams, *, api_key: str) -> Result:
     """Search companies on Financial Reports by name, country, ISIN, ticker, or industry.
 
