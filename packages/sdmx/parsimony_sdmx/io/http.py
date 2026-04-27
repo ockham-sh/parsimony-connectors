@@ -33,7 +33,7 @@ from parsimony_sdmx.core.outcomes import FailureKind
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_USER_AGENT = "parsimony-sdmx/0.1 (+https://github.com/parsimony-sdmx)"
+DEFAULT_USER_AGENT = "parsimony-sdmx/0.4 (+https://github.com/ockham-sh/parsimony-connectors)"
 DEFAULT_MAX_RESPONSE_BYTES = 500 * 1024 * 1024  # 500 MB
 DEFAULT_STREAM_CHUNK = 64 * 1024
 

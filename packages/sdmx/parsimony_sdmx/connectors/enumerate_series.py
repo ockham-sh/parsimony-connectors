@@ -77,6 +77,15 @@ ENUMERATE_SERIES_OUTPUT = OutputConfig(
             description="SDMX series key (dot-separated dimension values).",
         ),
         Column(name="title", role=ColumnRole.TITLE),
+        Column(
+            name="fragments",
+            role=ColumnRole.FRAGMENTS,
+            description=(
+                "Per-dimension codelist labels (fallback to raw codes) "
+                "fed to parsimony.FragmentEmbeddingCache for compositional "
+                "embedding. Ignored when no fragment_cache is wired."
+            ),
+        ),
         Column(name="agency", role=ColumnRole.METADATA),
         Column(name="dataset_id", role=ColumnRole.METADATA),
     ]
@@ -124,6 +133,7 @@ async def enumerate_sdmx_series(
         {
             "code": [r.id for r in records],
             "title": [r.title for r in records],
+            "fragments": [list(r.fragments) for r in records],
             "agency": params.agency.value,
             "dataset_id": params.dataset_id,
         }

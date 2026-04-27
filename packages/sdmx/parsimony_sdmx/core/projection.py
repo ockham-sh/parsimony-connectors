@@ -19,6 +19,21 @@ from parsimony_sdmx.core.titles import compose_series_title
 SeriesIdAugment = Callable[[str, str], str]
 """Hook: ``augment(base_title, series_id) -> augmented_title``. ECB uses it."""
 
+SeriesFragmentsAugment = Callable[[str], tuple[str, ...]]
+"""Hook: ``augment_fragments(series_id) -> extra_fragments``.
+
+ECB uses it to inject the per-series ``TITLE`` attribute as an additional
+fragment. Closes the §3 escalation gap discovered in Phase 3 EXR eval:
+codelist labels alone don't bridge colloquial-vocabulary queries
+("yen daily exchange rate") to the rich natural-language overlay
+embedded in ECB's TITLE ("Japanese yen/Euro ECB reference exchange rate").
+
+Returned tuple is concatenated to the codelist-derived fragment tuple
+without dedup — a fragment list with two near-duplicates is no worse for
+mean-pooling than one without, and forcing dedup here would obscure
+provider intent.
+"""
+
 SERIES_KEY_SEP = "."
 
 
@@ -28,6 +43,7 @@ def project_series(
     dsd_order: Sequence[str],
     labels: Mapping[str, Mapping[str, str]],
     augment: SeriesIdAugment | None = None,
+    augment_fragments: SeriesFragmentsAugment | None = None,
 ) -> Iterator[SeriesRecord]:
     """Yield one ``SeriesRecord`` per series key.
 
@@ -67,7 +83,46 @@ def project_series(
         series_id = _series_id(dim_values, dsd_order, dataset_id)
         base_title = compose_series_title(dim_values, dsd_order, labels)
         title = augment(base_title, series_id) if augment is not None else base_title
-        yield SeriesRecord(id=series_id, dataset_id=dataset_id, title=title)
+        fragments = _fragments_from_labels(dim_values, dsd_order, labels)
+        if augment_fragments is not None:
+            extra = augment_fragments(series_id)
+            if extra:
+                fragments = fragments + tuple(extra)
+        yield SeriesRecord(
+            id=series_id,
+            dataset_id=dataset_id,
+            title=title,
+            fragments=fragments,
+        )
+
+
+def _fragments_from_labels(
+    dim_values: Mapping[str, str],
+    dsd_order: Sequence[str],
+    labels: Mapping[str, Mapping[str, str]],
+) -> tuple[str, ...]:
+    """Per-dim labels as atomic embedding fragments.
+
+    One string per dimension, natural-language label when a codelist
+    lookup succeeds, raw code as the fallback when no label is resolved.
+    Mean-pooling these vectors is the compositional-embedding hypothesis
+    documented in ``PLAN-sdmx-catalog-search.md`` §7b: deduping
+    ``"Monthly"`` / ``"Spain"`` across the 500k-row catalog collapses
+    embedder work by ~100-1000× with retrieval quality inside the
+    Phase 3 eval budget.
+
+    Codes are the fallback so dims without a codelist (e.g. plain
+    numeric timestamps) still contribute *some* signal rather than
+    dropping silently.
+    """
+    out: list[str] = []
+    for dim_id in dsd_order:
+        code = dim_values.get(dim_id)
+        if not code:
+            continue
+        label = labels.get(dim_id, {}).get(code)
+        out.append(label if label else code)
+    return tuple(out)
 
 
 def _series_id(

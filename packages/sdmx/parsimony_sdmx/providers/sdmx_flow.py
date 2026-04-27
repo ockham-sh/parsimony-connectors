@@ -21,7 +21,11 @@ from typing import Any
 from parsimony_sdmx.core.codelists import resolve_codelists
 from parsimony_sdmx.core.errors import SdmxFetchError
 from parsimony_sdmx.core.models import DatasetRecord, SeriesRecord
-from parsimony_sdmx.core.projection import SeriesIdAugment, project_series
+from parsimony_sdmx.core.projection import (
+    SeriesFragmentsAugment,
+    SeriesIdAugment,
+    project_series,
+)
 from parsimony_sdmx.providers.sdmx_extract import (
     extract_dsd_dim_order,
     extract_flow_title,
@@ -70,6 +74,7 @@ def list_series_flow(
     dataset_id: str,
     language_prefs: Sequence[str] = ("en",),
     augment: SeriesIdAugment | None = None,
+    augment_fragments: SeriesFragmentsAugment | None = None,
 ) -> Iterator[SeriesRecord]:
     """Fetch DSD + codelists + series keys, yield ``SeriesRecord`` per series."""
     msg = fetch_dataflow_with_structure(client, dataset_id)
@@ -99,6 +104,7 @@ def list_series_flow(
         dsd_order=dsd_order,
         labels=labels,
         augment=augment,
+        augment_fragments=augment_fragments,
     )
 
 

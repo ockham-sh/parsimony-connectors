@@ -144,11 +144,13 @@ def fetch_series(
         table = pq.read_table(parquet_path)
         records: list[SeriesRecord] = []
         for row in table.to_pylist():
+            raw_fragments = row.get("fragments") or ()
             records.append(
                 SeriesRecord(
                     id=row["id"],
                     dataset_id=row["dataset_id"],
                     title=row["title"],
+                    fragments=tuple(str(f) for f in raw_fragments),
                 )
             )
         return records

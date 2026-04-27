@@ -39,6 +39,11 @@ SERIES_SCHEMA = pa.schema(
         pa.field("id", pa.string(), nullable=False),
         pa.field("dataset_id", pa.string(), nullable=False),
         pa.field("title", pa.string(), nullable=False),
+        # Per-row list of atomic embedding fragments (codelist labels).
+        # Consumed by ``parsimony.FragmentEmbeddingCache`` when wired at
+        # publish time. Empty list for providers that don't emit
+        # structural fragments (nothing downstream to compose).
+        pa.field("fragments", pa.list_(pa.string()), nullable=False),
     ]
 )
 
@@ -155,6 +160,7 @@ def _write_series_batched(
             ids: list[str] = []
             dsids: list[str] = []
             titles: list[str] = []
+            fragments: list[list[str]] = []
             for rec in batch_rows:
                 if rec.dataset_id != dataset_id:
                     raise ValueError(
@@ -169,9 +175,15 @@ def _write_series_batched(
                 ids.append(rec.id)
                 dsids.append(rec.dataset_id)
                 titles.append(rec.title)
+                fragments.append(list(rec.fragments))
             if ids:
                 batch = pa.RecordBatch.from_pydict(
-                    {"id": ids, "dataset_id": dsids, "title": titles},
+                    {
+                        "id": ids,
+                        "dataset_id": dsids,
+                        "title": titles,
+                        "fragments": fragments,
+                    },
                     schema=SERIES_SCHEMA,
                 )
                 writer.write_batch(batch)

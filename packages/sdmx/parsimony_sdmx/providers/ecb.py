@@ -77,9 +77,14 @@ class EcbProvider:
                 self.http_config,
             )
             augment = _build_augment(attrs_map)
+            augment_fragments = _build_augment_fragments(attrs_map)
 
             yield from list_series_flow(
-                client, self.agency_id, dataset_id, augment=augment
+                client,
+                self.agency_id,
+                dataset_id,
+                augment=augment,
+                augment_fragments=augment_fragments,
             )
 
 
@@ -137,3 +142,28 @@ def _build_augment(
         return augment_with_ecb_attributes(base, title, title_compl)
 
     return augment
+
+
+def _build_augment_fragments(
+    attrs_map: dict[str, tuple[str | None, str | None]],
+) -> Callable[[str], tuple[str, ...]]:
+    """Emit per-series ECB ``TITLE`` as an additional embedding fragment.
+
+    Phase 3 escalation path #1 (see ``PLAN-sdmx-catalog-search.md`` §3):
+    codelist labels alone don't bridge colloquial-vocabulary queries
+    ("yen daily exchange rate") to the rich natural-language overlay
+    that the ECB ``TITLE`` carries ("Japanese yen/Euro ECB reference
+    exchange rate"). The full title is in the display string for BM25
+    but the bag-of-fragments compose path only sees codelist labels —
+    so the embedder loses access to the bridging vocabulary.
+
+    Adding TITLE as one fragment per series restores parity with the
+    pre-Phase-2 full-title embedding without resurrecting TITLE_COMPL
+    (the user-rejected text that lived on under earlier variants).
+    """
+
+    def augment_fragments(series_id: str) -> tuple[str, ...]:
+        title, _title_compl = attrs_map.get(series_id, (None, None))
+        return (title,) if title else ()
+
+    return augment_fragments

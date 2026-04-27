@@ -26,8 +26,18 @@ class TestProjectSeries:
             )
         )
         assert out == [
-            SeriesRecord(id="A.U2", dataset_id="YC", title="A: Annual - U2: Euro area"),
-            SeriesRecord(id="M.U2", dataset_id="YC", title="M: Monthly - U2: Euro area"),
+            SeriesRecord(
+                id="A.U2",
+                dataset_id="YC",
+                title="A: Annual - U2: Euro area",
+                fragments=("Annual", "Euro area"),
+            ),
+            SeriesRecord(
+                id="M.U2",
+                dataset_id="YC",
+                title="M: Monthly - U2: Euro area",
+                fragments=("Monthly", "Euro area"),
+            ),
         ]
 
     def test_generator_streams_without_materialising(self) -> None:
@@ -75,6 +85,47 @@ class TestProjectSeries:
             )
         )
         assert out[0].title == "x"
+
+    def test_fragments_fall_back_to_code_when_label_missing(self) -> None:
+        """Dims with no codelist still contribute a fragment (the raw code)."""
+        out = list(
+            project_series(
+                dataset_id="D",
+                series_dim_values=[{"A": "x", "B": "y"}],
+                dsd_order=("A", "B"),
+                labels={"A": {"x": "X-label"}},  # B has no labels
+            )
+        )
+        assert out[0].fragments == ("X-label", "y")
+
+    def test_fragments_dedup_candidates_at_flow_scale(self) -> None:
+        """Common dims ("Monthly", "Euro area") repeat verbatim across rows.
+
+        This is exactly the dedup window that FragmentEmbeddingCache
+        exploits: two series share the same "Monthly" + "Euro area"
+        fragment strings even when their other dims differ. Asserting
+        string equality here is the contract the cache relies on.
+        """
+        labels = {
+            "FREQ": {"M": "Monthly"},
+            "REF_AREA": {"U2": "Euro area"},
+            "INDICATOR": {"X": "Ind X", "Y": "Ind Y"},
+        }
+        series = [
+            {"FREQ": "M", "REF_AREA": "U2", "INDICATOR": "X"},
+            {"FREQ": "M", "REF_AREA": "U2", "INDICATOR": "Y"},
+        ]
+        out = list(
+            project_series(
+                dataset_id="D",
+                series_dim_values=series,
+                dsd_order=("FREQ", "REF_AREA", "INDICATOR"),
+                labels=labels,
+            )
+        )
+        assert out[0].fragments[0] == out[1].fragments[0] == "Monthly"
+        assert out[0].fragments[1] == out[1].fragments[1] == "Euro area"
+        assert out[0].fragments[2] != out[1].fragments[2]
 
     def test_augment_hook_called_with_series_id(self) -> None:
         seen: list[tuple[str, str]] = []

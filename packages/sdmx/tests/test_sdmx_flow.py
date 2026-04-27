@@ -122,8 +122,18 @@ class TestListSeriesFlow:
         ]
         out = list(list_series_flow(client, "ECB", "YC"))
         assert out == [
-            SeriesRecord(id="A.U2", dataset_id="YC", title="A: Annual - U2: Euro area"),
-            SeriesRecord(id="M.U2", dataset_id="YC", title="M: Monthly - U2: Euro area"),
+            SeriesRecord(
+                id="A.U2",
+                dataset_id="YC",
+                title="A: Annual - U2: Euro area",
+                fragments=("Annual", "Euro area"),
+            ),
+            SeriesRecord(
+                id="M.U2",
+                dataset_id="YC",
+                title="M: Monthly - U2: Euro area",
+                fragments=("Monthly", "Euro area"),
+            ),
         ]
 
     def test_augment_hook_applied(self) -> None:
