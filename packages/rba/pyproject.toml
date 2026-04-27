@@ -24,9 +24,22 @@ dependencies = [
     "parsimony-core>=0.4.0,<0.5",
     "pydantic>=2.11.1,<3",
     "pandas>=2.3.0,<3",
+    # openpyxl/xlrd parse the XLSX/XLS workbooks under
+    # /statistics/tables/xls/ and /statistics/tables/xls-hist/ that carry
+    # ~200 series the CSV index doesn't expose (Bond Purchase Program,
+    # discontinued b3/c9/e4-e7/f16 histories). Pure-Python, tiny.
+    "openpyxl>=3.1.5",
+    "xlrd>=2.0.2",
 ]
 
 [project.optional-dependencies]
+# curl_cffi is a runtime *recommendation* — RBA fronts its CDN with
+# Akamai bot-mitigation that blocks stock python-httpx TLS fingerprints.
+# With curl_cffi installed, _http_get impersonates Chrome and succeeds;
+# without it, the enumerator falls back to httpx (which works under
+# respx mocks in tests but typically 403s in production against the
+# live RBA origin). Optional so the test suite can mock httpx.
+recommended = []
 dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
