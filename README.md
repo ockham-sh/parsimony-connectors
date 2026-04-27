@@ -1,6 +1,9 @@
 # parsimony-connectors
 
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](pyproject.toml)
+[![CI](https://github.com/ockham-sh/parsimony-connectors/actions/workflows/ci.yml/badge.svg)](https://github.com/ockham-sh/parsimony-connectors/actions)
+[![Docs](https://img.shields.io/badge/docs-parsimony.dev-blue)](https://docs.parsimony.dev)
 
 Officially-maintained connectors for the [parsimony](https://github.com/ockham-sh/parsimony) framework. Every publicly-shareable connector lives here; each publishes as its own `parsimony-<name>` package on PyPI from this repository's CI.
 
@@ -42,4 +45,4 @@ The kernel is a thin shell: connector primitives, entry-point discovery, conform
 
 ## License
 
-Apache 2.0. Every connector that ships from this repository agrees to Apache 2.0 redistribution. Commercial providers whose terms of service forbid Apache 2.0 redistribution ship as separate external packages, not from this monorepo — see GOVERNANCE.md §6.
+Apache 2.0. Every connector that ships from this repository agrees to Apache 2.0 redistribution. See [GOVERNANCE.md §6](GOVERNANCE.md#6-licence) for how this intersects with third-party provider terms.

@@ -1,0 +1,69 @@
+name: New Connector Proposal
+description: Propose a new data-source connector for the monorepo
+labels: ["new-connector"]
+body:
+  - type: input
+    id: provider
+    attributes:
+      label: Provider name
+      placeholder: "e.g. World Bank Open Data, Quandl, BIS"
+    validations:
+      required: true
+
+  - type: input
+    id: pypi-name
+    attributes:
+      label: Proposed PyPI name
+      description: Must be hyphenated (`parsimony-<name>`).
+      placeholder: "parsimony-worldbank"
+    validations:
+      required: true
+
+  - type: input
+    id: api-docs
+    attributes:
+      label: API documentation URL
+      placeholder: "https://..."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: pricing
+    attributes:
+      label: Access / pricing model
+      options:
+        - Public API (no key)
+        - Free API key
+        - Freemium (free tier with limits)
+        - Paid subscription only
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: What workflows does this enable?
+      description: One or two concrete agent or analysis examples.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: compliance
+    attributes:
+      label: Contribution requirements
+      options:
+        - label: I will write the HTTP client from scratch — no provider-SDK copy-paste.
+          required: true
+        - label: My respx mocks will be hand-authored from the provider's API docs (no recorded cassettes).
+          required: true
+        - label: The connector README will use the provider's name nominatively, without affiliation claims.
+          required: true
+
+  - type: checkboxes
+    id: stewardship
+    attributes:
+      label: Stewardship (GOVERNANCE §2)
+      options:
+        - label: I commit to acting as the connector's first steward for at least 90 days after merge, or I will name an alternative steward in the PR.
+          required: true

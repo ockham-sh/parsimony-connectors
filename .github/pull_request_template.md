@@ -10,11 +10,6 @@
 - **Provider name:**
 - **Provider API docs:**
 - **Pricing model:** (free / freemium / paid)
-- **Apache 2.0 redistribution allowed:** (yes / no / see licence-audit.md)
-- **ToS link + date reviewed:**
-
-If the provider is commercial and not already in `docs/licence-audit.md`,
-the audit must complete before merge.
 
 ## PR checklist
 
@@ -27,4 +22,8 @@ the audit must complete before merge.
 - [ ] `uv run mypy packages/<name>/parsimony_<name>` clean
 - [ ] Conformance test present under `packages/<name>/tests/`
 - [ ] `CODEOWNERS` updated with the connector's steward
+- [ ] `packages/<name>/CHANGELOG.md` updated under `[Unreleased]`
 - [ ] No secrets, API keys, or `.env` files committed
+- [ ] HTTP client written from scratch — no provider-SDK copy-paste
+- [ ] Respx mocks hand-authored from provider API docs — no recorded cassettes
+- [ ] README uses the provider's name nominatively — no affiliation claims
