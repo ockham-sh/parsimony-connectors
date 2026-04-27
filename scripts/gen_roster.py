@@ -152,7 +152,7 @@ def _render(rows: list[PackageInfo]) -> str:
     for row in sorted(rows, key=lambda r: r.name):
         favicon = _favicon_url(row.homepage)
         icon_md = (
-            f'<img src="{favicon}" width="16" height="16" alt="" /> '
+            f'<img src="{favicon}" width="16" height="16" align="absmiddle" alt="" /> '
             if favicon
             else ""
         )
