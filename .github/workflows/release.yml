@@ -5,6 +5,18 @@ name: Release
 # publisher (see docs/pypi-setup.md). Tag-based release triggers can be
 # added later if cadence makes them worthwhile.
 #
+# Naming standards (root cause of the underscore/hyphen split below):
+#   - Folder name (the `package` input, e.g. `alpha_vantage`) follows
+#     PEP 8 module-name rules — lowercase + underscores — because it
+#     mirrors the importable `parsimony_<pkg>/` subpackage inside.
+#   - Distribution name (pyproject `name`, PyPI URL, environment name,
+#     e.g. `parsimony-alpha-vantage`) follows PEP 503 canonical form —
+#     lowercase + hyphens.
+# So everywhere we go from PKG to a PyPI-facing identifier we normalize
+# underscores to hyphens via `replace(..., '_', '-')`. Anywhere we use
+# PKG as a filesystem path (packages/$PKG, working-directory) we keep
+# the underscore form because that IS the folder name on disk.
+#
 # Security posture: the `package` input flows into shell / Python / URLs
 # in many places. We bind it ONCE to a job-level env var (PKG) and
 # validate the value with a strict regex at the start of every job so
@@ -23,11 +35,11 @@ on:
   workflow_dispatch:
     inputs:
       package:
-        description: "Package name to release (e.g. 'fred'). Must match ^[a-z][a-z0-9_-]*$."
+        description: "Package folder name to release (e.g. 'fred', 'alpha_vantage'). Must match ^[a-z][a-z0-9_-]*$."
         required: true
 
 concurrency:
-  group: release-${{ github.event.inputs.package }}
+  group: release-${{ replace(github.event.inputs.package, '_', '-') }}
   cancel-in-progress: false
 
 permissions:
@@ -39,16 +51,19 @@ env:
 
 jobs:
   publish:
-    name: Publish parsimony-${{ github.event.inputs.package }}
+    name: Publish parsimony-${{ replace(github.event.inputs.package, '_', '-') }}
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: parsimony-connectors
     env:
       PKG: ${{ github.event.inputs.package }}
+      # PEP 503 canonical (hyphen-form) of PKG, used everywhere a PyPI
+      # distribution name appears (validation, attestations metadata, etc.).
+      PKG_DIST: parsimony-${{ replace(github.event.inputs.package, '_', '-') }}
     environment:
-      name: pypi-${{ github.event.inputs.package }}
-      url: https://pypi.org/p/parsimony-${{ github.event.inputs.package }}
+      name: pypi-${{ replace(github.event.inputs.package, '_', '-') }}
+      url: https://pypi.org/p/parsimony-${{ replace(github.event.inputs.package, '_', '-') }}
     permissions:
       id-token: write  # required for OIDC trusted publishing
       contents: read
@@ -138,8 +153,12 @@ jobs:
           print(data['project']['version'])
           ")
           # Defence against a rogue pyproject.toml claiming an unrelated PyPI name.
-          if [[ "$pkg_name" != "parsimony-$PKG" ]]; then
-            echo "::error::pyproject name '$pkg_name' must equal 'parsimony-$PKG'."
+          # Compare under PEP 503 normalization so multi-word folders
+          # (alpha_vantage) match hyphen-form distribution names
+          # (parsimony-alpha-vantage). PKG_DIST is the expected canonical
+          # form computed from the input at workflow expression time.
+          if [[ "$pkg_name" != "$PKG_DIST" ]]; then
+            echo "::error::pyproject name '$pkg_name' must equal '$PKG_DIST' (PEP 503 canonical of parsimony-$PKG)."
             exit 1
           fi
           if python3 -c "
