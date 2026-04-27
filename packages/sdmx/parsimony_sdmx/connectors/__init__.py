@@ -27,13 +27,27 @@ from parsimony.connector import Connectors
 from parsimony_sdmx.connectors.enumerate_datasets import enumerate_sdmx_datasets
 from parsimony_sdmx.connectors.enumerate_series import enumerate_sdmx_series
 from parsimony_sdmx.connectors.fetch import sdmx_fetch
+from parsimony_sdmx.connectors.search import (
+    sdmx_datasets_search,
+    sdmx_series_search,
+)
 
-CONNECTORS: Connectors = Connectors([enumerate_sdmx_datasets, enumerate_sdmx_series, sdmx_fetch])
+CONNECTORS: Connectors = Connectors(
+    [
+        enumerate_sdmx_datasets,
+        enumerate_sdmx_series,
+        sdmx_fetch,
+        sdmx_series_search,
+        sdmx_datasets_search,
+    ]
+)
 
 
 __all__ = [
     "CONNECTORS",
     "enumerate_sdmx_datasets",
     "enumerate_sdmx_series",
+    "sdmx_datasets_search",
     "sdmx_fetch",
+    "sdmx_series_search",
 ]

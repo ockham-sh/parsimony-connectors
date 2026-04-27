@@ -159,6 +159,15 @@ parsimony_sdmx/
 └── _isolation/   subprocess-spawning boundary for every sdmx1 call
 ```
 
+### Title composition
+
+Each series row's `title` is built per DSD:
+
+- **ECB** — uses the `TITLE` / `TITLE_COMPL` natural-language attributes fetched via the portal side-channel. Titles like `"All euro area yield curve - 10-year spot rate"`. Short, semantic, directly embedder-friendly.
+- **ESTAT / IMF_DATA / WB_WDI** — no natural-language attributes exposed; falls back to `compose_series_title()` which concatenates `"DIM: label - DIM: label - …"` across every dimension in DSD order. Longer (80-150 tokens) but still searchable.
+
+The codelist-composed form used to be prefixed onto ECB titles as well (`"base | TITLE - TITLE_COMPL"`), but it duplicated content the natural language already expresses and inflated embedding cost quadratically (BERT attention is O(N²)). It now serves only as a fallback when TITLE_COMPL is absent. The raw SDMX series key is always available in the `code` column, so keyword-exact queries are unaffected.
+
 ### Why subprocess isolation
 
 ``sdmx1`` caches parsed structure messages (DSDs, codelists, dataflows) at module scope with no public invalidation hook. A long-lived Python process that imports it accumulates cache monotonically until OOM. Process death is the only working way to flush that cache.
