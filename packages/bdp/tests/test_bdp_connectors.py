@@ -16,7 +16,7 @@ from parsimony_bdp import CONNECTORS, BdpFetchParams, bdp_fetch
 
 def test_connectors_collection_exposes_expected_names() -> None:
     names = {c.name for c in CONNECTORS}
-    assert names == {"bdp_fetch", "enumerate_bdp"}
+    assert names == {"bdp_fetch", "enumerate_bdp", "bdp_search"}
 
 
 @respx.mock
