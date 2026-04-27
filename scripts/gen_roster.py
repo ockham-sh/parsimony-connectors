@@ -144,24 +144,28 @@ def _gather() -> list[PackageInfo]:
 
 
 def _render(rows: list[PackageInfo]) -> str:
-    headers = ["Package", "Source", "Connectors", "Tool surface"]
+    headers = ["", "Package", "Source", "Connectors", "Tool surface"]
     lines = [
         "| " + " | ".join(headers) + " |",
         "|" + "|".join(["---"] * len(headers)) + "|",
     ]
     for row in sorted(rows, key=lambda r: r.name):
         favicon = _favicon_url(row.homepage)
-        icon_md = (
-            f'<img src="{favicon}" width="16" height="16" align="absmiddle" alt="" /> '
-            if favicon
-            else ""
-        )
-        link = f"{icon_md}[`{row.name}`](https://pypi.org/project/{row.name}/)"
+        pypi_url = f"https://pypi.org/project/{row.name}/"
+        if favicon:
+            icon_cell = (
+                f'<a href="{pypi_url}">'
+                f'<img src="{favicon}" width="16" height="16" alt="" />'
+                f"</a>"
+            )
+        else:
+            icon_cell = ""
+        link = f"[`{row.name}`]({pypi_url})"
         provider = _provider_name(row.description).replace("|", "\\|")
         source_md = f"[{provider}]({row.homepage})" if row.homepage else provider
         tool_cell = f"{row.tool_count} of {row.connector_count}" if row.connector_count else "n/a"
         lines.append(
-            f"| {link} | {source_md} | {row.connector_count} | {tool_cell} |"
+            f"| {icon_cell} | {link} | {source_md} | {row.connector_count} | {tool_cell} |"
         )
     return "\n".join(lines)
 
