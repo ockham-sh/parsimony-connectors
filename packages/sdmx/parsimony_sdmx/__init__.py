@@ -130,7 +130,22 @@ async def CATALOGS() -> AsyncIterator[tuple[str, _CatalogFn]]:
             logger.warning("CATALOGS: listing raised for %s: %s", agency.value, exc)
             continue
 
+        # ESTAT lists "$DV_*" pseudo-dataflows (derived views: ~547 of 8208
+        # for ESTAT). They aren't fetchable as series and the dataset_id
+        # regex rejects them at validation time. Drop them here so we don't
+        # spam pydantic ValidationError tracebacks for known-skip rows.
+        skipped_dv = sum(1 for r in records if "$" in r.dataset_id)
+        if skipped_dv:
+            logger.info(
+                "CATALOGS: %s: skipped %d derived-view ($DV_*) flow(s); %d publishable",
+                agency.value,
+                skipped_dv,
+                len(records) - skipped_dv,
+            )
+
         for record in records:
+            if "$" in record.dataset_id:
+                continue
             yield (
                 series_namespace(agency, record.dataset_id),
                 _series_fn(agency, record.dataset_id),
@@ -175,6 +190,11 @@ def RESOLVE_CATALOG(namespace: str) -> _CatalogFn | None:
             dataset_tail = rest[len(token) + 1:] if rest.startswith(f"{token}_") else ""
             break
     if agency is None or not dataset_tail:
+        return None
+    # ESTAT $DV_* derived views are not fetchable; skip them at the
+    # resolver too so --only on a $dv_ namespace short-circuits cleanly
+    # rather than crashing the publisher with a pydantic ValidationError.
+    if "$" in dataset_tail:
         return None
 
     # The catalog key is stored lowercase (``normalize_code`` in the
