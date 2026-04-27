@@ -80,24 +80,29 @@ class TestAugmentWithEcbAttributes:
         assert augment_with_ecb_attributes("base") == "base"
         assert augment_with_ecb_attributes("base", None, None) == "base"
 
-    def test_both_title_and_title_compl(self) -> None:
-        out = augment_with_ecb_attributes("base", "Short", "Full description")
-        assert out == "base | Short - Full description"
+    def test_title_is_prefixed_to_base(self) -> None:
+        out = augment_with_ecb_attributes("CODE: label", "HICP Inflation rate")
+        assert out == "HICP Inflation rate - CODE: label"
 
-    def test_only_title(self) -> None:
-        out = augment_with_ecb_attributes("base", "Short", None)
-        assert out == "base | Short"
+    def test_title_compl_is_dropped(self) -> None:
+        # TITLE_COMPL duplicates dim labels / provenance; intentionally dropped.
+        out = augment_with_ecb_attributes("CODE: label", "Short", "Full description with provenance")
+        assert out == "Short - CODE: label"
+        assert "Full description" not in out
 
-    def test_only_title_compl(self) -> None:
-        out = augment_with_ecb_attributes("base", None, "Full description")
-        assert out == "base | Full description"
+    def test_title_compl_alone_ignored(self) -> None:
+        out = augment_with_ecb_attributes("CODE: label", None, "Full description")
+        assert out == "CODE: label"
 
-    def test_empty_strings_are_absent(self) -> None:
+    def test_empty_title_falls_back_to_base(self) -> None:
         assert augment_with_ecb_attributes("base", "", "") == "base"
-        assert augment_with_ecb_attributes("base", "", "Full") == "base | Full"
-        assert augment_with_ecb_attributes("base", "Short", "") == "base | Short"
+        assert augment_with_ecb_attributes("base", "", "Full") == "base"
+        assert augment_with_ecb_attributes("base", "Short", "") == "Short - base"
 
-    def test_augment_separator_is_pipe(self) -> None:
-        out = augment_with_ecb_attributes("X", "Y", "Z")
-        assert " | " in out
-        assert out.startswith("X | ")
+    def test_base_is_preserved_when_title_present(self) -> None:
+        # Opposite of the prior contract: the codelist base must survive
+        # alongside TITLE so every dim label (including FREQ) stays indexed.
+        out = augment_with_ecb_attributes("M: Monthly - DE: Germany", "HICP Inflation rate")
+        assert "M: Monthly" in out
+        assert "DE: Germany" in out
+        assert out.startswith("HICP Inflation rate")

@@ -30,14 +30,21 @@ SERIES_ATTRS_XML = (
 
 
 class TestBuildAugment:
-    def test_applies_title_and_compl_from_map(self) -> None:
+    def test_applies_title_prefix_and_drops_title_compl(self) -> None:
+        """TITLE is prefixed to the codelist base; TITLE_COMPL is discarded.
+
+        TITLE_COMPL's content is covered by dim labels + metadata
+        (see ``augment_with_ecb_attributes``); including it inflated
+        tokens without retrieval benefit.
+        """
         attrs_map: dict[str, tuple[str | None, str | None]] = {
             "A.U2": ("Annual EU", "Annual growth rate, Euro area"),
         }
         augment = _build_augment(attrs_map)
         result = augment("FREQ: Annual - REF_AREA: Euro area", "A.U2")
-        assert "Annual EU" in result
-        assert "Annual growth rate" in result
+        assert result.startswith("Annual EU")
+        assert "FREQ: Annual - REF_AREA: Euro area" in result
+        assert "Annual growth rate" not in result
 
     def test_unknown_series_returns_base(self) -> None:
         augment = _build_augment({})
@@ -188,9 +195,10 @@ class TestEcbProviderListSeries:
         rec = records[0]
         assert isinstance(rec, SeriesRecord)
         assert rec.dataset_id == "YC"
-        # Augmented title contains the fetched TITLE/TITLE_COMPL strings.
+        # Augmented title prepends the fetched TITLE to the codelist
+        # base; TITLE_COMPL is intentionally omitted.
         assert "Annual EU" in rec.title
-        assert "Annual growth rate" in rec.title
+        assert "Annual growth rate" not in rec.title
 
     def test_falls_back_when_attrs_fetch_fails(self) -> None:
         msg = self._build_msg()

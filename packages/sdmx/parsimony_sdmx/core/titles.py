@@ -41,15 +41,34 @@ def augment_with_ecb_attributes(
     title: str | None = None,
     title_compl: str | None = None,
 ) -> str:
-    """Append ECB TITLE / TITLE_COMPL after the codelist base.
+    """Prefix ECB's natural-language TITLE to the codelist-composed base.
 
-    Both present:   ``"base | TITLE - TITLE_COMPL"``
-    Only one:       ``"base | that_one"``
-    Neither:        ``"base"``
+    Output shapes:
+
+    * TITLE present:   ``"TITLE - base"`` (TITLE prepended to the dim
+      composition)
+    * TITLE absent:    ``"base"``
+
+    The codelist ``base`` concatenates ``"CODE: label - CODE: label - …"``
+    across every dimension — the authoritative record of every indexed
+    property of the series. Earlier versions dropped it in favour of
+    ECB's ``TITLE + TITLE_COMPL`` overlay to save embedder tokens, but
+    ``TITLE_COMPL`` doesn't transcribe every dimension label (notably
+    ``FREQ``, which stays in code form as ``"M"`` / ``"A"``). Only 24%
+    of monthly HICP series carried the word "Monthly" in their indexed
+    text, so queries like "Germany monthly HICP food annual rate"
+    couldn't match on the frequency dimension. Keeping the base back
+    restores that signal.
+
+    ``title_compl`` is intentionally discarded. Its content is either
+    covered by dim labels (e.g. "Neither seasonally nor working day
+    adjusted" is the ADJUSTMENT=N label) or provenance prose
+    ("Statistical Office of the European Commission (Eurostat)") that
+    inflates token count without helping retrieval; ``dataset_id`` and
+    ``agency`` metadata carry the source attribution.
 
     Empty strings are treated as absent.
     """
-    pieces = [p for p in (title, title_compl) if p]
-    if not pieces:
-        return base
-    return f"{base}{ECB_AUGMENT_SEP}{DIM_SEP.join(pieces)}"
+    if title:
+        return f"{title}{DIM_SEP}{base}"
+    return base
