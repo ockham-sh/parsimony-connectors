@@ -12,8 +12,6 @@ Once installed, this plugin is discovered automatically and exposes the followin
 |---|---|---|---|
 | `fred_search` | connector | yes | Keyword search across FRED series (id, title, units, frequency). |
 | `fred_fetch` | connector | — | Fetch observation-level data for a FRED series by `series_id`. |
-| `enumerate_fred` | enumerator | — | Enumerate every FRED series across every release (catalog build). |
-| `enumerate_fred_release` | enumerator | — | Enumerate all series in a single FRED release. |
 
 ## Install
 
@@ -60,13 +58,11 @@ connectors = discover.load_all().bind_env()
 
 To expose tool-tagged connectors over MCP, install the standalone server: <https://github.com/ockham-sh/parsimony-mcp>.
 
-## Catalog publishing
+## Catalog discovery
 
-This plugin publishes a catalog under the `fred` namespace, backed by `enumerate_fred` (param-less; walks every FRED release).
-
-```bash
-parsimony publish --provider fred --target "hf://<your-org>/parsimony-fred"
-```
+FRED ships a native search endpoint, so this plugin does **not** publish an
+embedded catalog. Use `fred_search` for keyword discovery — it calls
+`/series/search` directly against the FRED API.
 
 ## Development
 
