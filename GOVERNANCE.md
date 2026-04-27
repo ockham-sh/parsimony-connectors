@@ -191,19 +191,20 @@ This monorepo is **Apache 2.0**. Every file contributed agrees to Apache
 2.0 redistribution. Contributors certify, by submitting a PR, that they
 have the right to release the contribution under Apache 2.0.
 
-### The commercial-provider exception
+Connectors wrap providers' documented HTTP APIs. The library we ship is
+Apache-licensed; the provider's terms bind the end user (the API-key
+holder), not this repository. What the repository requires from every
+connector is structural, not contractual:
 
-Some commercial data providers' terms of service forbid redistribution of
-their client code, endpoint documentation, or example responses under
-Apache 2.0. A connector for such a provider **does not live in this
-monorepo**. It ships as a separate distribution (either vendor-maintained
-or customer-private), implementing the same kernel contract.
-
-The list of providers whose licence status has been audited is maintained
-at `docs/licence-audit.md`. A PR for a commercial provider that is not
-yet audited triggers an audit before merge; a PR for a provider whose
-audit result is "ships externally" is closed with a pointer to the
-external-plugin path.
+- **No provider SDK code.** Every HTTP client is written here — no
+  copy-paste from the provider's official library.
+- **No recorded responses.** Response cassettes are gitignored
+  (`packages/*/tests/fixtures/**`); respx mocks are hand-authored from
+  upstream API documentation.
+- **Trademark use is nominative.** "FRED connector" / "Tiingo connector"
+  is fine. "Official FRED client" / "Authorized by Tiingo" is not.
+- **No affiliation claims.** Unless an explicit agreement exists,
+  connectors do not imply endorsement or partnership.
 
 ---
 

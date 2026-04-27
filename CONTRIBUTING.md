@@ -11,15 +11,15 @@ acceptance criteria, stewardship, deprecation, graduation — see
 
 ## 1. Before you write code
 
-**Check whether your connector belongs here.** Use the binary rule from the
-kernel's design freeze:
+**Check whether your connector belongs here.** This monorepo ships
+Apache-2.0 wrapper code around providers' documented HTTP APIs. Every
+contribution must:
 
-> Can the code be shared publicly under Apache 2.0?
-> **Yes** → contribute it here (publishes as a `parsimony-<name>` package).
-> **No** → publish it as a separate package; register via the entry-point contract.
+- Be your own code — no copy-paste from a provider's official SDK.
+- Ship no recorded response data (respx mocks must be hand-authored).
+- Use provider names nominatively, without affiliation claims.
 
-If the provider's terms of service forbid Apache 2.0 redistribution, the
-connector ships externally, not from this repo. See [GOVERNANCE.md §6](GOVERNANCE.md#6-licence).
+See [GOVERNANCE.md §6](GOVERNANCE.md#6-licence) for the full statement.
 
 **Check whether someone is already working on it.** Open an issue with the
 provider name and a one-line description before you invest time.
@@ -123,7 +123,7 @@ mergeable when every item below is satisfied:
 - [ ] The PR description names the data provider, its pricing model, any ToS caveats, and links to the provider's API documentation.
 - [ ] No secrets, no API keys, no `.env` files committed.
 - [ ] All respx mocks are hand-authored from upstream API documentation — no live-session recordings. `packages/*/tests/fixtures/**` is gitignored; override per-file if you need a hand-authored fixture checked in.
-- [ ] For a commercial provider: the PR description confirms the provider's terms allow Apache 2.0 redistribution. (If uncertain, [GOVERNANCE.md §6](GOVERNANCE.md#6-licence) describes the audit path.)
+- [ ] No provider-SDK code copy-pasted; no affiliation or endorsement claims in README.
 
 ---
 
