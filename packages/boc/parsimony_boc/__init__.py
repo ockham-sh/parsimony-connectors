@@ -7,6 +7,7 @@ No authentication required.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Annotated, Any
 
@@ -28,6 +29,13 @@ logger = logging.getLogger(__name__)
 
 
 _BASE_URL = "https://www.bankofcanada.ca/valet"
+
+#: Concurrency cap for the per-group fan-out used to build the
+#: series→group map. BoC's Valet endpoint is unauthenticated and
+#: tolerates moderate concurrency; 16 keeps total enumeration time at
+#: ~1 minute for the ~2,350 groups while staying well under any sensible
+#: rate limit.
+_GROUP_FETCH_CONCURRENCY = 16
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +66,7 @@ class BocFetchParams(BaseModel):
 
 
 class BocEnumerateParams(BaseModel):
-    """No parameters needed — enumerates all BoC series groups."""
+    """No parameters needed — enumerates all BoC series."""
 
     pass
 
@@ -69,9 +77,41 @@ class BocEnumerateParams(BaseModel):
 
 BOC_ENUMERATE_OUTPUT = OutputConfig(
     columns=[
+        # The KEY is either a series name (e.g. ``FXUSDCAD``) or a group
+        # entry prefixed with ``group:`` (e.g. ``group:FX_RATES_DAILY``).
+        # Groups are first-class addressable entities — ``boc_fetch``
+        # accepts ``series_name="group:NAME"`` and BoC's
+        # ``/observations/group/{name}/json`` returns the full panel — so
+        # they get their own catalog rows for discovery, in addition to
+        # the per-series rows. The ``group:`` prefix matches the syntax
+        # ``boc_fetch`` already expects.
         Column(name="series_name", role=ColumnRole.KEY, namespace="boc"),
         Column(name="title", role=ColumnRole.TITLE),
+        # ``description`` is the upstream Valet ``description`` text — the
+        # most useful semantic signal for retrieval. Routed via DESCRIPTION
+        # (not METADATA) so it lifts into ``semantic_text()`` for the
+        # embedder, mirroring how Treasury surfaces ``definition``. For
+        # group rows this carries the group's ``description`` text from
+        # ``/lists/groups/json`` (e.g. units and frequency hints like
+        # "Month-end, Millions of dollars").
+        Column(name="description", role=ColumnRole.DESCRIPTION),
+        # ``source`` tells the agent which fetch connector to call. BOC has
+        # a single Valet source today; the column is future-proofing for a
+        # parallel source so dispatch is already wired (matches Treasury's
+        # ``fiscal_data``/``treasury_rates`` split).
+        Column(name="source", role=ColumnRole.METADATA),
+        # ``entity_type`` is ``"series"`` for individual series rows and
+        # ``"group"`` for group rows — lets agents filter or weight by
+        # entity granularity.
+        Column(name="entity_type", role=ColumnRole.METADATA),
+        # ``group`` carries the upstream group ID (e.g. ``FX_RATES_DAILY``)
+        # the series belongs to — populated from /lists/groups/json plus
+        # per-group membership. Multi-group membership is rare; when it
+        # occurs we keep the first encountered group ID. Empty string when
+        # a series isn't a member of any catalogued group. For group rows
+        # this is the group's own ID.
         Column(name="group", role=ColumnRole.METADATA),
+        Column(name="group_label", role=ColumnRole.METADATA),
     ]
 )
 
@@ -138,6 +178,64 @@ def _parse_observations(
     return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["series_name", "title", "date", "value"])
 
 
+async def _fetch_group_membership(
+    client: httpx.AsyncClient,
+    group_name: str,
+    semaphore: asyncio.Semaphore,
+) -> tuple[str, list[str]]:
+    """Fetch a single group's series-membership list.
+
+    Returns ``(group_name, list_of_series_names)``. On any HTTP error the
+    group is treated as empty — enumeration continues. We don't surface
+    individual group failures because cataloguing is a best-effort sweep
+    and BoC does occasionally retire group endpoints while leaving them
+    in the index.
+    """
+    async with semaphore:
+        try:
+            resp = await client.get(f"/groups/{group_name}/json")
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("BoC group fetch failed for %r: %s", group_name, exc)
+            return group_name, []
+        body = resp.json()
+
+    details = body.get("groupDetails") or {}
+    members = details.get("groupSeries") or {}
+    if not isinstance(members, dict):
+        return group_name, []
+    return group_name, [s for s in members.keys() if s]
+
+
+async def _build_series_to_group_map(
+    client: httpx.AsyncClient,
+    groups_index: dict[str, dict[str, Any]],
+) -> dict[str, tuple[str, str]]:
+    """For each series, resolve ``(group_id, group_label)``.
+
+    Multi-group membership is rare in BoC's catalog (groups partition
+    series by economic theme); when it occurs the first encountered
+    group wins. Iteration order is the order BoC returns groups in
+    ``/lists/groups/json``, which is stable across requests.
+    """
+    semaphore = asyncio.Semaphore(_GROUP_FETCH_CONCURRENCY)
+    tasks = [
+        _fetch_group_membership(client, group_name, semaphore)
+        for group_name in groups_index
+    ]
+    results = await asyncio.gather(*tasks)
+
+    series_to_group: dict[str, tuple[str, str]] = {}
+    for group_name, members in results:
+        info = groups_index.get(group_name) or {}
+        label = info.get("label") if isinstance(info, dict) else ""
+        label = label or ""
+        for series_name in members:
+            if series_name not in series_to_group:
+                series_to_group[series_name] = (group_name, label)
+    return series_to_group
+
+
 # ---------------------------------------------------------------------------
 # Connectors
 # ---------------------------------------------------------------------------
@@ -190,41 +288,121 @@ async def boc_fetch(params: BocFetchParams) -> Result:
     tags=["macro", "ca"],
 )
 async def enumerate_boc(params: BocEnumerateParams) -> pd.DataFrame:
-    """Enumerate all Bank of Canada series via /lists/series/json.
+    """Enumerate every Bank of Canada series via Valet's three list endpoints.
 
-    Single API call returns all 15,000+ series with label and description.
+    Granularity is one row per series — Valet addresses observations per
+    series, so series-level keys are the right unit (~15k rows).
+
+    Pipeline:
+
+    1. ``/lists/series/json`` — single call returning all ~15k series with
+       upstream ``label`` and ``description``. ``description`` lands in a
+       ColumnRole.DESCRIPTION column so the embedder indexes it.
+    2. ``/lists/groups/json`` — single call returning all ~2.3k groups
+       with their labels.
+    3. ``/groups/{name}/json`` — fanned out concurrently for every group
+       to discover series membership; a series→group map is built and
+       attached to every row. Groups exist purely for discovery; missing
+       membership leaves the ``group`` field empty.
     """
     async with httpx.AsyncClient(base_url=_BASE_URL, timeout=60.0) as client:
-        resp = await client.get("/lists/series/json")
+        series_resp = await client.get("/lists/series/json")
         try:
-            resp.raise_for_status()
+            series_resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
             map_http_error(exc, provider="boc", op_name="series/list")
-        data = resp.json()
+        series_payload = series_resp.json()
 
-    series = data.get("series", {})
+        groups_resp = await client.get("/lists/groups/json")
+        try:
+            groups_resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            map_http_error(exc, provider="boc", op_name="groups/list")
+        groups_payload = groups_resp.json()
+
+        groups_index = groups_payload.get("groups") or {}
+        if not isinstance(groups_index, dict):
+            groups_index = {}
+        series_to_group = await _build_series_to_group_map(client, groups_index)
+
+    series = series_payload.get("series") or {}
     rows: list[dict[str, str]] = []
     for series_name, info in series.items():
         if not series_name:
             continue
-        label = info.get("label", series_name) if isinstance(info, dict) else str(info)
-        desc = info.get("description", "") if isinstance(info, dict) else ""
-        # Use description as group hint (no group info in this endpoint)
+        if isinstance(info, dict):
+            label = info.get("label") or series_name
+            desc = info.get("description") or ""
+        else:
+            label = str(info)
+            desc = ""
+
+        group_id, group_label = series_to_group.get(series_name, ("", ""))
+
         rows.append(
             {
                 "series_name": series_name,
                 "title": label,
-                "group": desc,
+                "description": desc,
+                "source": "valet",
+                "entity_type": "series",
+                "group": group_id,
+                "group_label": group_label,
             }
         )
 
-    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["series_name", "title", "group"])
+    # Emit one row per group as a discoverable catalog entity. Groups are
+    # addressable via ``boc_fetch(series_name="group:NAME")`` (BoC's
+    # ``/observations/group/{name}/json``), so cataloguing them lets
+    # agents search by group description (e.g. "Month-end, Millions of
+    # dollars" — uniquely a group-level signal) and fetch a whole panel
+    # in one shot. ~2.3k groups; 2.2k carry non-empty descriptions in
+    # practice. Group rows use the ``group:`` prefix in their KEY,
+    # matching the syntax ``boc_fetch`` already accepts.
+    for group_name, group_info in groups_index.items():
+        if not group_name:
+            continue
+        if isinstance(group_info, dict):
+            g_label = group_info.get("label") or group_name
+            g_desc = group_info.get("description") or ""
+        else:
+            g_label = str(group_info)
+            g_desc = ""
+        rows.append(
+            {
+                "series_name": f"group:{group_name}",
+                "title": g_label,
+                "description": g_desc,
+                "source": "valet",
+                "entity_type": "group",
+                "group": group_name,
+                "group_label": g_label,
+            }
+        )
+
+    columns = [
+        "series_name",
+        "title",
+        "description",
+        "source",
+        "entity_type",
+        "group",
+        "group_label",
+    ]
+    return pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
 
 
 # ---------------------------------------------------------------------------
 # Exports
 # ---------------------------------------------------------------------------
 
+from parsimony_boc.search import (
+    BOC_SEARCH_OUTPUT,
+    BocSearchParams,
+    PARSIMONY_BOC_CATALOG_URL_ENV,
+    boc_search,
+)
+
 CATALOGS: list[tuple[str, object]] = [("boc", enumerate_boc)]
 
-CONNECTORS = Connectors([boc_fetch, enumerate_boc])
+CONNECTORS = Connectors([boc_fetch, enumerate_boc, boc_search])
