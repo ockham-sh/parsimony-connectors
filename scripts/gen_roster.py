@@ -69,6 +69,21 @@ def _entry_point(data: dict) -> tuple[str, str]:
     return name, module
 
 
+def _provider_name(description: str) -> str:
+    """Extract the provider's display name from a pyproject description.
+
+    The convention is ``"<Provider Name> connector for the parsimony
+    framework"``, sometimes with a parenthetical clarifier. Strips both
+    the inline ``"connector"`` and the trailing ``"for the parsimony
+    framework"`` suffix to leave the human-readable provider name.
+    """
+    suffix = " for the parsimony framework"
+    s = description.replace(" connector ", " ").removesuffix(" connector")
+    if s.endswith(suffix):
+        s = s[: -len(suffix)]
+    return s.strip()
+
+
 def _favicon_url(homepage: str) -> str | None:
     """Resolve a provider's homepage to a favicon URL, or ``None`` if missing.
 
@@ -142,11 +157,11 @@ def _render(rows: list[PackageInfo]) -> str:
             else ""
         )
         link = f"{icon_md}[`{row.name}`](https://pypi.org/project/{row.name}/)"
-        homepage_md = f"[{row.entry_point}]({row.homepage})" if row.homepage else row.entry_point
+        provider = _provider_name(row.description).replace("|", "\\|")
+        source_md = f"[{provider}]({row.homepage})" if row.homepage else provider
         tool_cell = f"{row.tool_count} of {row.connector_count}" if row.connector_count else "n/a"
-        desc = row.description.replace("|", "\\|")
         lines.append(
-            f"| {link} <br/><sub>{desc}</sub> | {homepage_md} | {row.connector_count} | {tool_cell} |"
+            f"| {link} | {source_md} | {row.connector_count} | {tool_cell} |"
         )
     return "\n".join(lines)
 
