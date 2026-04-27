@@ -5,7 +5,7 @@ description = "Workspace root for the parsimony connectors monorepo. Not publish
 requires-python = ">=3.11"
 
 [tool.uv.workspace]
-members = ["packages/*"]
+members = ["packages/*", "test_support"]
 
 [tool.uv.sources]
 # The kernel pin is `parsimony-core>=0.4,<0.5` on PyPI. The editable

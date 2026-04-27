@@ -1,0 +1,20 @@
+[project]
+name = "parsimony-test-support"
+version = "0.0.0"
+description = "Internal shared test harness for parsimony-connectors. Not published."
+requires-python = ">=3.11"
+dependencies = [
+    "parsimony-core>=0.4,<0.5",
+    "httpx>=0.27,<1",
+    "respx>=0.22",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "python-dotenv>=1.0,<2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["parsimony_test_support"]
