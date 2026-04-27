@@ -5,12 +5,26 @@ name: Release
 # publisher (see docs/pypi-setup.md). Tag-based release triggers can be
 # added later if cadence makes them worthwhile.
 #
+# Naming standards (root cause of the underscore/hyphen split below):
+#   - Folder name (the input, e.g. `alpha_vantage`) follows PEP 8
+#     module-name rules — lowercase + underscores — because it mirrors
+#     the importable `parsimony_<pkg>/` subpackage inside.
+#   - Distribution name (pyproject `name`, PyPI URL, GitHub environment
+#     name, e.g. `parsimony-alpha-vantage`) follows PEP 503 canonical
+#     form — lowercase + hyphens.
+# A `normalize` job validates the input and emits both forms as outputs:
+#   - pkg      → underscore form, used for filesystem paths
+#   - pkg_dist → `parsimony-<hyphen>`, used for pyproject name check
+#   - pkg_env  → `pypi-<hyphen>`, used as the GitHub environment name
+# The `publish` job consumes those via `needs.normalize.outputs.*`.
+# (GitHub Actions expressions have no string `replace`, so we cannot
+# normalize inline at the workflow/job header — hence the setup job.)
+#
 # Security posture: the `package` input flows into shell / Python / URLs
-# in many places. We bind it ONCE to a job-level env var (PKG) and
-# validate the value with a strict regex at the start of every job so
-# shell expansion in ${{ github.event.inputs.package }} cannot inject
-# code via crafted input. Never reference github.event.inputs.package
-# inside a `run:` block — always use "$PKG".
+# in many places. The `normalize` job validates it once with a strict
+# regex; downstream jobs only ever see the validated, normalized values
+# via `needs.normalize.outputs.*`. Inside `run:` blocks, always use the
+# bound env vars ($PKG, $PKG_DIST), never `github.event.inputs.package`.
 #
 # All third-party actions pinned by commit SHA (not tag) to defeat tag
 # mutation / hostile retag. Version comment shows the human-readable tag.
@@ -23,10 +37,12 @@ on:
   workflow_dispatch:
     inputs:
       package:
-        description: "Package name to release (e.g. 'fred'). Must match ^[a-z][a-z0-9_-]*$."
+        description: "Package folder name to release (e.g. 'fred', 'alpha_vantage'). Must match ^[a-z][a-z0-9_-]*$."
         required: true
 
 concurrency:
+  # Literal interpolation is fine here: the same input string always
+  # serializes against itself. Normalization isn't required for grouping.
   group: release-${{ github.event.inputs.package }}
   cancel-in-progress: false
 
@@ -38,32 +54,55 @@ env:
   KERNEL_REF: main
 
 jobs:
+  normalize:
+    # Validate the input and emit both naming forms so downstream jobs
+    # never have to do the underscore/hyphen dance themselves.
+    name: Normalize package name
+    runs-on: ubuntu-latest
+    outputs:
+      pkg: ${{ steps.compute.outputs.pkg }}
+      pkg_dist: ${{ steps.compute.outputs.pkg_dist }}
+      pkg_env: ${{ steps.compute.outputs.pkg_env }}
+    steps:
+      - name: Validate and normalize package input
+        id: compute
+        shell: bash
+        env:
+          PKG_INPUT: ${{ github.event.inputs.package }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$PKG_INPUT" =~ ^[a-z][a-z0-9_-]*$ ]]; then
+            echo "::error::Input 'package' must match ^[a-z][a-z0-9_-]*$ (got: $PKG_INPUT)"
+            exit 1
+          fi
+          # Folder form (PEP 8 module): underscores. Accept either form
+          # of input and translate to the canonical folder name on disk.
+          pkg="${PKG_INPUT//-/_}"
+          # PEP 503 canonical form (distribution name + env name).
+          pkg_hyphen="${PKG_INPUT//_/-}"
+          {
+            echo "pkg=${pkg}"
+            echo "pkg_dist=parsimony-${pkg_hyphen}"
+            echo "pkg_env=pypi-${pkg_hyphen}"
+          } >> "$GITHUB_OUTPUT"
+
   publish:
-    name: Publish parsimony-${{ github.event.inputs.package }}
+    needs: normalize
+    name: Publish ${{ needs.normalize.outputs.pkg_dist }}
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: parsimony-connectors
     env:
-      PKG: ${{ github.event.inputs.package }}
+      PKG: ${{ needs.normalize.outputs.pkg }}
+      PKG_DIST: ${{ needs.normalize.outputs.pkg_dist }}
     environment:
-      name: pypi-${{ github.event.inputs.package }}
-      url: https://pypi.org/p/parsimony-${{ github.event.inputs.package }}
+      name: ${{ needs.normalize.outputs.pkg_env }}
+      url: https://pypi.org/p/${{ needs.normalize.outputs.pkg_dist }}
     permissions:
       id-token: write  # required for OIDC trusted publishing
       contents: read
     steps:
-      - name: Validate package-name input
-        shell: bash
-        # Runs before checkout, so override the job-level working-directory
-        # (parsimony-connectors/) which does not exist yet.
-        working-directory: .
-        run: |
-          set -euo pipefail
-          if ! [[ "$PKG" =~ ^[a-z][a-z0-9_-]*$ ]]; then
-            echo "::error::Input 'package' must match ^[a-z][a-z0-9_-]*$ (got: $PKG)"
-            exit 1
-          fi
 
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
         with:
@@ -138,8 +177,12 @@ jobs:
           print(data['project']['version'])
           ")
           # Defence against a rogue pyproject.toml claiming an unrelated PyPI name.
-          if [[ "$pkg_name" != "parsimony-$PKG" ]]; then
-            echo "::error::pyproject name '$pkg_name' must equal 'parsimony-$PKG'."
+          # PKG_DIST is the PEP 503 canonical (hyphen-form) of the input,
+          # computed once in the `normalize` job. This handles multi-word
+          # folders like `alpha_vantage` whose distribution name is the
+          # hyphen-form `parsimony-alpha-vantage`.
+          if [[ "$pkg_name" != "$PKG_DIST" ]]; then
+            echo "::error::pyproject name '$pkg_name' must equal '$PKG_DIST'."
             exit 1
           fi
           if python3 -c "
@@ -191,7 +234,7 @@ jobs:
           "
 
       - name: Build wheel + sdist
-        working-directory: parsimony-connectors/packages/${{ github.event.inputs.package }}
+        working-directory: parsimony-connectors/packages/${{ needs.normalize.outputs.pkg }}
         # uv build invoked from a workspace member writes artifacts to the
         # WORKSPACE ROOT's dist/ by default, not the member's dist/. Pin the
         # output explicitly so the publish step below finds them.
@@ -200,5 +243,5 @@ jobs:
       - name: Publish to PyPI (OIDC trusted publisher)
         uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc  # v1.12.4
         with:
-          packages-dir: parsimony-connectors/packages/${{ github.event.inputs.package }}/dist/
+          packages-dir: parsimony-connectors/packages/${{ needs.normalize.outputs.pkg }}/dist/
           attestations: true
