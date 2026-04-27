@@ -1,21 +1,21 @@
 # Changelog — parsimony-eodhd
 
-## 0.2.0
+All notable changes to `parsimony-eodhd` will be documented in this file. The
+format is based on [Keep a Changelog](https://keepachangelog.com/) and
+this project adheres to [Semantic Versioning](https://semver.org/).
 
-### Non-breaking changes
+## [Unreleased]
 
-- Decomposed single-file package into four internal modules
-  (`_http.py`, `params.py`, `outputs.py`, `__init__.py`). All public symbols
-  remain importable from `parsimony_eodhd` at the same names.
-- Unified HTTP error mapping: 401/403 → `UnauthorizedError`, 402 →
-  `PaymentRequiredError`, 429 → `RateLimitError`, else → `ProviderError`.
-- URL redaction (`?api_token=<key>` → `?api_token=***`) as defence-in-depth
-  for exception text and logs.
-- `RateLimitError` now reads `Retry-After` from the response header when
-  present (falls back to 60s).
-- 15s per-request HTTP timeout by default; bulk endpoints override explicitly.
-  `httpx.TimeoutException` is mapped to `ProviderError(status_code=408)`.
+## [0.4.0] — 2026-04-24
 
-## 0.1.0
+Part of the first coordinated release of the
+[`parsimony-connectors`](https://github.com/ockham-sh/parsimony-connectors)
+monorepo under `parsimony-core==0.4`.
 
-- Initial scaffold.
+### Changed
+
+- Connector rewritten against the kernel's `parsimony.discover` surface
+  (`iter_providers`, `load`, `load_all`) and the `@connector(env=...)`
+  decorator-level env-var declaration that replaced module-level
+  `ENV_VARS`.
+- Pin bumped to `parsimony-core>=0.4,<0.5`.

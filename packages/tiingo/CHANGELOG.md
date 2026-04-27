@@ -1,18 +1,21 @@
 # Changelog — parsimony-tiingo
 
-## 0.2.0
+All notable changes to `parsimony-tiingo` will be documented in this file. The
+format is based on [Keep a Changelog](https://keepachangelog.com/) and
+this project adheres to [Semantic Versioning](https://semver.org/).
 
-### Non-breaking changes
+## [Unreleased]
 
-- Decomposed the single-file package into four internal modules
-  (`_http.py`, `params.py`, `outputs.py`, `__init__.py`). All public symbols
-  remain importable from `parsimony_tiingo` at the same names.
-- Unified HTTP error mapping: 401/403 → `UnauthorizedError`, 402 →
-  `PaymentRequiredError`, 429 → `RateLimitError`, else → `ProviderError`.
-- `RateLimitError` now reads `Retry-After` from the response header when
-  present (falls back to 60s).
-- HTTP timeouts raise `ProviderError` (status 408) via the unified mapper.
+## [0.4.0] — 2026-04-24
 
-## 0.1.0
+Part of the first coordinated release of the
+[`parsimony-connectors`](https://github.com/ockham-sh/parsimony-connectors)
+monorepo under `parsimony-core==0.4`.
 
-- Initial scaffold.
+### Changed
+
+- Connector rewritten against the kernel's `parsimony.discover` surface
+  (`iter_providers`, `load`, `load_all`) and the `@connector(env=...)`
+  decorator-level env-var declaration that replaced module-level
+  `ENV_VARS`.
+- Pin bumped to `parsimony-core>=0.4,<0.5`.
