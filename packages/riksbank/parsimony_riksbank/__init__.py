@@ -265,7 +265,7 @@ def _swestr_parse_rows(series: str, payload: Any) -> list[dict[str, Any]]:
         if raw_value is None:
             raw_value = item.get("value")
         try:
-            value = float(raw_value) if raw_value not in (None, "", "NaN") else None
+            value = float(raw_value) if raw_value not in (None, "", "NaN") else None  # type: ignore[arg-type]
         except (ValueError, TypeError):
             value = None
         row: dict[str, Any] = {
@@ -686,7 +686,7 @@ async def riksbank_swestr_fetch(params: RiksbankSwestrFetchParams, *, api_key: s
 
     # Resolve a human-readable title from the static registry so the
     # agent-facing output matches what the catalog row advertises.
-    title = params.series
+    title: str = params.series
     for spec in _SWESTR_SERIES:
         if spec["series_id"] == params.series:
             title = spec["title"]
@@ -834,7 +834,7 @@ async def enumerate_riksbank(params: RiksbankEnumerateParams, *, api_key: str = 
 # Exports
 # ---------------------------------------------------------------------------
 
-from parsimony_riksbank.search import (
+from parsimony_riksbank.search import (  # noqa: E402, F401  (after public decorators; re-exported)
     PARSIMONY_RIKSBANK_CATALOG_URL_ENV,
     RIKSBANK_SEARCH_OUTPUT,
     RiksbankSearchParams,

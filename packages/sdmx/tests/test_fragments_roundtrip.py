@@ -20,11 +20,10 @@ from pathlib import Path
 
 import pandas as pd
 import pyarrow.parquet as pq
-import pytest
-
 from parsimony.catalog import entries_from_result
 from parsimony.embedder import EmbedderInfo, FragmentEmbeddingCache
 from parsimony.result import Provenance, Result
+
 from parsimony_sdmx.connectors.enumerate_series import ENUMERATE_SERIES_OUTPUT
 from parsimony_sdmx.core.models import SeriesRecord
 from parsimony_sdmx.io.parquet import SERIES_SCHEMA, write_series

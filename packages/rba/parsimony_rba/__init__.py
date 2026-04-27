@@ -786,7 +786,7 @@ async def enumerate_rba(params: RbaEnumerateParams) -> pd.DataFrame:
 # Exports
 # ---------------------------------------------------------------------------
 
-from parsimony_rba.search import (
+from parsimony_rba.search import (  # noqa: E402, F401  (after public decorators; re-exported)
     PARSIMONY_RBA_CATALOG_URL_ENV,
     RBA_SEARCH_OUTPUT,
     RbaSearchParams,

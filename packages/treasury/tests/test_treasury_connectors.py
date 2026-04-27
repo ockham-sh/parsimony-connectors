@@ -30,7 +30,7 @@ from parsimony_treasury import (
 
 def test_connectors_collection_exposes_expected_names() -> None:
     names = {c.name for c in CONNECTORS}
-    assert names == {"treasury_fetch", "treasury_rates_fetch", "enumerate_treasury"}
+    assert names == {"treasury_fetch", "treasury_rates_fetch", "enumerate_treasury", "treasury_search"}
 
 
 def test_treasury_fetch_tags() -> None:
@@ -282,7 +282,7 @@ async def test_enumerate_treasury_keeps_tcir_string_rate_fields() -> None:
                                         "column_name": "rate_desc",
                                         "pretty_name": "Description",
                                         "data_type": "STRING",
-                                        "definition": "The description for which the certified interest rates are applicable.",
+                                        "definition": "The description for which the certified interest rates are applicable.",  # noqa: E501
                                     },
                                     {
                                         "column_name": "floating_rate",

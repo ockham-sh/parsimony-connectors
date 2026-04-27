@@ -38,7 +38,7 @@ def test_connectors_collection_exposes_expected_names() -> None:
     # METADATA column is in place so ``riksbank_forecasts_fetch`` and
     # ``riksbank_cba_fetch`` slot in without a schema migration when
     # those endpoints surface.
-    assert names == {"riksbank_fetch", "riksbank_swestr_fetch", "enumerate_riksbank"}
+    assert names == {"riksbank_fetch", "riksbank_swestr_fetch", "enumerate_riksbank", "riksbank_search"}
 
 
 def test_enumerate_output_declares_description_and_source_columns() -> None:
@@ -148,7 +148,7 @@ _SERIES_PAYLOAD = [
         "source": "Sveriges Riksbank",
         "shortDescription": "Policy rate",
         "midDescription": "Policy rate",
-        "longDescription": "The policy rate is the interest rate at which the banks can borrow or deposit in the Riksbank.",
+        "longDescription": "The policy rate is the interest rate at which the banks can borrow or deposit in the Riksbank.",  # noqa: E501
         "groupId": 2,
         "observationMinDate": "1994-06-01",
         "observationMaxDate": "2026-04-24",

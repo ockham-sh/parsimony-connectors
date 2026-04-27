@@ -23,7 +23,7 @@ from parsimony_boc import (
 
 def test_connectors_collection_exposes_expected_names() -> None:
     names = {c.name for c in CONNECTORS}
-    assert names == {"boc_fetch", "enumerate_boc"}
+    assert names == {"boc_fetch", "enumerate_boc", "boc_search"}
 
 
 def test_enumerate_output_schema_routes_description_via_description_role() -> None:
@@ -31,6 +31,7 @@ def test_enumerate_output_schema_routes_description_via_description_role() -> No
     not METADATA (BM25 only). Mirrors Treasury's ``definition`` column.
     """
     from parsimony.result import ColumnRole
+
     from parsimony_boc import BOC_ENUMERATE_OUTPUT
 
     by_name = {c.name: c for c in BOC_ENUMERATE_OUTPUT.columns}

@@ -34,7 +34,7 @@ import pandas as pd
 from parsimony.catalog import Catalog
 from parsimony.connector import connector
 from parsimony.errors import ConnectorError, EmptyDataError
-from parsimony.result import Column, ColumnRole, OutputConfig, Provenance, Result
+from parsimony.result import Column, ColumnRole, OutputConfig
 from pydantic import BaseModel, Field
 
 from parsimony_sdmx.connectors._agencies import AgencyId

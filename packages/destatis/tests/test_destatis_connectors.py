@@ -120,7 +120,7 @@ async def test_destatis_fetch_parses_jsonstat_response() -> None:
         return_value=httpx.Response(200, json=_JSONSTAT_FIXTURE)
     )
 
-    result = await destatis_fetch(DestatisFetchParams(name="61111-0001"))
+    result = await destatis_fetch(DestatisFetchParams(table_id="61111-0001"))
 
     assert result.provenance.source == "destatis"
     df = result.data
@@ -158,7 +158,7 @@ async def test_destatis_fetch_maps_500_to_provider_error() -> None:
     )
 
     with pytest.raises(ProviderError):
-        await destatis_fetch(DestatisFetchParams(name="61111-0001"))
+        await destatis_fetch(DestatisFetchParams(table_id="61111-0001"))
 
 
 @respx.mock
@@ -175,7 +175,7 @@ async def test_destatis_fetch_raises_provider_error_on_announcement_redirect() -
     )
 
     with pytest.raises(ProviderError, match="API may have changed"):
-        await destatis_fetch(DestatisFetchParams(name="61111-0001"))
+        await destatis_fetch(DestatisFetchParams(table_id="61111-0001"))
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +186,7 @@ async def test_destatis_fetch_raises_provider_error_on_announcement_redirect() -
 def test_fetch_requires_table_id() -> None:
     """``name=`` (the canonical field) must be non-empty."""
     with pytest.raises(ValueError):
-        DestatisFetchParams(name="")
+        DestatisFetchParams(table_id="")
 
 
 # ---------------------------------------------------------------------------

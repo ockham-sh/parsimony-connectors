@@ -16,7 +16,9 @@ pytestmark = pytest.mark.integration
 
 @pytest.mark.asyncio
 async def test_polymarket_gamma_events_returns_active_markets() -> None:
-    result = await POLYMARKET_GAMMA(PolymarketFetchParams(path="/events", limit=5))
+    # ``limit`` is an extra field accepted via ``ConfigDict(extra="allow")``;
+    # mypy doesn't see it on the BaseModel signature.
+    result = await POLYMARKET_GAMMA(PolymarketFetchParams(path="/events", limit=5))  # type: ignore[call-arg]
 
     assert_provenance_shape(
         result,
@@ -31,7 +33,7 @@ async def test_polymarket_gamma_events_returns_active_markets() -> None:
 
 @pytest.mark.asyncio
 async def test_polymarket_gamma_markets_returns_data() -> None:
-    result = await POLYMARKET_GAMMA(PolymarketFetchParams(path="/markets", limit=5))
+    result = await POLYMARKET_GAMMA(PolymarketFetchParams(path="/markets", limit=5))  # type: ignore[call-arg]
 
     assert_provenance_shape(result, expected_source="polymarket_gamma")
     df = result.data

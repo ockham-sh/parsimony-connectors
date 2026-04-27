@@ -30,7 +30,7 @@ _SNB_CSV = (
 
 def test_connectors_collection_exposes_expected_names() -> None:
     names = {c.name for c in CONNECTORS}
-    assert names == {"snb_fetch", "enumerate_snb"}
+    assert names == {"snb_fetch", "enumerate_snb", "snb_search"}
 
 
 @respx.mock

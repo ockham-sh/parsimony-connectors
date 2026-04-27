@@ -164,9 +164,7 @@ def _is_measure_field(field: dict[str, Any]) -> bool:
         definition = (field.get("definition") or "").strip()
         # ``floating_rate`` is a Y/N flag describing the security, not a
         # rate value; same for any other Y/N-prefixed indicator.
-        if definition.startswith("Y/N"):
-            return False
-        return True
+        return not definition.startswith("Y/N")
     return False
 
 
@@ -624,7 +622,7 @@ async def enumerate_treasury(params: TreasuryEnumerateParams) -> pd.DataFrame:
 # Exports
 # ---------------------------------------------------------------------------
 
-from parsimony_treasury.search import (
+from parsimony_treasury.search import (  # noqa: E402, F401  (after public decorators; re-exported)
     PARSIMONY_TREASURY_CATALOG_URL_ENV,
     TREASURY_SEARCH_OUTPUT,
     TreasurySearchParams,

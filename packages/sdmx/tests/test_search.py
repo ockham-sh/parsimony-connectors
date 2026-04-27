@@ -17,7 +17,7 @@ these tests lock in the connector contract only.
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
+from collections.abc import Iterator
 
 import pytest
 from parsimony.errors import ConnectorError, EmptyDataError
@@ -34,7 +34,7 @@ from parsimony_sdmx.connectors.search import (
 
 
 @pytest.fixture(autouse=True)
-def _reset_lru() -> None:
+def _reset_lru() -> Iterator[None]:
     _clear_catalog_lru()
     yield
     _clear_catalog_lru()

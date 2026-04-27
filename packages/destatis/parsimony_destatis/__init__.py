@@ -277,10 +277,11 @@ async def _get_json(
                     )
                     return None
                 try:
-                    return response.json()
+                    payload: dict[str, Any] = response.json()
                 except ValueError as exc:
                     logger.warning("Destatis %s returned non-JSON body: %s", path, exc)
                     return None
+                return payload
 
             last_status = response.status_code
             if response.status_code in _RETRY_STATUSES and backoff is not None:

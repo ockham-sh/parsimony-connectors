@@ -885,7 +885,8 @@ async def enumerate_bdp(params: BdpEnumerateParams) -> pd.DataFrame:
         ) -> list[dict[str, str]]:
             did = str(domain.get("id", "")).strip()
             domain_name = str(domain.get("label") or domain.get("description") or did).strip()
-            ext = stub.get("extension") if isinstance(stub.get("extension"), dict) else {}
+            _ext_raw = stub.get("extension")
+            ext: dict[str, Any] = _ext_raw if isinstance(_ext_raw, dict) else {}
             dataset_id = str(ext.get("id") or "").strip()
             if not dataset_id:
                 return []

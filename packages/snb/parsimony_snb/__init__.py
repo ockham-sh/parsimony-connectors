@@ -117,12 +117,12 @@ _KNOWN_CUBES: tuple[tuple[str, str], ...] = (
     ("batreuhlandua", "by selected country"),
     ("batreuhua", "By currency (Annual)"),
     ("batreuhum", "By currency (Monthly)"),
-    ("bawebedomsecwa", "By domicile of custody account holder and issuer, business sector and investment currency (Monthly)"),
-    ("bawebedomsecwja", "By domicile of custody account holder and issuer, business sector and investment currency (Annual)"),
+    ("bawebedomsecwa", "By domicile of custody account holder and issuer, business sector and investment currency (Monthly)"),  # noqa: E501
+    ("bawebedomsecwja", "By domicile of custody account holder and issuer, business sector and investment currency (Annual)"),  # noqa: E501
     ("bawebesec", "By domicile and business sector of custody account holder, security category (Monthly)"),
     ("bawebesecja", "By domicile and business sector of custody account holder, security category (Annual)"),
-    ("bawebewa", "By domicile of custody account holder and issuer, security category and investment currency (Monthly)"),
-    ("bawebewja", "By domicile of custody account holder and issuer, security category and investment currency (Annual)"),
+    ("bawebewa", "By domicile of custody account holder and issuer, security category and investment currency (Monthly)"),  # noqa: E501
+    ("bawebewja", "By domicile of custody account holder and issuer, security category and investment currency (Annual)"),  # noqa: E501
     ("bopcapbala", "Financial account (Year)"),
     ("bopcapbalq", "Financial account (Quarter)"),
     ("bopcurra", "Current account (Year)"),
@@ -237,8 +237,8 @@ _KNOWN_CUBES: tuple[tuple[str, str], ...] = (
     ("pllohnind", "Salary/wage indices"),
     ("plproimpr", "Producer and import prices"),
     ("pubfin", "Public finances"),
-    ("rendeiduebd", "Spot interest rates on Swiss Confederation bonds, euro area government bonds and CHF bond issues for various borrower categories – Day"),
-    ("rendeiduebm", "Spot interest rates on Swiss Confederation bonds, euro area government bonds and CHF bond issues for various borrower categories – Month"),
+    ("rendeiduebd", "Spot interest rates on Swiss Confederation bonds, euro area government bonds and CHF bond issues for various borrower categories – Day"),  # noqa: E501
+    ("rendeiduebm", "Spot interest rates on Swiss Confederation bonds, euro area government bonds and CHF bond issues for various borrower categories – Month"),  # noqa: E501
     ("rendoblid", "Yields on bond issues ‒ 2002 methodology (up to July 2025) (Day)"),
     ("rendoblim", "Yields on bond issues ‒ 2002 methodology (up to July 2025) (Month)"),
     ("rendoeid", "Yields to maturity and residual maturities of individual Swiss Confederation bond issues"),
@@ -811,7 +811,7 @@ async def enumerate_snb(params: SnbEnumerateParams) -> pd.DataFrame:
 # Exports
 # ---------------------------------------------------------------------------
 
-from parsimony_snb.search import (
+from parsimony_snb.search import (  # noqa: E402, F401  (after public decorators; re-exported)
     PARSIMONY_SNB_CATALOG_URL_ENV,
     SNB_SEARCH_OUTPUT,
     SnbSearchParams,

@@ -76,7 +76,7 @@ _B13_2_1_CSV = (
 
 def test_connectors_collection_exposes_expected_names() -> None:
     names = {c.name for c in CONNECTORS}
-    assert names == {"rba_fetch", "enumerate_rba"}
+    assert names == {"rba_fetch", "enumerate_rba", "rba_search"}
 
 
 @respx.mock

@@ -346,10 +346,7 @@ def _series_description(
 
     bilingual: str
     if en_part and fr_part:
-        if en_part.lower() == fr_part.lower():
-            bilingual = en_part
-        else:
-            bilingual = f"{en_part} | {fr_part}"
+        bilingual = en_part if en_part.lower() == fr_part.lower() else f"{en_part} | {fr_part}"
     else:
         bilingual = en_part or fr_part
 

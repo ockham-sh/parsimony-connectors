@@ -351,10 +351,11 @@ async def _fetch_metadata(
 
             if response.status_code == 200:
                 try:
-                    return response.json()
+                    payload: dict[str, Any] = response.json()
                 except ValueError as exc:
                     logger.warning("BoJ metadata for %s returned non-JSON body: %s", db, exc)
                     return None
+                return payload
 
             last_status = response.status_code
             if response.status_code in _RETRY_STATUSES and backoff is not None:
@@ -724,7 +725,7 @@ async def enumerate_boj(params: BojEnumerateParams) -> pd.DataFrame:
 # Exports
 # ---------------------------------------------------------------------------
 
-from parsimony_boj.search import (
+from parsimony_boj.search import (  # noqa: E402, F401  (after public decorators; re-exported)
     BOJ_SEARCH_OUTPUT,
     PARSIMONY_BOJ_CATALOG_URL_ENV,
     BojSearchParams,

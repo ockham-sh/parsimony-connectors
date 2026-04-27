@@ -204,7 +204,7 @@ async def _fetch_group_membership(
     members = details.get("groupSeries") or {}
     if not isinstance(members, dict):
         return group_name, []
-    return group_name, [s for s in members.keys() if s]
+    return group_name, [s for s in members if s]
 
 
 async def _build_series_to_group_map(
@@ -396,10 +396,10 @@ async def enumerate_boc(params: BocEnumerateParams) -> pd.DataFrame:
 # Exports
 # ---------------------------------------------------------------------------
 
-from parsimony_boc.search import (
+from parsimony_boc.search import (  # noqa: E402, F401  (after public decorators; re-exported)
     BOC_SEARCH_OUTPUT,
-    BocSearchParams,
     PARSIMONY_BOC_CATALOG_URL_ENV,
+    BocSearchParams,
     boc_search,
 )
 

@@ -337,7 +337,11 @@ def _parse_catalog_csv(text: str, *, category: str) -> list[dict[str, str]]:
             # Defensive: BdE has occasional malformed rows when their export
             # job clips a description containing a literal ``"``. Skip rather
             # than crash the enumerator.
-            logger.debug("skipping malformed BdE catalog row (got %d cols, expected %d)", len(raw_row), len(_CSV_HEADERS))
+            logger.debug(
+                "skipping malformed BdE catalog row (got %d cols, expected %d)",
+                len(raw_row),
+                len(_CSV_HEADERS),
+            )
             continue
 
         record = dict(zip(_CSV_HEADERS, raw_row, strict=False))
@@ -508,10 +512,10 @@ async def enumerate_bde(params: BdeEnumerateParams) -> pd.DataFrame:
 # Exports
 # ---------------------------------------------------------------------------
 
-from parsimony_bde.search import (
+from parsimony_bde.search import (  # noqa: E402, F401  (after public decorators; re-exported)
     BDE_SEARCH_OUTPUT,
-    BdeSearchParams,
     PARSIMONY_BDE_CATALOG_URL_ENV,
+    BdeSearchParams,
     bde_search,
 )
 

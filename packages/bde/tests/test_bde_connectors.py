@@ -11,8 +11,8 @@ import respx
 from parsimony.errors import EmptyDataError
 
 from parsimony_bde import (
-    CONNECTORS,
     BDE_ENUMERATE_OUTPUT,
+    CONNECTORS,
     BdeEnumerateParams,
     BdeFetchParams,
     bde_fetch,
@@ -26,7 +26,7 @@ from parsimony_bde import (
 
 def test_connectors_collection_exposes_expected_names() -> None:
     names = {c.name for c in CONNECTORS}
-    assert names == {"bde_fetch", "enumerate_bde"}
+    assert names == {"bde_fetch", "enumerate_bde", "bde_search"}
 
 
 # ---------------------------------------------------------------------------
