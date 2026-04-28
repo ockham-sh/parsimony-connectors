@@ -82,14 +82,67 @@ parsimony-connectors/
 ├── pyproject.toml             # uv workspace root, editable kernel pin
 ├── test_support/              # shared test fixtures (ErrorMappingSuite, CANARY_KEY)
 ├── scripts/
-│   └── gen_roster.py          # rebuilds the roster table in this README
+│   ├── gen_roster.py          # rebuilds the roster table in this README
+│   └── mcp_e2e_test.py        # workspace-level MCP integration smoke
 └── packages/
     ├── fred/                  # → parsimony-fred on PyPI
     │   ├── pyproject.toml
     │   ├── parsimony_fred/
     │   └── tests/
     ├── sdmx/                  # → parsimony-sdmx on PyPI
+    │   ├── parsimony_sdmx/
+    │   ├── scripts/           # HF catalog publisher (gated by [publish] extra)
+    │   ├── eval/              # retrieval evaluation harness
+    │   └── tests/
     └── ...
+```
+
+## Publishing HF catalogs
+
+Connectors that ship a curated HuggingFace dataset (the SDMX series
+catalog, BLS surveys, Treasury fiscal data, central-bank macro
+indicators, …) include a `scripts/publish_<name>.py` driver in their
+package. The heavy deps (`faiss`, `onnxruntime`, `sentence-transformers`)
+stay behind a `[publish]` optional extra so `pip install parsimony-<name>`
+is lean for runtime users:
+
+```toml
+publish = ["parsimony-core[standard-onnx]>=0.4.0,<0.5"]
+```
+
+Drivers stage output to the parsimony kernel cache via
+`parsimony.cache.catalogs_dir(provider)` — XDG-compliant, perm-hardened,
+1:1 mirror of `hf://ockham/<provider>`:
+
+| Platform | Default location |
+|---|---|
+| Linux   | `~/.cache/parsimony/catalogs/<provider>/<namespace>/` |
+| macOS   | `~/Library/Caches/parsimony/catalogs/<provider>/<namespace>/` |
+| Windows | `%LOCALAPPDATA%/parsimony/Cache/catalogs/<provider>/<namespace>/` |
+
+Override the entire cache root with `PARSIMONY_CACHE_DIR` (HF runners,
+alternate disks). No per-driver knob — the kernel owns the convention.
+
+```bash
+cd packages/sdmx
+uv run --extra publish python scripts/publish_ecb.py
+
+# Redirect for an HF Space or a faster disk:
+PARSIMONY_CACHE_DIR=/data/parsimony \
+    uv run --extra publish python scripts/publish_ecb.py
+```
+
+Then push to HF (the per-provider directory is the namespaced root —
+no path rewriting):
+
+```bash
+hf upload ockham/sdmx ~/.cache/parsimony/catalogs/sdmx/
+```
+
+Inspect the cache occupancy and find paths via the kernel CLI:
+
+```bash
+uv run parsimony cache info
 ```
 
 Local development:

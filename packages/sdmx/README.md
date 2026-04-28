@@ -115,6 +115,41 @@ parsimony publish \
 
 An agency that fails listing is skipped with a warning; the run continues for the others.
 
+### Overnight chain (ESTAT → IMF_DATA → WB_WDI)
+
+The 3-agency long-tail (~10 k flows total, several pinning ~5 GB heap)
+needs process recycling — CPython does not return memory to the OS, so
+one python process eventually OOMs the host. `scripts/publish_overnight.sh`
+wraps `scripts/publish_agency.py` in a per-batch restart loop:
+
+```bash
+cd /home/espinet/ockham/parsimony-connectors                  # one-time
+uv sync --all-packages --extra publish
+
+cd packages/sdmx                                              # then, every run
+mkdir -p logs
+nohup bash scripts/publish_overnight.sh > logs/overnight.log 2>&1 &
+echo $! > logs/overnight.pid
+```
+
+The wrapper recycles the publisher every `PARSIMONY_PUBLISH_BATCH_SIZE`
+flows (default 15) and passes `--resume` so namespaces with a
+`meta.json` already on disk are skipped — safe to interrupt and restart.
+Output stages to `~/.cache/parsimony/catalogs/sdmx/<namespace>/`
+(`PARSIMONY_CACHE_DIR` to redirect). Per-agency stdout lands in
+`logs/publish_<agency>.log`; the wrapper banner goes to `logs/overnight.log`.
+
+Monitor and ship:
+
+```bash
+tail -f logs/overnight.log                          # batch-level events
+uv run parsimony cache info                         # catalogs subtree size
+ls -1 ~/.cache/parsimony/catalogs/sdmx | wc -l      # namespace count
+
+# When done — push to HF (per-provider dir is the namespaced root):
+hf upload ockham/sdmx ~/.cache/parsimony/catalogs/sdmx/
+```
+
 ## Search a published bundle
 
 ```python

@@ -3,6 +3,15 @@ name = "parsimony-connectors-workspace"
 version = "0.0.0"
 description = "Workspace root for the parsimony connectors monorepo. Not published."
 requires-python = ">=3.11"
+dependencies = [
+    # Anchor for the CPU-only torch source pin below. sentence-transformers
+    # (transitive via `parsimony-core[standard-onnx]` in any connector's
+    # `[publish]` extra) declares plain `torch`, which otherwise resolves
+    # to the +cu130 wheel (~2 GB + triton). We embed via ONNX Runtime,
+    # never via torch, so CPU torch is plenty. Direct dep here exists only
+    # so `[tool.uv.sources]` has something to bind against.
+    "torch>=2.0",
+]
 
 [tool.uv.workspace]
 members = ["packages/*", "test_support"]
@@ -17,6 +26,12 @@ members = ["packages/*", "test_support"]
 # PyPI, breaking the ability to verify a kernel+connectors change in
 # a single PR.
 parsimony-core = { path = "../parsimony", editable = true }
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.ruff]
 target-version = "py311"

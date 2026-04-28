@@ -40,6 +40,13 @@ dependencies = [
 # respx mocks in tests but typically 403s in production against the
 # live RBA origin). Optional so the test suite can mock httpx.
 recommended = []
+# Heavy deps for running the HF catalog publisher under scripts/. Kept
+# behind an extra so `pip install parsimony-rba` stays lean — only catalog
+# maintainers ever need parsimony-core[standard-onnx] (faiss + onnxruntime
+# + sentence-transformers).
+publish = [
+    "parsimony-core[standard-onnx]>=0.4.0,<0.5",
+]
 dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",

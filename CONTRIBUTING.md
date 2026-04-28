@@ -92,6 +92,21 @@ Scaffold `packages/foo/` by copying the smallest existing plugin (e.g.
   happy-path / error-mapping test file (`test_<name>_connectors.py`)
   following [`docs/testing-template.md`](docs/testing-template.md).
 - `README.md` — see any existing plugin for the standard shape.
+- `scripts/publish_<name>.py` *(only if your connector publishes a HF
+  catalog)* — driver that delegates to
+  `parsimony.publish.publish_provider` and stages output via
+  `parsimony.cache.catalogs_dir("<name>")` (XDG-compliant: defaults to
+  `~/.cache/parsimony/catalogs/<name>/<namespace>/`). Pair it with a
+  `[publish]` extra in `pyproject.toml`:
+  ```toml
+  publish = ["parsimony-core[standard-onnx]>=0.4.0,<0.5"]
+  ```
+  Heavy deps (faiss, onnxruntime, sentence-transformers) stay behind
+  the extra so `pip install parsimony-<name>` remains lean. See
+  `packages/sdmx/scripts/publish_ecb.py` or
+  `packages/bde/scripts/publish_bde.py` for the canonical shape — both
+  use `from parsimony.cache import catalogs_dir; TARGET_ROOT =
+  catalogs_dir("<name>")` and let the kernel own path resolution.
 
 Before opening a PR:
 
