@@ -77,7 +77,7 @@ The roster is generated from `packages/*/pyproject.toml` and the connector sourc
 
 This is a [`uv` workspace](https://docs.astral.sh/uv/) monorepo. One repository, N PyPI distributions:
 
-```
+```text
 parsimony-connectors/
 ├── pyproject.toml             # uv workspace root, editable kernel pin
 ├── test_support/              # shared test fixtures (ErrorMappingSuite, CANARY_KEY)

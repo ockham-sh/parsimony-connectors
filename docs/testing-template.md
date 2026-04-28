@@ -71,7 +71,7 @@ additional async tests:
 
 ### 4a. 401 → `UnauthorizedError`
 
-```
+```python
 @respx.mock
 @pytest.mark.asyncio
 async def test_<name>_maps_401_to_unauthorized() -> None:
@@ -98,7 +98,7 @@ leaking through is a contract violation.
 For every `@connector(tags=[..., "tool"], ...)`, the first line of the
 docstring must be a single-sentence **action contract**:
 
-```
+```text
 <verb> <noun> [by <identifier>] [— when to use vs sibling connectors].
 ```
 
