@@ -4,7 +4,7 @@ Every `parsimony-<name>` package must satisfy two gates: the kernel conformance
 suite (`parsimony.testing.assert_plugin_valid`) and a per-connector happy-path
 test. This document specifies the happy-path shape.
 
-**Reference implementation:** [`packages/fred/tests/test_fred_connectors.py`](../packages/fred/tests/test_fred_connectors.py).
+**Reference implementation:** [`packages/fred/tests/test_fred_connectors.py`](https://github.com/ockham-sh/parsimony-connectors/blob/main/packages/fred/tests/test_fred_connectors.py).
 
 ---
 
