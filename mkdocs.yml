@@ -1,0 +1,13 @@
+# Minimal config so this repo can be imported into the parsimony kernel
+# docs site via mkdocs-multirepo-plugin (`!import` directive in
+# parsimony/mkdocs.yml). The kernel site's theme overrides everything
+# visual; this file only contributes site_name + nav structure.
+site_name: parsimony-connectors
+docs_dir: docs
+
+nav:
+  - Overview: index.md
+  - Internal notes:
+      - PyPI Setup: pypi-setup.md
+      - Registry: registry.md
+      - Testing Template: testing-template.md
