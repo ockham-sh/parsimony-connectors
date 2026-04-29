@@ -9,7 +9,6 @@ workspace dep. It provides:
 * :func:`assert_no_secret_leak` — structural check on a Result, Provenance,
   or exception.
 * :func:`assert_provenance_shape` — well-formed Provenance assertion.
-* :func:`load_integration_env` — load ``.env`` for integration tests.
 * :func:`require_env` — pytest-skip helper for missing credentials.
 """
 
@@ -21,7 +20,7 @@ from parsimony_test_support.harness import (
     assert_no_secret_leak,
     assert_provenance_shape,
 )
-from parsimony_test_support.integration import load_integration_env, require_env
+from parsimony_test_support.integration import require_env
 from parsimony_test_support.suites import ErrorMappingSuite
 
 __all__ = [
@@ -30,6 +29,5 @@ __all__ = [
     "STATUS_TO_EXC",
     "assert_no_secret_leak",
     "assert_provenance_shape",
-    "load_integration_env",
     "require_env",
 ]
