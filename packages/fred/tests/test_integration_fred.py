@@ -6,8 +6,8 @@ Run explicitly with::
 
     uv run pytest packages/fred -m integration
 
-Requires ``FRED_API_KEY`` in the environment (loaded from
-``terminal/.env`` by the shared test-support harness).
+Requires ``FRED_API_KEY`` in the environment (workspace contributors
+get this from ``ockham/.env`` via direnv; CI sets it from secrets).
 """
 
 from __future__ import annotations
