@@ -17,7 +17,10 @@ The three plugin surfaces:
 - :func:`enumerate_sdmx_series` — produces catalog rows for per-dataset
   namespaces ``sdmx_series_{agency}_{dataset_id}`` (one HF bundle per
   dataset, expected thousands total).
-- ``sdmx_fetch`` — live SDMX retrieval (Task 6, not yet wired here).
+- :func:`sdmx_fetch` — live SDMX retrieval connector (one row per
+  observation, schema in :func:`parsimony_sdmx.connectors.fetch._sdmx_fetch_output`).
+- :func:`sdmx_datasets_search` / :func:`sdmx_series_search` — catalog-side
+  search primitives.
 """
 
 from __future__ import annotations
