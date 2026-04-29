@@ -16,13 +16,12 @@ returned by this tool to keep the discovery surface compact.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 from typing import Annotated
 
 import pandas as pd
-from parsimony.catalog import Catalog
+from parsimony.catalog import Catalog, CatalogCache
 from parsimony.connector import connector
 from parsimony.result import Column, ColumnRole, OutputConfig
 from pydantic import BaseModel, Field
@@ -32,20 +31,12 @@ logger = logging.getLogger(__name__)
 PARSIMONY_RIKSBANK_CATALOG_URL_ENV = "PARSIMONY_RIKSBANK_CATALOG_URL"
 _DEFAULT_CATALOG_URL = "hf://parsimony-dev/riksbank"
 
-_catalog: Catalog | None = None
-_catalog_lock = asyncio.Lock()
+_CATALOG_CACHE = CatalogCache(max_size=1)
 
 
 async def _get_catalog() -> Catalog:
-    global _catalog
-    if _catalog is not None:
-        return _catalog
-    async with _catalog_lock:
-        if _catalog is None:
-            url = os.environ.get(PARSIMONY_RIKSBANK_CATALOG_URL_ENV, _DEFAULT_CATALOG_URL)
-            logger.info("loading Riksbank catalog from %s", url)
-            _catalog = await Catalog.from_url(url)
-    return _catalog
+    url = os.environ.get(PARSIMONY_RIKSBANK_CATALOG_URL_ENV, _DEFAULT_CATALOG_URL)
+    return await _CATALOG_CACHE.get(url)
 
 
 RIKSBANK_SEARCH_OUTPUT = OutputConfig(
