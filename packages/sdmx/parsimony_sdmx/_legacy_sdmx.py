@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import contextmanager
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse, urlunparse
 
 import pandas as pd
 import sdmx as sdmx_lib
@@ -247,6 +247,10 @@ def sdmx_codelist_namespace(
     return normalize_code(f"sdmx_{_code_token(maintainer_id)}_{_code_token(codelist_id)}")
 
 
+_WB_BAD_HOST = "dataapi.worldbank.org"
+_WB_GOOD_HOST = "api.worldbank.org"
+
+
 @contextmanager
 def _sdmx_client(agency_id: str):
     """SDMX client with session cleanup and World Bank URL fix for bad reference links."""
@@ -255,8 +259,13 @@ def _sdmx_client(agency_id: str):
 
     def _patched_send(request: Any, **kwargs: Any) -> Any:
         url = getattr(request, "url", "") or ""
-        if "dataapi.worldbank.org" in url:
-            request.url = url.replace("dataapi.worldbank.org", "api.worldbank.org").replace("http://", "https://")
+        if url:
+            parsed = urlparse(url)
+            # Match on the actual host, not a substring (avoids paths
+            # like ``…/lookup?u=dataapi.worldbank.org`` accidentally
+            # triggering the rewrite).
+            if parsed.hostname == _WB_BAD_HOST:
+                request.url = urlunparse(parsed._replace(scheme="https", netloc=_WB_GOOD_HOST))
         return original_send(request, **kwargs)
 
     client.session.send = _patched_send  # type: ignore[method-assign]
