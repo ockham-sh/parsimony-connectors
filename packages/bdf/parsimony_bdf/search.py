@@ -23,13 +23,12 @@ shared embedding space, not just via subword overlap.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 from typing import Annotated
 
 import pandas as pd
-from parsimony.catalog import Catalog
+from parsimony.catalog import Catalog, CatalogCache
 from parsimony.connector import connector
 from parsimony.result import Column, ColumnRole, OutputConfig
 from pydantic import BaseModel, Field
@@ -39,20 +38,12 @@ logger = logging.getLogger(__name__)
 PARSIMONY_BDF_CATALOG_URL_ENV = "PARSIMONY_BDF_CATALOG_URL"
 _DEFAULT_CATALOG_URL = "hf://parsimony-dev/bdf"
 
-_catalog: Catalog | None = None
-_catalog_lock = asyncio.Lock()
+_CATALOG_CACHE = CatalogCache(max_size=1)
 
 
 async def _get_catalog() -> Catalog:
-    global _catalog
-    if _catalog is not None:
-        return _catalog
-    async with _catalog_lock:
-        if _catalog is None:
-            url = os.environ.get(PARSIMONY_BDF_CATALOG_URL_ENV, _DEFAULT_CATALOG_URL)
-            logger.info("loading BdF catalog from %s", url)
-            _catalog = await Catalog.from_url(url)
-    return _catalog
+    url = os.environ.get(PARSIMONY_BDF_CATALOG_URL_ENV, _DEFAULT_CATALOG_URL)
+    return await _CATALOG_CACHE.get(url)
 
 
 BDF_SEARCH_OUTPUT = OutputConfig(

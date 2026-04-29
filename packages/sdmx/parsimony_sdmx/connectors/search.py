@@ -4,34 +4,34 @@ These are the agent's entry point into the SDMX catalog. The MCP server
 filters by ``tags=["tool"]``, so any connector here gets exposed to the
 LLM as a tool call.
 
-Two-layer caching matches the plan §0 design:
+Catalogs live as namespace subfolders in a single multi-bundle HF
+dataset repo at :data:`DEFAULT_CATALOG_ROOT` — override the root for
+local dev with the ``PARSIMONY_SDMX_CATALOG_URL`` env var (matches the
+peer-connector convention). The kernel's ``Catalog.from_url``
+understands ``hf://<org>/<repo>/<sub>`` and fetches only the requested
+bundle via ``snapshot_download(allow_patterns=...)``, so cold-start
+cost is bounded to the namespace the agent actually queried (~14 MB
+for the cross-agency dataset index, 50-300 MB per series flow).
+Two-layer caching keeps the steady state cheap:
 
-1. **HF disk cache** — :func:`huggingface_hub.snapshot_download` caches
-   to ``~/.cache/huggingface/hub/`` automatically. First call to
-   ``hf://ockham/sdmx_series_ecb_hicp`` fetches; subsequent calls reuse
-   the local cache. ``file://`` URLs skip the download path entirely.
-2. **In-process catalog LRU** — once :class:`parsimony.Catalog` is loaded
-   from disk, we keep the resolved object in an LRU keyed by namespace.
-   FAISS + entries take ~135 MB for an 89k-row catalog so the cap is
-   tight; the typical agent walk hits 1-3 catalogs before the user
-   moves on.
-
-Catalog URL resolution is driven by ``PARSIMONY_SDMX_CATALOG_ROOT`` —
-local testing points it at ``file:///path/to/repo``; production points
-it at ``hf://ockham`` (or the deploying org). Either way the per-flow
-URL is ``{root}/{namespace}``.
+1. **HF disk cache** — ``snapshot_download`` caches under
+   ``~/.cache/huggingface/hub/`` automatically. Second call to the
+   same bundle is a no-op fetch.
+2. **In-process catalog LRU** — once a namespace's :class:`Catalog`
+   is loaded, it stays resident in an LRU keyed by namespace. FAISS +
+   entries take ~135 MB for an 89k-row catalog so the cap is tight;
+   the typical agent walk hits 1-3 catalogs before the user moves on.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
-from collections import OrderedDict
 from typing import Annotated
 
 import pandas as pd
-from parsimony.catalog import Catalog
+from huggingface_hub.errors import RepositoryNotFoundError
+from parsimony.catalog import Catalog, CatalogCache
 from parsimony.connector import connector
 from parsimony.errors import ConnectorError, EmptyDataError
 from parsimony.result import Column, ColumnRole, OutputConfig
@@ -43,53 +43,23 @@ from parsimony_sdmx.connectors.enumerate_series import series_namespace
 
 logger = logging.getLogger(__name__)
 
-#: Env var carrying the catalog root URL. Examples:
-#:
-#: - ``file:///home/user/ockham/catalogs/sdmx/repo``
-#: - ``hf://ockham`` (canonical production layout)
-PARSIMONY_SDMX_CATALOG_ROOT_ENV = "PARSIMONY_SDMX_CATALOG_ROOT"
+#: Override env var for the catalog root. Same naming convention as
+#: peer connectors (``PARSIMONY_<X>_CATALOG_URL``). Useful for pointing
+#: at a local snapshot during catalog dev (``file:///abs/path``).
+PARSIMONY_SDMX_CATALOG_URL_ENV = "PARSIMONY_SDMX_CATALOG_URL"
 
-#: Default LRU size for loaded catalogs. An 89k-row HICP catalog is
-#: ~135 MB resident; cap is tight so a chatty agent walk doesn't
-#: balloon RAM. Override with ``PARSIMONY_SDMX_CATALOG_LRU_SIZE``.
+#: Default catalog root: a single multi-bundle HF dataset repo holding
+#: every namespace as a subfolder.
+DEFAULT_CATALOG_ROOT = "hf://parsimony-dev/sdmx"
+
+#: How many hydrated bundles to keep resident at once. An 89k-row HICP
+#: catalog is ~135 MB so the cap is tight; the typical agent walk hits
+#: 1-3 namespaces before moving on. Override at process start with
+#: ``PARSIMONY_SDMX_CATALOG_LRU_SIZE``.
 DEFAULT_LRU_SIZE = 4
 
-_CATALOG_LRU: OrderedDict[str, Catalog] = OrderedDict()
-_CATALOG_LRU_LOCK = asyncio.Lock()
 
-
-# ---------------------------------------------------------------------------
-# Catalog URL resolution + LRU
-# ---------------------------------------------------------------------------
-
-
-def _catalog_root() -> str:
-    """Read the catalog root from the environment.
-
-    Raises :class:`ProviderError` with an actionable directive if unset —
-    the search tools cannot guess where catalogs live, and a silent
-    empty-result return would mislead the agent into looking elsewhere.
-    """
-    root = os.environ.get(PARSIMONY_SDMX_CATALOG_ROOT_ENV, "").strip()
-    if not root:
-        raise ConnectorError(
-            (
-                f"Set {PARSIMONY_SDMX_CATALOG_ROOT_ENV} to the catalog root "
-                "(e.g. 'file:///path/to/repo' or 'hf://ockham'). "
-                "Without it the search tools have nowhere to look. "
-                "DO NOT retry — ask the user to set the env var, or stop."
-            ),
-            provider="sdmx",
-        )
-    return root.rstrip("/")
-
-
-def _catalog_url(namespace: str) -> str:
-    """Compose ``{root}/{namespace}`` from the env-configured root."""
-    return f"{_catalog_root()}/{namespace}"
-
-
-def _lru_size() -> int:
+def _lru_size_from_env() -> int:
     raw = os.environ.get("PARSIMONY_SDMX_CATALOG_LRU_SIZE", "")
     try:
         n = int(raw) if raw else DEFAULT_LRU_SIZE
@@ -98,30 +68,53 @@ def _lru_size() -> int:
     return max(1, n)
 
 
+_CATALOG_CACHE = CatalogCache(max_size=_lru_size_from_env())
+
+
+# ---------------------------------------------------------------------------
+# Per-namespace catalog loading (delegates to kernel CatalogCache + sub-path)
+# ---------------------------------------------------------------------------
+
+
+def _catalog_root() -> str:
+    """Resolve the catalog root: env override or :data:`DEFAULT_CATALOG_ROOT`."""
+    return os.environ.get(PARSIMONY_SDMX_CATALOG_URL_ENV, DEFAULT_CATALOG_ROOT).rstrip("/")
+
+
 async def _get_or_load_catalog(namespace: str) -> Catalog:
     """Return a cached :class:`Catalog` for *namespace*, loading on miss.
 
-    The lock guards against two concurrent search calls both racing to
-    load the same catalog (small win; mainly prevents the duplicate
-    snapshot_download cost on cold cache).
+    Wraps :class:`~parsimony.catalog.CatalogCache.get` to translate the
+    kernel's raw ``RepositoryNotFoundError`` / ``FileNotFoundError``
+    into a directive-bearing :class:`ConnectorError` — agents need a
+    recovery hint, not a stack trace.
     """
-    async with _CATALOG_LRU_LOCK:
-        if namespace in _CATALOG_LRU:
-            _CATALOG_LRU.move_to_end(namespace)
-            return _CATALOG_LRU[namespace]
-        url = _catalog_url(namespace)
-        logger.info("loading SDMX catalog %s from %s", namespace, url)
-        catalog = await Catalog.from_url(url)
-        _CATALOG_LRU[namespace] = catalog
-        while len(_CATALOG_LRU) > _lru_size():
-            evicted, _ = _CATALOG_LRU.popitem(last=False)
-            logger.info("LRU evicting SDMX catalog %s", evicted)
-        return catalog
+    url = f"{_catalog_root()}/{namespace}"
+    try:
+        return await _CATALOG_CACHE.get(url)
+    except RepositoryNotFoundError as exc:
+        raise ConnectorError(
+            (
+                f"SDMX catalog repo for {namespace!r} not found at {url}. "
+                "The bundle has not been published. Try sdmx_datasets_search "
+                "to confirm flow_id, or pick a published flow. DO NOT retry."
+            ),
+            provider="sdmx",
+        ) from exc
+    except FileNotFoundError as exc:
+        raise ConnectorError(
+            (
+                f"SDMX bundle for {namespace!r} not present at {url}. "
+                "The namespace exists in the repo but its meta.json is "
+                "missing. DO NOT retry."
+            ),
+            provider="sdmx",
+        ) from exc
 
 
 def _clear_catalog_lru() -> None:
     """Drop all cached catalogs. Test-only."""
-    _CATALOG_LRU.clear()
+    _CATALOG_CACHE.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -238,14 +231,14 @@ class SeriesSearchParams(BaseModel):
 async def sdmx_series_search(params: SeriesSearchParams) -> pd.DataFrame:
     """Hybrid-search a per-flow SDMX series catalog by natural language.
 
-    Loads the published catalog for ``flow_id`` (``hf://`` or
-    ``file://`` per ``PARSIMONY_SDMX_CATALOG_ROOT``), runs RRF-fused
-    BM25 + FAISS retrieval, returns top-N (series_key, title,
-    similarity).
+    Loads the bundle for ``flow_id`` from :data:`DEFAULT_CATALOG_ROOT`
+    (a multi-bundle HF dataset repo) and runs RRF-fused BM25 + FAISS
+    retrieval, returning top-N (series_key, title, similarity).
 
     The LRU caches loaded catalogs so a follow-up search on the same
-    flow is in-memory; cold loads from ``hf://`` are network + 100s of
-    MB once, then disk-cached by huggingface_hub.
+    flow is in-memory; cold loads fetch only the namespace's subfolder
+    (50-300 MB once), then disk-cached by huggingface_hub. Unpublished
+    flows raise :class:`ConnectorError` with a recovery directive.
 
     Agents typically chain: ``sdmx_datasets_search(query) ->
     sdmx_series_search(query, flow_id) -> sdmx_fetch(series_key)``.
@@ -355,8 +348,9 @@ async def sdmx_datasets_search(params: DatasetsSearchParams) -> pd.DataFrame:
 
 
 __all__ = [
+    "DEFAULT_CATALOG_ROOT",
     "DatasetsSearchParams",
-    "PARSIMONY_SDMX_CATALOG_ROOT_ENV",
+    "PARSIMONY_SDMX_CATALOG_URL_ENV",
     "SeriesSearchParams",
     "sdmx_datasets_search",
     "sdmx_series_search",

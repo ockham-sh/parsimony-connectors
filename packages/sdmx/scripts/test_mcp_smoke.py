@@ -5,21 +5,23 @@ handle that); calls the connector directly the same way the MCP server
 bridge does after JSON-RPC unmarshalling. If this script returns
 sensible top-1 hits, the MCP integration is wire-ready.
 
+Runs against the connector's hard-coded ``DEFAULT_CATALOG_ROOT``. First
+call cold-loads each requested bundle (~150 MB for HICP) from Hugging
+Face; subsequent calls reuse the HF disk cache.
+
 Usage::
 
-    PARSIMONY_SDMX_CATALOG_ROOT=file:///home/espinet/ockham/catalogs/sdmx/repo \
-      python scripts/test_mcp_smoke.py
+    python scripts/test_mcp_smoke.py
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 import time
 
 from parsimony_sdmx.connectors.search import (
-    PARSIMONY_SDMX_CATALOG_ROOT_ENV,
+    DEFAULT_CATALOG_ROOT,
     SeriesSearchParams,
     sdmx_series_search,
 )
@@ -35,14 +37,7 @@ SMOKE_QUERIES = [
 
 
 async def _run() -> int:
-    if not os.environ.get(PARSIMONY_SDMX_CATALOG_ROOT_ENV):
-        sys.stderr.write(
-            f"Set {PARSIMONY_SDMX_CATALOG_ROOT_ENV} (e.g. "
-            "file:///home/espinet/ockham/catalogs/sdmx/repo) before running.\n"
-        )
-        return 2
-
-    print(f"=== MCP smoke against {os.environ[PARSIMONY_SDMX_CATALOG_ROOT_ENV]} ===")
+    print(f"=== MCP smoke against {DEFAULT_CATALOG_ROOT} ===")
     failures = 0
     for query, flow_id, expected in SMOKE_QUERIES:
         t0 = time.perf_counter()

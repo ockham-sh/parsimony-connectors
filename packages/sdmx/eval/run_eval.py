@@ -44,7 +44,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml  # type: ignore[import-untyped]
-
 from parsimony.catalog import Catalog
 
 SLICES = (
