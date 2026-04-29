@@ -14,8 +14,7 @@ PARSIMONY_<PROVIDER>_CATALOG_URL=file://... to test against a local repo
 instead.
 
 Usage (from the parsimony-connectors workspace root):
-    uv run --extra publish --env-file ../terminal/.env \
-        python scripts/mcp_e2e_test.py
+    uv run --extra publish python scripts/mcp_e2e_test.py
 """
 
 from __future__ import annotations
