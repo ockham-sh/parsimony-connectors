@@ -61,7 +61,7 @@ async def test_boc_fetch_single_series_returns_observations() -> None:
 
     result = await boc_fetch(BocFetchParams(series_name="FXUSDCAD"))
 
-    assert result.provenance.source == "boc"
+    assert result.provenance.source == "boc_fetch"
     df = result.data
     assert len(df) >= 1
 
@@ -90,7 +90,7 @@ async def test_boc_fetch_group_syntax_uses_group_endpoint() -> None:
 
     result = await boc_fetch(BocFetchParams(series_name="group:FX_RATES_DAILY"))
 
-    assert result.provenance.source == "boc"
+    assert result.provenance.source == "boc_fetch"
     assert len(result.data) >= 1
 
 

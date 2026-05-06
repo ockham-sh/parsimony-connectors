@@ -33,7 +33,6 @@ from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Provenance,
     Result,
 )
 from parsimony.transport import map_http_error
@@ -452,15 +451,8 @@ async def bde_fetch(params: BdeFetchParams) -> Result:
     if df.empty:
         raise EmptyDataError(provider="bde", message=f"No observations parsed for: {params.key}")
 
-    return Result.from_dataframe(
-        df,
-        Provenance(
-            source="bde",
-            params={"key": params.key, "time_range": params.time_range},
-            properties={
-                "source_url": "https://www.bde.es/webbe/en/estadisticas/recursos/api-estadisticas-bde.html",
-            },
-        ),
+    return Result.from_dataframe(df).with_properties(
+        source_url="https://www.bde.es/webbe/en/estadisticas/recursos/api-estadisticas-bde.html",
     )
 
 

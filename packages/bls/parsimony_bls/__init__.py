@@ -16,7 +16,6 @@ from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Provenance,
     Result,
 )
 from parsimony.transport import HttpClient, map_http_error
@@ -185,16 +184,9 @@ async def bls_fetch(params: BlsFetchParams, *, api_key: str = "") -> Result:
 
     metadata_list = [{"name": k, "value": str(v)} for k, v in catalog.items() if v and k != "series_title"]
 
-    return Result.from_dataframe(
-        pd.DataFrame(rows),
-        Provenance(
-            source="bls",
-            params={"series_id": params.series_id},
-            properties={
-                "metadata": metadata_list,
-                "source_url": f"https://data.bls.gov/timeseries/{params.series_id}",
-            },
-        ),
+    return Result.from_dataframe(pd.DataFrame(rows)).with_properties(
+        metadata=metadata_list,
+        source_url=f"https://data.bls.gov/timeseries/{params.series_id}",
     )
 
 

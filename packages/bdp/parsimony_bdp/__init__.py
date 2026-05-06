@@ -43,7 +43,6 @@ from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Provenance,
     Result,
 )
 from parsimony.transport import map_http_error
@@ -532,16 +531,8 @@ async def bdp_fetch(params: BdpFetchParams) -> Result:
             message=f"No observations parsed for domain={params.domain_id}, dataset={params.dataset_id}",
         )
 
-    return Result.from_dataframe(
-        pd.DataFrame(rows),
-        Provenance(
-            source="bdp",
-            params={
-                "domain_id": params.domain_id,
-                "dataset_id": params.dataset_id,
-            },
-            properties={"source_url": "https://bpstat.bportugal.pt"},
-        ),
+    return Result.from_dataframe(pd.DataFrame(rows)).with_properties(
+        source_url="https://bpstat.bportugal.pt"
     )
 
 

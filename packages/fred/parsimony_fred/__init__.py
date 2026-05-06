@@ -19,7 +19,6 @@ from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Provenance,
     Result,
 )
 from parsimony.transport import HttpClient, map_http_error
@@ -132,10 +131,7 @@ async def fred_search(params: FredSearchParams, *, api_key: str) -> Result:
     df = pd.DataFrame(seriess)
     cols = [c for c in SEARCH_COLUMNS if c in df.columns]
     df = df[cols]
-    return Result.from_dataframe(
-        df,
-        Provenance(source="fred", params={"search_text": params.search_text}),
-    )
+    return Result.from_dataframe(df)
 
 
 @connector(env={"api_key": "FRED_API_KEY"}, output=FETCH_OUTPUT, tags=["macro"])
@@ -198,22 +194,7 @@ async def fred_fetch(params: FredFetchParams, *, api_key: str) -> Result:
         }
     )
 
-    prov_params: dict[str, Any] = {"series_id": series_id}
-    if params.observation_start is not None:
-        prov_params["observation_start"] = params.observation_start
-    if params.observation_end is not None:
-        prov_params["observation_end"] = params.observation_end
-
-    prov = Provenance(
-        source="fred",
-        params=prov_params,
-        properties={"metadata": metadata_list},
-    )
-    return FETCH_OUTPUT.build_table_result(
-        df,
-        provenance=prov,
-        params=prov_params,
-    )
+    return FETCH_OUTPUT.build_table_result(df).with_properties(metadata=metadata_list)
 
 
 CONNECTORS = Connectors([fred_search, fred_fetch])

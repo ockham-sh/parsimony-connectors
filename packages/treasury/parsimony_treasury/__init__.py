@@ -18,7 +18,6 @@ from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Provenance,
     Result,
 )
 from parsimony.transport import HttpClient, map_http_error
@@ -402,16 +401,9 @@ async def treasury_fetch(params: TreasuryFetchParams) -> Result:
     df["endpoint"] = params.endpoint
     df["title"] = table_name
 
-    return Result.from_dataframe(
-        df,
-        Provenance(
-            source="treasury",
-            params={"endpoint": params.endpoint},
-            properties={
-                "total_records": meta.get("total-count"),
-                "source_url": f"https://fiscaldata.treasury.gov/datasets/{params.endpoint}",
-            },
-        ),
+    return Result.from_dataframe(df).with_properties(
+        total_records=meta.get("total-count"),
+        source_url=f"https://fiscaldata.treasury.gov/datasets/{params.endpoint}",
     )
 
 
@@ -504,17 +496,10 @@ async def treasury_rates_fetch(params: TreasuryRatesFetchParams) -> Result:
     df["feed"] = params.feed
     df["title"] = params.feed.replace("_", " ").title()
 
-    return Result.from_dataframe(
-        df,
-        Provenance(
-            source="treasury",
-            params={"feed": params.feed, "year": year},
-            properties={
-                "row_count": len(df),
-                "source_url": (
-                    f"{_TREASURY_RATES_BASE_URL}?data={params.feed}&field_tdr_date_value={year}"
-                ),
-            },
+    return Result.from_dataframe(df).with_properties(
+        row_count=len(df),
+        source_url=(
+            f"{_TREASURY_RATES_BASE_URL}?data={params.feed}&field_tdr_date_value={year}"
         ),
     )
 

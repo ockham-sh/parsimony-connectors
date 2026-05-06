@@ -95,7 +95,7 @@ async def test_sec_edgar_find_company_returns_entity_row() -> None:
     with patch("parsimony_sec_edgar._resolve_company", return_value=fake):
         result = await sec_edgar_find_company(SecEdgarFindCompanyParams(identifier="EX"))
 
-    assert result.provenance.source == "sec_edgar"
+    assert result.provenance.source == "sec_edgar_find_company"
     df = result.data
     assert "cik" in df.columns
     assert "name" in df.columns
@@ -133,7 +133,7 @@ async def test_sec_edgar_company_profile_returns_structured_row() -> None:
     assert isinstance(df, pd.DataFrame)
     assert df.iloc[0]["ticker"] == "EX"
     assert df.iloc[0]["cik"].endswith("1234567")
-    assert result.provenance.source == "sec_edgar"
+    assert result.provenance.source == "sec_edgar_company_profile"
 
 
 # ---------------------------------------------------------------------------

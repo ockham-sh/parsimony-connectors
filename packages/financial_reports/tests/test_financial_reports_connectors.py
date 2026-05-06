@@ -72,7 +72,7 @@ async def test_fr_companies_search_returns_rows() -> None:
         bound = fr_companies_search.bind(api_key=_KEY)
         result = await bound(FrCompaniesSearchParams(countries="US"))
 
-    assert result.provenance.source.startswith("financial_reports")
+    assert result.provenance.source == "fr_companies_search"
     df = result.data
     assert isinstance(df, pd.DataFrame)
     assert len(df) == 1

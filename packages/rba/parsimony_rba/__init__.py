@@ -45,7 +45,6 @@ from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Provenance,
     Result,
 )
 from parsimony.transport import map_http_error
@@ -653,14 +652,7 @@ async def rba_fetch(params: RbaFetchParams) -> Result:
     if df.empty:
         raise EmptyDataError(provider="rba", message=f"No data returned for table: {params.table_id}")
 
-    return Result.from_dataframe(
-        df,
-        Provenance(
-            source="rba",
-            params={"table_id": params.table_id},
-            properties={"source_url": _TABLES_URL},
-        ),
-    )
+    return Result.from_dataframe(df).with_properties(source_url=_TABLES_URL)
 
 
 _ENUMERATE_COLUMNS: tuple[str, ...] = (

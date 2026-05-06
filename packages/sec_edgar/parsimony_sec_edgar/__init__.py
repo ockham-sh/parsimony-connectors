@@ -20,7 +20,6 @@ from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Provenance,
     Result,
 )
 from pydantic import BaseModel, Field
@@ -383,10 +382,7 @@ async def sec_edgar_find_company(params: SecEdgarFindCompanyParams) -> Result:
                 }
             ]
         )
-    return FIND_COMPANY_OUTPUT.build_table_result(
-        df,
-        provenance=Provenance(source="sec_edgar", params=params.model_dump()),
-    )
+    return FIND_COMPANY_OUTPUT.build_table_result(df)
 
 
 @connector(tags=["sec_edgar", "tool"])
@@ -409,10 +405,7 @@ async def sec_edgar_company_profile(params: SecEdgarCompanyProfileParams) -> Res
             }
         ]
     )
-    return Result.from_dataframe(
-        df,
-        Provenance(source="sec_edgar", params=params.model_dump()),
-    )
+    return Result.from_dataframe(df)
 
 
 @connector(tags=["sec_edgar"])
@@ -423,10 +416,7 @@ async def sec_edgar_income_statement(params: SecEdgarFinancialStatementParams) -
     Use view='summary' for multi-period comparison or view='detailed' for full line items from the latest filing.
     """
     df = await _fetch_statement("income_statement", params)
-    return Result.from_dataframe(
-        df,
-        Provenance(source="sec_edgar", params=params.model_dump()),
-    )
+    return Result.from_dataframe(df)
 
 
 @connector(tags=["sec_edgar"])
@@ -437,10 +427,7 @@ async def sec_edgar_balance_sheet(params: SecEdgarFinancialStatementParams) -> R
     Use view='summary' for multi-period comparison or view='detailed' for full line items from the latest filing.
     """
     df = await _fetch_statement("balance_sheet", params)
-    return Result.from_dataframe(
-        df,
-        Provenance(source="sec_edgar", params=params.model_dump()),
-    )
+    return Result.from_dataframe(df)
 
 
 @connector(tags=["sec_edgar"])
@@ -451,10 +438,7 @@ async def sec_edgar_cashflow_statement(params: SecEdgarFinancialStatementParams)
     Use view='summary' for multi-period comparison or view='detailed' for full line items from the latest filing.
     """
     df = await _fetch_statement("cashflow_statement", params)
-    return Result.from_dataframe(
-        df,
-        Provenance(source="sec_edgar", params=params.model_dump()),
-    )
+    return Result.from_dataframe(df)
 
 
 @connector(output=SEARCH_FILINGS_OUTPUT, tags=["sec_edgar", "tool"])
@@ -488,10 +472,7 @@ async def sec_edgar_search_filings(params: SecEdgarSearchFilingsParams) -> Resul
     df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["form", "company", "filed", "accession", "cik"])
     if df.empty:
         raise EmptyDataError(provider="sec_edgar", message=f"No filings found for search: '{params.query}'")
-    return SEARCH_FILINGS_OUTPUT.build_table_result(
-        df,
-        provenance=Provenance(source="sec_edgar", params=params.model_dump()),
-    )
+    return SEARCH_FILINGS_OUTPUT.build_table_result(df)
 
 
 @connector(output=FILINGS_OUTPUT, tags=["sec_edgar"])
@@ -516,10 +497,7 @@ async def sec_edgar_filings(params: SecEdgarFilingsParams) -> Result:
         df = df.rename(columns={"accession_no": "accession_number"})
     if df.empty:
         raise EmptyDataError(provider="sec_edgar", message="No filings found")
-    return FILINGS_OUTPUT.build_table_result(
-        df,
-        provenance=Provenance(source="sec_edgar", params=params.model_dump()),
-    )
+    return FILINGS_OUTPUT.build_table_result(df)
 
 
 @connector(tags=["sec_edgar"])
@@ -534,10 +512,7 @@ async def sec_edgar_company_facts(params: SecEdgarCompanyFactsParams) -> Result:
     if facts is None:
         raise EmptyDataError(provider="sec_edgar", message=f"No company facts found for '{params.identifier}'")
     df = await asyncio.to_thread(_to_dataframe, facts)
-    return Result.from_dataframe(
-        df,
-        Provenance(source="sec_edgar", params=params.model_dump()),
-    )
+    return Result.from_dataframe(df)
 
 
 @connector(tags=["sec_edgar"])
@@ -552,10 +527,7 @@ async def sec_edgar_filing_document(params: SecEdgarFilingDocumentParams) -> Res
     content = str(markdown or "").strip()
     if not content:
         raise EmptyDataError(provider="sec_edgar", message=f"No content available for filing {params.accession_number}")
-    return Result(
-        data=content,
-        provenance=Provenance(source="sec_edgar", params=params.model_dump()),
-    )
+    return Result(data=content)
 
 
 @connector(tags=["sec_edgar"])
@@ -575,10 +547,7 @@ async def sec_edgar_filing_metadata(params: SecEdgarFilingMetadataParams) -> Res
         if obj is not None and hasattr(obj, "to_context"):
             content = await asyncio.to_thread(obj.to_context, detail="full")
             if content and content.strip():
-                return Result(
-                    data=content,
-                    provenance=Provenance(source="sec_edgar", params=params.model_dump()),
-                )
+                return Result(data=content)
     except Exception:
         pass
 
@@ -588,10 +557,7 @@ async def sec_edgar_filing_metadata(params: SecEdgarFilingMetadataParams) -> Res
         raise EmptyDataError(
             provider="sec_edgar", message=f"No metadata available for filing {params.accession_number}"
         )
-    return Result(
-        data=content,
-        provenance=Provenance(source="sec_edgar", params=params.model_dump()),
-    )
+    return Result(data=content)
 
 
 @connector(tags=["sec_edgar"])
@@ -632,10 +598,7 @@ async def sec_edgar_filing_sections(params: SecEdgarFilingSectionsParams) -> Res
             pass  # Fall back to simple items list
 
     df = pd.DataFrame(rows)
-    return Result.from_dataframe(
-        df,
-        Provenance(source="sec_edgar", params=params.model_dump()),
-    )
+    return Result.from_dataframe(df)
 
 
 @connector(tags=["sec_edgar"])
@@ -658,10 +621,7 @@ async def sec_edgar_filing_item(params: SecEdgarFilingItemParams) -> Result:
         )
 
     text = str(content).strip()
-    return Result(
-        data=text,
-        provenance=Provenance(source="sec_edgar", params=params.model_dump()),
-    )
+    return Result(data=text)
 
 
 @connector(tags=["sec_edgar"])
@@ -697,10 +657,7 @@ async def sec_edgar_filing_tables(params: SecEdgarFilingTablesParams) -> Result:
         )
 
     df = pd.DataFrame(rows)
-    return Result.from_dataframe(
-        df,
-        Provenance(source="sec_edgar", params=params.model_dump()),
-    )
+    return Result.from_dataframe(df)
 
 
 @connector(tags=["sec_edgar"])
@@ -757,10 +714,7 @@ async def sec_edgar_filing_table(params: SecEdgarFilingTableParams) -> Result:
                 if len(types) > 1:
                     df[col] = df[col].apply(lambda x: str(x) if x is not None else "")
 
-    return Result.from_dataframe(
-        df,
-        Provenance(source="sec_edgar", params=params.model_dump()),
-    )
+    return Result.from_dataframe(df)
 
 
 @connector(tags=["sec_edgar"])
@@ -843,10 +797,7 @@ async def sec_edgar_insider_trades(params: SecEdgarInsiderTradesParams) -> Resul
     available = [c for c in keep_cols if c in df.columns]
     df = df[available]
 
-    return Result.from_dataframe(
-        df,
-        Provenance(source="sec_edgar", params=params.model_dump()),
-    )
+    return Result.from_dataframe(df)
 
 
 # ---------------------------------------------------------------------------

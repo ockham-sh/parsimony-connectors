@@ -34,7 +34,7 @@ from typing import Any
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
-from parsimony.result import Provenance, Result
+from parsimony.result import Result
 from parsimony.transport import HttpClient
 
 from parsimony_finnhub._http import finnhub_fetch as _fh_fetch
@@ -108,8 +108,6 @@ async def finnhub_search(params: FinnhubSearchParams, *, api_key: str) -> Result
     df = pd.DataFrame(rows)
     return _SEARCH_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="finnhub_search", params={"query": params.query}),
-        params={"query": params.query},
     )
 
 
@@ -148,8 +146,6 @@ async def finnhub_quote(params: FinnhubQuoteParams, *, api_key: str) -> Result:
     df = pd.DataFrame([row])
     return _QUOTE_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="finnhub_quote", params={"symbol": params.symbol}),
-        params={"symbol": params.symbol},
     )
 
 
@@ -174,10 +170,7 @@ async def finnhub_profile(params: FinnhubProfileParams, *, api_key: str) -> Resu
             message=f"No profile data returned for symbol: {params.symbol}",
         )
 
-    return Result(
-        data=data,
-        provenance=Provenance(source="finnhub_profile", params={"symbol": params.symbol}),
-    )
+    return Result(data=data)
 
 
 @connector(env={"api_key": "FINNHUB_API_KEY"}, output=_PEERS_OUTPUT, tags=["equities"])
@@ -198,8 +191,6 @@ async def finnhub_peers(params: FinnhubPeersParams, *, api_key: str) -> Result:
     df = pd.DataFrame({"symbol": [s for s in data if isinstance(s, str)]})
     return _PEERS_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="finnhub_peers", params={"symbol": params.symbol}),
-        params={"symbol": params.symbol},
     )
 
 
@@ -241,8 +232,6 @@ async def finnhub_recommendation(params: FinnhubRecommendationParams, *, api_key
     df = pd.DataFrame(rows)
     return _RECOMMENDATION_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="finnhub_recommendation", params={"symbol": params.symbol}),
-        params={"symbol": params.symbol},
     )
 
 
@@ -280,8 +269,6 @@ async def finnhub_earnings(params: FinnhubEarningsParams, *, api_key: str) -> Re
     df = pd.DataFrame(rows)
     return _EARNINGS_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="finnhub_earnings", params={"symbol": params.symbol}),
-        params={"symbol": params.symbol},
     )
 
 
@@ -308,10 +295,7 @@ async def finnhub_basic_financials(params: FinnhubBasicFinancialsParams, *, api_
             message=f"No fundamental data returned for symbol: {params.symbol}",
         )
 
-    return Result(
-        data=data,
-        provenance=Provenance(source="finnhub_basic_financials", params={"symbol": params.symbol}),
-    )
+    return Result(data=data)
 
 
 # ---------------------------------------------------------------------------
@@ -358,11 +342,6 @@ async def finnhub_company_news(params: FinnhubCompanyNewsParams, *, api_key: str
     df = pd.DataFrame(rows)
     return _NEWS_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(
-            source="finnhub_company_news",
-            params={"symbol": params.symbol, "from": params.from_date, "to": params.to_date},
-        ),
-        params={"symbol": params.symbol},
     )
 
 
@@ -399,8 +378,6 @@ async def finnhub_market_news(params: FinnhubMarketNewsParams, *, api_key: str) 
     df = pd.DataFrame(rows)
     return _NEWS_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="finnhub_market_news", params={"category": params.category}),
-        params={"category": params.category},
     )
 
 
@@ -452,11 +429,6 @@ async def finnhub_earnings_calendar(params: FinnhubEarningsCalendarParams, *, ap
     df = pd.DataFrame(rows)
     return _EARNINGS_CAL_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(
-            source="finnhub_earnings_calendar",
-            params={"from": params.from_date, "to": params.to_date},
-        ),
-        params={"from": params.from_date, "to": params.to_date},
     )
 
 
@@ -511,11 +483,6 @@ async def finnhub_ipo_calendar(params: FinnhubIpoCalendarParams, *, api_key: str
     df = pd.DataFrame(rows)
     return _IPO_CAL_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(
-            source="finnhub_ipo_calendar",
-            params={"from": params.from_date, "to": params.to_date},
-        ),
-        params={"from": params.from_date, "to": params.to_date},
     )
 
 

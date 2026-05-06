@@ -39,7 +39,6 @@ from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Provenance,
     Result,
 )
 from parsimony.transport import map_http_error
@@ -692,13 +691,8 @@ async def destatis_fetch(
     frames = [_parse_jsonstat(d, table_code) for d in datasets]
     df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
 
-    return Result.from_dataframe(
-        df,
-        Provenance(
-            source="destatis",
-            params={"name": table_code},
-            properties={"source_url": "https://www-genesis.destatis.de/datenbank/online/"},
-        ),
+    return Result.from_dataframe(df).with_properties(
+        source_url="https://www-genesis.destatis.de/datenbank/online/"
     )
 
 

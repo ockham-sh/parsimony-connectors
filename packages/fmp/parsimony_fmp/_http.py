@@ -24,7 +24,7 @@ from parsimony.errors import (
     EmptyDataError,
     ParseError,
 )
-from parsimony.result import OutputConfig, Provenance, Result
+from parsimony.result import OutputConfig, Result
 from parsimony.transport import HttpClient, map_http_error, map_timeout_error, pooled_client
 
 # Per-request timeout. 15s matches the Tiingo connector's precedent and is
@@ -118,10 +118,9 @@ async def fmp_fetch(
     if df.empty:
         raise EmptyDataError(provider="fmp", message=f"No data returned from FMP endpoint '{op_name}'")
 
-    prov = Provenance(source=op_name, params=dict(params))
     if output_config is not None:
-        return output_config.build_table_result(df, provenance=prov, params=dict(params))
-    return Result.from_dataframe(df, prov)
+        return output_config.build_table_result(df)
+    return Result.from_dataframe(df)
 
 
 __all__ = [

@@ -18,7 +18,7 @@ from typing import Any
 
 import pandas as pd
 from parsimony.errors import EmptyDataError, ParseError, PaymentRequiredError, UnauthorizedError
-from parsimony.result import Provenance, Result
+from parsimony.result import Result
 from parsimony.transport import HttpClient
 
 from parsimony_fmp._http import fetch_json, pooled_client
@@ -444,11 +444,8 @@ async def execute(params: FmpScreenerParams, http: HttpClient) -> Result:
             message="Screener returned no rows after applying all filters.",
         )
 
-    prov = Provenance(source="fmp_screener", params=params.model_dump(exclude_none=True))
     return SCREENER_OUTPUT.build_table_result(
         df,
-        provenance=prov,
-        params=params.model_dump(exclude_none=True),
     )
 
 

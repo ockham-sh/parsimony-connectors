@@ -66,7 +66,7 @@ async def test_bls_fetch_returns_series_observations() -> None:
         BlsFetchParams(series_id="LNS14000000", start_year="2026", end_year="2026")
     )
 
-    assert result.provenance.source == "bls"
+    assert result.provenance.source == "bls_fetch"
     df = result.data
     assert len(df) == 2
     assert df.iloc[0]["title"] == "Unemployment Rate"

@@ -33,7 +33,7 @@ import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
-from parsimony.result import Provenance, Result
+from parsimony.result import Result
 
 from parsimony_tiingo._http import make_http as _make_http
 from parsimony_tiingo._http import tiingo_fetch as _tiingo_fetch
@@ -113,8 +113,6 @@ async def tiingo_search(params: TiingoSearchParams, *, api_key: str) -> Result:
     df = pd.DataFrame(rows)
     return _SEARCH_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="tiingo_search", params={"query": params.query}),
-        params={"query": params.query},
     )
 
 
@@ -173,8 +171,6 @@ async def tiingo_eod(params: TiingoEodParams, *, api_key: str) -> Result:
     df["ticker"] = params.ticker
     return _EOD_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="tiingo_eod", params={"ticker": params.ticker}),
-        params={"ticker": params.ticker},
     )
 
 
@@ -226,8 +222,6 @@ async def tiingo_iex(params: TiingoIexParams, *, api_key: str) -> Result:
     df = pd.DataFrame(rows)
     return _IEX_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="tiingo_iex", params={"tickers": params.tickers}),
-        params={"tickers": params.tickers},
     )
 
 
@@ -277,8 +271,6 @@ async def tiingo_iex_historical(params: TiingoIexHistParams, *, api_key: str) ->
     df["ticker"] = params.ticker
     return _IEX_HIST_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="tiingo_iex_historical", params={"ticker": params.ticker}),
-        params={"ticker": params.ticker},
     )
 
 
@@ -307,10 +299,7 @@ async def tiingo_meta(params: TiingoMetaParams, *, api_key: str) -> Result:
             message=f"No metadata returned for ticker: {params.ticker}",
         )
 
-    return Result(
-        data=data,
-        provenance=Provenance(source="tiingo_meta", params={"ticker": params.ticker}),
-    )
+    return Result(data=data)
 
 
 # ---------------------------------------------------------------------------
@@ -341,10 +330,7 @@ async def tiingo_fundamentals_meta(params: TiingoFundamentalsMetaParams, *, api_
 
     # Single ticker → return dict; multiple → return list
     result_data = data[0] if len(data) == 1 else data
-    return Result(
-        data=result_data,
-        provenance=Provenance(source="tiingo_fundamentals_meta", params={"tickers": params.tickers}),
-    )
+    return Result(data=result_data)
 
 
 # ---------------------------------------------------------------------------
@@ -387,8 +373,6 @@ async def tiingo_fundamentals_definitions(params: TiingoDefinitionsParams, *, ap
     df = pd.DataFrame(rows)
     return _DEFINITIONS_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="tiingo_fundamentals_definitions", params={}),
-        params={},
     )
 
 
@@ -438,8 +422,6 @@ async def tiingo_news(params: TiingoNewsParams, *, api_key: str) -> Result:
     df = pd.DataFrame(rows)
     return _NEWS_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="tiingo_news", params={"tickers": params.tickers or "all"}),
-        params={"tickers": params.tickers or "all"},
     )
 
 
@@ -503,8 +485,6 @@ async def tiingo_crypto_prices(params: TiingoCryptoPricesParams, *, api_key: str
     df = pd.DataFrame(all_rows)
     return _CRYPTO_PRICES_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="tiingo_crypto_prices", params={"tickers": params.tickers}),
-        params={"tickers": params.tickers},
     )
 
 
@@ -561,8 +541,6 @@ async def tiingo_crypto_top(params: TiingoCryptoTopParams, *, api_key: str) -> R
     df = pd.DataFrame(rows)
     return _CRYPTO_TOP_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="tiingo_crypto_top", params={"tickers": params.tickers}),
-        params={"tickers": params.tickers},
     )
 
 
@@ -611,8 +589,6 @@ async def tiingo_fx_prices(params: TiingoFxPricesParams, *, api_key: str) -> Res
     df = pd.DataFrame(rows)
     return _FX_PRICES_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="tiingo_fx_prices", params={"tickers": params.tickers}),
-        params={"tickers": params.tickers},
     )
 
 
@@ -656,8 +632,6 @@ async def tiingo_fx_top(params: TiingoFxTopParams, *, api_key: str) -> Result:
     df = pd.DataFrame(rows)
     return _FX_TOP_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="tiingo_fx_top", params={"tickers": params.tickers}),
-        params={"tickers": params.tickers},
     )
 
 

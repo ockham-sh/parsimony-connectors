@@ -19,7 +19,6 @@ from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Provenance,
     Result,
 )
 from parsimony.transport import map_http_error
@@ -646,13 +645,8 @@ async def boj_fetch(params: BojFetchParams) -> Result:
     if not rows:
         raise EmptyDataError(provider="boj", message=f"No observations parsed for db={params.db}, code={params.code}")
 
-    return Result.from_dataframe(
-        pd.DataFrame(rows),
-        Provenance(
-            source="boj",
-            params={"db": params.db, "code": params.code},
-            properties={"source_url": "https://www.stat-search.boj.or.jp"},
-        ),
+    return Result.from_dataframe(pd.DataFrame(rows)).with_properties(
+        source_url="https://www.stat-search.boj.or.jp",
     )
 
 

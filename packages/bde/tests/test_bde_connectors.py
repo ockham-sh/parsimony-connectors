@@ -54,7 +54,7 @@ async def test_bde_fetch_merges_single_series_response() -> None:
 
     result = await bde_fetch(BdeFetchParams(key="D_1NBAF472"))
 
-    assert result.provenance.source == "bde"
+    assert result.provenance.source == "bde_fetch"
     df = result.data
     assert len(df) >= 1
 

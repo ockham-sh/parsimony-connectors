@@ -122,7 +122,7 @@ async def test_destatis_fetch_parses_jsonstat_response() -> None:
 
     result = await destatis_fetch(DestatisFetchParams(table_id="61111-0001"))
 
-    assert result.provenance.source == "destatis"
+    assert result.provenance.source == "destatis_fetch"
     df = result.data
     assert len(df) == 2
     assert "series_id" in df.columns
@@ -147,7 +147,7 @@ async def test_destatis_fetch_accepts_legacy_table_id_alias() -> None:
 
     # Legacy keyword ``table_id=`` resolves via populate_by_name.
     result = await destatis_fetch(DestatisFetchParams(table_id="61111-0001"))
-    assert result.provenance.source == "destatis"
+    assert result.provenance.source == "destatis_fetch"
 
 
 @respx.mock

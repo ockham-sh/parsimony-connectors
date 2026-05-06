@@ -19,7 +19,6 @@ from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Provenance,
     Result,
 )
 from parsimony.transport import map_http_error
@@ -273,13 +272,8 @@ async def boc_fetch(params: BocFetchParams) -> Result:
     if df.empty:
         raise EmptyDataError(provider="boc", message=f"No observations returned for: {params.series_name}")
 
-    return Result.from_dataframe(
-        df,
-        Provenance(
-            source="boc",
-            params={"series_name": params.series_name},
-            properties={"source_url": "https://www.bankofcanada.ca/valet/docs"},
-        ),
+    return Result.from_dataframe(df).with_properties(
+        source_url="https://www.bankofcanada.ca/valet/docs"
     )
 
 
