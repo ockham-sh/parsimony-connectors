@@ -4,10 +4,11 @@ All notable changes to `parsimony-boj` will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
-
+## [0.5.0] — 2026-05-06
 ### Changed
 
+- Adapted to `parsimony-core==0.5`. Connector code no longer constructs `Provenance` directly; the framework authors all provenance fields in `Connector._wrap_result`. Source-specific extras (where present) move to `Result.with_properties(**kwargs)`. Drops the `provenance=` and `params=` kwargs from `OutputConfig.build_table_result` / `Result.from_dataframe` call sites.
+- Bump `parsimony-core` pin from `>=0.4.0,<0.5` to `>=0.5.0,<0.6` (and `[standard-onnx]` extra accordingly on catalog-publishing packages).
 - `enumerate_boj` now uses the canonical 50-DB list from BoJ's official
   API manual (was 45 + phantom BP02). Adds Flow of Funds (FF), TANKAN
   (CO), BIS, Derivatives (DER), and Others (OT).

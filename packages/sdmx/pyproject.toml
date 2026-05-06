@@ -1,6 +1,6 @@
 [project]
 name = "parsimony-sdmx"
-version = "0.4.0"
+version = "0.5.0"
 description = "SDMX protocol connector (ECB, Eurostat, IMF, OECD, BIS, World Bank, ILO) for the parsimony framework"
 authors = [{ name = "Ockham.sh", email = "team@ockham.sh" }]
 license = "Apache-2.0"
