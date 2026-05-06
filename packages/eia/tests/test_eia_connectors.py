@@ -60,7 +60,7 @@ async def test_eia_fetch_returns_rows() -> None:
     bound = eia_fetch.bind(api_key=_KEY)
     result = await bound(EiaFetchParams(route="petroleum/pri/spt"))
 
-    assert result.provenance.source == "eia"
+    assert result.provenance.source == "eia_fetch"
     assert len(result.data) == 2
     assert result.data.iloc[0]["title"] == "Spot Prices"
 

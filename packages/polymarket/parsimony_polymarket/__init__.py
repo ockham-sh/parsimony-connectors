@@ -9,7 +9,7 @@ from typing import Any, Literal
 import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector
-from parsimony.result import Provenance, Result
+from parsimony.result import Result
 from parsimony.transport import HttpClient, map_http_error
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -134,10 +134,7 @@ def make_polymarket_connector(
             df = df.copy()
             df["markets_count"] = df["markets"].apply(lambda x: len(x) if isinstance(x, list) else 0)
 
-        return Result.from_dataframe(
-            df,
-            Provenance(source=source_name, params=params.model_dump()),
-        )
+        return Result.from_dataframe(df)
 
     return _fetch
 

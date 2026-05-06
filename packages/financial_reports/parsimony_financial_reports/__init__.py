@@ -20,7 +20,6 @@ from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Provenance,
     Result,
 )
 from pydantic import BaseModel, Field
@@ -439,10 +438,7 @@ async def fr_companies_search(params: FrCompaniesSearchParams, *, api_key: str) 
     df = _to_dataframe(resp)
     if df.empty:
         raise EmptyDataError(provider="financial_reports", message=f"No companies found for: {params}")
-    return COMPANIES_SEARCH_OUTPUT.build_table_result(
-        df,
-        provenance=Provenance(source="financial_reports", params=params.model_dump()),
-    )
+    return COMPANIES_SEARCH_OUTPUT.build_table_result(df)
 
 
 @connector(env={"api_key": "FINANCIAL_REPORTS_API_KEY"}, output=COMPANY_RETRIEVE_OUTPUT, tags=["financial_reports"])
@@ -458,10 +454,7 @@ async def fr_company_retrieve(params: FrCompanyRetrieveParams, *, api_key: str) 
     df = _to_dataframe(resp)
     if df.empty:
         raise EmptyDataError(provider="financial_reports", message=f"No company found with id={params.id}")
-    return COMPANY_RETRIEVE_OUTPUT.build_table_result(
-        df,
-        provenance=Provenance(source="financial_reports", params=params.model_dump()),
-    )
+    return COMPANY_RETRIEVE_OUTPUT.build_table_result(df)
 
 
 @connector(env={"api_key": "FINANCIAL_REPORTS_API_KEY"}, output=FILINGS_SEARCH_OUTPUT, tags=["financial_reports"])
@@ -479,10 +472,7 @@ async def fr_filings_search(params: FrFilingsSearchParams, *, api_key: str) -> R
     df = _to_dataframe(resp)
     if df.empty:
         raise EmptyDataError(provider="financial_reports", message=f"No filings found for: {params}")
-    return FILINGS_SEARCH_OUTPUT.build_table_result(
-        df,
-        provenance=Provenance(source="financial_reports", params=params.model_dump()),
-    )
+    return FILINGS_SEARCH_OUTPUT.build_table_result(df)
 
 
 @connector(env={"api_key": "FINANCIAL_REPORTS_API_KEY"}, output=FILING_RETRIEVE_OUTPUT, tags=["financial_reports"])
@@ -498,10 +488,7 @@ async def fr_filing_retrieve(params: FrFilingRetrieveParams, *, api_key: str) ->
     df = _to_dataframe(resp)
     if df.empty:
         raise EmptyDataError(provider="financial_reports", message=f"No filing found with id={params.id}")
-    return FILING_RETRIEVE_OUTPUT.build_table_result(
-        df,
-        provenance=Provenance(source="financial_reports", params=params.model_dump()),
-    )
+    return FILING_RETRIEVE_OUTPUT.build_table_result(df)
 
 
 @connector(env={"api_key": "FINANCIAL_REPORTS_API_KEY"}, tags=["financial_reports"])
@@ -517,10 +504,7 @@ async def fr_filing_markdown(params: FrFilingMarkdownParams, *, api_key: str) ->
         raise EmptyDataError(
             provider="financial_reports", message=f"No markdown content available for filing {params.id}"
         )
-    return Result(
-        data=content,
-        provenance=Provenance(source="financial_reports", params=params.model_dump()),
-    )
+    return Result(data=content)
 
 
 @connector(env={"api_key": "FINANCIAL_REPORTS_API_KEY"}, output=FILING_HISTORY_OUTPUT, tags=["financial_reports"])
@@ -535,10 +519,7 @@ async def fr_filing_history(params: FrFilingHistoryParams, *, api_key: str) -> R
     df = _to_dataframe(resp)
     if df.empty:
         raise EmptyDataError(provider="financial_reports", message=f"No history found for filing {params.id}")
-    return FILING_HISTORY_OUTPUT.build_table_result(
-        df,
-        provenance=Provenance(source="financial_reports", params=params.model_dump()),
-    )
+    return FILING_HISTORY_OUTPUT.build_table_result(df)
 
 
 @connector(env={"api_key": "FINANCIAL_REPORTS_API_KEY"}, tags=["financial_reports"])
@@ -555,10 +536,7 @@ async def fr_next_annual_report(params: FrNextAnnualReportParams, *, api_key: st
         raise EmptyDataError(
             provider="financial_reports", message=f"No annual report prediction available for company {params.id}"
         )
-    return Result.from_dataframe(
-        df,
-        Provenance(source="financial_reports", params=params.model_dump()),
-    )
+    return Result.from_dataframe(df)
 
 
 @connector(env={"api_key": "FINANCIAL_REPORTS_API_KEY"}, output=ISIC_BROWSE_OUTPUT, tags=["financial_reports", "tool"])
@@ -599,10 +577,7 @@ async def fr_isic_browse(params: FrIsicBrowseParams, *, api_key: str) -> Result:
     df = _to_dataframe(resp)
     if df.empty:
         raise EmptyDataError(provider="financial_reports", message=f"No ISIC {params.level} data returned")
-    return ISIC_BROWSE_OUTPUT.build_table_result(
-        df,
-        provenance=Provenance(source="financial_reports", params=params.model_dump()),
-    )
+    return ISIC_BROWSE_OUTPUT.build_table_result(df)
 
 
 @connector(env={"api_key": "FINANCIAL_REPORTS_API_KEY"}, output=ISIN_LOOKUP_OUTPUT, tags=["financial_reports", "tool"])
@@ -626,10 +601,7 @@ async def fr_isin_lookup(params: FrIsinLookupParams, *, api_key: str) -> Result:
     df = _to_dataframe(resp)
     if df.empty:
         raise EmptyDataError(provider="financial_reports", message=f"No ISINs found for: {params}")
-    return ISIN_LOOKUP_OUTPUT.build_table_result(
-        df,
-        provenance=Provenance(source="financial_reports", params=params.model_dump()),
-    )
+    return ISIN_LOOKUP_OUTPUT.build_table_result(df)
 
 
 # Per-resource OutputConfig mapping for reference data
@@ -683,10 +655,7 @@ async def fr_reference_data(params: FrReferenceDataParams, *, api_key: str) -> R
     if df.empty:
         raise EmptyDataError(provider="financial_reports", message=f"No {params.resource} data returned")
     output = _REFERENCE_OUTPUT_MAP.get(params.resource, REFERENCE_GENERIC_OUTPUT)
-    return output.build_table_result(
-        df,
-        provenance=Provenance(source="financial_reports", params=params.model_dump()),
-    )
+    return output.build_table_result(df)
 
 
 # ---------------------------------------------------------------------------

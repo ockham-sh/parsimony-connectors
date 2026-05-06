@@ -22,7 +22,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 from parsimony.catalog import entries_from_result
 from parsimony.embedder import EmbedderInfo, FragmentEmbeddingCache
-from parsimony.result import Provenance, Result
+from parsimony.result import Result
 
 from parsimony_sdmx.connectors.enumerate_series import ENUMERATE_SERIES_OUTPUT
 from parsimony_sdmx.core.models import SeriesRecord
@@ -110,7 +110,6 @@ def test_entries_from_sdmx_result_receives_list_str_fragments() -> None:
     )
     result = Result(
         data=df,
-        provenance=Provenance(source="sdmx"),
         output_schema=ENUMERATE_SERIES_OUTPUT,
     )
     entries = entries_from_result(result, namespace="sdmx_series_ecb_flow")
@@ -137,7 +136,6 @@ def test_fragment_cache_composes_over_sdmx_batch() -> None:
     )
     result = Result(
         data=df,
-        provenance=Provenance(source="sdmx"),
         output_schema=ENUMERATE_SERIES_OUTPUT,
     )
     entries = entries_from_result(result, namespace="sdmx_series_ecb_flow")

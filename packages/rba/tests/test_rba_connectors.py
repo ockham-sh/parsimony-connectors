@@ -91,7 +91,7 @@ async def test_rba_fetch_resolves_then_parses_csv() -> None:
 
     result = await rba_fetch(RbaFetchParams(table_id="f1-data"))
 
-    assert result.provenance.source == "rba"
+    assert result.provenance.source == "rba_fetch"
     df = result.data
     assert "table_id" in df.columns
     assert df.iloc[0]["table_id"] == "f1-data"

@@ -46,7 +46,7 @@ async def test_snb_fetch_parses_csv() -> None:
 
     result = await snb_fetch(SnbFetchParams(cube_id="rendoblim"))
 
-    assert result.provenance.source == "snb"
+    assert result.provenance.source == "snb_fetch"
     df = result.data
     assert "cube_id" in df.columns
     assert df.iloc[0]["cube_id"] == "rendoblim"

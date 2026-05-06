@@ -24,7 +24,6 @@ from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Provenance,
     Result,
 )
 from pydantic import BaseModel, Field, field_validator
@@ -311,19 +310,8 @@ async def _do_sdmx_fetch(params: SdmxFetchParams) -> Result:
     if series_url:
         additional_metadata.append({"name": "series_url", "value": series_url})
 
-    prov = Provenance(
-        source="sdmx",
-        params={
-            "dataset_key": params.dataset_key,
-            "series_key": params.series_key,
-            "start_period": params.start_period,
-            "end_period": params.end_period,
-        },
-        properties={"metadata": additional_metadata} if additional_metadata else {},
-    )
     ns = _sdmx_namespace_from_dataset_key(params.dataset_key)
-    return _sdmx_fetch_output(ns, dsd_dim_ids).build_table_result(
-        long_df,
-        provenance=prov,
-        params=params.model_dump(),
-    )
+    result = _sdmx_fetch_output(ns, dsd_dim_ids).build_table_result(long_df)
+    if additional_metadata:
+        return result.with_properties(metadata=additional_metadata)
+    return result

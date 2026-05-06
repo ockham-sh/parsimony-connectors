@@ -23,7 +23,7 @@ from parsimony.errors import (
     ParseError,
     ProviderError,
 )
-from parsimony.result import OutputConfig, Provenance, Result
+from parsimony.result import OutputConfig, Result
 from parsimony.transport import HttpClient, map_http_error, map_timeout_error
 
 # Per-request timeout. 15s is defensible for EODHD's REST endpoints, which
@@ -124,7 +124,6 @@ async def eodhd_fetch(
         map_timeout_error(exc, provider=_PROVIDER, op_name=op_name)
 
     data = response.json()
-    prov = Provenance(source=op_name, params=dict(params))
 
     # 200-body error detection (EODHD returns error strings in the body on some endpoints)
     if isinstance(data, dict) and "error" in data and isinstance(data["error"], str):
@@ -136,7 +135,7 @@ async def eodhd_fetch(
 
     # Raw return path (fundamentals): bypass DataFrame pipeline entirely
     if raw:
-        return Result(data=data, provenance=prov)
+        return Result(data=data)
 
     # DataFrame construction
     if isinstance(data, list):
@@ -162,8 +161,8 @@ async def eodhd_fetch(
         )
 
     if output_config is not None:
-        return output_config.build_table_result(df, provenance=prov, params=dict(params))
-    return Result.from_dataframe(df, prov)
+        return output_config.build_table_result(df)
+    return Result.from_dataframe(df)
 
 
 __all__ = [

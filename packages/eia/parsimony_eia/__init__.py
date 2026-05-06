@@ -17,7 +17,6 @@ from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Provenance,
     Result,
 )
 from parsimony.transport import HttpClient, map_http_error
@@ -128,13 +127,8 @@ async def eia_fetch(params: EiaFetchParams, *, api_key: str) -> Result:
     df["route"] = params.route
     df["title"] = description
 
-    return Result.from_dataframe(
-        df,
-        Provenance(
-            source="eia",
-            params={"route": params.route},
-            properties={"source_url": "https://www.eia.gov/opendata/"},
-        ),
+    return Result.from_dataframe(df).with_properties(
+        source_url="https://www.eia.gov/opendata/"
     )
 
 

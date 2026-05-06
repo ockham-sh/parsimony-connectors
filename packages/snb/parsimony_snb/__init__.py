@@ -21,7 +21,6 @@ from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Provenance,
     Result,
 )
 from parsimony.transport import HttpClient, map_http_error
@@ -677,13 +676,8 @@ async def snb_fetch(params: SnbFetchParams) -> Result:
     except Exception as exc:
         logger.warning("Could not fetch title for SNB cube %s: %s", params.cube_id, exc)
 
-    return Result.from_dataframe(
-        df,
-        Provenance(
-            source="snb",
-            params={"cube_id": params.cube_id},
-            properties={"source_url": f"https://data.snb.ch/en/topics/{params.cube_id}"},
-        ),
+    return Result.from_dataframe(df).with_properties(
+        source_url=f"https://data.snb.ch/en/topics/{params.cube_id}"
     )
 
 

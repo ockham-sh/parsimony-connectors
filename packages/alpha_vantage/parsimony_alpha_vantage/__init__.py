@@ -46,7 +46,7 @@ from typing import Any
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
-from parsimony.result import Provenance, Result
+from parsimony.result import Result
 
 from parsimony_alpha_vantage._http import av_fetch as _av_fetch
 from parsimony_alpha_vantage._http import av_fetch_csv as _av_fetch_csv
@@ -153,8 +153,6 @@ async def alpha_vantage_search(params: AlphaVantageSearchParams, *, api_key: str
     df = pd.DataFrame(rows)
     return _SEARCH_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="alpha_vantage_search", params={"keywords": params.keywords}),
-        params={"keywords": params.keywords},
     )
 
 
@@ -204,8 +202,6 @@ async def alpha_vantage_quote(params: AlphaVantageQuoteParams, *, api_key: str) 
     df = pd.DataFrame([row])
     return _QUOTE_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="alpha_vantage_quote", params={"symbol": params.symbol}),
-        params={"symbol": params.symbol},
     )
 
 
@@ -259,16 +255,7 @@ async def alpha_vantage_daily(params: AlphaVantageDailyParams, *, api_key: str) 
     meta_clean = _strip_numbered_keys(meta)
     metadata_list = [{"name": k, "value": str(v)} for k, v in meta_clean.items()]
 
-    prov = Provenance(
-        source="alpha_vantage_daily",
-        params={"symbol": params.symbol, "outputsize": params.outputsize},
-        properties={"metadata": metadata_list},
-    )
-    return _DAILY_OUTPUT.build_table_result(
-        df,
-        provenance=prov,
-        params={"symbol": params.symbol},
-    )
+    return _DAILY_OUTPUT.build_table_result(df).with_properties(metadata=metadata_list)
 
 
 # ---------------------------------------------------------------------------
@@ -298,10 +285,7 @@ async def alpha_vantage_overview(params: AlphaVantageOverviewParams, *, api_key:
             message=f"No overview data returned for symbol: {params.symbol}",
         )
 
-    return Result(
-        data=data,
-        provenance=Provenance(source="alpha_vantage_overview", params={"symbol": params.symbol}),
-    )
+    return Result(data=data)
 
 
 # ---------------------------------------------------------------------------
@@ -333,13 +317,7 @@ async def alpha_vantage_income_statement(params: AlphaVantageStatementParams, *,
             message=f"No income statement data for {params.symbol} ({params.period})",
         )
 
-    return Result(
-        data=reports,
-        provenance=Provenance(
-            source="alpha_vantage_income_statement",
-            params={"symbol": params.symbol, "period": params.period},
-        ),
-    )
+    return Result(data=reports)
 
 
 @connector(env=_ENV, tags=["equities"])
@@ -366,13 +344,7 @@ async def alpha_vantage_balance_sheet(params: AlphaVantageStatementParams, *, ap
             message=f"No balance sheet data for {params.symbol} ({params.period})",
         )
 
-    return Result(
-        data=reports,
-        provenance=Provenance(
-            source="alpha_vantage_balance_sheet",
-            params={"symbol": params.symbol, "period": params.period},
-        ),
-    )
+    return Result(data=reports)
 
 
 @connector(env=_ENV, tags=["equities"])
@@ -399,13 +371,7 @@ async def alpha_vantage_cash_flow(params: AlphaVantageStatementParams, *, api_ke
             message=f"No cash flow data for {params.symbol} ({params.period})",
         )
 
-    return Result(
-        data=reports,
-        provenance=Provenance(
-            source="alpha_vantage_cash_flow",
-            params={"symbol": params.symbol, "period": params.period},
-        ),
-    )
+    return Result(data=reports)
 
 
 # ---------------------------------------------------------------------------
@@ -441,8 +407,6 @@ async def alpha_vantage_earnings(params: AlphaVantageEarningsParams, *, api_key:
     df = pd.DataFrame(rows)
     return _EARNINGS_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="alpha_vantage_earnings", params={"symbol": params.symbol}),
-        params={"symbol": params.symbol},
     )
 
 
@@ -489,14 +453,6 @@ async def alpha_vantage_fx_rate(params: AlphaVantageFxRateParams, *, api_key: st
     df = pd.DataFrame([row])
     return _FX_RATE_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(
-            source="alpha_vantage_fx_rate",
-            params={
-                "from_currency": params.from_currency,
-                "to_currency": params.to_currency,
-            },
-        ),
-        params={"from_currency": params.from_currency},
     )
 
 
@@ -546,19 +502,8 @@ async def alpha_vantage_fx_daily(params: AlphaVantageFxDailyParams, *, api_key: 
             }
         )
 
-    pair = f"{params.from_symbol}/{params.to_symbol}"
     df = pd.DataFrame(rows)
-    return _FX_DAILY_OUTPUT.build_table_result(
-        df,
-        provenance=Provenance(
-            source="alpha_vantage_fx_daily",
-            params={
-                "from_symbol": params.from_symbol,
-                "to_symbol": params.to_symbol,
-            },
-        ),
-        params={"pair": pair},
-    )
+    return _FX_DAILY_OUTPUT.build_table_result(df)
 
 
 # ---------------------------------------------------------------------------
@@ -605,11 +550,6 @@ async def alpha_vantage_crypto_daily(params: AlphaVantageCryptoDailyParams, *, a
     df = pd.DataFrame(rows)
     return _CRYPTO_DAILY_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(
-            source="alpha_vantage_crypto_daily",
-            params={"symbol": params.symbol, "market": params.market},
-        ),
-        params={"symbol": params.symbol},
     )
 
 
@@ -669,16 +609,8 @@ async def alpha_vantage_econ(params: AlphaVantageEconParams, *, api_key: str) ->
         )
 
     df = pd.DataFrame(rows)
-    prov_params: dict[str, Any] = {"function": params.function}
-    if params.interval:
-        prov_params["interval"] = params.interval
-    if params.maturity:
-        prov_params["maturity"] = params.maturity
-
     return _ECON_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="alpha_vantage_econ", params=prov_params),
-        params={"name": params.function},
     )
 
 
@@ -738,8 +670,6 @@ async def alpha_vantage_news(params: AlphaVantageNewsParams, *, api_key: str) ->
 
     return _NEWS_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="alpha_vantage_news", params=prov_params),
-        params=prov_params,
     )
 
 
@@ -785,8 +715,6 @@ async def alpha_vantage_top_movers(params: AlphaVantageTopMoversParams, *, api_k
     df = pd.DataFrame(rows)
     return _MOVERS_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="alpha_vantage_top_movers", params={}),
-        params={},
     )
 
 
@@ -823,14 +751,8 @@ async def alpha_vantage_options(params: AlphaVantageOptionsParams, *, api_key: s
         )
 
     df = pd.DataFrame(contracts)
-    prov_params: dict[str, Any] = {"symbol": params.symbol}
-    if params.date:
-        prov_params["date"] = params.date
-
     return _OPTIONS_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="alpha_vantage_options", params=prov_params),
-        params={"symbol": params.symbol},
     )
 
 
@@ -880,8 +802,6 @@ async def alpha_vantage_weekly(params: AlphaVantageWeeklyParams, *, api_key: str
     df = pd.DataFrame(rows)
     return _DAILY_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="alpha_vantage_weekly", params={"symbol": params.symbol}),
-        params={"symbol": params.symbol},
     )
 
 
@@ -926,8 +846,6 @@ async def alpha_vantage_monthly(params: AlphaVantageMonthlyParams, *, api_key: s
     df = pd.DataFrame(rows)
     return _DAILY_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="alpha_vantage_monthly", params={"symbol": params.symbol}),
-        params={"symbol": params.symbol},
     )
 
 
@@ -982,15 +900,6 @@ async def alpha_vantage_intraday(params: AlphaVantageIntradayParams, *, api_key:
     df = pd.DataFrame(rows)
     return _INTRADAY_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(
-            source="alpha_vantage_intraday",
-            params={
-                "symbol": params.symbol,
-                "interval": params.interval,
-                "outputsize": params.outputsize,
-            },
-        ),
-        params={"symbol": params.symbol},
     )
 
 
@@ -1038,19 +947,8 @@ async def alpha_vantage_fx_weekly(params: AlphaVantageFxWeeklyParams, *, api_key
             }
         )
 
-    pair = f"{params.from_symbol}/{params.to_symbol}"
     df = pd.DataFrame(rows)
-    return _FX_DAILY_OUTPUT.build_table_result(
-        df,
-        provenance=Provenance(
-            source="alpha_vantage_fx_weekly",
-            params={
-                "from_symbol": params.from_symbol,
-                "to_symbol": params.to_symbol,
-            },
-        ),
-        params={"pair": pair},
-    )
+    return _FX_DAILY_OUTPUT.build_table_result(df)
 
 
 @connector(env=_ENV, output=_FX_DAILY_OUTPUT, tags=["forex"])
@@ -1092,19 +990,8 @@ async def alpha_vantage_fx_monthly(params: AlphaVantageFxMonthlyParams, *, api_k
             }
         )
 
-    pair = f"{params.from_symbol}/{params.to_symbol}"
     df = pd.DataFrame(rows)
-    return _FX_DAILY_OUTPUT.build_table_result(
-        df,
-        provenance=Provenance(
-            source="alpha_vantage_fx_monthly",
-            params={
-                "from_symbol": params.from_symbol,
-                "to_symbol": params.to_symbol,
-            },
-        ),
-        params={"pair": pair},
-    )
+    return _FX_DAILY_OUTPUT.build_table_result(df)
 
 
 # ---------------------------------------------------------------------------
@@ -1150,11 +1037,6 @@ async def alpha_vantage_crypto_weekly(params: AlphaVantageCryptoWeeklyParams, *,
     df = pd.DataFrame(rows)
     return _CRYPTO_DAILY_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(
-            source="alpha_vantage_crypto_weekly",
-            params={"symbol": params.symbol, "market": params.market},
-        ),
-        params={"symbol": params.symbol},
     )
 
 
@@ -1196,11 +1078,6 @@ async def alpha_vantage_crypto_monthly(params: AlphaVantageCryptoMonthlyParams, 
     df = pd.DataFrame(rows)
     return _CRYPTO_DAILY_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(
-            source="alpha_vantage_crypto_monthly",
-            params={"symbol": params.symbol, "market": params.market},
-        ),
-        params={"symbol": params.symbol},
     )
 
 
@@ -1231,10 +1108,7 @@ async def alpha_vantage_etf_profile(params: AlphaVantageEtfProfileParams, *, api
             message=f"No ETF profile data for {params.symbol}",
         )
 
-    return Result(
-        data=data,
-        provenance=Provenance(source="alpha_vantage_etf_profile", params={"symbol": params.symbol}),
-    )
+    return Result(data=data)
 
 
 # ---------------------------------------------------------------------------
@@ -1273,8 +1147,6 @@ async def alpha_vantage_earnings_calendar(params: AlphaVantageEarningsCalendarPa
 
     return _EARNINGS_CAL_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="alpha_vantage_earnings_calendar", params=prov_params),
-        params=prov_params,
     )
 
 
@@ -1299,8 +1171,6 @@ async def alpha_vantage_ipo_calendar(params: AlphaVantageIpoCalendarParams, *, a
 
     return _IPO_CAL_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="alpha_vantage_ipo_calendar", params={}),
-        params={},
     )
 
 
@@ -1353,17 +1223,6 @@ async def alpha_vantage_technical(params: AlphaVantageTechnicalParams, *, api_ke
 
     return _TECHNICAL_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(
-            source="alpha_vantage_technical",
-            params={
-                "symbol": params.symbol,
-                "function": params.function,
-                "interval": params.interval,
-                "time_period": params.time_period,
-                "series_type": params.series_type,
-            },
-        ),
-        params={"symbol": params.symbol},
     )
 
 
@@ -1401,8 +1260,6 @@ async def alpha_vantage_metal_spot(params: AlphaVantageMetalSpotParams, *, api_k
     df = pd.DataFrame([row])
     return _METAL_SPOT_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(source="alpha_vantage_metal_spot", params={"symbol": params.symbol}),
-        params={"symbol": params.symbol},
     )
 
 
@@ -1437,11 +1294,6 @@ async def alpha_vantage_metal_history(params: AlphaVantageMetalHistoryParams, *,
     df = pd.DataFrame(rows)
     return _METAL_HISTORY_OUTPUT.build_table_result(
         df,
-        provenance=Provenance(
-            source="alpha_vantage_metal_history",
-            params={"symbol": params.symbol, "interval": params.interval},
-        ),
-        params={"symbol": params.symbol},
     )
 
 

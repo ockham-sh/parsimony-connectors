@@ -85,7 +85,7 @@ async def test_polymarket_gamma_fetch_returns_events() -> None:
 
     result = await POLYMARKET_GAMMA(PolymarketFetchParams(path="/events"))
 
-    assert result.provenance.source == "polymarket_gamma"
+    assert result.provenance.source == "polymarket_gamma_fetch"
     df = result.data
     assert list(df["slug"]) == ["us-election-2028", "fed-rate-cut"]
 
@@ -129,7 +129,7 @@ async def test_polymarket_clob_fetch_supports_response_path() -> None:
     )
 
     df = result.data
-    assert result.provenance.source == "polymarket_clob"
+    assert result.provenance.source == "polymarket_clob_fetch"
     assert list(df["condition_id"]) == ["0xabc", "0xdef"]
 
 

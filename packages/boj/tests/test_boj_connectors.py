@@ -75,7 +75,7 @@ async def test_boj_fetch_returns_observations() -> None:
 
     result = await boj_fetch(BojFetchParams(db="FM08", code="FXERD01"))
 
-    assert result.provenance.source == "boj"
+    assert result.provenance.source == "boj_fetch"
     df = result.data
     assert len(df) == 2
     assert df.iloc[0]["title"] == "JPY/USD Spot Rate"

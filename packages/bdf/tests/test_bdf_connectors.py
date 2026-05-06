@@ -69,7 +69,7 @@ async def test_bdf_fetch_parses_json_response() -> None:
     bound = bdf_fetch.bind(api_key=_KEY)
     result = await bound(BdfFetchParams(key="EXR.M.USD.EUR.SP00.E"))
 
-    assert result.provenance.source == "bdf"
+    assert result.provenance.source == "bdf_fetch"
     # api_key never propagates into provenance (it's passed as a request header)
     assert _KEY not in str(result.provenance.model_dump())
     df = result.data

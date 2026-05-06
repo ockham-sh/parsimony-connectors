@@ -44,7 +44,7 @@ async def test_bdp_fetch_parses_json_stat_response() -> None:
 
     result = await bdp_fetch(BdpFetchParams(domain_id=11, dataset_id="ABC"))
 
-    assert result.provenance.source == "bdp"
+    assert result.provenance.source == "bdp_fetch"
     df = result.data
     assert len(df) == 2
     assert df.iloc[0]["title"] == "Consumer Prices"

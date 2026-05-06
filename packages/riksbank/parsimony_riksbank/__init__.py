@@ -48,7 +48,6 @@ from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Provenance,
     Result,
 )
 from parsimony.transport import HttpClient, map_http_error
@@ -619,13 +618,8 @@ async def riksbank_fetch(params: RiksbankFetchParams, *, api_key: str = "") -> R
     if not rows:
         raise EmptyDataError(provider="riksbank", message=f"No observations returned for: {params.series_id}")
 
-    return Result.from_dataframe(
-        pd.DataFrame(rows),
-        Provenance(
-            source="riksbank",
-            params={"series_id": params.series_id},
-            properties={"source_url": "https://www.riksbank.se/en-gb/statistics/"},
-        ),
+    return Result.from_dataframe(pd.DataFrame(rows)).with_properties(
+        source_url="https://www.riksbank.se/en-gb/statistics/"
     )
 
 
@@ -694,13 +688,8 @@ async def riksbank_swestr_fetch(params: RiksbankSwestrFetchParams, *, api_key: s
     df = pd.DataFrame(rows)
     df["title"] = title
 
-    return Result.from_dataframe(
-        df,
-        Provenance(
-            source="riksbank",
-            params={"series": params.series},
-            properties={"source_url": "https://www.riksbank.se/en-gb/statistics/swestr/"},
-        ),
+    return Result.from_dataframe(df).with_properties(
+        source_url="https://www.riksbank.se/en-gb/statistics/swestr/"
     )
 
 

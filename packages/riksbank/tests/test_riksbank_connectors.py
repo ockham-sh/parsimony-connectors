@@ -83,7 +83,7 @@ async def test_riksbank_fetch_returns_observations() -> None:
     bound = riksbank_fetch.bind(api_key="")
     result = await bound(RiksbankFetchParams(series_id="SEKEURPMI"))
 
-    assert result.provenance.source == "riksbank"
+    assert result.provenance.source == "riksbank_fetch"
     df = result.data
     assert len(df) == 2
     assert df.iloc[0]["title"] == "SEK/EUR exchange rate"

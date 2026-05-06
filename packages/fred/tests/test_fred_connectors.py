@@ -66,7 +66,7 @@ async def test_fred_search_returns_series_metadata() -> None:
     bound = fred_search.bind(api_key="test-key")
     result = await bound(FredSearchParams(search_text="unemployment"))
 
-    assert result.provenance.source == "fred"
+    assert result.provenance.source == "fred_search"
     df = result.data
     assert list(df["id"]) == ["UNRATE"]
 
@@ -128,7 +128,7 @@ async def test_fred_fetch_returns_observations_with_metadata() -> None:
     bound = fred_fetch.bind(api_key="test-key")
     result = await bound(FredFetchParams(series_id="UNRATE"))
 
-    assert result.provenance.source == "fred"
+    assert result.provenance.source == "fred_fetch"
     df = result.data
     assert "date" in df.columns
     assert "value" in df.columns

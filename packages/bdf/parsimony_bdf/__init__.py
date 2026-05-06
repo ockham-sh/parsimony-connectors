@@ -42,7 +42,6 @@ from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Provenance,
     Result,
 )
 from parsimony.transport import map_http_error
@@ -445,13 +444,8 @@ async def bdf_fetch(params: BdfFetchParams, *, api_key: str) -> Result:
             message=f"No observations parsed for key: {params.key}",
         )
 
-    return Result.from_dataframe(
-        pd.DataFrame(rows),
-        Provenance(
-            source="bdf",
-            params={"key": params.key},
-            properties={"source_url": "https://webstat.banque-france.fr"},
-        ),
+    return Result.from_dataframe(pd.DataFrame(rows)).with_properties(
+        source_url="https://webstat.banque-france.fr"
     )
 
 

@@ -75,8 +75,8 @@ async def test_treasury_fetch_returns_records() -> None:
 
     result = await treasury_fetch(TreasuryFetchParams(endpoint="v2/accounting/od/debt_to_penny"))
 
-    assert result.provenance.source == "treasury"
-    assert result.provenance.params == {"endpoint": "v2/accounting/od/debt_to_penny"}
+    assert result.provenance.source == "treasury_fetch"
+    assert result.provenance.params["endpoint"] == "v2/accounting/od/debt_to_penny"
     df = result.data
     assert "record_date" in df.columns
     assert "endpoint" in df.columns
