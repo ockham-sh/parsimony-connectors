@@ -1,6 +1,6 @@
 [project]
 name = "parsimony-rba"
-version = "0.4.0"
+version = "0.5.0"
 description = "Reserve Bank of Australia connector for the parsimony framework"
 authors = [{ name = "Ockham.sh", email = "team@ockham.sh" }]
 license = "Apache-2.0"
