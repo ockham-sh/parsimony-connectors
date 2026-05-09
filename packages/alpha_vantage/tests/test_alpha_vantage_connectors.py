@@ -23,9 +23,11 @@ from parsimony_alpha_vantage import (
     AlphaVantageDailyParams,
     AlphaVantageFxRateParams,
     AlphaVantageSearchParams,
+    AlphaVantageTechnicalParams,
     alpha_vantage_daily,
     alpha_vantage_fx_rate,
     alpha_vantage_search,
+    alpha_vantage_technical,
 )
 
 _KEY = "live-looking-av-key-xyz"
@@ -195,3 +197,35 @@ async def test_fx_rate_returns_single_row() -> None:
 
     df = result.data
     assert len(df) == 1
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_technical_intraday_preserves_time_component() -> None:
+    """Regression: ``TECHNICAL_OUTPUT.date`` must be ``datetime``, not
+    ``date``. ``date`` runs ``dt.normalize()`` which would zero out the
+    time component when the technical endpoint is called with intraday
+    intervals (1min/5min/15min/30min/60min)."""
+    respx.get("https://www.alphavantage.co/query").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "Meta Data": {"1: Symbol": "AAPL", "4: Interval": "1min"},
+                "Technical Analysis: SMA": {
+                    "2026-05-08 14:30:00": {"SMA": "200.3400"},
+                    "2026-05-08 14:29:00": {"SMA": "200.2100"},
+                },
+            },
+        )
+    )
+
+    bound = alpha_vantage_technical.bind(api_key=_KEY)
+    result = await bound(
+        AlphaVantageTechnicalParams(
+            symbol="AAPL", function="SMA", interval="1min", time_period=20, series_type="close"
+        )
+    )
+
+    times = result.data["date"].dt.time.astype(str).tolist()
+    assert "00:00:00" not in times, f"intraday timestamps were normalized to midnight: {times}"
+    assert set(times) == {"14:30:00", "14:29:00"}

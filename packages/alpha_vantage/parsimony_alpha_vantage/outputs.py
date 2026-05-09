@@ -220,7 +220,10 @@ TECHNICAL_OUTPUT = OutputConfig(
             param_key="symbol",
             namespace="alpha_vantage",
         ),
-        Column(name="date", dtype="date", role=ColumnRole.DATA),
+        # `datetime` (not `date`) so intraday intervals (1min..60min) keep their
+        # time component. `date` runs `dt.normalize()`, which would zero out the
+        # time on every row regardless of interval.
+        Column(name="date", dtype="datetime", role=ColumnRole.DATA),
     ]
 )
 
