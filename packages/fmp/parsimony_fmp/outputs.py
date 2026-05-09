@@ -94,7 +94,10 @@ CASH_FLOW_OUTPUT = OutputConfig(
 
 HISTORICAL_PRICES_OUTPUT = OutputConfig(
     columns=[
-        Column(name="date", dtype="date"),
+        # `datetime` (not `date`) so intraday frequencies (1min..4hour) keep their
+        # time component. `date` runs `dt.normalize()`, which would zero out the
+        # time on every row regardless of frequency.
+        Column(name="date", dtype="datetime"),
         Column(name="open", dtype="numeric"),
         Column(name="high", dtype="numeric"),
         Column(name="low", dtype="numeric"),
