@@ -39,7 +39,7 @@ jobs:
       has_packages: ${{ steps.list.outputs.has_packages }}
       python_versions: ${{ steps.versions.outputs.python_versions }}
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           path: parsimony-connectors
 
@@ -111,12 +111,12 @@ jobs:
         package: ${{ fromJson(needs.discover.outputs.packages) }}
         python-version: ${{ fromJson(needs.discover.outputs.python_versions) }}
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           path: parsimony-connectors
 
       - name: Check out parsimony kernel
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           repository: ${{ env.KERNEL_REPO }}
           ref: ${{ env.KERNEL_REF }}
