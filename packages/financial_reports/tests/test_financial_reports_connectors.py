@@ -25,10 +25,6 @@ from parsimony_financial_reports import (
 _KEY = "live-looking-fr-key"
 
 
-def test_env_vars_maps_api_key() -> None:
-    assert CONNECTORS["fr_companies_search"].env_map == {"api_key": "FINANCIAL_REPORTS_API_KEY"}
-
-
 def test_connectors_count() -> None:
     assert len(CONNECTORS) == 10
 

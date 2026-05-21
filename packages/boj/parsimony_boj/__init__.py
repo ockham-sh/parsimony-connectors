@@ -220,10 +220,10 @@ BOJ_ENUMERATE_OUTPUT = OutputConfig(
         # TITLE: ``NAME_OF_TIME_SERIES`` for series rows; canonical DB title
         # for DB rows.
         Column(name="title", role=ColumnRole.TITLE),
-        # DESCRIPTION feeds the embedder via ``semantic_text()`` — concat of
-        # breadcrumb + category + unit + frequency + parent DB title (and
-        # NOTES if present) for series; a short summary for DB rows.
-        Column(name="description", role=ColumnRole.DESCRIPTION),
+        # ``description`` carries searchable prose: breadcrumb + category +
+        # unit + frequency + parent DB title (and NOTES if present) for
+        # series; a short summary for DB rows.
+        Column(name="description", role=ColumnRole.METADATA),
         # METADATA columns (filtering / dispatch / UI hints):
         Column(name="db", role=ColumnRole.METADATA),
         Column(name="db_title", role=ColumnRole.METADATA),
@@ -725,7 +725,5 @@ from parsimony_boj.search import (  # noqa: E402, F401  (after public decorators
     BojSearchParams,
     boj_search,
 )
-
-CATALOGS: list[tuple[str, object]] = [("boj", enumerate_boj)]
 
 CONNECTORS = Connectors([boj_fetch, enumerate_boj, boj_search])

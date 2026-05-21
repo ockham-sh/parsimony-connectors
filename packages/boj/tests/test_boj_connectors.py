@@ -28,7 +28,7 @@ def test_connectors_collection_exposes_expected_names() -> None:
     """``boj_search`` is a registered connector alongside fetch + enumerate.
 
     We include it in the expected set because it ships with the package
-    and is what agents call to navigate the catalog. ``Catalog.from_url``
+    and is what agents call to navigate the catalog. ``Catalog.load``
     is lazy (only invoked on first ``boj_search`` call), so import-time
     registration succeeds without any network or HF access.
     """
@@ -36,15 +36,12 @@ def test_connectors_collection_exposes_expected_names() -> None:
     assert names == {"boj_fetch", "enumerate_boj", "boj_search"}
 
 
-def test_enumerate_output_schema_includes_description_role() -> None:
-    """``description`` must be routed via DESCRIPTION (semantic_text) not
-    METADATA (BM25 only) so the embedder lifts it into the search index.
-    Mirrors BoC and Treasury.
-    """
+def test_enumerate_output_schema_includes_description_metadata() -> None:
+    """``description`` is ordinary metadata in the clean catalog contract."""
     from parsimony.result import ColumnRole
 
     by_name = {c.name: c for c in BOJ_ENUMERATE_OUTPUT.columns}
-    assert by_name["description"].role == ColumnRole.DESCRIPTION
+    assert by_name["description"].role == ColumnRole.METADATA
     assert by_name["source"].role == ColumnRole.METADATA
     assert by_name["entity_type"].role == ColumnRole.METADATA
     assert by_name["db"].role == ColumnRole.METADATA
@@ -111,9 +108,7 @@ def _stub_metadata_endpoint(*, status: int = 200, json: dict | None = None) -> r
 @respx.mock
 @pytest.mark.asyncio
 async def test_enumerate_boj_emits_one_row_per_series_with_description_and_source() -> None:
-    """Every series row must have all 13 columns populated, a non-empty
-    DESCRIPTION (the embedder input), and ``source='stat_search'``.
-    """
+    """Every series row must have all 13 columns populated and source metadata."""
     payload = {
         "RESULTSET": [
             # Layer header for breadcrumb context.
@@ -244,8 +239,7 @@ async def test_enumerate_boj_handles_403_with_retry_then_warning(
 async def test_enumerate_boj_emits_columns_required_for_catalog_entries() -> None:
     """The Result returned by the enumerator must carry an output schema
     that ``entries_from_result`` accepts: exactly one KEY (code), one
-    TITLE (title), one DESCRIPTION (description), and METADATA columns
-    for the BoJ-specific dispatch hints.
+    TITLE (title), and METADATA columns for the BoJ-specific dispatch hints.
     """
     from parsimony.catalog import entries_from_result
 
@@ -273,8 +267,7 @@ async def test_enumerate_boj_emits_columns_required_for_catalog_entries() -> Non
     series_entry = by_code["FXERD01"]
     assert series_entry.namespace == "boj"
     assert series_entry.title == "JPY/USD Spot Rate"
-    assert series_entry.description  # non-empty — feeds semantic_text()
-    # METADATA flows into SeriesEntry.metadata.
+    assert series_entry.metadata.get("description")
     assert series_entry.metadata.get("source") == "stat_search"
     assert series_entry.metadata.get("entity_type") == "series"
     assert series_entry.metadata.get("frequency") == "Daily"

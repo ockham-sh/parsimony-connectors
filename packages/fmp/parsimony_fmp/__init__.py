@@ -122,7 +122,7 @@ _PRICES_PATH_MAP: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "FMP_API_KEY"}, output=SEARCH_OUTPUT, tags=["equity", "utility", "tool"])
+@connector(output=SEARCH_OUTPUT, tags=["equity", "utility", "tool"])
 async def fmp_search(
     params: FmpSearchParams,
     *,
@@ -147,7 +147,7 @@ async def fmp_search(
     )
 
 
-@connector(env={"api_key": "FMP_API_KEY"}, tags=["equity", "utility", "tool"])
+@connector(tags=["equity", "utility", "tool"])
 async def fmp_taxonomy(
     params: FmpTaxonomyParams,
     *,
@@ -174,7 +174,7 @@ async def fmp_taxonomy(
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "FMP_API_KEY"}, output=STOCK_QUOTE_OUTPUT, tags=["equity"])
+@connector(output=STOCK_QUOTE_OUTPUT, tags=["equity"])
 async def fmp_quotes(
     params: FmpSymbolsParams,
     *,
@@ -197,7 +197,7 @@ async def fmp_quotes(
     )
 
 
-@connector(env={"api_key": "FMP_API_KEY"}, output=HISTORICAL_PRICES_OUTPUT, tags=["equity"])
+@connector(output=HISTORICAL_PRICES_OUTPUT, tags=["equity"])
 async def fmp_prices(
     params: FmpHistoricalPricesParams,
     *,
@@ -239,7 +239,7 @@ async def fmp_prices(
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "FMP_API_KEY"}, output=COMPANY_PROFILE_OUTPUT, tags=["equity", "tool"])
+@connector(output=COMPANY_PROFILE_OUTPUT, tags=["equity", "tool"])
 async def fmp_company_profile(
     params: FmpSymbolParams,
     *,
@@ -261,7 +261,7 @@ async def fmp_company_profile(
     )
 
 
-@connector(env={"api_key": "FMP_API_KEY"}, output=PEERS_OUTPUT, tags=["equity", "tool"])
+@connector(output=PEERS_OUTPUT, tags=["equity", "tool"])
 async def fmp_peers(
     params: FmpSymbolParams,
     *,
@@ -283,7 +283,7 @@ async def fmp_peers(
     )
 
 
-@connector(env={"api_key": "FMP_API_KEY"}, output=INCOME_STATEMENT_OUTPUT, tags=["equity"])
+@connector(output=INCOME_STATEMENT_OUTPUT, tags=["equity"])
 async def fmp_income_statements(
     params: FmpFinancialStatementParams,
     *,
@@ -306,7 +306,7 @@ async def fmp_income_statements(
     )
 
 
-@connector(env={"api_key": "FMP_API_KEY"}, output=BALANCE_SHEET_OUTPUT, tags=["equity"])
+@connector(output=BALANCE_SHEET_OUTPUT, tags=["equity"])
 async def fmp_balance_sheet_statements(
     params: FmpFinancialStatementParams,
     *,
@@ -329,7 +329,7 @@ async def fmp_balance_sheet_statements(
     )
 
 
-@connector(env={"api_key": "FMP_API_KEY"}, output=CASH_FLOW_OUTPUT, tags=["equity"])
+@connector(output=CASH_FLOW_OUTPUT, tags=["equity"])
 async def fmp_cash_flow_statements(
     params: FmpFinancialStatementParams,
     *,
@@ -357,7 +357,7 @@ async def fmp_cash_flow_statements(
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "FMP_API_KEY"}, tags=["equity"])
+@connector(tags=["equity"])
 async def fmp_corporate_history(
     params: FmpCorporateHistoryParams,
     *,
@@ -379,7 +379,7 @@ async def fmp_corporate_history(
     )
 
 
-@connector(env={"api_key": "FMP_API_KEY"}, tags=["equity"])
+@connector(tags=["equity"])
 async def fmp_event_calendar(
     params: FmpEventCalendarParams,
     *,
@@ -404,7 +404,7 @@ async def fmp_event_calendar(
     )
 
 
-@connector(env={"api_key": "FMP_API_KEY"}, output=ANALYST_ESTIMATES_OUTPUT, tags=["equity"])
+@connector(output=ANALYST_ESTIMATES_OUTPUT, tags=["equity"])
 async def fmp_analyst_estimates(
     params: FmpAnalystEstimatesParams,
     *,
@@ -431,7 +431,7 @@ async def fmp_analyst_estimates(
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "FMP_API_KEY"}, output=NEWS_OUTPUT, tags=["equity"])
+@connector(output=NEWS_OUTPUT, tags=["equity"])
 async def fmp_news(
     params: FmpNewsParams,
     *,
@@ -461,7 +461,7 @@ async def fmp_news(
     )
 
 
-@connector(env={"api_key": "FMP_API_KEY"}, output=INSIDER_TRADES_OUTPUT, tags=["equity"])
+@connector(output=INSIDER_TRADES_OUTPUT, tags=["equity"])
 async def fmp_insider_trades(
     params: FmpInsiderTradesParams,
     *,
@@ -481,7 +481,7 @@ async def fmp_insider_trades(
     )
 
 
-@connector(env={"api_key": "FMP_API_KEY"}, output=INSTITUTIONAL_POSITIONS_OUTPUT, tags=["equity"])
+@connector(output=INSTITUTIONAL_POSITIONS_OUTPUT, tags=["equity"])
 async def fmp_institutional_positions(
     params: FmpInstitutionalPositionsParams,
     *,
@@ -501,7 +501,7 @@ async def fmp_institutional_positions(
     )
 
 
-@connector(env={"api_key": "FMP_API_KEY"}, output=EARNINGS_TRANSCRIPT_OUTPUT, tags=["equity"])
+@connector(output=EARNINGS_TRANSCRIPT_OUTPUT, tags=["equity"])
 async def fmp_earnings_transcript(
     params: FmpEarningsTranscriptParams,
     *,
@@ -524,7 +524,7 @@ async def fmp_earnings_transcript(
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "FMP_API_KEY"}, output=INDEX_CONSTITUENTS_OUTPUT, tags=["equity", "tool"])
+@connector(output=INDEX_CONSTITUENTS_OUTPUT, tags=["equity", "tool"])
 async def fmp_index_constituents(
     params: FmpIndexConstituentsParams,
     *,
@@ -543,7 +543,7 @@ async def fmp_index_constituents(
     )
 
 
-@connector(env={"api_key": "FMP_API_KEY"}, output=MARKET_MOVERS_OUTPUT, tags=["equity", "tool"])
+@connector(output=MARKET_MOVERS_OUTPUT, tags=["equity", "tool"])
 async def fmp_market_movers(
     params: FmpMarketMoversParams,
     *,
@@ -570,7 +570,7 @@ async def fmp_market_movers(
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "FMP_API_KEY"}, output=SCREENER_OUTPUT, tags=["equity", "tool"])
+@connector(output=SCREENER_OUTPUT, tags=["equity", "tool"])
 async def fmp_screener(
     params: FmpScreenerParams,
     *,

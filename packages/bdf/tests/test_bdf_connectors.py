@@ -50,10 +50,6 @@ _BDF_OBS_JSON = [
 ]
 
 
-def test_env_vars_maps_api_key() -> None:
-    assert CONNECTORS["bdf_fetch"].env_map == {"api_key": "BANQUEDEFRANCE_KEY"}
-
-
 def test_connectors_collection_exposes_expected_names() -> None:
     names = {c.name for c in CONNECTORS}
     assert names == {"bdf_fetch", "enumerate_bdf", "bdf_search"}

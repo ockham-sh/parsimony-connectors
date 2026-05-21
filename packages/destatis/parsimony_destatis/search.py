@@ -12,12 +12,13 @@ statistic-level grouping or a directly-fetchable table.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Annotated
 
 import pandas as pd
-from parsimony.catalog import Catalog, CatalogCache
+from parsimony.catalog import Catalog
 from parsimony.connector import connector
 from parsimony.result import Column, ColumnRole, OutputConfig
 from pydantic import BaseModel, Field
@@ -27,19 +28,26 @@ logger = logging.getLogger(__name__)
 PARSIMONY_DESTATIS_CATALOG_URL_ENV = "PARSIMONY_DESTATIS_CATALOG_URL"
 _DEFAULT_CATALOG_URL = "hf://parsimony-dev/destatis"
 
-_CATALOG_CACHE = CatalogCache(max_size=1)
+_catalog: Catalog | None = None
+_catalog_url: str | None = None
+_catalog_lock = asyncio.Lock()
 
 
-async def _get_catalog() -> Catalog:
-    url = os.environ.get(PARSIMONY_DESTATIS_CATALOG_URL_ENV, _DEFAULT_CATALOG_URL)
-    return await _CATALOG_CACHE.get(url)
+async def _get_catalog(catalog_url: str | None = None) -> Catalog:
+    global _catalog, _catalog_url
+    url = catalog_url or os.environ.get(PARSIMONY_DESTATIS_CATALOG_URL_ENV, _DEFAULT_CATALOG_URL)
+    async with _catalog_lock:
+        if _catalog is None or _catalog_url != url:
+            _catalog = await Catalog.load(url)
+            _catalog_url = url
+        return _catalog
 
 
 DESTATIS_SEARCH_OUTPUT = OutputConfig(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="destatis"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="similarity", role=ColumnRole.METADATA),
+        Column(name="score", role=ColumnRole.METADATA),
     ]
 )
 
@@ -63,13 +71,14 @@ class DestatisSearchParams(BaseModel):
         ),
     ]
     limit: int = Field(default=10, ge=1, le=50, description="Top-N results.")
+    catalog_url: str | None = Field(default=None, description="Override catalog URL, e.g. file:///tmp/destatis.")
 
 
 @connector(
     output=DESTATIS_SEARCH_OUTPUT,
     tags=["macro", "de", "tool"],
 )
-async def destatis_search(params: DestatisSearchParams) -> pd.DataFrame:
+async def destatis_search(query: str, limit: int = 10, catalog_url: str | None = None) -> pd.DataFrame:
     """Semantic-search the German Federal Statistical Office (Destatis) catalog.
 
     Returns the top matching statistic / table codes from Destatis'
@@ -83,14 +92,15 @@ async def destatis_search(params: DestatisSearchParams) -> pd.DataFrame:
     whole statistic (a grouping of tables — drill into it via the catalog
     or via ``parent_statistic`` on table rows).
     """
-    catalog = await _get_catalog()
+    params = DestatisSearchParams(query=query, limit=limit, catalog_url=catalog_url)
+    catalog = await _get_catalog(params.catalog_url)
     matches = await catalog.search(params.query, limit=params.limit)
     return pd.DataFrame(
         [
             {
                 "code": m.code,
                 "title": m.title,
-                "similarity": round(m.similarity, 6),
+                "score": round(m.score, 6),
             }
             for m in matches
         ]

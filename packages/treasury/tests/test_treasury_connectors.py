@@ -73,10 +73,11 @@ async def test_treasury_fetch_returns_records() -> None:
         )
     )
 
-    result = await treasury_fetch(TreasuryFetchParams(endpoint="v2/accounting/od/debt_to_penny"))
+    params = TreasuryFetchParams(endpoint="v2/accounting/od/debt_to_penny")
+    result = await treasury_fetch(params)
 
     assert result.provenance.source == "treasury_fetch"
-    assert result.provenance.params["endpoint"] == "v2/accounting/od/debt_to_penny"
+    assert result.provenance.params == {"params": params}
     df = result.data
     assert "record_date" in df.columns
     assert "endpoint" in df.columns
@@ -129,9 +130,8 @@ async def test_treasury_rates_fetch_parses_xml_and_normalises_record_date() -> N
         return_value=httpx.Response(200, text=_YIELD_CURVE_XML, headers={"content-type": "text/xml"})
     )
 
-    result = await treasury_rates_fetch(
-        TreasuryRatesFetchParams(feed="daily_treasury_yield_curve", year=2026)
-    )
+    params = TreasuryRatesFetchParams(feed="daily_treasury_yield_curve", year=2026)
+    result = await treasury_rates_fetch(params)
 
     df = result.data
     assert len(df) == 2
@@ -143,7 +143,7 @@ async def test_treasury_rates_fetch_parses_xml_and_normalises_record_date() -> N
     assert df["record_date"].iloc[-1] == pd.Timestamp("2026-01-03")
     # Identity columns added for catalog interop.
     assert list(df["feed"].unique()) == ["daily_treasury_yield_curve"]
-    assert result.provenance.params == {"feed": "daily_treasury_yield_curve", "year": 2026}
+    assert result.provenance.params == {"params": params}
     assert "field_tdr_date_value=2026" in result.provenance.properties["source_url"]
 
 

@@ -33,10 +33,6 @@ _KEY = "live-looking-key-abc123"
 # ---------------------------------------------------------------------------
 
 
-def test_env_vars_maps_api_key() -> None:
-    assert CONNECTORS["coingecko_search"].env_map == {"api_key": "COINGECKO_API_KEY"}
-
-
 def test_connectors_count_matches_docstring() -> None:
     assert len(CONNECTORS) == 11
 

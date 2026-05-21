@@ -76,7 +76,7 @@ def _iso_to_unix(date_str: str) -> int:
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "COINGECKO_API_KEY"}, output=_SEARCH_OUTPUT, tags=["crypto", "tool"])
+@connector(output=_SEARCH_OUTPUT, tags=["crypto", "tool"])
 async def coingecko_search(params: CoinGeckoSearchParams, *, api_key: str) -> Result:
     """Search CoinGecko for coins by name or symbol. Use this first to resolve
     CoinGecko coin IDs before calling coingecko_price, coingecko_markets, or
@@ -112,7 +112,7 @@ async def coingecko_search(params: CoinGeckoSearchParams, *, api_key: str) -> Re
     )
 
 
-@connector(env={"api_key": "COINGECKO_API_KEY"}, output=_TRENDING_OUTPUT, tags=["crypto", "tool"])
+@connector(output=_TRENDING_OUTPUT, tags=["crypto", "tool"])
 async def coingecko_trending(params: CoinGeckoTrendingParams, *, api_key: str) -> Result:
     """[Demo+] Fetch trending coins on CoinGecko in the last 24 hours.
     Returns top 7 trending coins by search volume, with name, symbol,
@@ -141,7 +141,7 @@ async def coingecko_trending(params: CoinGeckoTrendingParams, *, api_key: str) -
     return _TRENDING_OUTPUT.build_table_result(df)
 
 
-@connector(env={"api_key": "COINGECKO_API_KEY"}, output=_GAINERS_LOSERS_OUTPUT, tags=["crypto", "tool"])
+@connector(output=_GAINERS_LOSERS_OUTPUT, tags=["crypto", "tool"])
 async def coingecko_top_gainers_losers(params: CoinGeckoTopMoversParams, *, api_key: str) -> Result:
     """[Demo+] Fetch top gaining and losing coins over a given time window.
     Returns combined rows with a 'direction' column ('gainer' or 'loser') and
@@ -192,7 +192,7 @@ async def coingecko_top_gainers_losers(params: CoinGeckoTopMoversParams, *, api_
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "COINGECKO_API_KEY"}, output=_PRICE_OUTPUT, tags=["crypto"])
+@connector(output=_PRICE_OUTPUT, tags=["crypto"])
 async def coingecko_price(params: CoinGeckoPriceParams, *, api_key: str) -> Result:
     """[Demo+] Fetch current price(s) for one or more coins in one or more currencies.
     Returns one row per coin with dynamic columns: {currency}, {currency}_market_cap,
@@ -225,7 +225,7 @@ async def coingecko_price(params: CoinGeckoPriceParams, *, api_key: str) -> Resu
     )
 
 
-@connector(env={"api_key": "COINGECKO_API_KEY"}, output=_MARKETS_OUTPUT, tags=["crypto"])
+@connector(output=_MARKETS_OUTPUT, tags=["crypto"])
 async def coingecko_markets(params: CoinGeckoMarketsParams, *, api_key: str) -> Result:
     """[Demo+] Fetch ranked market data for coins: price, market cap, volume, ATH/ATL,
     24h change. Returns up to 250 coins per page sorted by market_cap_desc by default.
@@ -254,7 +254,7 @@ async def coingecko_markets(params: CoinGeckoMarketsParams, *, api_key: str) -> 
     )
 
 
-@connector(env={"api_key": "COINGECKO_API_KEY"}, tags=["crypto"])
+@connector(tags=["crypto"])
 async def coingecko_coin_detail(params: CoinGeckoCoinDetailParams, *, api_key: str) -> Result:
     """[Demo+] Fetch full metadata for a single coin: description, links, categories,
     genesis date, hashing algorithm, current market data, and optional community/
@@ -285,7 +285,7 @@ async def coingecko_coin_detail(params: CoinGeckoCoinDetailParams, *, api_key: s
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "COINGECKO_API_KEY"}, output=_MARKET_CHART_OUTPUT, tags=["crypto"])
+@connector(output=_MARKET_CHART_OUTPUT, tags=["crypto"])
 async def coingecko_market_chart(params: CoinGeckoMarketChartParams, *, api_key: str) -> Result:
     """[Demo+] Fetch historical price, market cap, and total volume for a coin over
     the last N days. Auto-granularity: 1d→5-min intervals, 2-90d→hourly, 90d+→daily.
@@ -310,7 +310,7 @@ async def coingecko_market_chart(params: CoinGeckoMarketChartParams, *, api_key:
     )
 
 
-@connector(env={"api_key": "COINGECKO_API_KEY"}, output=_MARKET_CHART_OUTPUT, tags=["crypto"])
+@connector(output=_MARKET_CHART_OUTPUT, tags=["crypto"])
 async def coingecko_market_chart_range(params: CoinGeckoMarketChartRangeParams, *, api_key: str) -> Result:
     """[Demo+] Fetch historical price, market cap, and total volume for a coin between
     two ISO dates. More precise than coingecko_market_chart when you need a specific
@@ -359,7 +359,7 @@ def _build_market_chart_df(data: Any, *, op_name: str) -> pd.DataFrame:
     return df
 
 
-@connector(env={"api_key": "COINGECKO_API_KEY"}, output=_OHLC_OUTPUT, tags=["crypto"])
+@connector(output=_OHLC_OUTPUT, tags=["crypto"])
 async def coingecko_ohlc(params: CoinGeckoOhlcParams, *, api_key: str) -> Result:
     """[Demo+] Fetch OHLC (open-high-low-close) candlestick data for a coin.
     Candlestick body: 1-2d→30-min candles, 3-30d→4-hour candles, 31-365d→4-day candles.
@@ -390,7 +390,7 @@ async def coingecko_ohlc(params: CoinGeckoOhlcParams, *, api_key: str) -> Result
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "COINGECKO_API_KEY"}, output=_ONCHAIN_PRICE_OUTPUT, tags=["crypto", "onchain"])
+@connector(output=_ONCHAIN_PRICE_OUTPUT, tags=["crypto", "onchain"])
 async def coingecko_token_price_onchain(params: CoinGeckoTokenPriceOnchainParams, *, api_key: str) -> Result:
     """[Demo+] Fetch on-chain token price by contract address via GeckoTerminal.
     Use for long-tail tokens not listed on CoinGecko's main index. Prefer
@@ -427,7 +427,7 @@ async def coingecko_token_price_onchain(params: CoinGeckoTokenPriceOnchainParams
 # ---------------------------------------------------------------------------
 
 
-@enumerator(env={"api_key": "COINGECKO_API_KEY"}, output=_ENUMERATE_OUTPUT, tags=["crypto"])
+@enumerator(output=_ENUMERATE_OUTPUT, tags=["crypto"])
 async def enumerate_coingecko(params: CoinGeckoEnumerateParams, *, api_key: str) -> pd.DataFrame:
     """Enumerate all coins from CoinGecko for catalog indexing.
 

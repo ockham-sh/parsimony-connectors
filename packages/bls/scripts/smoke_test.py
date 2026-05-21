@@ -14,12 +14,12 @@ import asyncio
 import sys
 from collections.abc import Sequence
 
-from parsimony.cache import catalogs_dir
+from parsimony.cache import staging_dir
 from parsimony.catalog import Catalog
 
 # Reads from the same XDG cache the publisher writes to. Override the
 # whole cache root with PARSIMONY_CACHE_DIR if you keep snapshots elsewhere.
-CATALOG_ROOT = f"file://{catalogs_dir('bls')}"
+CATALOG_ROOT = f"file://{staging_dir('bls')}"
 
 # (query, namespace, expected keywords — at least one must appear
 # case-insensitively somewhere in the top-3 title or description).
@@ -69,7 +69,7 @@ async def _smoke_one_namespace(
     queries: list[tuple[str, tuple[str, ...]]],
 ) -> tuple[int, int]:
     url = f"{CATALOG_ROOT}/{namespace}"
-    cat = await Catalog.from_url(url)
+    cat = await Catalog.load(url)
     print(f"\n--- {namespace} ({len(queries)} queries) ---", flush=True)
     passed = 0
     for query, expected in queries:
@@ -82,7 +82,7 @@ async def _smoke_one_namespace(
         print(f"  [{status}] {query}", flush=True)
         for h in top3:
             title = (getattr(h, "title", "") or "")[:90]
-            print(f"    [{h.similarity:.3f}] {h.code}  {title}", flush=True)
+            print(f"    [{h.score:.3f}] {h.code}  {title}", flush=True)
         if not ok:
             print(f"    expected one of: {expected}", flush=True)
     return passed, len(queries)

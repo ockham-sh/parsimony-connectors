@@ -78,7 +78,7 @@ _BULK_TIMEOUT: float = 60.0
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "EODHD_API_KEY"}, output=_EOD_OUTPUT, tags=["eodhd", "equity"])
+@connector(output=_EOD_OUTPUT, tags=["eodhd", "equity"])
 async def eodhd_eod(params: EodhdEodParams, *, api_key: str) -> Result:
     """[Free+] Fetch end-of-day OHLCV prices for a ticker. Supports daily, weekly, and monthly
     aggregation. Use from/to to limit the date range (ISO 8601). Empty result may indicate an
@@ -94,7 +94,7 @@ async def eodhd_eod(params: EodhdEodParams, *, api_key: str) -> Result:
     return await _eodhd_fetch(http, path="/eod/{ticker}", params=p, op_name="eodhd_eod", output_config=_EOD_OUTPUT)
 
 
-@connector(env={"api_key": "EODHD_API_KEY"}, output=_LIVE_OUTPUT, tags=["eodhd", "equity", "tool"])
+@connector(output=_LIVE_OUTPUT, tags=["eodhd", "equity", "tool"])
 async def eodhd_live(params: EodhdLiveParams, *, api_key: str) -> Result:
     """[Free+] Fetch live (real-time or 15-min delayed) quote for a ticker. Use eodhd_search
     to resolve a company name to its EODHD ticker format (e.g. AAPL.US)."""
@@ -108,7 +108,7 @@ async def eodhd_live(params: EodhdLiveParams, *, api_key: str) -> Result:
     )
 
 
-@connector(env={"api_key": "EODHD_API_KEY"}, output=_INTRADAY_OUTPUT, tags=["eodhd", "equity"])
+@connector(output=_INTRADAY_OUTPUT, tags=["eodhd", "equity"])
 async def eodhd_intraday(params: EodhdIntradayParams, *, api_key: str) -> Result:
     """[EOD+Intraday+] Fetch intraday OHLCV data for a ticker. Intervals: 1m, 5m, 1h.
     Provide from_unix / to_unix as Unix timestamps (seconds) to bound the range.
@@ -124,7 +124,7 @@ async def eodhd_intraday(params: EodhdIntradayParams, *, api_key: str) -> Result
     )
 
 
-@connector(env={"api_key": "EODHD_API_KEY"}, output=_BULK_EOD_OUTPUT, tags=["eodhd", "equity"])
+@connector(output=_BULK_EOD_OUTPUT, tags=["eodhd", "equity"])
 async def eodhd_bulk_eod(params: EodhdBulkEodParams, *, api_key: str) -> Result:
     """[EOD Historical+] Fetch end-of-day prices for all symbols on an exchange in a single request.
     Returns the last trading day by default; pass date to fetch a specific day.
@@ -143,7 +143,7 @@ async def eodhd_bulk_eod(params: EodhdBulkEodParams, *, api_key: str) -> Result:
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "EODHD_API_KEY"}, output=_DIVIDENDS_OUTPUT, tags=["eodhd", "equity"])
+@connector(output=_DIVIDENDS_OUTPUT, tags=["eodhd", "equity"])
 async def eodhd_dividends(params: EodhdDividendsParams, *, api_key: str) -> Result:
     """[Free+] Fetch dividend history for a ticker. Use from/to to limit the range."""
     http = _make_http(api_key)
@@ -157,7 +157,7 @@ async def eodhd_dividends(params: EodhdDividendsParams, *, api_key: str) -> Resu
     )
 
 
-@connector(env={"api_key": "EODHD_API_KEY"}, output=_SPLITS_OUTPUT, tags=["eodhd", "equity"])
+@connector(output=_SPLITS_OUTPUT, tags=["eodhd", "equity"])
 async def eodhd_splits(params: EodhdSplitsParams, *, api_key: str) -> Result:
     """[Free+] Fetch stock split history for a ticker. The split ratio column contains the
     ratio string as returned by the API (e.g. "4/1" for a 4-for-1 split). Use from/to to limit the range."""
@@ -177,7 +177,7 @@ async def eodhd_splits(params: EodhdSplitsParams, *, api_key: str) -> Result:
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "EODHD_API_KEY"}, output=_SEARCH_OUTPUT, tags=["eodhd", "tool"])
+@connector(output=_SEARCH_OUTPUT, tags=["eodhd", "tool"])
 async def eodhd_search(params: EodhdSearchParams, *, api_key: str) -> Result:
     """[Free+] Search for instruments by company name or partial ticker. Use to resolve company
     names to EODHD ticker codes (format: TICKER.EXCHANGE, e.g. AAPL.US). Filter by type to
@@ -191,7 +191,7 @@ async def eodhd_search(params: EodhdSearchParams, *, api_key: str) -> Result:
     )
 
 
-@connector(env={"api_key": "EODHD_API_KEY"}, output=_EXCHANGES_OUTPUT, tags=["eodhd", "tool"])
+@connector(output=_EXCHANGES_OUTPUT, tags=["eodhd", "tool"])
 async def eodhd_exchanges(params: EodhdExchangesParams, *, api_key: str) -> Result:
     """[Free+] List all exchanges supported by EODHD. Use to find valid exchange codes for
     eodhd_bulk_eod and eodhd_exchange_symbols."""
@@ -201,7 +201,7 @@ async def eodhd_exchanges(params: EodhdExchangesParams, *, api_key: str) -> Resu
     )
 
 
-@connector(env={"api_key": "EODHD_API_KEY"}, output=_EXCHANGE_SYMBOLS_OUTPUT, tags=["eodhd"])
+@connector(output=_EXCHANGE_SYMBOLS_OUTPUT, tags=["eodhd"])
 async def eodhd_exchange_symbols(params: EodhdExchangeSymbolsParams, *, api_key: str) -> Result:
     """[Free+] List all symbols traded on an exchange. Large response for major exchanges
     (US has 20 000+ symbols) — use type filter to limit. Empty result may indicate an
@@ -224,7 +224,7 @@ async def eodhd_exchange_symbols(params: EodhdExchangeSymbolsParams, *, api_key:
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "EODHD_API_KEY"}, tags=["eodhd", "equity"])
+@connector(tags=["eodhd", "equity"])
 async def eodhd_fundamentals(params: EodhdFundamentalsParams, *, api_key: str) -> Result:
     """[Fundamentals+] Fetch full fundamentals for a stock or ETF. Returns a large nested dict
     (not a DataFrame). Typical top-level keys for equities: General, Highlights, Valuation,
@@ -257,7 +257,7 @@ _CALENDAR_PATHS: dict[str, str] = {
 }
 
 
-@connector(env={"api_key": "EODHD_API_KEY"}, output=_CALENDAR_OUTPUT, tags=["eodhd", "equity"])
+@connector(output=_CALENDAR_OUTPUT, tags=["eodhd", "equity"])
 async def eodhd_calendar(params: EodhdCalendarParams, *, api_key: str) -> Result:
     """[Fundamentals+] Fetch market calendar data. Three types available:
       - earnings: upcoming earnings announcements with EPS estimates and actuals
@@ -282,7 +282,7 @@ async def eodhd_calendar(params: EodhdCalendarParams, *, api_key: str) -> Result
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "EODHD_API_KEY"}, output=_NEWS_OUTPUT, tags=["eodhd", "tool"])
+@connector(output=_NEWS_OUTPUT, tags=["eodhd", "tool"])
 async def eodhd_news(params: EodhdNewsParams, *, api_key: str) -> Result:
     """[Free+] Fetch financial news articles. Filter by ticker (e.g. AAPL.US) or leave
     empty for broad market news. Use from/to for date filtering and limit/offset for pagination.
@@ -303,7 +303,7 @@ async def eodhd_news(params: EodhdNewsParams, *, api_key: str) -> Result:
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "EODHD_API_KEY"}, output=_MACRO_OUTPUT, tags=["eodhd", "macro"])
+@connector(output=_MACRO_OUTPUT, tags=["eodhd", "macro"])
 async def eodhd_macro(params: EodhdMacroParams, *, api_key: str) -> Result:
     """[Fundamentals+] Fetch a macro indicator time series for a country.
     Country must be an ISO 3-letter code (e.g. USA, DEU). Common indicators:
@@ -319,7 +319,7 @@ async def eodhd_macro(params: EodhdMacroParams, *, api_key: str) -> Result:
     )
 
 
-@connector(env={"api_key": "EODHD_API_KEY"}, output=_MACRO_OUTPUT, tags=["eodhd", "macro"])
+@connector(output=_MACRO_OUTPUT, tags=["eodhd", "macro"])
 async def eodhd_macro_bulk(params: EodhdMacroBulkParams, *, api_key: str) -> Result:
     """[Fundamentals+] Fetch all available macro indicators for a country in a single request.
     Large response — use eodhd_macro for a specific indicator.
@@ -338,7 +338,7 @@ async def eodhd_macro_bulk(params: EodhdMacroBulkParams, *, api_key: str) -> Res
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "EODHD_API_KEY"}, output=_TECHNICAL_OUTPUT, tags=["eodhd", "equity"])
+@connector(output=_TECHNICAL_OUTPUT, tags=["eodhd", "equity"])
 async def eodhd_technical(params: EodhdTechnicalParams, *, api_key: str) -> Result:
     """[EOD+Intraday+] Fetch technical indicator values for a ticker alongside OHLCV data.
     Indicator-specific output columns vary by function:
@@ -370,7 +370,7 @@ async def eodhd_technical(params: EodhdTechnicalParams, *, api_key: str) -> Resu
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "EODHD_API_KEY"}, output=_INSIDER_OUTPUT, tags=["eodhd", "equity"])
+@connector(output=_INSIDER_OUTPUT, tags=["eodhd", "equity"])
 async def eodhd_insider(params: EodhdInsiderParams, *, api_key: str) -> Result:
     """[Fundamentals+] Fetch insider (executive and director) transactions. Filter by ticker
     or omit for recent cross-market transactions. Use limit/offset to page."""
@@ -383,7 +383,7 @@ async def eodhd_insider(params: EodhdInsiderParams, *, api_key: str) -> Result:
     )
 
 
-@connector(env={"api_key": "EODHD_API_KEY"}, output=_SCREENER_OUTPUT, tags=["eodhd", "equity", "tool"])
+@connector(output=_SCREENER_OUTPUT, tags=["eodhd", "equity", "tool"])
 async def eodhd_screener(params: EodhdScreenerParams, *, api_key: str) -> Result:
     """[EOD+Intraday+] Screen stocks by fundamental, price, and exchange criteria.
     Filters are structured triples [field, operator, value] — see EodhdScreenerParams.filters.

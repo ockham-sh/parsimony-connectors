@@ -80,7 +80,7 @@ EIA_FETCH_OUTPUT = OutputConfig(
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "EIA_API_KEY"}, output=EIA_FETCH_OUTPUT, tags=["macro", "energy", "us"])
+@connector(output=EIA_FETCH_OUTPUT, tags=["macro", "energy", "us"])
 async def eia_fetch(params: EiaFetchParams, *, api_key: str) -> Result:
     """Fetch EIA energy data by API route.
 
@@ -132,7 +132,7 @@ async def eia_fetch(params: EiaFetchParams, *, api_key: str) -> Result:
     )
 
 
-@enumerator(env={"api_key": "EIA_API_KEY"}, output=EIA_ENUMERATE_OUTPUT, tags=["macro", "energy", "us"])
+@enumerator(output=EIA_ENUMERATE_OUTPUT, tags=["macro", "energy", "us"])
 async def enumerate_eia(params: EiaEnumerateParams, *, api_key: str) -> pd.DataFrame:
     """Enumerate top-level EIA API routes for catalog indexing."""
     http = HttpClient(_BASE_URL, query_params={"api_key": api_key})

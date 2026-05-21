@@ -9,7 +9,6 @@ import respx
 from parsimony_fred import (
     CONNECTORS,
     FredFetchParams,
-    FredSearchParams,
     fred_fetch,
     fred_search,
 )
@@ -33,6 +32,16 @@ def test_fred_search_is_tool_tagged() -> None:
 def test_fred_fetch_is_not_tool_tagged() -> None:
     fetch = next(c for c in CONNECTORS if c.name == "fred_fetch")
     assert "tool" not in fetch.tags
+
+
+def test_load_binds_api_key_and_hides_from_schema() -> None:
+    from parsimony_fred import load
+
+    runtime = load(api_key="secret-key")
+    search = runtime["fred_search"]
+    schema = search.to_json_schema()
+    assert "api_key" not in schema.get("properties", {})
+    assert search.bound_arguments.get("api_key") == "secret-key"
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +73,7 @@ async def test_fred_search_returns_series_metadata() -> None:
     )
 
     bound = fred_search.bind(api_key="test-key")
-    result = await bound(FredSearchParams(search_text="unemployment"))
+    result = await bound(search_text="unemployment")
 
     assert result.provenance.source == "fred_search"
     df = result.data
@@ -82,7 +91,7 @@ async def test_fred_search_raises_empty_data_when_no_matches() -> None:
 
     bound = fred_search.bind(api_key="test-key")
     with pytest.raises(EmptyDataError):
-        await bound(FredSearchParams(search_text="nonexistent"))
+        await bound(search_text="nonexistent")
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +135,7 @@ async def test_fred_fetch_returns_observations_with_metadata() -> None:
     )
 
     bound = fred_fetch.bind(api_key="test-key")
-    result = await bound(FredFetchParams(series_id="UNRATE"))
+    result = await bound(series_id="UNRATE")
 
     assert result.provenance.source == "fred_fetch"
     df = result.data

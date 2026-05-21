@@ -368,9 +368,7 @@ SNB_ENUMERATE_OUTPUT = OutputConfig(
         Column(name="title", role=ColumnRole.TITLE),
         # ``description`` synthesised from cube_title + dimension path so
         # the embedder sees the human-readable series identity (e.g.
-        # "10 year — Yields on Swiss Confederation bonds"). Routing through
-        # DESCRIPTION (not METADATA) lifts it into ``semantic_text()``.
-        Column(name="description", role=ColumnRole.DESCRIPTION),
+        Column(name="description", role=ColumnRole.METADATA),
         # ``source`` tells dispatchers which fetch connector handles this
         # entry. Treasury catalog uses the same column for the same
         # purpose.
@@ -811,7 +809,5 @@ from parsimony_snb.search import (  # noqa: E402, F401  (after public decorators
     SnbSearchParams,
     snb_search,
 )
-
-CATALOGS: list[tuple[str, object]] = [("snb", enumerate_snb)]
 
 CONNECTORS = Connectors([snb_fetch, enumerate_snb, snb_search])

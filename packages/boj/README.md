@@ -17,7 +17,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 pip install parsimony-boj
 ```
 
-Pulls in `parsimony-core>=0.4,<0.5` automatically. Verify discovery:
+Pulls in `parsimony-core>=0.5,<0.6` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
@@ -34,7 +34,7 @@ import asyncio
 from parsimony_boj import CONNECTORS
 
 async def main():
-    connectors = CONNECTORS.bind_env()
+    connectors = CONNECTORS
     result = await connectors["boj_fetch"](db="FM08", code="FXERD01")
     print(result.data.head())
 
@@ -45,7 +45,7 @@ For multi-plugin composition:
 
 ```python
 from parsimony import discover
-connectors = discover.load_all().bind_env()
+connectors = discover.load_all()
 ```
 
 ## Provider

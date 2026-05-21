@@ -9,10 +9,10 @@ from __future__ import annotations
 import asyncio
 import sys
 
-from parsimony.cache import catalogs_dir
+from parsimony.cache import staging_dir
 from parsimony.catalog import Catalog
 
-CATALOG_URL = f"file://{catalogs_dir('bdf')}/bdf"
+CATALOG_URL = f"file://{staging_dir('bdf')}/bdf"
 
 QUERIES: list[str] = [
     "France inflation rate",
@@ -34,7 +34,7 @@ QUERIES: list[str] = [
 
 
 async def _main() -> int:
-    cat = await Catalog.from_url(CATALOG_URL)
+    cat = await Catalog.load(CATALOG_URL)
     print(f"Loaded catalog from {CATALOG_URL}", flush=True)
 
     for q in QUERIES:
@@ -45,8 +45,8 @@ async def _main() -> int:
             continue
         for h in hits:
             title = (h.title or "")[:90]
-            desc = (h.description or "")[:80].replace("\n", " ")
-            print(f"  [{h.similarity:.3f}] {h.code}", flush=True)
+            desc = (h.metadata.get("description") or "")[:80].replace("\n", " ")
+            print(f"  [{h.score:.3f}] {h.code}", flush=True)
             print(f"           title: {title}", flush=True)
             if desc:
                 print(f"           desc:  {desc}", flush=True)

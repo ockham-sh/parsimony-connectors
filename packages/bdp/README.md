@@ -17,7 +17,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 pip install parsimony-bdp
 ```
 
-Pulls in `parsimony-core>=0.4,<0.5` automatically. Verify discovery:
+Pulls in `parsimony-core>=0.5,<0.6` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
@@ -34,7 +34,7 @@ import asyncio
 from parsimony_bdp import CONNECTORS
 
 async def main():
-    connectors = CONNECTORS.bind_env()
+    connectors = CONNECTORS
     # Discover available datasets first via enumerate_bdp, then fetch:
     result = await connectors["bdp_fetch"](domain_id=1, dataset_id="<dataset_id>")
     print(result.data.head())
@@ -46,7 +46,7 @@ For multi-plugin composition (autoloads everything installed):
 
 ```python
 from parsimony import discover
-connectors = discover.load_all().bind_env()
+connectors = discover.load_all()
 ```
 
 ## Provider

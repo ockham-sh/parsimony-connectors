@@ -17,7 +17,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 pip install parsimony-bdf
 ```
 
-Pulls in `parsimony-core>=0.4,<0.5` automatically. Verify discovery:
+Pulls in `parsimony-core>=0.5,<0.6` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
@@ -40,7 +40,7 @@ import asyncio
 from parsimony_bdf import CONNECTORS
 
 async def main():
-    connectors = CONNECTORS.bind_env()
+    connectors = CONNECTORS
     result = await connectors["bdf_fetch"](key="EXR.M.USD.EUR.SP00.E")
     print(result.data.head())
 
@@ -51,7 +51,7 @@ For multi-plugin composition (autoloads everything installed):
 
 ```python
 from parsimony import discover
-connectors = discover.load_all().bind_env()
+connectors = discover.load_all()
 ```
 
 ## Provider

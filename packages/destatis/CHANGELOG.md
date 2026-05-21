@@ -34,8 +34,7 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   `PARSIMONY_DESTATIS_CATALOG_URL`. Backed by
   `paraphrase-multilingual-MiniLM-L12-v2` (German-aware) so DE and EN
   queries hit the same entries.
-- `CATALOGS = [("destatis", enumerate_destatis)]` for
-  `parsimony.publish.publish_provider` discovery.
+- Provider-owned catalog build script for operator catalog refreshes.
 
 ### Removed
 

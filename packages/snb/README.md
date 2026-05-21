@@ -17,7 +17,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 pip install parsimony-snb
 ```
 
-Pulls in `parsimony-core>=0.4,<0.5` automatically. Verify discovery:
+Pulls in `parsimony-core>=0.5,<0.6` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
@@ -30,7 +30,7 @@ import asyncio
 from parsimony_snb import CONNECTORS
 
 async def main():
-    connectors = CONNECTORS.bind_env()
+    connectors = CONNECTORS
     result = await connectors["snb_fetch"](cube_id="rendoblim")
     print(result.data.head())
 
@@ -41,18 +41,12 @@ For multi-plugin composition:
 
 ```python
 from parsimony import discover
-connectors = discover.load_all().bind_env()
+connectors = discover.load_all()
 ```
 
-## Catalog publishing
+## Catalogs
 
-This plugin publishes a catalog under the `snb` namespace, backed by `enumerate_snb` (param-less; probes a curated SNB cube list).
-
-```bash
-parsimony publish --provider snb --target "hf://<your-org>/parsimony-snb"
-```
-
-The `{namespace}` placeholder in `--target` is substituted with `snb` at publish time; targets support `file://`, `hf://`, and `s3://` schemes.
+This plugin currently exposes connectors only. If a catalog is added, it should be a lazy `Catalog` declaration that maintainers build and push directly.
 
 ## Provider
 

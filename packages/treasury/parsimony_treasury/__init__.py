@@ -108,9 +108,7 @@ TREASURY_ENUMERATE_OUTPUT = OutputConfig(
         Column(name="title", role=ColumnRole.TITLE),
         # ``definition`` is the Fiscal Data field's own descriptive text — the
         # most useful semantic signal for retrieval. Routing it through
-        # DESCRIPTION (not METADATA) lifts it into ``semantic_text()`` so the
-        # embedder indexes it, in addition to BM25.
-        Column(name="definition", role=ColumnRole.DESCRIPTION),
+        Column(name="definition", role=ColumnRole.METADATA),
         # ``source`` tells the agent which fetch connector to call —
         # ``"fiscal_data"`` → :func:`treasury_fetch`, ``"treasury_rates"`` →
         # :func:`treasury_rates_fetch`. Without this, agents would have to
@@ -613,7 +611,5 @@ from parsimony_treasury.search import (  # noqa: E402, F401  (after public decor
     TreasurySearchParams,
     treasury_search,
 )
-
-CATALOGS: list[tuple[str, object]] = [("treasury", enumerate_treasury)]
 
 CONNECTORS = Connectors([treasury_fetch, treasury_rates_fetch, enumerate_treasury, treasury_search])

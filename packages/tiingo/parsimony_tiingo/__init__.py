@@ -74,7 +74,7 @@ _TIINGO_ENV = {"api_key": "TIINGO_API_KEY"}
 # ---------------------------------------------------------------------------
 
 
-@connector(env=_TIINGO_ENV, output=_SEARCH_OUTPUT, tags=["equities", "tool"])
+@connector(output=_SEARCH_OUTPUT, tags=["equities", "tool"])
 async def tiingo_search(params: TiingoSearchParams, *, api_key: str) -> Result:
     """Search Tiingo for stocks, ETFs, mutual funds, and crypto by name or ticker.
     Returns ticker (the stable API identifier), name, assetType (Stock, ETF,
@@ -121,7 +121,7 @@ async def tiingo_search(params: TiingoSearchParams, *, api_key: str) -> Result:
 # ---------------------------------------------------------------------------
 
 
-@connector(env=_TIINGO_ENV, output=_EOD_OUTPUT, tags=["equities"])
+@connector(output=_EOD_OUTPUT, tags=["equities"])
 async def tiingo_eod(params: TiingoEodParams, *, api_key: str) -> Result:
     """Fetch historical end-of-day OHLCV prices for a stock with split/dividend
     adjusted values. Returns date, open/high/low/close, volume, and adjusted
@@ -179,7 +179,7 @@ async def tiingo_eod(params: TiingoEodParams, *, api_key: str) -> Result:
 # ---------------------------------------------------------------------------
 
 
-@connector(env=_TIINGO_ENV, output=_IEX_OUTPUT, tags=["equities"])
+@connector(output=_IEX_OUTPUT, tags=["equities"])
 async def tiingo_iex(params: TiingoIexParams, *, api_key: str) -> Result:
     """Fetch real-time IEX quotes for one or more stocks. Returns Tiingo's
     composite last price (tngoLast), OHLV for the day, previous close,
@@ -230,7 +230,7 @@ async def tiingo_iex(params: TiingoIexParams, *, api_key: str) -> Result:
 # ---------------------------------------------------------------------------
 
 
-@connector(env=_TIINGO_ENV, output=_IEX_HIST_OUTPUT, tags=["equities"])
+@connector(output=_IEX_HIST_OUTPUT, tags=["equities"])
 async def tiingo_iex_historical(params: TiingoIexHistParams, *, api_key: str) -> Result:
     """Fetch historical IEX intraday OHLC prices for a stock at a given
     frequency. Returns the most recent 2000 data points at the specified
@@ -279,7 +279,7 @@ async def tiingo_iex_historical(params: TiingoIexHistParams, *, api_key: str) ->
 # ---------------------------------------------------------------------------
 
 
-@connector(env=_TIINGO_ENV, tags=["equities"])
+@connector(tags=["equities"])
 async def tiingo_meta(params: TiingoMetaParams, *, api_key: str) -> Result:
     """Fetch company metadata for a stock: name, description, exchange,
     listing start/end dates. Use tiingo_search to resolve ticker symbols.
@@ -307,7 +307,7 @@ async def tiingo_meta(params: TiingoMetaParams, *, api_key: str) -> Result:
 # ---------------------------------------------------------------------------
 
 
-@connector(env=_TIINGO_ENV, tags=["equities"])
+@connector(tags=["equities"])
 async def tiingo_fundamentals_meta(params: TiingoFundamentalsMetaParams, *, api_key: str) -> Result:
     """Fetch fundamentals metadata for one or more stocks: sector, industry,
     SIC code/sector/industry, reporting currency, location, company website,
@@ -338,7 +338,7 @@ async def tiingo_fundamentals_meta(params: TiingoFundamentalsMetaParams, *, api_
 # ---------------------------------------------------------------------------
 
 
-@connector(env=_TIINGO_ENV, output=_DEFINITIONS_OUTPUT, tags=["equities"])
+@connector(output=_DEFINITIONS_OUTPUT, tags=["equities"])
 async def tiingo_fundamentals_definitions(params: TiingoDefinitionsParams, *, api_key: str) -> Result:
     """List all available fundamental metric definitions: dataCode (metric ID),
     name, description, statementType (overview/incomeStatement/balanceSheet/
@@ -381,7 +381,7 @@ async def tiingo_fundamentals_definitions(params: TiingoDefinitionsParams, *, ap
 # ---------------------------------------------------------------------------
 
 
-@connector(env=_TIINGO_ENV, output=_NEWS_OUTPUT, tags=["equities", "news"])
+@connector(output=_NEWS_OUTPUT, tags=["equities", "news"])
 async def tiingo_news(params: TiingoNewsParams, *, api_key: str) -> Result:
     """[Power+] Fetch news articles from Tiingo. Filter by tickers, source, and
     date range. Returns title, publishedDate, source, related tickers, tags,
@@ -430,7 +430,7 @@ async def tiingo_news(params: TiingoNewsParams, *, api_key: str) -> Result:
 # ---------------------------------------------------------------------------
 
 
-@connector(env=_TIINGO_ENV, output=_CRYPTO_PRICES_OUTPUT, tags=["crypto"])
+@connector(output=_CRYPTO_PRICES_OUTPUT, tags=["crypto"])
 async def tiingo_crypto_prices(params: TiingoCryptoPricesParams, *, api_key: str) -> Result:
     """Fetch historical crypto OHLCV prices. Returns date, open, high, low,
     close, volume (in base currency), volumeNotional (in quote currency), and
@@ -493,7 +493,7 @@ async def tiingo_crypto_prices(params: TiingoCryptoPricesParams, *, api_key: str
 # ---------------------------------------------------------------------------
 
 
-@connector(env=_TIINGO_ENV, output=_CRYPTO_TOP_OUTPUT, tags=["crypto"])
+@connector(output=_CRYPTO_TOP_OUTPUT, tags=["crypto"])
 async def tiingo_crypto_top(params: TiingoCryptoTopParams, *, api_key: str) -> Result:
     """Fetch real-time top-of-book quotes for crypto pairs: last price, bid/ask
     prices and sizes, last trade size (notional), and exchange. Free tier
@@ -549,7 +549,7 @@ async def tiingo_crypto_top(params: TiingoCryptoTopParams, *, api_key: str) -> R
 # ---------------------------------------------------------------------------
 
 
-@connector(env=_TIINGO_ENV, output=_FX_PRICES_OUTPUT, tags=["forex"])
+@connector(output=_FX_PRICES_OUTPUT, tags=["forex"])
 async def tiingo_fx_prices(params: TiingoFxPricesParams, *, api_key: str) -> Result:
     """Fetch historical forex OHLC prices. Returns date, open, high, low, close
     for a currency pair. Supports multiple resample frequencies from 1min to 1day.
@@ -597,7 +597,7 @@ async def tiingo_fx_prices(params: TiingoFxPricesParams, *, api_key: str) -> Res
 # ---------------------------------------------------------------------------
 
 
-@connector(env=_TIINGO_ENV, output=_FX_TOP_OUTPUT, tags=["forex"])
+@connector(output=_FX_TOP_OUTPUT, tags=["forex"])
 async def tiingo_fx_top(params: TiingoFxTopParams, *, api_key: str) -> Result:
     """Fetch real-time top-of-book forex quotes: mid, bid/ask prices and sizes.
     Free tier supported. Pairs are lowercase, e.g. 'eurusd', 'gbpjpy'.
@@ -640,7 +640,7 @@ async def tiingo_fx_top(params: TiingoFxTopParams, *, api_key: str) -> Result:
 # ---------------------------------------------------------------------------
 
 
-@enumerator(env=_TIINGO_ENV, output=_ENUMERATE_OUTPUT, tags=["equities"])
+@enumerator(output=_ENUMERATE_OUTPUT, tags=["equities"])
 async def enumerate_tiingo(params: TiingoEnumerateParams, *, api_key: str) -> pd.DataFrame:
     """Enumerate all supported tickers from Tiingo for catalog indexing.
 

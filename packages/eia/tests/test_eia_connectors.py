@@ -1,8 +1,9 @@
 """Happy-path tests for the EIA connectors.
 
 Follows ``docs/testing-template.md``. EIA auth is ``?api_key=<key>`` via
-``HttpClient(query_params=...)``; error-mapping added in this sweep
-(previously ``response.raise_for_status()`` leaked raw ``httpx`` errors).
+``HttpClient(query_params=...)``; HTTP errors are mapped to
+``parsimony.errors`` (``UnauthorizedError`` / ``RateLimitError`` /
+``EmptyDataError``) at the transport boundary.
 """
 
 from __future__ import annotations
@@ -23,10 +24,6 @@ _KEY = "live-looking-eia-xyz"
 # ---------------------------------------------------------------------------
 # Plugin contract shape
 # ---------------------------------------------------------------------------
-
-
-def test_env_vars_maps_api_key() -> None:
-    assert CONNECTORS["eia_fetch"].env_map == {"api_key": "EIA_API_KEY"}
 
 
 def test_connectors_collection_exposes_expected_names() -> None:

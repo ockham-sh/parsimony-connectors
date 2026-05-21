@@ -18,7 +18,6 @@ from parsimony.result import ColumnRole
 from parsimony_riksbank import (
     CONNECTORS,
     RIKSBANK_ENUMERATE_OUTPUT,
-    RiksbankEnumerateParams,
     RiksbankFetchParams,
     RiksbankSwestrFetchParams,
     enumerate_riksbank,
@@ -43,15 +42,14 @@ def test_connectors_collection_exposes_expected_names() -> None:
 
 def test_enumerate_output_declares_description_and_source_columns() -> None:
     """Catalog-completeness contract: the enumerator must emit a
-    DESCRIPTION column (so its text feeds the embedder via
-    ``semantic_text()``, not just BM25) and a ``source`` METADATA
-    column (so dispatching agents can route fetch calls without
-    sniffing the series id).
+    description metadata column for searchable prose and a ``source``
+    metadata column so dispatching agents can route fetch calls without
+    sniffing the series id.
     """
     by_role: dict[ColumnRole, list[str]] = {}
     for col in RIKSBANK_ENUMERATE_OUTPUT.columns:
         by_role.setdefault(col.role, []).append(col.name)
-    assert by_role.get(ColumnRole.DESCRIPTION) == ["description"]
+    assert "description" in by_role[ColumnRole.METADATA]
     assert "source" in by_role[ColumnRole.METADATA]
 
 
@@ -81,7 +79,7 @@ async def test_riksbank_fetch_returns_observations() -> None:
     )
 
     bound = riksbank_fetch.bind(api_key="")
-    result = await bound(RiksbankFetchParams(series_id="SEKEURPMI"))
+    result = await bound(series_id="SEKEURPMI")
 
     assert result.provenance.source == "riksbank_fetch"
     df = result.data
@@ -98,7 +96,7 @@ async def test_riksbank_fetch_raises_empty_data_when_no_observations() -> None:
 
     bound = riksbank_fetch.bind(api_key="")
     with pytest.raises(EmptyDataError):
-        await bound(RiksbankFetchParams(series_id="XX"))
+        await bound(series_id="XX")
 
 
 def test_fetch_rejects_empty_series_id() -> None:
@@ -206,7 +204,7 @@ async def test_enumerate_riksbank_emits_description_for_embedder() -> None:
     column, so the catalog embedder sees the phrase at index time."""
     _mock_swea_endpoints()
     bound = enumerate_riksbank.bind(api_key="")
-    result = await bound(RiksbankEnumerateParams())
+    result = await bound()
     df = result.data
     assert "description" in df.columns
 
@@ -229,7 +227,7 @@ async def test_enumerate_riksbank_emits_source_metadata_for_dispatch() -> None:
     """
     _mock_swea_endpoints()
     bound = enumerate_riksbank.bind(api_key="")
-    result = await bound(RiksbankEnumerateParams())
+    result = await bound()
     df = result.data
     assert set(df["source"].unique()) == {"swea", "swestr"}
 
@@ -242,7 +240,7 @@ async def test_enumerate_riksbank_resolves_group_hierarchy() -> None:
     label silently."""
     _mock_swea_endpoints()
     bound = enumerate_riksbank.bind(api_key="")
-    result = await bound(RiksbankEnumerateParams())
+    result = await bound()
     df = result.data
 
     repo = df.loc[df["series_id"] == "SECBREPOEFF"].iloc[0]
@@ -266,7 +264,7 @@ async def test_enumerate_riksbank_infers_frequency_with_provenance_tag() -> None
     """
     _mock_swea_endpoints()
     bound = enumerate_riksbank.bind(api_key="")
-    result = await bound(RiksbankEnumerateParams())
+    result = await bound()
     df = result.data
 
     # group=2 → Daily via group lookup, regardless of suffix shape.
@@ -299,7 +297,7 @@ async def test_enumerate_riksbank_passes_through_provider_and_date_range() -> No
     ``series_closed`` carries the lifecycle bit."""
     _mock_swea_endpoints()
     bound = enumerate_riksbank.bind(api_key="")
-    result = await bound(RiksbankEnumerateParams())
+    result = await bound()
     df = result.data
 
     eur = df.loc[df["series_id"] == "SEKEURPMI"].iloc[0]
@@ -325,7 +323,7 @@ async def test_enumerate_riksbank_row_count_matches_series_payload() -> None:
     """
     _mock_swea_endpoints()
     bound = enumerate_riksbank.bind(api_key="")
-    result = await bound(RiksbankEnumerateParams())
+    result = await bound()
     assert len(result.data) == len(_SERIES_PAYLOAD) + 7
 
 
@@ -339,7 +337,7 @@ async def test_enumerate_riksbank_emits_swestr_family() -> None:
     """
     _mock_swea_endpoints()
     bound = enumerate_riksbank.bind(api_key="")
-    result = await bound(RiksbankEnumerateParams())
+    result = await bound()
     df = result.data
 
     swestr_rows = df[df["source"] == "swestr"]
@@ -391,7 +389,7 @@ async def test_riksbank_swestr_fetch_latest_rate_hits_latest_endpoint() -> None:
         )
     )
     bound = riksbank_swestr_fetch.bind(api_key="")
-    result = await bound(RiksbankSwestrFetchParams(series="SWESTR"))
+    result = await bound(series="SWESTR")
     df = result.data
     assert len(df) == 1
     assert df.iloc[0]["value"] == pytest.approx(1.639)
@@ -428,13 +426,7 @@ async def test_riksbank_swestr_fetch_windowed_average_hits_avg_endpoint() -> Non
         )
     )
     bound = riksbank_swestr_fetch.bind(api_key="")
-    result = await bound(
-        RiksbankSwestrFetchParams(
-            series="SWESTRAVG1W",
-            from_date="2026-04-15",
-            to_date="2026-04-16",
-        )
-    )
+    result = await bound(series="SWESTRAVG1W", from_date="2026-04-15", to_date="2026-04-16")
     df = result.data
     assert len(df) == 2
     assert list(df["series"].unique()) == ["SWESTRAVG1W"]
@@ -463,7 +455,7 @@ async def test_riksbank_swestr_fetch_index_normalises_value_field() -> None:
         )
     )
     bound = riksbank_swestr_fetch.bind(api_key="")
-    result = await bound(RiksbankSwestrFetchParams(series="SWESTRINDEX"))
+    result = await bound(series="SWESTRINDEX")
     df = result.data
     assert len(df) == 1
     assert df.iloc[0]["value"] == pytest.approx(110.25032277)
@@ -479,7 +471,7 @@ async def test_riksbank_swestr_fetch_raises_empty_data_when_no_observations() ->
     from parsimony.errors import EmptyDataError as _EmptyDataError
 
     with pytest.raises(_EmptyDataError):
-        await bound(RiksbankSwestrFetchParams(series="SWESTR"))
+        await bound(series="SWESTR")
 
 
 def test_swestr_fetch_rejects_unknown_series() -> None:

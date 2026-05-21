@@ -199,11 +199,10 @@ BDE_ENUMERATE_OUTPUT = OutputConfig(
     columns=[
         Column(name="key", role=ColumnRole.KEY, namespace="bde"),
         Column(name="title", role=ColumnRole.TITLE),
-        # ``description`` carries the upstream long-form prose. Lifted into
-        # DESCRIPTION (rather than METADATA) so the embedder sees it at index
-        # time — semantic recall on full sentences matters more than for
-        # categorical metadata.
-        Column(name="description", role=ColumnRole.DESCRIPTION),
+        # ``description`` carries upstream long-form prose for catalog search;
+        # semantic recall on full sentences matters more than for categorical
+        # metadata.
+        Column(name="description", role=ColumnRole.METADATA),
         # ``source`` lets agents dispatch the right fetch connector when more
         # than one BdE source is wired. Today only ``bde_biest`` exists; the
         # column is in place so adding (e.g.) an SDMX path later costs zero
@@ -510,7 +509,5 @@ from parsimony_bde.search import (  # noqa: E402, F401  (after public decorators
     BdeSearchParams,
     bde_search,
 )
-
-CATALOGS: list[tuple[str, object]] = [("bde", enumerate_bde)]
 
 CONNECTORS = Connectors([bde_fetch, enumerate_bde, bde_search])

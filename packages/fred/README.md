@@ -19,7 +19,7 @@ Once installed, this plugin is discovered automatically and exposes the followin
 pip install parsimony-fred
 ```
 
-Pulls in `parsimony-core>=0.4,<0.5` automatically.
+Pulls in `parsimony-core>=0.5,<0.6` automatically.
 
 ## Configuration
 
@@ -42,7 +42,7 @@ import asyncio
 from parsimony_fred import CONNECTORS
 
 async def main():
-    connectors = CONNECTORS.bind_env()
+    connectors = CONNECTORS
     result = await connectors["fred_fetch"](series_id="UNRATE")
     print(result.data.head())
 
@@ -53,7 +53,7 @@ For multi-plugin composition:
 
 ```python
 from parsimony import discover
-connectors = discover.load_all().bind_env()
+connectors = discover.load_all()
 ```
 
 ## Catalog discovery

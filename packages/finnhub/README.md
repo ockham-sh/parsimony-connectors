@@ -23,7 +23,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 pip install parsimony-finnhub
 ```
 
-Pulls in `parsimony-core>=0.4,<0.5` automatically. Verify discovery:
+Pulls in `parsimony-core>=0.5,<0.6` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
@@ -41,11 +41,11 @@ Get a key at <https://finnhub.io>. Free tier: 60 calls/min.
 
 ```python
 import asyncio
-from parsimony_finnhub import CONNECTORS
+from parsimony_finnhub import CONNECTORS, FinnhubQuoteParams
 
 async def main():
-    connectors = CONNECTORS.bind_env()
-    result = await connectors["finnhub_quote"](symbol="AAPL")
+    connectors = CONNECTORS
+    result = await connectors["finnhub_quote"](FinnhubQuoteParams(symbol="AAPL"))
     print(result.data.head())
 
 asyncio.run(main())
@@ -55,7 +55,7 @@ For multi-plugin composition:
 
 ```python
 from parsimony import discover
-connectors = discover.load_all().bind_env()
+connectors = discover.load_all()
 ```
 
 ## Provider

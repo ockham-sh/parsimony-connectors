@@ -22,7 +22,6 @@ from parsimony.errors import (
     RateLimitError,
     UnauthorizedError,
 )
-from parsimony.result import OutputConfig
 from parsimony.transport import HttpClient, map_timeout_error, parse_retry_after
 
 # Per-request timeout. Finnhub's REST endpoints are not streaming; 15s is a
@@ -89,7 +88,6 @@ async def finnhub_fetch(
     path: str,
     params: dict[str, Any] | None = None,
     op_name: str,
-    output_config: OutputConfig | None = None,
 ) -> Any:
     """Shared Finnhub GET with typed error mapping. Returns parsed JSON body.
 
@@ -103,12 +101,7 @@ async def finnhub_fetch(
         Optional query parameters. ``None`` values are filtered out.
     op_name:
         Connector name used in error messages — e.g. ``"finnhub_quote"``.
-    output_config:
-        Reserved hook for future consolidation of DataFrame shaping;
-        currently unused because the connectors build their own shaped
-        DataFrames from the raw JSON.
     """
-    del output_config  # Hook retained for future consolidation; unused today.
     try:
         response = await http.request("GET", path, params=params or None)
         response.raise_for_status()

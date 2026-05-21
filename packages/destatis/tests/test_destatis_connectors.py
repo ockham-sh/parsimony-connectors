@@ -8,7 +8,7 @@ redirects to an HTML announcement page. Tests target the new public
 * ``enumerate_destatis`` — composes ``/statistics``,
   ``/statistics/{code}/information``, and ``/statistics/{code}/tables``
 * ``destatis_search`` — semantic search over the published catalog (lazy
-  ``Catalog.from_url`` keeps import-time cheap, so it registers without
+  ``Catalog.load`` keeps import-time cheap, so it registers without
   any network)
 
 The new API is anonymous; ``DESTATIS_USERNAME`` / ``DESTATIS_PASSWORD``
@@ -28,7 +28,6 @@ from parsimony.result import ColumnRole
 from parsimony_destatis import (
     CONNECTORS,
     DESTATIS_ENUMERATE_OUTPUT,
-    DestatisEnumerateParams,
     DestatisFetchParams,
     destatis_fetch,
     enumerate_destatis,
@@ -69,21 +68,17 @@ _JSONSTAT_FIXTURE = {
 # ---------------------------------------------------------------------------
 
 
-def test_env_vars_maps_username_and_password() -> None:
-    """``username``/``password`` are no-op on the new API but the env-var
-    contract is preserved so existing deployments don't have to drop the
-    secrets from their config.
-    """
-    assert CONNECTORS["destatis_fetch"].env_map == {
-        "username": "DESTATIS_USERNAME",
-        "password": "DESTATIS_PASSWORD",
-    }
+def test_operator_credentials_are_bindable_but_not_required() -> None:
+    """The current public API is anonymous; legacy credentials remain bindable."""
+    bound = CONNECTORS["destatis_fetch"].bind(username="GAST", password="GAST")
+    assert "username" not in bound.to_json_schema()["properties"]
+    assert "password" not in bound.to_json_schema()["properties"]
 
 
 def test_connectors_collection_exposes_expected_names() -> None:
     """Three connectors ship with the package: fetch, enumerate, and the
     semantic-search tool that maps natural-language queries to codes.
-    ``Catalog.from_url`` is lazy (only invoked on first ``destatis_search``
+    ``Catalog.load`` is lazy (only invoked on first ``destatis_search``
     call), so import-time registration succeeds without any network or HF
     access.
     """
@@ -91,13 +86,10 @@ def test_connectors_collection_exposes_expected_names() -> None:
     assert names == {"destatis_fetch", "enumerate_destatis", "destatis_search"}
 
 
-def test_enumerate_output_schema_includes_description_role() -> None:
-    """``description`` must be routed via DESCRIPTION (semantic_text) not
-    METADATA (BM25 only) so the multilingual embedder picks it up.
-    Mirrors BoJ / BoC.
-    """
+def test_enumerate_output_schema_includes_description_metadata() -> None:
+    """``description`` is ordinary metadata in the clean catalog contract."""
     by_name = {c.name: c for c in DESTATIS_ENUMERATE_OUTPUT.columns}
-    assert by_name["description"].role == ColumnRole.DESCRIPTION
+    assert by_name["description"].role == ColumnRole.METADATA
     assert by_name["source"].role == ColumnRole.METADATA
     assert by_name["entity_type"].role == ColumnRole.METADATA
     assert by_name["parent_statistic"].role == ColumnRole.METADATA
@@ -120,7 +112,7 @@ async def test_destatis_fetch_parses_jsonstat_response() -> None:
         return_value=httpx.Response(200, json=_JSONSTAT_FIXTURE)
     )
 
-    result = await destatis_fetch(DestatisFetchParams(table_id="61111-0001"))
+    result = await destatis_fetch(name="61111-0001")
 
     assert result.provenance.source == "destatis_fetch"
     df = result.data
@@ -146,7 +138,7 @@ async def test_destatis_fetch_accepts_legacy_table_id_alias() -> None:
     )
 
     # Legacy keyword ``table_id=`` resolves via populate_by_name.
-    result = await destatis_fetch(DestatisFetchParams(table_id="61111-0001"))
+    result = await destatis_fetch(name="61111-0001")
     assert result.provenance.source == "destatis_fetch"
 
 
@@ -158,7 +150,7 @@ async def test_destatis_fetch_maps_500_to_provider_error() -> None:
     )
 
     with pytest.raises(ProviderError):
-        await destatis_fetch(DestatisFetchParams(table_id="61111-0001"))
+        await destatis_fetch(name="61111-0001")
 
 
 @respx.mock
@@ -175,7 +167,7 @@ async def test_destatis_fetch_raises_provider_error_on_announcement_redirect() -
     )
 
     with pytest.raises(ProviderError, match="API may have changed"):
-        await destatis_fetch(DestatisFetchParams(table_id="61111-0001"))
+        await destatis_fetch(name="61111-0001")
 
 
 # ---------------------------------------------------------------------------
@@ -217,8 +209,7 @@ def _stub_tables(code: str, *, status: int = 200, tables: list[dict] | None = No
 async def test_enumerate_destatis_emits_statistic_and_table_rows() -> None:
     """Round-trip through the three-call composition: ``/statistics`` ⇒
     one statistic row + one row per table from
-    ``/statistics/{code}/tables``. Both rows must carry a non-empty
-    DESCRIPTION (the embedder input).
+    ``/statistics/{code}/tables``. Both rows must carry a non-empty description.
     """
     _stub_index([
         {
@@ -255,7 +246,7 @@ async def test_enumerate_destatis_emits_statistic_and_table_rows() -> None:
         ],
     )
 
-    result = await enumerate_destatis(DestatisEnumerateParams())
+    result = await enumerate_destatis()
     df = result.data
 
     # Exactly the 11-column schema, in declared order.
@@ -322,7 +313,7 @@ async def test_enumerate_destatis_lifts_parent_description_into_table_rows() -> 
         ],
     )
 
-    result = await enumerate_destatis(DestatisEnumerateParams())
+    result = await enumerate_destatis()
     df = result.data
 
     table_rows = df[df["entity_type"] == "table"]
@@ -353,7 +344,7 @@ async def test_enumerate_destatis_handles_429_with_retry(
     )
 
     with caplog.at_level(logging.WARNING, logger="parsimony_destatis"):
-        result = await enumerate_destatis(DestatisEnumerateParams())
+        result = await enumerate_destatis()
 
     df = result.data
     # No rows came through (the only statistic 429'd both endpoints) but
@@ -382,8 +373,7 @@ async def test_enumerate_destatis_handles_429_with_retry(
 async def test_enumerate_destatis_emits_columns_required_for_catalog_entries() -> None:
     """The ``Result`` returned by the enumerator must carry an output
     schema that ``entries_from_result`` accepts: exactly one KEY (code),
-    one TITLE (title), one DESCRIPTION (description), and METADATA columns
-    for the Destatis-specific dispatch hints.
+    one TITLE (title), and METADATA columns for the Destatis-specific dispatch hints.
     """
     from parsimony.catalog import entries_from_result
 
@@ -402,7 +392,7 @@ async def test_enumerate_destatis_emits_columns_required_for_catalog_entries() -
         ],
     )
 
-    result = await enumerate_destatis(DestatisEnumerateParams())
+    result = await enumerate_destatis()
     entries = entries_from_result(result)
 
     by_code = {e.code: e for e in entries}
@@ -412,7 +402,7 @@ async def test_enumerate_destatis_emits_columns_required_for_catalog_entries() -
     stat_entry = by_code["61111"]
     assert stat_entry.namespace == "destatis"
     assert stat_entry.title == "CPI"
-    assert stat_entry.description  # non-empty — feeds semantic_text()
+    assert stat_entry.metadata.get("description")
     assert stat_entry.metadata.get("entity_type") == "statistic"
     assert stat_entry.metadata.get("source") == "genesis_online"
 

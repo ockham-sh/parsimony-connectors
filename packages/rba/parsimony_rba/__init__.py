@@ -137,9 +137,7 @@ RBA_ENUMERATE_OUTPUT = OutputConfig(
         Column(name="title", role=ColumnRole.TITLE),
         # ``description`` is the CSV header's own per-series descriptive text
         # — the most useful semantic signal for retrieval. Routing it through
-        # DESCRIPTION (not METADATA) lifts it into ``semantic_text()`` so the
-        # embedder indexes it, in addition to BM25.
-        Column(name="description", role=ColumnRole.DESCRIPTION),
+        Column(name="description", role=ColumnRole.METADATA),
         # ``source`` tells the agent which fetch connector to call —
         # currently a single source (``"rba_csv"`` → :func:`rba_fetch`),
         # declared explicitly so dispatch stays consistent if/when more
@@ -784,7 +782,5 @@ from parsimony_rba.search import (  # noqa: E402, F401  (after public decorators
     RbaSearchParams,
     rba_search,
 )
-
-CATALOGS: list[tuple[str, object]] = [("rba", enumerate_rba)]
 
 CONNECTORS = Connectors([rba_fetch, enumerate_rba, rba_search])

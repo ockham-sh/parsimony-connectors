@@ -273,9 +273,7 @@ async def test_enumerate_snb_emits_one_row_per_series_with_compound_code() -> No
 @respx.mock
 @pytest.mark.asyncio
 async def test_enumerate_snb_populates_description_for_embedder() -> None:
-    """DESCRIPTION column is the catalog's semantic-recall surface — it must
-    carry per-series text rich enough for the embedder to differentiate
-    yield-curve maturities, currency pairs, etc."""
+    """Description metadata must carry rich per-series text for catalog search."""
     _mock_all_known_cubes(
         live={
             "rendoblim": {

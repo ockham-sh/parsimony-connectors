@@ -174,8 +174,8 @@ async def test_enumerate_rba_emits_description_table_id_unit_and_source() -> Non
 async def test_enumerate_rba_compound_code_keeps_cross_table_series_id_collisions() -> None:
     """Series ids reused across tables (B13.1.x vs B13.2.x in the wild) must
     emit two distinct catalog rows, distinguished by ``table_id`` in the
-    compound ``code``. Previously a bare ``series_id`` KEY silently dropped
-    the second occurrence."""
+    compound ``code``. A bare ``series_id`` KEY would silently drop the
+    second occurrence — the compound code is what keeps both reachable."""
     respx.get("https://www.rba.gov.au/statistics/tables/").mock(
         return_value=httpx.Response(200, text=_TABLES_HTML_COLLISION)
     )

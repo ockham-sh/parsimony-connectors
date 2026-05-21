@@ -37,10 +37,6 @@ _KEY = "live-looking-av-key-xyz"
 # ---------------------------------------------------------------------------
 
 
-def test_env_vars_maps_api_key() -> None:
-    assert CONNECTORS["alpha_vantage_search"].env_map == {"api_key": "ALPHA_VANTAGE_API_KEY"}
-
-
 def test_connectors_count() -> None:
     # 28 connectors + 1 enumerator per the module docstring.
     assert len(CONNECTORS) == 29

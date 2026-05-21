@@ -24,10 +24,6 @@ from parsimony_bls import (
 # ---------------------------------------------------------------------------
 
 
-def test_env_vars_maps_api_key() -> None:
-    assert CONNECTORS["bls_fetch"].env_map == {"api_key": "BLS_API_KEY"}
-
-
 def test_connectors_collection_exposes_expected_names() -> None:
     names = {c.name for c in CONNECTORS}
     assert names == {"bls_fetch", "enumerate_bls"}

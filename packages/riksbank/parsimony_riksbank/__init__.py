@@ -162,11 +162,9 @@ RIKSBANK_ENUMERATE_OUTPUT = OutputConfig(
     columns=[
         Column(name="series_id", role=ColumnRole.KEY, namespace="riksbank"),
         Column(name="title", role=ColumnRole.TITLE),
-        # ``description`` is the upstream long-form text. Routing it
-        # through DESCRIPTION (not METADATA) lifts it into
-        # ``semantic_text()`` so the embedder indexes the phrase itself,
-        # in addition to BM25.
-        Column(name="description", role=ColumnRole.DESCRIPTION),
+        # ``description`` is upstream long-form text surfaced as metadata
+        # for catalog indexing and search.
+        Column(name="description", role=ColumnRole.METADATA),
         # ``source`` tells the agent which fetch connector to call. Every
         # row currently emits ``"swea"``; a future CBA fetcher would emit
         # ``"cba"``. Without this, agents would have to sniff the
@@ -557,14 +555,20 @@ def _normalize_observation_date(value: Any) -> str:
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "RIKSBANK_API_KEY"}, output=RIKSBANK_FETCH_OUTPUT, tags=["macro", "se"])
-async def riksbank_fetch(params: RiksbankFetchParams, *, api_key: str = "") -> Result:
+@connector(output=RIKSBANK_FETCH_OUTPUT, tags=["macro", "se"])
+async def riksbank_fetch(
+    series_id: Annotated[str, "ns:riksbank"],
+    from_date: str | None = None,
+    to_date: str | None = None,
+    api_key: str = "",
+) -> Result:
     """Fetch a single Riksbank SWEA time series by series_id.
 
     Returns date + value with the upstream series name as title. Use
     ``from_date``/``to_date`` together to fetch a window; omit both to
     receive the latest observation.
     """
+    params = RiksbankFetchParams(series_id=series_id, from_date=from_date, to_date=to_date)
     http = _make_http(api_key)
 
     if params.from_date and params.to_date:
@@ -623,12 +627,13 @@ async def riksbank_fetch(params: RiksbankFetchParams, *, api_key: str = "") -> R
     )
 
 
-@connector(
-    env={"api_key": "RIKSBANK_API_KEY"},
-    output=RIKSBANK_SWESTR_FETCH_OUTPUT,
-    tags=["macro", "se"],
-)
-async def riksbank_swestr_fetch(params: RiksbankSwestrFetchParams, *, api_key: str = "") -> Result:
+@connector(output=RIKSBANK_SWESTR_FETCH_OUTPUT, tags=["macro", "se"])
+async def riksbank_swestr_fetch(
+    series: Annotated[SwestrSeries, "ns:riksbank"],
+    from_date: str | None = None,
+    to_date: str | None = None,
+    api_key: str = "",
+) -> Result:
     """Fetch a SWESTR fixing / compounded average / index series.
 
     Dispatches on :func:`_swestr_kind` across three URL families:
@@ -642,6 +647,7 @@ async def riksbank_swestr_fetch(params: RiksbankSwestrFetchParams, *, api_key: s
     plus SWESTR's native metadata (publication time, percentiles,
     transaction volumes) on additional columns.
     """
+    params = RiksbankSwestrFetchParams(series=series, from_date=from_date, to_date=to_date)
     http = _make_swestr_http(api_key)
     kind = _swestr_kind(params.series)
 
@@ -693,12 +699,8 @@ async def riksbank_swestr_fetch(params: RiksbankSwestrFetchParams, *, api_key: s
     )
 
 
-@enumerator(
-    env={"api_key": "RIKSBANK_API_KEY"},
-    output=RIKSBANK_ENUMERATE_OUTPUT,
-    tags=["macro", "se"],
-)
-async def enumerate_riksbank(params: RiksbankEnumerateParams, *, api_key: str = "") -> pd.DataFrame:
+@enumerator(output=RIKSBANK_ENUMERATE_OUTPUT, tags=["macro", "se"])
+async def enumerate_riksbank(api_key: str = "") -> pd.DataFrame:
     """Enumerate every Riksbank time series available over the SWEA API.
 
     Two upstream calls — ``/Groups`` (a hierarchy of categorisation
@@ -733,6 +735,7 @@ async def enumerate_riksbank(params: RiksbankEnumerateParams, *, api_key: str = 
     ``404 Resource not found``, and the developer portal SPA does not
     expose a machine-readable product index. CBA is not implemented.
     """
+    RiksbankEnumerateParams()
     http = _make_http(api_key)
 
     # ``/Groups`` returns a single root node (not a list). We tolerate both
@@ -829,7 +832,5 @@ from parsimony_riksbank.search import (  # noqa: E402, F401  (after public decor
     RiksbankSearchParams,
     riksbank_search,
 )
-
-CATALOGS: list[tuple[str, object]] = [("riksbank", enumerate_riksbank)]
 
 CONNECTORS = Connectors([riksbank_fetch, riksbank_swestr_fetch, enumerate_riksbank, riksbank_search])

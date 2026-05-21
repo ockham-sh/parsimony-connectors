@@ -9,12 +9,13 @@ Exports:
 
 from __future__ import annotations
 
+import os
 from typing import Annotated, Any
 
 import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector
-from parsimony.errors import EmptyDataError
+from parsimony.errors import EmptyDataError, UnauthorizedError
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -30,6 +31,7 @@ __all__ = [
     "FredFetchParams",
     "fred_search",
     "fred_fetch",
+    "load",
 ]
 
 # ---------------------------------------------------------------------------
@@ -103,19 +105,27 @@ def _make_http(api_key: str) -> HttpClient:
     )
 
 
+def _resolve_api_key(api_key: str) -> str:
+    key = api_key or os.environ.get("FRED_API_KEY", "")
+    if not key:
+        raise UnauthorizedError("fred", env_var="FRED_API_KEY")
+    return key
+
+
 # ---------------------------------------------------------------------------
 # Connectors
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "FRED_API_KEY"}, tags=["macro", "tool"])
-async def fred_search(params: FredSearchParams, *, api_key: str) -> Result:
+@connector(tags=["macro", "tool"])
+async def fred_search(search_text: str, api_key: str = "") -> Result:
     """Keyword search for FRED economic time series.
 
     Returns series metadata (id, title, units, frequency).
     Use short, specific queries like 'US unemployment rate' or 'GDPC1'.
     """
-    http = _make_http(api_key)
+    params = FredSearchParams(search_text=search_text)
+    http = _make_http(_resolve_api_key(api_key))
     response = await http.request(
         "GET",
         "/series/search",
@@ -134,13 +144,23 @@ async def fred_search(params: FredSearchParams, *, api_key: str) -> Result:
     return Result.from_dataframe(df)
 
 
-@connector(env={"api_key": "FRED_API_KEY"}, output=FETCH_OUTPUT, tags=["macro"])
-async def fred_fetch(params: FredFetchParams, *, api_key: str) -> Result:
+@connector(output=FETCH_OUTPUT, tags=["macro"])
+async def fred_fetch(
+    series_id: Annotated[str, "ns:fred"],
+    observation_start: str | None = None,
+    observation_end: str | None = None,
+    api_key: str = "",
+) -> Result:
     """Fetch FRED time series observations by series_id.
 
     Returns date + value columns with rich metadata (title, units, frequency, seasonal adjustment).
     """
-    http = _make_http(api_key)
+    params = FredFetchParams(
+        series_id=series_id,
+        observation_start=observation_start,
+        observation_end=observation_end,
+    )
+    http = _make_http(_resolve_api_key(api_key))
     series_id = params.series_id
 
     req_params: dict[str, Any] = {"series_id": series_id}
@@ -198,3 +218,8 @@ async def fred_fetch(params: FredFetchParams, *, api_key: str) -> Result:
 
 
 CONNECTORS = Connectors([fred_search, fred_fetch])
+
+
+def load(*, api_key: str) -> Connectors:
+    """Return :data:`CONNECTORS` with ``api_key`` bound on every connector that accepts it."""
+    return CONNECTORS.bind(api_key=api_key)

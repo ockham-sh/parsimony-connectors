@@ -19,7 +19,7 @@ from parsimony_test_support import (
     require_env,
 )
 
-from parsimony_fred import FredFetchParams, FredSearchParams, fred_fetch, fred_search
+from parsimony_fred import fred_fetch, fred_search
 
 pytestmark = pytest.mark.integration
 
@@ -29,7 +29,7 @@ async def test_fred_search_unemployment_returns_unrate() -> None:
     creds = require_env("FRED_API_KEY")
     bound = fred_search.bind(api_key=creds["FRED_API_KEY"])
 
-    result = await bound(FredSearchParams(search_text="unemployment rate"))
+    result = await bound(search_text="unemployment rate")
 
     assert_provenance_shape(result, expected_source="fred", required_param_keys=["search_text"])
     df = result.data
@@ -48,7 +48,7 @@ async def test_fred_fetch_unrate_returns_observations() -> None:
     creds = require_env("FRED_API_KEY")
     bound = fred_fetch.bind(api_key=creds["FRED_API_KEY"])
 
-    result = await bound(FredFetchParams(series_id="UNRATE"))
+    result = await bound(series_id="UNRATE")
 
     assert_provenance_shape(result, expected_source="fred", required_param_keys=["series_id"])
     df = result.data

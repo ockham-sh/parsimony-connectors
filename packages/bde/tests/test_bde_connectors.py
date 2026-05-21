@@ -383,8 +383,7 @@ async def test_enumerate_bde_includes_ie_international_economy_rows() -> None:
 @respx.mock
 @pytest.mark.asyncio
 async def test_enumerate_bde_populates_description_column() -> None:
-    """The DESCRIPTION column carries upstream long-form prose so the embedder
-    sees full sentences at index time, not just the leaf title."""
+    """The description metadata carries upstream long-form prose for search."""
     _mock_csv_chapters()
     df = (await enumerate_bde(BdeEnumerateParams())).data
 
@@ -563,14 +562,13 @@ async def test_enumerate_bde_returns_empty_when_all_chapters_fail() -> None:
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_enumerate_bde_emits_schema_with_description_role() -> None:
-    """The OutputConfig declares a DESCRIPTION column so SeriesEntry.description
-    is populated — and thus reaches the embedder via semantic_text()."""
+async def test_enumerate_bde_emits_description_as_metadata() -> None:
+    """Descriptions are ordinary metadata in the clean catalog contract."""
     from parsimony.result import ColumnRole
 
-    desc_cols = [c for c in BDE_ENUMERATE_OUTPUT.columns if c.role == ColumnRole.DESCRIPTION]
+    desc_cols = [c for c in BDE_ENUMERATE_OUTPUT.columns if c.name == "description"]
     assert len(desc_cols) == 1
-    assert desc_cols[0].name == "description"
+    assert desc_cols[0].role == ColumnRole.METADATA
 
 
 def test_enumerate_bde_schema_includes_source_metadata_column() -> None:

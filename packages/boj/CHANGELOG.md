@@ -26,8 +26,7 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   `hf://parsimony-dev/boj`. Override via `PARSIMONY_BOJ_CATALOG_URL`.
 - DB-level catalog rows with `db:<code>` keys for first-class DB
   discovery (mirrors BoC's `group:` pattern).
-- `CATALOGS` module variable required by
-  `parsimony.publish.publish_provider`.
+- Provider-owned catalog build script for operator catalog refreshes.
 
 ### Fixed
 

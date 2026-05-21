@@ -29,10 +29,6 @@ _KEY = "live-looking-key-eodhd-xyz"
 # ---------------------------------------------------------------------------
 
 
-def test_env_vars_maps_api_key() -> None:
-    assert CONNECTORS["eodhd_eod"].env_map == {"api_key": "EODHD_API_KEY"}
-
-
 def test_connectors_count_matches_docstring() -> None:
     assert len(CONNECTORS) == 17
 

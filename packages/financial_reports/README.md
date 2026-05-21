@@ -27,7 +27,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 pip install parsimony-financial-reports
 ```
 
-Pulls in `parsimony-core>=0.4,<0.5` and the official `financial-reports-generated-client` SDK automatically. Verify discovery:
+Pulls in `parsimony-core>=0.5,<0.6` and the official `financial-reports-generated-client` SDK automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
@@ -50,7 +50,7 @@ import asyncio
 from parsimony_financial_reports import CONNECTORS
 
 async def main():
-    connectors = CONNECTORS.bind_env()
+    connectors = CONNECTORS
     result = await connectors["fr_companies_search"](countries="DE", page_size=10)
     print(result.data.head())
 
@@ -61,7 +61,7 @@ For multi-plugin composition:
 
 ```python
 from parsimony import discover
-connectors = discover.load_all().bind_env()
+connectors = discover.load_all()
 ```
 
 ## Provider

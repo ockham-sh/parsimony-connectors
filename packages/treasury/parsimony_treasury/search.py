@@ -14,12 +14,13 @@ Codes returned dispatch to one of two fetch connectors:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Annotated
 
 import pandas as pd
-from parsimony.catalog import Catalog, CatalogCache
+from parsimony.catalog import Catalog
 from parsimony.connector import connector
 from parsimony.result import Column, ColumnRole, OutputConfig
 from pydantic import BaseModel, Field
@@ -29,19 +30,26 @@ logger = logging.getLogger(__name__)
 PARSIMONY_TREASURY_CATALOG_URL_ENV = "PARSIMONY_TREASURY_CATALOG_URL"
 _DEFAULT_CATALOG_URL = "hf://parsimony-dev/treasury"
 
-_CATALOG_CACHE = CatalogCache(max_size=1)
+_catalog: Catalog | None = None
+_catalog_url: str | None = None
+_catalog_lock = asyncio.Lock()
 
 
-async def _get_catalog() -> Catalog:
-    url = os.environ.get(PARSIMONY_TREASURY_CATALOG_URL_ENV, _DEFAULT_CATALOG_URL)
-    return await _CATALOG_CACHE.get(url)
+async def _get_catalog(catalog_url: str | None = None) -> Catalog:
+    global _catalog, _catalog_url
+    url = catalog_url or os.environ.get(PARSIMONY_TREASURY_CATALOG_URL_ENV, _DEFAULT_CATALOG_URL)
+    async with _catalog_lock:
+        if _catalog is None or _catalog_url != url:
+            _catalog = await Catalog.load(url)
+            _catalog_url = url
+        return _catalog
 
 
 TREASURY_SEARCH_OUTPUT = OutputConfig(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="treasury"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="similarity", role=ColumnRole.METADATA),
+        Column(name="score", role=ColumnRole.METADATA),
     ]
 )
 
@@ -62,6 +70,7 @@ class TreasurySearchParams(BaseModel):
         ),
     ]
     limit: int = Field(default=10, ge=1, le=50, description="Top-N results.")
+    catalog_url: str | None = Field(default=None, description="Override catalog URL, e.g. file:///tmp/treasury.")
 
 
 @connector(
@@ -80,14 +89,14 @@ async def treasury_search(params: TreasurySearchParams) -> pd.DataFrame:
     ``treasury_rates_fetch(feed=...)``; ``v<n>/<endpoint>#<field>`` →
     ``treasury_fetch(endpoint=...)``.
     """
-    catalog = await _get_catalog()
+    catalog = await _get_catalog(params.catalog_url)
     matches = await catalog.search(params.query, limit=params.limit)
     return pd.DataFrame(
         [
             {
                 "code": m.code,
                 "title": m.title,
-                "similarity": round(m.similarity, 6),
+                "score": round(m.score, 6),
             }
             for m in matches
         ]

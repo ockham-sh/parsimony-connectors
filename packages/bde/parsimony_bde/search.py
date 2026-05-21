@@ -3,7 +3,7 @@
 Wraps the parquet+FAISS catalog at ``hf://parsimony-dev/bde`` (override with
 ``PARSIMONY_BDE_CATALOG_URL`` for local testing) as an MCP tool. The agent
 calls :func:`bde_search` with a natural-language query and gets back the
-top-N matches with their codes, titles, and similarity scores.
+top-N matches with their codes, titles, and scores.
 
 Codes returned by this tool are ``serie`` IDs that :func:`bde_fetch`
 accepts directly via its ``key`` parameter — the discover→fetch handshake.
@@ -11,12 +11,13 @@ accepts directly via its ``key`` parameter — the discover→fetch handshake.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Annotated
 
 import pandas as pd
-from parsimony.catalog import Catalog, CatalogCache
+from parsimony.catalog import Catalog
 from parsimony.connector import connector
 from parsimony.result import Column, ColumnRole, OutputConfig
 from pydantic import BaseModel, Field
@@ -28,15 +29,20 @@ logger = logging.getLogger(__name__)
 PARSIMONY_BDE_CATALOG_URL_ENV = "PARSIMONY_BDE_CATALOG_URL"
 _DEFAULT_CATALOG_URL = "hf://parsimony-dev/bde"
 
-# Single-catalog cache. The BdE catalog is ~26 MB FAISS + 0.6 MB parquet —
-# a one-time load amortizes across every search call in the MCP session.
-_CATALOG_CACHE = CatalogCache(max_size=1)
+_catalog: Catalog | None = None
+_catalog_url: str | None = None
+_catalog_lock = asyncio.Lock()
 
 
-async def _get_catalog() -> Catalog:
+async def _get_catalog(catalog_url: str | None = None) -> Catalog:
     """Return the singleton BdE catalog, loading from URL on first use."""
-    url = os.environ.get(PARSIMONY_BDE_CATALOG_URL_ENV, _DEFAULT_CATALOG_URL)
-    return await _CATALOG_CACHE.get(url)
+    global _catalog, _catalog_url
+    url = catalog_url or os.environ.get(PARSIMONY_BDE_CATALOG_URL_ENV, _DEFAULT_CATALOG_URL)
+    async with _catalog_lock:
+        if _catalog is None or _catalog_url != url:
+            _catalog = await Catalog.load(url)
+            _catalog_url = url
+        return _catalog
 
 
 BDE_SEARCH_OUTPUT = OutputConfig(
@@ -45,7 +51,7 @@ BDE_SEARCH_OUTPUT = OutputConfig(
         # accepts via its ``key`` parameter — the search→fetch handshake.
         Column(name="code", role=ColumnRole.KEY, namespace="bde"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="similarity", role=ColumnRole.METADATA),
+        Column(name="score", role=ColumnRole.METADATA),
     ]
 )
 
@@ -71,6 +77,7 @@ class BdeSearchParams(BaseModel):
         le=50,
         description="Top-N results to return.",
     )
+    catalog_url: str | None = Field(default=None, description="Override catalog URL, e.g. file:///tmp/bde.")
 
 
 @connector(
@@ -89,14 +96,14 @@ async def bde_search(params: BdeSearchParams) -> pd.DataFrame:
     actual time series. The catalog is bilingual — both Spanish and English
     queries route correctly through the embedder.
     """
-    catalog = await _get_catalog()
+    catalog = await _get_catalog(params.catalog_url)
     matches = await catalog.search(params.query, limit=params.limit)
     return pd.DataFrame(
         [
             {
                 "code": m.code,
                 "title": m.title,
-                "similarity": round(m.similarity, 6),
+                "score": round(m.score, 6),
             }
             for m in matches
         ]

@@ -128,7 +128,7 @@ BDF_ENUMERATE_OUTPUT = OutputConfig(
         # KEY alone (or by the ``entity_type`` METADATA column).
         Column(name="code", role=ColumnRole.KEY, namespace="bdf"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="description", role=ColumnRole.DESCRIPTION),
+        Column(name="description", role=ColumnRole.METADATA),
         Column(name="entity_type", role=ColumnRole.METADATA),  # "dataset" | "series"
         Column(name="dataset_id", role=ColumnRole.METADATA),
         Column(name="dataset_description", role=ColumnRole.METADATA),
@@ -368,7 +368,7 @@ def _series_description(
 # ---------------------------------------------------------------------------
 
 
-@connector(env=_ENV, output=BDF_FETCH_OUTPUT, tags=["macro", "fr"])
+@connector(output=BDF_FETCH_OUTPUT, tags=["macro", "fr"])
 async def bdf_fetch(params: BdfFetchParams, *, api_key: str) -> Result:
     """Fetch Banque de France time series via the Webstat Opendatasoft API.
 
@@ -599,7 +599,7 @@ def _emit_rows_for_dataset(
     return rows
 
 
-@enumerator(env=_ENV, output=BDF_ENUMERATE_OUTPUT, tags=["macro", "fr"])
+@enumerator(output=BDF_ENUMERATE_OUTPUT, tags=["macro", "fr"])
 async def enumerate_bdf(params: BdfEnumerateParams, *, api_key: str) -> pd.DataFrame:
     """Enumerate every BdF series with parent dataset context.
 
@@ -678,15 +678,12 @@ from parsimony_bdf.search import (  # noqa: E402  (after public decorators)
     bdf_search,
 )
 
-CATALOGS: list[tuple[str, object]] = [("bdf", enumerate_bdf)]
-
 CONNECTORS = Connectors([bdf_fetch, enumerate_bdf, bdf_search])
 
 __all__ = [
     "BDF_ENUMERATE_OUTPUT",
     "BDF_FETCH_OUTPUT",
     "BDF_SEARCH_OUTPUT",
-    "CATALOGS",
     "CONNECTORS",
     "BdfEnumerateParams",
     "BdfFetchParams",

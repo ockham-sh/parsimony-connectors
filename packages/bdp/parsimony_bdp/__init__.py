@@ -134,7 +134,7 @@ BDP_ENUMERATE_OUTPUT = OutputConfig(
         # entity types by KEY alone.
         Column(name="code", role=ColumnRole.KEY, namespace="bdp"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="description", role=ColumnRole.DESCRIPTION),
+        Column(name="description", role=ColumnRole.METADATA),
         Column(name="entity_type", role=ColumnRole.METADATA),  # "domain" | "dataset" | "series"
         Column(name="domain_id", role=ColumnRole.METADATA),
         Column(name="domain_name", role=ColumnRole.METADATA),
@@ -942,15 +942,12 @@ from parsimony_bdp.search import (  # noqa: E402  (after public decorators)
     bdp_search,
 )
 
-CATALOGS: list[tuple[str, object]] = [("bdp", enumerate_bdp)]
-
 CONNECTORS = Connectors([bdp_fetch, enumerate_bdp, bdp_search])
 
 __all__ = [
     "BDP_ENUMERATE_OUTPUT",
     "BDP_FETCH_OUTPUT",
     "BDP_SEARCH_OUTPUT",
-    "CATALOGS",
     "CONNECTORS",
     "BdpEnumerateParams",
     "BdpFetchParams",

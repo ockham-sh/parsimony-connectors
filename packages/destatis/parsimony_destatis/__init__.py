@@ -143,12 +143,11 @@ DESTATIS_ENUMERATE_OUTPUT = OutputConfig(
         Column(name="code", role=ColumnRole.KEY, namespace="destatis"),
         # TITLE: ``name.en`` if present else ``name.de``.
         Column(name="title", role=ColumnRole.TITLE),
-        # DESCRIPTION feeds the multilingual embedder via
-        # ``semantic_text()``. For statistics this is the rich German
-        # "Qualitätsbericht" lead; for tables it lifts the parent
-        # statistic's description so per-table queries still hit the
-        # narrative signal.
-        Column(name="description", role=ColumnRole.DESCRIPTION),
+        # ``description`` carries multilingual searchable prose. For
+        # statistics this is the rich German "Qualitätsbericht" lead; for
+        # tables it lifts the parent statistic's description so per-table
+        # queries still hit the narrative signal.
+        Column(name="description", role=ColumnRole.METADATA),
         # METADATA columns:
         Column(name="entity_type", role=ColumnRole.METADATA),  # "statistic" | "table"
         Column(name="parent_statistic", role=ColumnRole.METADATA),
@@ -587,14 +586,11 @@ def _parse_jsonstat(payload: dict[str, Any], table_code: str) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-@connector(
-    env={"username": "DESTATIS_USERNAME", "password": "DESTATIS_PASSWORD"},
-    output=DESTATIS_FETCH_OUTPUT,
-    tags=["macro", "de"],
-)
+@connector(output=DESTATIS_FETCH_OUTPUT, tags=["macro", "de"])
 async def destatis_fetch(
-    params: DestatisFetchParams,
-    *,
+    name: Annotated[str, "ns:destatis"],
+    start_year: str | None = None,
+    end_year: str | None = None,
     username: str = "GAST",
     password: str = "GAST",
 ) -> Result:
@@ -614,6 +610,7 @@ async def destatis_fetch(
     # them so linters don't flag unused params.
     del username, password
 
+    params = DestatisFetchParams(table_id=name, start_year=start_year, end_year=end_year)
     table_code = params.name
     path = f"/tables/{table_code}/data"
 
@@ -696,17 +693,8 @@ async def destatis_fetch(
     )
 
 
-@enumerator(
-    env={"username": "DESTATIS_USERNAME", "password": "DESTATIS_PASSWORD"},
-    output=DESTATIS_ENUMERATE_OUTPUT,
-    tags=["macro", "de"],
-)
-async def enumerate_destatis(
-    params: DestatisEnumerateParams,
-    *,
-    username: str = "GAST",
-    password: str = "GAST",
-) -> pd.DataFrame:
+@enumerator(output=DESTATIS_ENUMERATE_OUTPUT, tags=["macro", "de"])
+async def enumerate_destatis(username: str = "GAST", password: str = "GAST") -> pd.DataFrame:
     """Enumerate every Destatis statistic + table on GENESIS-Online.
 
     Pipeline:
@@ -730,7 +718,8 @@ async def enumerate_destatis(
     WARNING and that statistic is skipped — the catalog stays useful even
     if a few entries fail.
     """
-    del params, username, password  # all unused; kept for backward compat
+    DestatisEnumerateParams()
+    del username, password  # retained for explicit binding compatibility
 
     semaphore = asyncio.Semaphore(_METADATA_CONCURRENCY)
     rows: list[dict[str, str]] = []
@@ -932,12 +921,9 @@ from parsimony_destatis.search import (  # noqa: E402  (after public decorators)
     destatis_search,
 )
 
-CATALOGS: list[tuple[str, object]] = [("destatis", enumerate_destatis)]
-
 CONNECTORS = Connectors([destatis_fetch, enumerate_destatis, destatis_search])
 
 __all__ = [
-    "CATALOGS",
     "CONNECTORS",
     "DESTATIS_ENUMERATE_OUTPUT",
     "DESTATIS_FETCH_OUTPUT",

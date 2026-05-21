@@ -86,14 +86,12 @@ BOC_ENUMERATE_OUTPUT = OutputConfig(
         # ``boc_fetch`` already expects.
         Column(name="series_name", role=ColumnRole.KEY, namespace="boc"),
         Column(name="title", role=ColumnRole.TITLE),
-        # ``description`` is the upstream Valet ``description`` text — the
-        # most useful semantic signal for retrieval. Routed via DESCRIPTION
-        # (not METADATA) so it lifts into ``semantic_text()`` for the
-        # embedder, mirroring how Treasury surfaces ``definition``. For
-        # group rows this carries the group's ``description`` text from
+        # ``description`` is the upstream Valet ``description`` text. It is
+        # ordinary metadata; catalogs decide explicitly whether to index it.
+        # For group rows this carries the group's ``description`` text from
         # ``/lists/groups/json`` (e.g. units and frequency hints like
         # "Month-end, Millions of dollars").
-        Column(name="description", role=ColumnRole.DESCRIPTION),
+        Column(name="description", role=ColumnRole.METADATA),
         # ``source`` tells the agent which fetch connector to call. BOC has
         # a single Valet source today; the column is future-proofing for a
         # parallel source so dispatch is already wired (matches Treasury's
@@ -290,8 +288,8 @@ async def enumerate_boc(params: BocEnumerateParams) -> pd.DataFrame:
     Pipeline:
 
     1. ``/lists/series/json`` — single call returning all ~15k series with
-       upstream ``label`` and ``description``. ``description`` lands in a
-       ColumnRole.DESCRIPTION column so the embedder indexes it.
+       upstream ``label`` and ``description``. ``description`` is catalog
+       metadata and can be indexed explicitly by a catalog index.
     2. ``/lists/groups/json`` — single call returning all ~2.3k groups
        with their labels.
     3. ``/groups/{name}/json`` — fanned out concurrently for every group
@@ -397,6 +395,12 @@ from parsimony_boc.search import (  # noqa: E402, F401  (after public decorators
     boc_search,
 )
 
-CATALOGS: list[tuple[str, object]] = [("boc", enumerate_boc)]
-
 CONNECTORS = Connectors([boc_fetch, enumerate_boc, boc_search])
+
+
+def load(*, catalog_url: str | None = None, fallback_bm25: bool = False) -> Connectors:
+    """Return :data:`CONNECTORS` with provider-local catalog defaults configured."""
+    from parsimony_boc.catalog import configure
+
+    configure(catalog_url=catalog_url, fallback_bm25=fallback_bm25)
+    return CONNECTORS

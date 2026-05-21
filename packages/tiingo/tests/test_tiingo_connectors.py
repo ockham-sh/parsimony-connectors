@@ -26,10 +26,6 @@ _KEY = "live-looking-tiingo-xyz"
 # ---------------------------------------------------------------------------
 
 
-def test_env_map_matches_api_key() -> None:
-    assert tiingo_search.env_map == {"api_key": "TIINGO_API_KEY"}
-
-
 def test_connectors_count_matches_docstring() -> None:
     assert len(CONNECTORS) == 13
 
