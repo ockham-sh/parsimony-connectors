@@ -4,6 +4,16 @@ All notable changes to `parsimony-sdmx` will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.0]
+
+### Changed
+
+- **Adapted to `parsimony-core==0.7`**: Bump `parsimony-core` pin from `>=0.6.0,<0.7` to `>=0.7.0,<0.8`.
+- **Dynamic hybrid catalogs**: operator builds choose BM25+vector `HybridIndex` per field when unique field text count is below 100k, otherwise BM25-only; title and each SDMX dimension field on series catalogs, title/description on `sdmx_datasets` with `code` kept as a BM25 lookup index.
+- **Unified Catalog Loading**: Updated catalog search connectors to use `Catalog.load` instead of `Catalog.from_url` or custom caching.
+- **Unified Catalog Saving**: Updated catalog build script to call `Catalog.save` instead of `Catalog.push`.
+- **Local LRU**: `sdmx_series_search` / `sdmx_datasets_search` now own their per-namespace catalog LRU (previously delegated to the kernel). `PARSIMONY_SDMX_CATALOG_LRU_SIZE` env var still configures it.
+
 ## [0.5.0] — 2026-05-06
 ### Changed
 

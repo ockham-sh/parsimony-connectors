@@ -12,10 +12,7 @@ class TestBuildSdmxDatasetUrl:
 
     def test_estat_url(self) -> None:
         out = build_sdmx_dataset_url("ESTAT", "PRC_HICP_MIDX")
-        assert out == (
-            "https://ec.europa.eu/eurostat/databrowser/view/"
-            "PRC_HICP_MIDX/default/table?lang=en"
-        )
+        assert out == ("https://ec.europa.eu/eurostat/databrowser/view/PRC_HICP_MIDX/default/table?lang=en")
 
     def test_imf_data_url(self) -> None:
         out = build_sdmx_dataset_url("IMF_DATA", "IFS")

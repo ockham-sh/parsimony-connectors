@@ -45,7 +45,7 @@ from parsimony_sdmx._isolation.listing import (
     run_in_child,
 )
 from parsimony_sdmx._isolation.worker import run_dataset
-from parsimony_sdmx.core.models import SeriesRecord
+from parsimony_sdmx.core.models import DimensionValue, SeriesRecord
 from parsimony_sdmx.core.outcomes import DatasetOutcome, FailureKind, OutcomeStatus
 
 FETCH_SERIES_DEFAULT_TIMEOUT_S = 900.0
@@ -62,8 +62,7 @@ class FetchSeriesError(RuntimeError):
     """Raised when the per-dataset subprocess failed (or returned no parquet).
 
     Wraps a :class:`DatasetOutcome` with ``status == FAILED`` so callers
-    can log its ``kind`` / ``error_message`` / ``traceback`` just like
-    the old batch orchestrator did.
+    can log its ``kind`` / ``error_message`` / ``traceback`` uniformly.
     """
 
     def __init__(self, outcome: DatasetOutcome) -> None:
@@ -120,9 +119,7 @@ def fetch_series(
                     dataset_id=dataset_id,
                     agency_id=agency_id,
                     status=OutcomeStatus.FAILED,
-                    error_message=(
-                        f"subprocess returned unexpected payload: {type(outcome).__name__}"
-                    ),
+                    error_message=(f"subprocess returned unexpected payload: {type(outcome).__name__}"),
                 )
             )
         if outcome.status == OutcomeStatus.FAILED:
@@ -144,13 +141,20 @@ def fetch_series(
         table = pq.read_table(parquet_path)
         records: list[SeriesRecord] = []
         for row in table.to_pylist():
-            raw_fragments = row.get("fragments") or ()
+            raw_dimensions = row.get("dimensions") or ()
             records.append(
                 SeriesRecord(
                     id=row["id"],
                     dataset_id=row["dataset_id"],
                     title=row["title"],
-                    fragments=tuple(str(f) for f in raw_fragments),
+                    dimensions=tuple(
+                        DimensionValue(
+                            id=str(dim["id"]),
+                            code=str(dim["code"]),
+                            label=str(dim["label"]) if dim.get("label") is not None else None,
+                        )
+                        for dim in raw_dimensions
+                    ),
                 )
             )
         return records

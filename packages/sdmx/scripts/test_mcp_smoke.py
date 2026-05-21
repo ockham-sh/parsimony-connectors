@@ -42,9 +42,7 @@ async def _run() -> int:
     for query, flow_id, expected in SMOKE_QUERIES:
         t0 = time.perf_counter()
         try:
-            result = await sdmx_series_search(
-                SeriesSearchParams(query=query, flow_id=flow_id, limit=5)
-            )
+            result = await sdmx_series_search(SeriesSearchParams(query=query, flow_id=flow_id, limit=5))
         except Exception as exc:
             print(f"  [FAIL] {flow_id} :: {query}")
             print(f"         exception: {type(exc).__name__}: {exc}")
@@ -58,7 +56,7 @@ async def _run() -> int:
         status = "OK  " if ok else "MISS"
         print(
             f"  [{status}] {flow_id} :: {query!r}\n"
-            f"         top1: {top['series_key']}  ({elapsed*1000:.0f}ms)\n"
+            f"         top1: {top['series_key']}  ({elapsed * 1000:.0f}ms)\n"
             f"         title: {str(top['title'])[:120]}"
         )
         if not ok:

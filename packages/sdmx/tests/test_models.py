@@ -2,7 +2,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from parsimony_sdmx.core.models import DatasetRecord, SeriesRecord
+from parsimony_sdmx.core.models import DatasetRecord, DimensionValue, SeriesRecord
 
 
 def test_dataset_record_fields() -> None:
@@ -24,10 +24,19 @@ def test_dataset_record_uses_slots() -> None:
 
 
 def test_series_record_fields() -> None:
-    r = SeriesRecord(id="B.U2.EUR", dataset_id="YC", title="t")
+    dim = DimensionValue(id="REF_AREA", code="U2", label="Euro area")
+    r = SeriesRecord(id="B.U2.EUR", dataset_id="YC", title="t", dimensions=(dim,))
     assert r.id == "B.U2.EUR"
     assert r.dataset_id == "YC"
     assert r.title == "t"
+    assert r.dimensions == (dim,)
+
+
+def test_dimension_value_fields() -> None:
+    r = DimensionValue(id="REF_AREA", code="U2", label="Euro area")
+    assert r.id == "REF_AREA"
+    assert r.code == "U2"
+    assert r.label == "Euro area"
 
 
 def test_series_record_is_frozen() -> None:

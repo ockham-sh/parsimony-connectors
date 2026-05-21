@@ -171,16 +171,12 @@ def _read_cache(cache_dir: Path, url: str, today: date) -> dict[str, str] | None
     cleaned: dict[str, str] = {}
     for k, v in raw.items():
         if not isinstance(k, str) or not isinstance(v, str):
-            logger.warning(
-                "Ignoring non-string entry in ECB portal cache %s", path
-            )
+            logger.warning("Ignoring non-string entry in ECB portal cache %s", path)
             continue
         try:
             key = validate_sdmx_id(k)
         except SdmxFetchError:
-            logger.warning(
-                "Ignoring invalid dataset id %r in ECB portal cache %s", k, path
-            )
+            logger.warning("Ignoring invalid dataset id %r in ECB portal cache %s", k, path)
             continue
         sanitised = _sanitise_value(v)
         if sanitised:

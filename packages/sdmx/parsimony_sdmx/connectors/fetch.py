@@ -5,8 +5,7 @@ budgets the SDMX round-trip with a single outer ``asyncio.timeout``,
 and applies bounded retries on transient transport failures.
 
 The body imports ``sdmx`` and ``pandas`` lazily so that just importing
-``parsimony_sdmx`` (which the parent CLI does to enumerate
-``CATALOGS`` / ``CONNECTORS``) does not drag ``sdmx1`` into the parent
+``parsimony_sdmx`` to inspect ``CONNECTORS`` does not drag ``sdmx1`` into the parent
 process — guarded by ``tests/test_listing.py::test_plugin_surface_import_does_not_pull_sdmx``.
 """
 
@@ -130,7 +129,12 @@ def _is_retryable(exc: BaseException) -> bool:
 
 
 @connector(tags=["sdmx"])
-async def sdmx_fetch(params: SdmxFetchParams) -> Result:
+async def sdmx_fetch(
+    dataset_key: str,
+    series_key: str,
+    start_period: str | None = None,
+    end_period: str | None = None,
+) -> Result:
     """Fetch an SDMX time series from the live agency endpoint.
 
     Dataset_key format: ``{AGENCY}-{DATASET_ID}`` where AGENCY is one of the
@@ -146,6 +150,12 @@ async def sdmx_fetch(params: SdmxFetchParams) -> Result:
     Never forwards raw upstream response bodies — they're a prompt-injection
     surface when this tool is exposed to LLM agents.
     """
+    params = SdmxFetchParams(
+        dataset_key=dataset_key,
+        series_key=series_key,
+        start_period=start_period,
+        end_period=end_period,
+    )
     attempt = 0
     while True:
         attempt += 1
@@ -181,10 +191,7 @@ async def sdmx_fetch(params: SdmxFetchParams) -> Result:
             raise ProviderError(
                 provider="sdmx",
                 status_code=status,
-                message=(
-                    f"SDMX fetch failed for {params.dataset_key}/{params.series_key}: "
-                    f"{type(exc).__name__}."
-                ),
+                message=(f"SDMX fetch failed for {params.dataset_key}/{params.series_key}: {type(exc).__name__}."),
             ) from exc
 
 
@@ -246,11 +253,7 @@ async def _do_sdmx_fetch(params: SdmxFetchParams) -> Result:
             ) from exc
 
     raw = sdmx_lib.to_pandas(data_msg.data)
-    df = (
-        raw.rename("value").to_frame().reset_index()
-        if isinstance(raw, pd.Series)
-        else pd.DataFrame(raw).reset_index()
-    )
+    df = raw.rename("value").to_frame().reset_index() if isinstance(raw, pd.Series) else pd.DataFrame(raw).reset_index()
     if df.empty:
         raise EmptyDataError(provider="sdmx", message="No data returned for requested series.")
 
@@ -298,9 +301,7 @@ async def _do_sdmx_fetch(params: SdmxFetchParams) -> Result:
     for dim_id in dsd_dim_ids:
         dim_labels = label_maps.get(dim_id, {})
         df[dim_id] = df[dim_id].map(
-            lambda code, _labels=dim_labels: format_code_with_label(
-                str(code), _labels.get(str(code))
-            )
+            lambda code, _labels=dim_labels: format_code_with_label(str(code), _labels.get(str(code)))
         )
 
     long_df = df[["series_key", "title", *dsd_dim_ids, "TIME_PERIOD", "value"]]

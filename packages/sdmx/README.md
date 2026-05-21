@@ -1,6 +1,6 @@
 # parsimony-sdmx
 
-SDMX connector plugin for parsimony. Harvests dataflow listings and per-dataset series keys from statistical agencies (ECB, Eurostat, IMF, World Bank), composes human-readable titles from the DSD + codelists, and publishes one parquet + FAISS bundle per catalog via `parsimony publish`.
+SDMX connector plugin for parsimony. Harvests dataflow listings and per-dataset series keys from statistical agencies (ECB, Eurostat, IMF, World Bank), composes human-readable titles from the DSD + codelists, and exposes lazy `Catalog` declarations that maintainers can build and push directly.
 
 Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connectors) monorepo. Distributed standalone on PyPI as `parsimony-sdmx`.
 
@@ -29,7 +29,7 @@ No separate builder CLI, no intermediate on-disk cache — every call hits the l
 pip install parsimony-sdmx
 ```
 
-Pulls in `parsimony-core>=0.4,<0.5` automatically. For local publishing you also want the `standard` extra on parsimony-core, which adds FAISS, BM25, and sentence-transformers (the default embedder stack):
+Pulls in `parsimony-core>=0.7,<0.8` automatically. Local catalog publishing uses the core catalog stack (hybrid BM25+vector or BM25-only per field):
 
 ```bash
 pip install "parsimony-core[standard]"
@@ -48,11 +48,10 @@ import asyncio
 from parsimony_sdmx import CONNECTORS
 
 async def main():
-    connectors = CONNECTORS.bind_env()
+    connectors = CONNECTORS
     result = await connectors["sdmx_fetch"](
-        agency="ECB",
-        dataset_id="YC",
-        key="B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y",
+        dataset_key="ECB-YC",
+        series_key="B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y",
     )
     print(result.data.head())
 
@@ -63,92 +62,44 @@ For multi-plugin composition:
 
 ```python
 from parsimony import discover
-connectors = discover.load_all().bind_env()
+connectors = discover.load_all()
 ```
 
-## Catalog publishing
+## Catalog building
 
-This plugin's namespaces are dynamic — one per `(agency, dataset_id)` pair discovered at publish time, plus one static cross-agency catalog:
+Catalog building is an operator workflow in `scripts/build_catalog.py`. The user-facing plugin exports connectors for search/fetch; the script owns live enumeration, batching, indexing policy, and optional push. Indexing policy lives in `parsimony_sdmx/catalog_policy.py`: each searchable field gets a hybrid index when its unique text count is below 100k, otherwise BM25-only (`code` on `sdmx_datasets` stays BM25).
+
+Namespaces are dynamic — one per `(agency, dataset_id)` pair discovered at build time, plus one static cross-agency catalog:
 
 - ``sdmx_datasets`` — one cross-agency catalog of every dataflow.
 - ``sdmx_series_<agency>_<dataset_id>`` — one per-dataset catalog of series keys, e.g. ``sdmx_series_ecb_yc``.
 
-The plugin exports ``CATALOGS`` as an **async generator function**: yielding the static `sdmx_datasets` namespace first, then one `sdmx_series_<agency>_<dataset_id>` namespace per dataflow returned by live agency listing. `RESOLVE_CATALOG(namespace)` provides the cheap reverse lookup used by `--only`, parsing namespace strings back into `(agency, dataset_id)` without enumerating the full listing.
-
-### Publish a single catalog
-
-Publish by name with ``--only`` (pure string lookup, no listing walk — `RESOLVE_CATALOG` fast-path):
+### Build and push a single catalog
 
 ```bash
-parsimony publish \
-  --provider sdmx \
-  --target "file:///tmp/parsimony-smoke/{namespace}" \
-  --only sdmx_series_ecb_yc
+uv run python scripts/build_catalog.py --catalog datasets --push hf://parsimony-dev/sdmx/sdmx_datasets
+uv run python scripts/build_catalog.py --catalog series --agency ECB --dataset-id YC --push hf://parsimony-dev/sdmx/sdmx_series_ecb_yc
 ```
 
-The ``{namespace}`` placeholder is substituted before the push. The target scheme is what decides where the bundle lands:
+Use `--save-root /tmp/sdmx` to write local snapshots under namespace subdirectories. Use `--push <url>` for one explicit catalog URL or `--push-root <root>` for namespace subdirectories.
 
-| Scheme              | Destination                               | Extra required |
-|---------------------|-------------------------------------------|----------------|
-| ``file://<path>``   | Local filesystem                          | —              |
-| ``hf://<repo>``     | Hugging Face dataset repo                 | ``standard``   |
-| ``s3://<bucket>``   | S3 bucket                                 | ``s3``         |
-
-A local publish produces:
+A local build produces:
 
 ```
 /tmp/parsimony-smoke/sdmx_series_ecb_yc/
-├── entries.parquet   # rows: (namespace, code, title, description, tags, metadata, embedding)
-├── embeddings.faiss  # FAISS index aligned with entries.parquet
-└── meta.json         # catalog metadata + embedder fingerprint
+├── entries.parquet
+├── indexes/
+└── meta.json
 ```
 
-### Publish everything
-
-Omit ``--only`` to drive the async generator through every agency listing, publishing one bundle per discovered ``(agency, dataset_id)`` pair plus the static ``sdmx_datasets`` catalog. Expect a long run — ESTAT alone has 8 k+ dataflows:
+### Build an agency batch
 
 ```bash
-parsimony publish \
-  --provider sdmx \
-  --target "file:///tmp/parsimony-smoke/{namespace}"
+uv run python scripts/build_catalog.py --catalog agency --agency ECB --push-root hf://parsimony-dev/sdmx
+uv run python scripts/build_catalog.py --catalog agency --agency ESTAT --max-catalogs 30 --save-root /tmp/sdmx
 ```
 
-An agency that fails listing is skipped with a warning; the run continues for the others.
-
-### Overnight chain (ESTAT → IMF_DATA → WB_WDI)
-
-The 3-agency long-tail (~10 k flows total, several pinning ~5 GB heap)
-needs process recycling — CPython does not return memory to the OS, so
-one python process eventually OOMs the host. `scripts/publish_overnight.sh`
-wraps `scripts/publish_agency.py` in a per-batch restart loop:
-
-```bash
-cd <path-to-parsimony-connectors>                             # one-time
-uv sync --all-packages --extra publish
-
-cd packages/sdmx                                              # then, every run
-mkdir -p logs
-nohup bash scripts/publish_overnight.sh > logs/overnight.log 2>&1 &
-echo $! > logs/overnight.pid
-```
-
-The wrapper recycles the publisher every `PARSIMONY_PUBLISH_BATCH_SIZE`
-flows (default 15) and passes `--resume` so namespaces with a
-`meta.json` already on disk are skipped — safe to interrupt and restart.
-Output stages to `~/.cache/parsimony/catalogs/sdmx/<namespace>/`
-(`PARSIMONY_CACHE_DIR` to redirect). Per-agency stdout lands in
-`logs/publish_<agency>.log`; the wrapper banner goes to `logs/overnight.log`.
-
-Monitor and ship:
-
-```bash
-tail -f logs/overnight.log                          # batch-level events
-uv run parsimony cache info                         # catalogs subtree size
-ls -1 ~/.cache/parsimony/catalogs/sdmx | wc -l      # namespace count
-
-# When done — push to HF (per-provider dir is the namespaced root):
-hf upload ockham/sdmx ~/.cache/parsimony/catalogs/sdmx/
-```
+An agency that fails listing raises before building; individual `$DV_*` derived views are skipped because they are not fetchable series catalogs.
 
 ## Search a published bundle
 
@@ -157,14 +108,17 @@ import asyncio
 from parsimony.catalog import Catalog
 
 async def main():
-    cat = await Catalog.from_url("file:///tmp/parsimony-smoke/sdmx_series_ecb_yc")
-    for hit in await cat.search("10 year yield", 3):
-        print(f"{hit.similarity:.3f}  {hit.code}  {hit.title[:80]}")
+    cat = await Catalog.load("file:///tmp/parsimony-smoke/sdmx_series_ecb_yc")
+
+    # 1. Structured search (preferred: explicit dimension filters)
+    print("--- Structured Search ---")
+    for hit in await cat.search("REF_AREA: Spain && FREQ: Monthly", 3):
+        print(f"{hit.score:.3f}  {hit.code}  {hit.title[:80]}")
 
 asyncio.run(main())
 ```
 
-The same `Catalog.from_url(...)` works against `hf://`, `s3://`, and `file://` URLs — FAISS + BM25 are combined via RRF at query time.
+The same `Catalog.load(...)` works against `hf://` and `file://` URLs. Structured queries intersect candidates across fields; plain text without field syntax falls back to the title index.
 
 ## Plugin contract
 
@@ -173,8 +127,6 @@ The package implements the standard parsimony plugin contract, exported at the t
 | Export               | Role                                                                          |
 |----------------------|-------------------------------------------------------------------------------|
 | ``CONNECTORS``       | ``Connectors`` collection — two enumerators + the ``sdmx_fetch`` connector.   |
-| ``CATALOGS``         | Async generator function — yields every catalog this plugin can publish.      |
-| ``RESOLVE_CATALOG``  | ``namespace -> Callable \| None`` — cheap reverse lookup for ``--only``.      |
 
 SDMX endpoints are public; no environment variables are required.
 
@@ -201,7 +153,7 @@ Each series row's `title` is built per DSD:
 - **ECB** — uses the `TITLE` / `TITLE_COMPL` natural-language attributes fetched via the portal side-channel. Titles like `"All euro area yield curve - 10-year spot rate"`. Short, semantic, directly embedder-friendly.
 - **ESTAT / IMF_DATA / WB_WDI** — no natural-language attributes exposed; falls back to `compose_series_title()` which concatenates `"DIM: label - DIM: label - …"` across every dimension in DSD order. Longer (80-150 tokens) but still searchable.
 
-The codelist-composed form used to be prefixed onto ECB titles as well (`"base | TITLE - TITLE_COMPL"`), but it duplicated content the natural language already expresses and inflated embedding cost quadratically (BERT attention is O(N²)). It now serves only as a fallback when TITLE_COMPL is absent. The raw SDMX series key is always available in the `code` column, so keyword-exact queries are unaffected.
+The codelist-composed form is used only as a fallback when `TITLE_COMPL` is absent — duplicating it onto natural-language titles inflates embedding cost quadratically (BERT attention is O(N²)) without adding signal. The raw SDMX series key is always available in the `code` column, so keyword-exact queries are unaffected.
 
 ### Why subprocess isolation
 

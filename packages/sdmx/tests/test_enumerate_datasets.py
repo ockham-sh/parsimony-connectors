@@ -12,17 +12,13 @@ from parsimony.catalog import entries_from_result
 from parsimony_sdmx._isolation import ListDatasetsError
 from parsimony_sdmx.connectors.enumerate_datasets import (
     DATASETS_NAMESPACE,
-    EnumerateDatasetsParams,
     enumerate_sdmx_datasets,
 )
 from parsimony_sdmx.core.models import DatasetRecord
 
 
 def _records(agency: str, pairs: list[tuple[str, str]]) -> list[DatasetRecord]:
-    return [
-        DatasetRecord(dataset_id=did, agency_id=agency, title=title)
-        for did, title in pairs
-    ]
+    return [DatasetRecord(dataset_id=did, agency_id=agency, title=title) for did, title in pairs]
 
 
 @pytest.fixture
@@ -33,12 +29,8 @@ def mock_list_datasets(monkeypatch: pytest.MonkeyPatch):
     enumerator just gets the records back synchronously.
     """
     responses: dict[str, list[DatasetRecord]] = {
-        "ECB": _records(
-            "ECB", [("YC", "Euro Yield Curve"), ("MIR", "Money Market Rates")]
-        ),
-        "ESTAT": _records(
-            "ESTAT", [("prc_hicp_manr", "HICP annual rate of change")]
-        ),
+        "ECB": _records("ECB", [("YC", "Euro Yield Curve"), ("MIR", "Money Market Rates")]),
+        "ESTAT": _records("ESTAT", [("prc_hicp_manr", "HICP annual rate of change")]),
         "IMF_DATA": [],  # empty agency — silently skipped
         "WB_WDI": _records("WB_WDI", [("WDI", "World Development Indicators")]),
     }
@@ -55,7 +47,7 @@ def mock_list_datasets(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.mark.asyncio
 async def test_enumerates_all_agencies(mock_list_datasets) -> None:
-    result = await enumerate_sdmx_datasets(EnumerateDatasetsParams())
+    result = await enumerate_sdmx_datasets()
     df = result.data
     assert set(df["code"]) == {
         "ECB|YC",
@@ -68,7 +60,7 @@ async def test_enumerates_all_agencies(mock_list_datasets) -> None:
 
 @pytest.mark.asyncio
 async def test_ingests_into_expected_namespace(mock_list_datasets) -> None:
-    result = await enumerate_sdmx_datasets(EnumerateDatasetsParams())
+    result = await enumerate_sdmx_datasets()
     output_config = enumerate_sdmx_datasets.output_config
     assert output_config is not None
     table = result.to_table(output_config)
@@ -99,7 +91,7 @@ async def test_agency_failure_skipped_silently(
         _fake_list,
     )
 
-    result = await enumerate_sdmx_datasets(EnumerateDatasetsParams())
+    result = await enumerate_sdmx_datasets()
     df = result.data
     assert list(df["code"]) == ["ECB|YC"]
 
@@ -111,9 +103,7 @@ async def test_all_agencies_fail_raises_emptydata(
     from parsimony.errors import EmptyDataError
 
     def _fake_list(agency_id: str, timeout_s: float = 0.0) -> list[DatasetRecord]:
-        raise ListDatasetsError(
-            kind="http_error", message="no network", traceback_str=""
-        )
+        raise ListDatasetsError(kind="http_error", message="no network", traceback_str="")
 
     monkeypatch.setattr(
         "parsimony_sdmx.connectors.enumerate_datasets.list_datasets",
@@ -121,7 +111,7 @@ async def test_all_agencies_fail_raises_emptydata(
     )
 
     with pytest.raises(EmptyDataError, match="no rows for any agency"):
-        await enumerate_sdmx_datasets(EnumerateDatasetsParams())
+        await enumerate_sdmx_datasets()
 
 
 def test_enumerator_metadata_shape() -> None:

@@ -78,9 +78,7 @@ def patch_sdmx(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
 
 class TestSdmxFetch:
-    def test_returns_table_result_with_expected_schema(
-        self, patch_sdmx: dict[str, Any]
-    ) -> None:
+    def test_returns_table_result_with_expected_schema(self, patch_sdmx: dict[str, Any]) -> None:
         from parsimony_sdmx.connectors.fetch import SdmxFetchParams, sdmx_fetch
 
         dim_ids = ["FREQ", "REF_AREA", "CURRENCY"]
@@ -104,7 +102,7 @@ class TestSdmxFetch:
             dataset_key="ECB-YC",
             series_key="M.DE.EUR",
         )
-        result = asyncio.run(sdmx_fetch(params))
+        result = asyncio.run(sdmx_fetch(**params.model_dump()))
 
         df = result.data
         assert list(df.columns) == [
@@ -121,22 +119,18 @@ class TestSdmxFetch:
         # Title falls back to series_key when no labels are known.
         assert all(df["title"].str.len() > 0)
 
-    def test_empty_data_raises_empty_data_error(
-        self, patch_sdmx: dict[str, Any]
-    ) -> None:
+    def test_empty_data_raises_empty_data_error(self, patch_sdmx: dict[str, Any]) -> None:
         from parsimony_sdmx.connectors.fetch import SdmxFetchParams, sdmx_fetch
 
         dim_ids = ["FREQ", "REF_AREA"]
         structure_msg = _structure_msg(dim_ids, "YC")
         data_msg = SimpleNamespace(data="<observations>")
-        patch_sdmx["client"] = _make_fake_client(
-            structure_msg=structure_msg, data_msg=data_msg
-        )
+        patch_sdmx["client"] = _make_fake_client(structure_msg=structure_msg, data_msg=data_msg)
         patch_sdmx["to_pandas_output"] = pd.Series([], name="value", dtype=float)
 
         params = SdmxFetchParams(dataset_key="ECB-YC", series_key="M.DE")
         with pytest.raises(EmptyDataError):
-            asyncio.run(sdmx_fetch(params))
+            asyncio.run(sdmx_fetch(**params.model_dump()))
 
     def test_unknown_agency_rejected_at_param_validation(self) -> None:
         from parsimony_sdmx.connectors.fetch import SdmxFetchParams
@@ -150,17 +144,13 @@ class TestSdmxFetch:
         with pytest.raises(ValueError, match="must include agency prefix"):
             SdmxFetchParams(dataset_key="YCONLY", series_key="M.DE")
 
-    def test_series_url_metadata_for_ecb(
-        self, patch_sdmx: dict[str, Any]
-    ) -> None:
+    def test_series_url_metadata_for_ecb(self, patch_sdmx: dict[str, Any]) -> None:
         from parsimony_sdmx.connectors.fetch import SdmxFetchParams, sdmx_fetch
 
         dim_ids = ["FREQ", "REF_AREA"]
         structure_msg = _structure_msg(dim_ids, "YC")
         data_msg = SimpleNamespace(data="<observations>")
-        patch_sdmx["client"] = _make_fake_client(
-            structure_msg=structure_msg, data_msg=data_msg
-        )
+        patch_sdmx["client"] = _make_fake_client(structure_msg=structure_msg, data_msg=data_msg)
         patch_sdmx["to_pandas_output"] = pd.DataFrame(
             {
                 "FREQ": ["M"],
@@ -171,7 +161,7 @@ class TestSdmxFetch:
         ).set_index(["FREQ", "REF_AREA", "TIME_PERIOD"])["value"]
 
         params = SdmxFetchParams(dataset_key="ECB-YC", series_key="M.DE")
-        result = asyncio.run(sdmx_fetch(params))
+        result = asyncio.run(sdmx_fetch(**params.model_dump()))
 
         metadata = result.provenance.properties.get("metadata", [])
         urls = [m["value"] for m in metadata if m.get("name") == "series_url"]
@@ -180,17 +170,13 @@ class TestSdmxFetch:
         assert parsed.scheme == "https"
         assert parsed.hostname == "data.ecb.europa.eu"
 
-    def test_no_series_url_for_wb_wdi(
-        self, patch_sdmx: dict[str, Any]
-    ) -> None:
+    def test_no_series_url_for_wb_wdi(self, patch_sdmx: dict[str, Any]) -> None:
         from parsimony_sdmx.connectors.fetch import SdmxFetchParams, sdmx_fetch
 
         dim_ids = ["FREQ", "REF_AREA"]
         structure_msg = _structure_msg(dim_ids, "WDI")
         data_msg = SimpleNamespace(data="<observations>")
-        patch_sdmx["client"] = _make_fake_client(
-            structure_msg=structure_msg, data_msg=data_msg
-        )
+        patch_sdmx["client"] = _make_fake_client(structure_msg=structure_msg, data_msg=data_msg)
         patch_sdmx["to_pandas_output"] = pd.DataFrame(
             {
                 "FREQ": ["A"],
@@ -201,12 +187,10 @@ class TestSdmxFetch:
         ).set_index(["FREQ", "REF_AREA", "TIME_PERIOD"])["value"]
 
         params = SdmxFetchParams(dataset_key="WB_WDI-WDI", series_key="A.USA")
-        result = asyncio.run(sdmx_fetch(params))
+        result = asyncio.run(sdmx_fetch(**params.model_dump()))
         assert result.provenance.properties.get("metadata", []) == []
 
-    def test_namespace_uses_normalized_dataset_key(
-        self, patch_sdmx: dict[str, Any]
-    ) -> None:
+    def test_namespace_uses_normalized_dataset_key(self, patch_sdmx: dict[str, Any]) -> None:
         from parsimony_sdmx.connectors.fetch import (
             SdmxFetchParams,
             _sdmx_namespace_from_dataset_key,
@@ -220,15 +204,13 @@ class TestSdmxFetch:
         dim_ids = ["FREQ"]
         structure_msg = _structure_msg(dim_ids, "YC")
         data_msg = SimpleNamespace(data="<observations>")
-        patch_sdmx["client"] = _make_fake_client(
-            structure_msg=structure_msg, data_msg=data_msg
-        )
+        patch_sdmx["client"] = _make_fake_client(structure_msg=structure_msg, data_msg=data_msg)
         patch_sdmx["to_pandas_output"] = pd.DataFrame(
             {"FREQ": ["M"], "TIME_PERIOD": ["2024-01"], "value": [1.0]}
         ).set_index(["FREQ", "TIME_PERIOD"])["value"]
 
         params = SdmxFetchParams(dataset_key="ECB-YC", series_key="M")
-        result = asyncio.run(sdmx_fetch(params))
+        result = asyncio.run(sdmx_fetch(**params.model_dump()))
         # The series_key column carries the namespace via OutputConfig.
         assert "series_key" in result.data.columns
 

@@ -26,11 +26,7 @@ def datasets_parquet(output_base: Path, agency_id: str) -> Path:
 
 
 def series_parquet(output_base: Path, agency_id: str, dataset_id: str) -> Path:
-    return (
-        agency_dir(output_base, agency_id)
-        / SERIES_DIR
-        / f"{safe_filename(dataset_id)}.parquet"
-    )
+    return agency_dir(output_base, agency_id) / SERIES_DIR / f"{safe_filename(dataset_id)}.parquet"
 
 
 def tmp_dir(output_base: Path, agency_id: str) -> Path:

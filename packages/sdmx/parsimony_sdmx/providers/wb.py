@@ -5,7 +5,7 @@ stream via ``sdmx1.series_keys``. We discover series by issuing a
 Cartesian product of partial-key paths × decade windows against
 ``api.worldbank.org/v2/sdmx/rest/data/{flow}/...?detail=serieskeysonly``.
 
-Key design choices preserved from the plan:
+Key design choices:
 
 * ``ThreadPoolExecutor`` for parallelism; worker count is configurable
   and shares the subprocess-local ``requests.Session``.
@@ -83,17 +83,11 @@ class WbProvider:
     base_url: str = WB_BASE_URL
 
     def list_datasets(self) -> Iterator[DatasetRecord]:
-        msg = _fetch_wb_structure(
-            self.http_config, self.base_url, f"dataflow/{WB_SDMX_AGENCY}"
-        )
+        msg = _fetch_wb_structure(self.http_config, self.base_url, f"dataflow/{WB_SDMX_AGENCY}")
         dataflows = getattr(msg, "dataflow", {}) or {}
         for flow_id, flow in dataflows.items():
             base_title = extract_flow_title(flow, ("en",))
-            title = (
-                f"{WB_TITLE_PREFIX}{base_title}"
-                if base_title
-                else WB_TITLE_PREFIX.rstrip(" -")
-            )
+            title = f"{WB_TITLE_PREFIX}{base_title}" if base_title else WB_TITLE_PREFIX.rstrip(" -")
             yield DatasetRecord(
                 dataset_id=flow_id,
                 agency_id=self.agency_id,
@@ -109,18 +103,14 @@ class WbProvider:
         try:
             dataflow = msg.dataflow[dataset_id]
         except (KeyError, AttributeError, TypeError) as exc:
-            raise SdmxFetchError(
-                f"Dataflow {dataset_id!r} missing from response"
-            ) from exc
+            raise SdmxFetchError(f"Dataflow {dataset_id!r} missing from response") from exc
         dsd = resolve_dsd(_NoFetchClient(), msg, dataflow, dataset_id)
         dsd_order = extract_dsd_dim_order(dsd, exclude_time=True)
         raw_codelists = extract_raw_codelists(dsd, msg)
         labels = resolve_codelists(raw_codelists, ("en",))
 
         if not dsd_order:
-            raise SdmxFetchError(
-                f"WB dataset {dataset_id!r} has no non-time dimensions to sweep"
-            )
+            raise SdmxFetchError(f"WB dataset {dataset_id!r} has no non-time dimensions to sweep")
 
         dim_codes = _codes_per_dim(raw_codelists, dsd_order)
         session = build_session(self.http_config)
@@ -146,9 +136,7 @@ class WbProvider:
         )
 
 
-def _fetch_wb_structure(
-    http_config: HttpConfig, base_url: str, path: str
-) -> Any:
+def _fetch_wb_structure(http_config: HttpConfig, base_url: str, path: str) -> Any:
     """Fetch a WB SDMX structure resource directly and parse it.
 
     Bypasses ``sdmx1.Client`` because the library appends ``/latest``
@@ -169,9 +157,7 @@ def _fetch_wb_structure(
     try:
         return sdmx.read_sdmx(io.BytesIO(body))
     except Exception as exc:
-        raise SdmxFetchError(
-            f"Failed to parse WB structure response from {url}: {exc}"
-        ) from exc
+        raise SdmxFetchError(f"Failed to parse WB structure response from {url}: {exc}") from exc
 
 
 class _NoFetchClient:
@@ -186,8 +172,7 @@ class _NoFetchClient:
 
     def datastructure(self, **_kwargs: Any) -> Any:
         raise SdmxFetchError(
-            "WB DSD lookup required but unavailable — "
-            "expected response to embed the DSD via references=descendants"
+            "WB DSD lookup required but unavailable — expected response to embed the DSD via references=descendants"
         )
 
 
@@ -216,19 +201,14 @@ def discover_wb_series(
 
     def fetch(task: tuple[str, tuple[str, str]]) -> set[str]:
         path, (start, end) = task
-        url = (
-            f"{base_url}/data/{dataset_id}/{path}/"
-            f"?startPeriod={start}&endPeriod={end}&detail=serieskeysonly"
-        )
+        url = f"{base_url}/data/{dataset_id}/{path}/?startPeriod={start}&endPeriod={end}&detail=serieskeysonly"
         return _fetch_path_decade(session, url, http_config, dim_order)
 
     with ThreadPoolExecutor(max_workers=wb_config.max_workers) as pool:
         for keys in pool.map(fetch, tasks):
             series_ids.update(keys)
 
-    logger.info(
-        "WB discovery for %s yielded %d unique series", dataset_id, len(series_ids)
-    )
+    logger.info("WB discovery for %s yielded %d unique series", dataset_id, len(series_ids))
     return series_ids
 
 
@@ -252,10 +232,7 @@ def _build_path_combinations(
     if not all(code_lists):
         # Some base dim has no known codes — fall back to a single wildcard path.
         return [".".join([""] * len(dim_order))]
-    return [
-        ".".join(list(combo) + [""] * wildcard_count)
-        for combo in itertools.product(*code_lists)
-    ]
+    return [".".join(list(combo) + [""] * wildcard_count) for combo in itertools.product(*code_lists)]
 
 
 def _codes_per_dim(
@@ -286,9 +263,7 @@ def _fetch_path_decade(
             stream=True,
         )
     except requests.RequestException as exc:
-        raise SdmxFetchError(
-            f"WB fetch network error for {url}: {exc}"
-        ) from exc
+        raise SdmxFetchError(f"WB fetch network error for {url}: {exc}") from exc
 
     try:
         if response.status_code == 404:
@@ -296,9 +271,7 @@ def _fetch_path_decade(
         try:
             response.raise_for_status()
         except requests.exceptions.HTTPError as exc:
-            raise SdmxFetchError(
-                f"WB fetch {url} returned HTTP {response.status_code}"
-            ) from exc
+            raise SdmxFetchError(f"WB fetch {url} returned HTTP {response.status_code}") from exc
         content = _read_bounded(response, config)
         return _parse_series_ids(content, dim_order)
     finally:
@@ -314,9 +287,7 @@ def _read_bounded(response: requests.Response, config: HttpConfig) -> bytes:
             continue
         remaining = cap - len(buf)
         if remaining <= 0 or len(chunk) > remaining:
-            raise SdmxFetchError(
-                f"WB response from {response.url} exceeded {cap} bytes"
-            )
+            raise SdmxFetchError(f"WB response from {response.url} exceeded {cap} bytes")
         buf.extend(chunk)
     return bytes(buf)
 

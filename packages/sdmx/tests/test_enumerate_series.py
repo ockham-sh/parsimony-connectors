@@ -18,7 +18,7 @@ from parsimony_sdmx.connectors.enumerate_series import (
     enumerate_sdmx_series,
     series_namespace,
 )
-from parsimony_sdmx.core.models import SeriesRecord
+from parsimony_sdmx.core.models import DimensionValue, SeriesRecord
 from parsimony_sdmx.core.outcomes import DatasetOutcome, OutcomeStatus
 
 
@@ -28,11 +28,21 @@ def _stub_records() -> list[SeriesRecord]:
             id="B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y",
             dataset_id="YC",
             title="10y yield",
+            dimensions=(
+                DimensionValue(id="FREQ", code="B", label="Daily - businessweek"),
+                DimensionValue(id="REF_AREA", code="U2", label="Euro area"),
+                DimensionValue(id="DATA_TYPE_FM", code="SR_10Y", label="Yield curve spot rate, 10-year maturity"),
+            ),
         ),
         SeriesRecord(
             id="B.U2.EUR.4F.G_N_A.SV_C_YM.SR_2Y",
             dataset_id="YC",
             title="2y yield",
+            dimensions=(
+                DimensionValue(id="FREQ", code="B", label="Daily - businessweek"),
+                DimensionValue(id="REF_AREA", code="U2", label="Euro area"),
+                DimensionValue(id="DATA_TYPE_FM", code="SR_2Y", label="Yield curve spot rate, 2-year maturity"),
+            ),
         ),
     ]
 
@@ -53,14 +63,14 @@ def mock_fetch_series(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.mark.asyncio
 async def test_enumerates_one_dataset(mock_fetch_series) -> None:
-    result = await enumerate_sdmx_series(
-        EnumerateSeriesParams(agency=AgencyId.ECB, dataset_id="YC"),
-    )
+    result = await enumerate_sdmx_series(agency=AgencyId.ECB, dataset_id="YC")
     df = result.data
     assert set(df["code"]) == {
         "B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y",
         "B.U2.EUR.4F.G_N_A.SV_C_YM.SR_2Y",
     }
+    assert set(df["DATA_TYPE_FM_code"]) == {"SR_10Y", "SR_2Y"}
+    assert "Yield curve spot rate, 10-year maturity" in set(df["DATA_TYPE_FM_label"])
     assert set(df["agency"]) == {"ECB"}
     assert set(df["dataset_id"]) == {"YC"}
 
@@ -80,17 +90,12 @@ async def test_empty_live_response_raises_emptydata(
     )
 
     with pytest.raises(EmptyDataError, match="zero series"):
-        await enumerate_sdmx_series(
-            EnumerateSeriesParams(agency=AgencyId.ECB, dataset_id="EMPTY"),
-        )
+        await enumerate_sdmx_series(agency=AgencyId.ECB, dataset_id="EMPTY")
 
 
 @pytest.mark.asyncio
-async def test_accepts_lowercase_agency_from_resolve_catalog() -> None:
-    """When ``RESOLVE_CATALOG`` parses ``sdmx_series_ecb_yc`` it passes
-    ``agency="ecb"`` (lowercase). The Pydantic ``before`` validator
-    upcases it back to the canonical ``AgencyId.ECB``.
-    """
+async def test_accepts_lowercase_agency_from_namespace_parsing() -> None:
+    """Build-script namespace parsing may pass ``agency="ecb"``."""
     params = EnumerateSeriesParams(agency="ecb", dataset_id="YC")  # type: ignore[arg-type]
     assert params.agency is AgencyId.ECB
 
@@ -120,9 +125,7 @@ async def test_subprocess_failure_propagates(
         _raise,
     )
     with pytest.raises(FetchSeriesError, match="fake failure"):
-        await enumerate_sdmx_series(
-            EnumerateSeriesParams(agency=AgencyId.ECB, dataset_id="YC"),
-        )
+        await enumerate_sdmx_series(agency=AgencyId.ECB, dataset_id="YC")
 
 
 def test_series_namespace_lowercases_agency_and_dataset() -> None:

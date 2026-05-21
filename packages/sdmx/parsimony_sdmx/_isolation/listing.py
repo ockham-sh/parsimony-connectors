@@ -1,10 +1,9 @@
 """Run ``provider.list_datasets()`` in a fresh subprocess.
 
-The parent (``parsimony publish``) stays sdmx1-free: every provider-
-library invocation happens in a spawned child whose interpreter dies
-after the work is done, taking the accumulated ``sdmx1`` module-level
-cache with it. The parent receives only picklable ``DatasetRecord``
-tuples.
+The parent process stays sdmx1-free: every provider-library invocation
+happens in a spawned child whose interpreter dies after the work is done,
+taking the accumulated ``sdmx1`` module-level cache with it. The parent
+receives only picklable ``DatasetRecord`` tuples.
 
 Motivation: ``sdmx1`` caches structure messages at module scope with
 no public invalidation hook. A long-lived parent that imports it pays
@@ -64,9 +63,7 @@ def list_datasets(
     status = payload[0]
     if status == "ok":
         tuples: list[tuple[str, str, str]] = payload[1]
-        return [
-            DatasetRecord(dataset_id=d, agency_id=a, title=t) for d, a, t in tuples
-        ]
+        return [DatasetRecord(dataset_id=d, agency_id=a, title=t) for d, a, t in tuples]
 
     _, kind, message, tb = payload
     raise ListDatasetsError(kind=kind, message=message, traceback_str=tb)

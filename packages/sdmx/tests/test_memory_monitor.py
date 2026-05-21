@@ -37,9 +37,7 @@ class TestReadOomMarker:
     def test_reads_json(self, tmp_path: Path) -> None:
         d = oom_dir(tmp_path, "ECB")
         d.mkdir(parents=True)
-        (d / "123.json").write_text(
-            json.dumps({"pid": 123, "rss_bytes": 100, "dataset_id": "YC"})
-        )
+        (d / "123.json").write_text(json.dumps({"pid": 123, "rss_bytes": 100, "dataset_id": "YC"}))
         got = read_oom_marker(tmp_path, "ECB", 123)
         assert got is not None
         assert got["dataset_id"] == "YC"
@@ -60,9 +58,7 @@ class TestKillLargestChild:
         child.memory_info.return_value = info
         return child
 
-    def test_writes_oom_marker_with_worker_data_before_kill(
-        self, tmp_path: Path
-    ) -> None:
+    def test_writes_oom_marker_with_worker_data_before_kill(self, tmp_path: Path) -> None:
         # Worker 501 registered itself with dataset_id.
         write_worker_marker(tmp_path, "ECB", 501, "YC", phase="fetching")
 
@@ -95,9 +91,7 @@ class TestKillLargestChild:
 
 
 class TestMemoryMonitorContext:
-    def test_enters_and_exits_cleanly_below_threshold(
-        self, tmp_path: Path
-    ) -> None:
+    def test_enters_and_exits_cleanly_below_threshold(self, tmp_path: Path) -> None:
         cfg = MemoryMonitorConfig(threshold_percent=99.9, poll_seconds=0.05)
         fake_mem = MagicMock(percent=10.0)
         with patch("psutil.virtual_memory", return_value=fake_mem), memory_monitor(tmp_path, "ECB", cfg):

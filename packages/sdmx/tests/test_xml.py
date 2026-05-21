@@ -13,11 +13,7 @@ class TestIterElements:
         assert texts == ["a", "b"]
 
     def test_yields_namespaced_tag_with_clark_notation(self) -> None:
-        xml = (
-            f'<root xmlns="{NS}">'
-            "<item>a</item><item>b</item>"
-            "</root>"
-        ).encode()
+        xml = (f'<root xmlns="{NS}"><item>a</item><item>b</item></root>').encode()
         tag = f"{{{NS}}}item"
         texts = [e.text for e in iter_elements(xml, tag)]
         assert texts == ["a", "b"]
@@ -64,15 +60,11 @@ class TestXxeProtection:
     """Hardened parsers must not expand external or internal DTD entities."""
 
     INTERNAL_ENTITY_XML = (
-        b'<?xml version="1.0"?>'
-        b'<!DOCTYPE doc [<!ENTITY secret "LEAKED_VALUE">]>'
-        b"<doc><item>&secret;</item></doc>"
+        b'<?xml version="1.0"?><!DOCTYPE doc [<!ENTITY secret "LEAKED_VALUE">]><doc><item>&secret;</item></doc>'
     )
 
     EXTERNAL_ENTITY_XML = (
-        b'<?xml version="1.0"?>'
-        b'<!DOCTYPE doc [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>'
-        b"<doc><item>&xxe;</item></doc>"
+        b'<?xml version="1.0"?><!DOCTYPE doc [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><doc><item>&xxe;</item></doc>'
     )
 
     def test_internal_entity_not_expanded_via_parse(self) -> None:
@@ -82,7 +74,7 @@ class TestXxeProtection:
         # With resolve_entities=False, &secret; is not expanded. Depending on
         # lxml version the text may be empty or contain the placeholder, but
         # it must NOT contain the expanded value.
-        text = (item.text or "")
+        text = item.text or ""
         assert "LEAKED_VALUE" not in text
 
     def test_internal_entity_not_expanded_via_iterparse(self) -> None:
@@ -98,7 +90,7 @@ class TestXxeProtection:
         try:
             root = parse_xml(self.EXTERNAL_ENTITY_XML)
             item = root.find("item")
-            text = (item.text or "")
+            text = item.text or ""
             # Typical /etc/passwd line starts with root:x:0 — must not appear.
             assert "root:" not in text
             assert "bin:" not in text

@@ -69,9 +69,7 @@ def _extract_values(elem: Any) -> dict[str, str]:
     return out
 
 
-def _build_series_id(
-    key_values: dict[str, str], dim_order: Sequence[str]
-) -> str | None:
+def _build_series_id(key_values: dict[str, str], dim_order: Sequence[str]) -> str | None:
     parts: list[str] = []
     for dim in dim_order:
         v = key_values.get(dim)

@@ -23,14 +23,8 @@ from parsimony_sdmx.providers.wb import (
 
 
 def _xml_series(key_values: dict[str, str]) -> str:
-    kvs = "".join(
-        f'<generic:Value id="{k}" value="{v}"/>' for k, v in key_values.items()
-    )
-    return (
-        f"<generic:Series>"
-        f"<generic:SeriesKey>{kvs}</generic:SeriesKey>"
-        f"</generic:Series>"
-    )
+    kvs = "".join(f'<generic:Value id="{k}" value="{v}"/>' for k, v in key_values.items())
+    return f"<generic:Series><generic:SeriesKey>{kvs}</generic:SeriesKey></generic:Series>"
 
 
 def _xml(series: list[dict[str, str]]) -> bytes:
@@ -128,9 +122,7 @@ class TestParseSeriesIds:
 
 
 class TestFetchPathDecade:
-    def _mock_response(
-        self, status: int = 200, body: bytes = b""
-    ) -> MagicMock:
+    def _mock_response(self, status: int = 200, body: bytes = b"") -> MagicMock:
         resp = MagicMock(spec=requests.Response)
         resp.status_code = status
         resp.url = "https://x/"
@@ -138,9 +130,7 @@ class TestFetchPathDecade:
         # bounded-read loop in _fetch_path_decade).
         resp.iter_content.return_value = iter([body]) if body else iter([])
         if status >= 400 and status != 404:
-            resp.raise_for_status.side_effect = requests.exceptions.HTTPError(
-                response=resp
-            )
+            resp.raise_for_status.side_effect = requests.exceptions.HTTPError(response=resp)
         else:
             resp.raise_for_status.return_value = None
         return resp
@@ -228,16 +218,17 @@ class TestFetchWbStructure:
             "parsimony_sdmx.providers.wb.bounded_get",
             return_value=self._MIN_DATAFLOW_XML,
         ):
-            msg = _fetch_wb_structure(
-                HttpConfig(), "https://api.worldbank.org/v2/sdmx/rest", "dataflow/WB"
-            )
+            msg = _fetch_wb_structure(HttpConfig(), "https://api.worldbank.org/v2/sdmx/rest", "dataflow/WB")
         assert list(msg.dataflow.keys()) == ["WDI"]
 
     def test_http_error_wrapped_as_sdmx_fetch_error(self) -> None:
-        with patch(
-            "parsimony_sdmx.providers.wb.bounded_get",
-            side_effect=SdmxFetchError("403 Forbidden"),
-        ), pytest.raises(SdmxFetchError, match="WB structure fetch"):
+        with (
+            patch(
+                "parsimony_sdmx.providers.wb.bounded_get",
+                side_effect=SdmxFetchError("403 Forbidden"),
+            ),
+            pytest.raises(SdmxFetchError, match="WB structure fetch"),
+        ):
             _fetch_wb_structure(
                 HttpConfig(),
                 "https://api.worldbank.org/v2/sdmx/rest",
@@ -245,10 +236,13 @@ class TestFetchWbStructure:
             )
 
     def test_parse_error_wrapped_as_sdmx_fetch_error(self) -> None:
-        with patch(
-            "parsimony_sdmx.providers.wb.bounded_get",
-            return_value=b"<not-sdmx><garbage>",
-        ), pytest.raises(SdmxFetchError, match="parse"):
+        with (
+            patch(
+                "parsimony_sdmx.providers.wb.bounded_get",
+                return_value=b"<not-sdmx><garbage>",
+            ),
+            pytest.raises(SdmxFetchError, match="parse"),
+        ):
             _fetch_wb_structure(
                 HttpConfig(),
                 "https://api.worldbank.org/v2/sdmx/rest",
@@ -270,9 +264,7 @@ class TestWbProviderListDatasets:
 
     def test_calls_dataflow_endpoint_without_latest(self) -> None:
         xml = TestFetchWbStructure._MIN_DATAFLOW_XML
-        with patch(
-            "parsimony_sdmx.providers.wb.bounded_get", return_value=xml
-        ) as mock_get:
+        with patch("parsimony_sdmx.providers.wb.bounded_get", return_value=xml) as mock_get:
             records = list(WbProvider().list_datasets())
         mock_get.assert_called_once()
         url = mock_get.call_args.args[1]

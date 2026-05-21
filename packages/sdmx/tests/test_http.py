@@ -93,9 +93,7 @@ class TestBoundedGet:
 
         resp.iter_content = iter_content
         if status >= 400:
-            resp.raise_for_status.side_effect = requests.exceptions.HTTPError(
-                response=resp
-            )
+            resp.raise_for_status.side_effect = requests.exceptions.HTTPError(response=resp)
         else:
             resp.raise_for_status.return_value = None
         return resp
@@ -147,9 +145,10 @@ class TestBoundedGet:
 
     def test_request_exception_wrapped(self) -> None:
         s = build_session()
-        with patch.object(
-            s, "get", side_effect=requests.exceptions.ConnectionError("no route")
-        ), pytest.raises(SdmxFetchError, match="GET"):
+        with (
+            patch.object(s, "get", side_effect=requests.exceptions.ConnectionError("no route")),
+            pytest.raises(SdmxFetchError, match="GET"),
+        ):
             bounded_get(s, "https://example.com/data")
 
     def test_extra_headers_forwarded(self) -> None:

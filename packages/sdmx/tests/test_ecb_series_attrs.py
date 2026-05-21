@@ -6,30 +6,22 @@ from parsimony_sdmx.providers.ecb_series_attrs import (
 
 def _xml(body: str) -> bytes:
     # Wraps a snippet of <generic:Series> blocks in a minimal SDMX XML doc.
-    return (
-        f'<?xml version="1.0" encoding="UTF-8"?>'
-        f'<doc xmlns:generic="{GENERIC_NS}">{body}</doc>'
-    ).encode()
+    return (f'<?xml version="1.0" encoding="UTF-8"?><doc xmlns:generic="{GENERIC_NS}">{body}</doc>').encode()
 
 
 def _series(
     key_values: dict[str, str],
     attr_values: dict[str, str] | None = None,
 ) -> str:
-    key_xml = "".join(
-        f'<generic:Value id="{k}" value="{v}"/>' for k, v in key_values.items()
-    )
+    key_xml = "".join(f'<generic:Value id="{k}" value="{v}"/>' for k, v in key_values.items())
     attrs_xml = ""
     if attr_values:
-        attrs_xml = "<generic:Attributes>" + "".join(
-            f'<generic:Value id="{k}" value="{v}"/>' for k, v in attr_values.items()
-        ) + "</generic:Attributes>"
-    return (
-        f"<generic:Series>"
-        f"<generic:SeriesKey>{key_xml}</generic:SeriesKey>"
-        f"{attrs_xml}"
-        f"</generic:Series>"
-    )
+        attrs_xml = (
+            "<generic:Attributes>"
+            + "".join(f'<generic:Value id="{k}" value="{v}"/>' for k, v in attr_values.items())
+            + "</generic:Attributes>"
+        )
+    return f"<generic:Series><generic:SeriesKey>{key_xml}</generic:SeriesKey>{attrs_xml}</generic:Series>"
 
 
 class TestParseEcbSeriesAttributes:
@@ -61,9 +53,7 @@ class TestParseEcbSeriesAttributes:
 
     def test_respects_dim_order(self) -> None:
         xml = _xml(_series({"FREQ": "A", "REF_AREA": "U2", "CURRENCY": "EUR"}))
-        out = parse_ecb_series_attributes(
-            xml, ("REF_AREA", "CURRENCY", "FREQ")
-        )
+        out = parse_ecb_series_attributes(xml, ("REF_AREA", "CURRENCY", "FREQ"))
         assert out == {"U2.EUR.A": (None, None)}
 
     def test_series_missing_dim_is_skipped(self) -> None:

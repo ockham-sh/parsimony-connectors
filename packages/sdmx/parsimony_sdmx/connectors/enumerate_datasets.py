@@ -60,11 +60,7 @@ ENUMERATE_DATASETS_OUTPUT = OutputConfig(
     output=ENUMERATE_DATASETS_OUTPUT,
     tags=["sdmx"],
 )
-async def enumerate_sdmx_datasets(
-    params: EnumerateDatasetsParams,
-    *,
-    fetch_timeout_s: float = LISTING_TIMEOUT_S,
-) -> pd.DataFrame:
+async def enumerate_sdmx_datasets(fetch_timeout_s: float = LISTING_TIMEOUT_S) -> pd.DataFrame:
     """List every SDMX dataset across every supported agency.
 
     Spawns one subprocess per agency (sequential, not parallel — parallel
@@ -77,6 +73,7 @@ async def enumerate_sdmx_datasets(
     fails or returns empty — otherwise returns whatever the surviving
     agencies produced.
     """
+    EnumerateDatasetsParams()
     frames: list[pd.DataFrame] = []
     for agency in ALL_AGENCIES:
         try:
@@ -94,9 +91,7 @@ async def enumerate_sdmx_datasets(
             )
             continue
         except Exception as exc:  # noqa: BLE001 — per-agency resilience
-            logger.warning(
-                "dataset listing raised for agency %s: %s", agency.value, exc
-            )
+            logger.warning("dataset listing raised for agency %s: %s", agency.value, exc)
             continue
 
         if not records:

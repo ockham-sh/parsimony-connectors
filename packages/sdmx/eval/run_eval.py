@@ -278,8 +278,7 @@ def _build_report(
         report["top1_agreement"] = {
             "overall": agreements / compared if compared else 0.0,
             "per_slice": {
-                slice_: (matches / count if count else 0.0)
-                for slice_, (count, matches) in per_slice_agreement.items()
+                slice_: (matches / count if count else 0.0) for slice_, (count, matches) in per_slice_agreement.items()
             },
         }
 
@@ -330,7 +329,7 @@ async def _main(argv: list[str]) -> int:
     print(f"Loaded {len(queries)} queries from {args.queries}", flush=True)
 
     print(f"Loading catalog: {args.catalog}", flush=True)
-    catalog = await Catalog.from_url(args.catalog)
+    catalog = await Catalog.load(args.catalog)
     print(f"  {len(catalog)} entries", flush=True)
 
     t0 = time.perf_counter()
@@ -342,7 +341,7 @@ async def _main(argv: list[str]) -> int:
     if args.baseline:
         print("", flush=True)
         print(f"Loading baseline: {args.baseline}", flush=True)
-        baseline_catalog = await Catalog.from_url(args.baseline)
+        baseline_catalog = await Catalog.load(args.baseline)
         print(f"  {len(baseline_catalog)} entries", flush=True)
         t0 = time.perf_counter()
         baseline_results = await _run_queries(baseline_catalog, queries)

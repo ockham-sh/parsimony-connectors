@@ -7,7 +7,7 @@ LLM as a tool call.
 Catalogs live as namespace subfolders in a single multi-bundle HF
 dataset repo at :data:`DEFAULT_CATALOG_ROOT` — override the root for
 local dev with the ``PARSIMONY_SDMX_CATALOG_URL`` env var (matches the
-peer-connector convention). The kernel's ``Catalog.from_url``
+peer-connector convention). The kernel's ``Catalog.load``
 understands ``hf://<org>/<repo>/<sub>`` and fetches only the requested
 bundle via ``snapshot_download(allow_patterns=...)``, so cold-start
 cost is bounded to the namespace the agent actually queried (~14 MB
@@ -17,21 +17,23 @@ Two-layer caching keeps the steady state cheap:
 1. **HF disk cache** — ``snapshot_download`` caches under
    ``~/.cache/huggingface/hub/`` automatically. Second call to the
    same bundle is a no-op fetch.
-2. **In-process catalog LRU** — once a namespace's :class:`Catalog`
-   is loaded, it stays resident in an LRU keyed by namespace. FAISS +
-   entries take ~135 MB for an 89k-row catalog so the cap is tight;
+2. **Connector in-process LRU** — once a namespace's :class:`Catalog`
+   is loaded, this module keeps it resident in a URL-keyed LRU. Built
+   indexes take ~135 MB for an 89k-row catalog so the cap is tight;
    the typical agent walk hits 1-3 catalogs before the user moves on.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+from collections import OrderedDict
 from typing import Annotated
 
 import pandas as pd
 from huggingface_hub.errors import RepositoryNotFoundError
-from parsimony.catalog import Catalog, CatalogCache
+from parsimony.catalog import Catalog
 from parsimony.connector import connector
 from parsimony.errors import ConnectorError, EmptyDataError
 from parsimony.result import Column, ColumnRole, OutputConfig
@@ -68,53 +70,73 @@ def _lru_size_from_env() -> int:
     return max(1, n)
 
 
-_CATALOG_CACHE = CatalogCache(max_size=_lru_size_from_env())
+_CATALOGS: OrderedDict[str, Catalog] = OrderedDict()
+_CATALOGS_LOCK = asyncio.Lock()
+_LRU_SIZE = _lru_size_from_env()
 
 
 # ---------------------------------------------------------------------------
-# Per-namespace catalog loading (delegates to kernel CatalogCache + sub-path)
+# Per-namespace catalog loading (local LRU + sub-path)
 # ---------------------------------------------------------------------------
 
 
-def _catalog_root() -> str:
+def _catalog_root(catalog_root: str | None = None) -> str:
     """Resolve the catalog root: env override or :data:`DEFAULT_CATALOG_ROOT`."""
-    return os.environ.get(PARSIMONY_SDMX_CATALOG_URL_ENV, DEFAULT_CATALOG_ROOT).rstrip("/")
+    return (catalog_root or os.environ.get(PARSIMONY_SDMX_CATALOG_URL_ENV, DEFAULT_CATALOG_ROOT)).rstrip("/")
 
 
-async def _get_or_load_catalog(namespace: str) -> Catalog:
+async def _get_or_load_catalog(namespace: str, *, catalog_root: str | None = None) -> Catalog:
     """Return a cached :class:`Catalog` for *namespace*, loading on miss.
 
-    Wraps :class:`~parsimony.catalog.CatalogCache.get` to translate the
+    Wraps :class:`~parsimony.catalog.Catalog.load` to translate the
     kernel's raw ``RepositoryNotFoundError`` / ``FileNotFoundError``
     into a directive-bearing :class:`ConnectorError` — agents need a
     recovery hint, not a stack trace.
     """
-    url = f"{_catalog_root()}/{namespace}"
-    try:
-        return await _CATALOG_CACHE.get(url)
-    except RepositoryNotFoundError as exc:
-        raise ConnectorError(
-            (
-                f"SDMX catalog repo for {namespace!r} not found at {url}. "
-                "The bundle has not been published. Try sdmx_datasets_search "
-                "to confirm flow_id, or pick a published flow. DO NOT retry."
-            ),
-            provider="sdmx",
-        ) from exc
-    except FileNotFoundError as exc:
-        raise ConnectorError(
-            (
-                f"SDMX bundle for {namespace!r} not present at {url}. "
-                "The namespace exists in the repo but its meta.json is "
-                "missing. DO NOT retry."
-            ),
-            provider="sdmx",
-        ) from exc
+    url = f"{_catalog_root(catalog_root)}/{namespace}"
+    async with _CATALOGS_LOCK:
+        if url in _CATALOGS:
+            _CATALOGS.move_to_end(url)
+            return _CATALOGS[url]
+        try:
+            catalog = await Catalog.load(url)
+        except RepositoryNotFoundError as exc:
+            raise ConnectorError(
+                (
+                    f"SDMX catalog repo for {namespace!r} not found at {url}. "
+                    "The bundle has not been published. Try sdmx_datasets_search "
+                    "to confirm flow_id, or pick a published flow. DO NOT retry."
+                ),
+                provider="sdmx",
+            ) from exc
+        except FileNotFoundError as exc:
+            raise ConnectorError(
+                (
+                    f"SDMX bundle for {namespace!r} not present at {url}. "
+                    "The namespace exists in the repo but its meta.json is "
+                    "missing. DO NOT retry."
+                ),
+                provider="sdmx",
+            ) from exc
+        _CATALOGS[url] = catalog
+        while len(_CATALOGS) > _LRU_SIZE:
+            _CATALOGS.popitem(last=False)
+        return catalog
 
 
 def _clear_catalog_lru() -> None:
     """Drop all cached catalogs. Test-only."""
-    _CATALOG_CACHE.clear()
+    _CATALOGS.clear()
+
+
+def set_catalog_lru_size(size: int) -> None:
+    """Set the in-process catalog LRU capacity for subsequent search calls."""
+    global _LRU_SIZE
+    if size < 1:
+        raise ValueError("catalog_lru_size must be >= 1")
+    _LRU_SIZE = size
+    while len(_CATALOGS) > _LRU_SIZE:
+        _CATALOGS.popitem(last=False)
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +208,7 @@ SERIES_SEARCH_OUTPUT = OutputConfig(
     columns=[
         Column(name="series_key", role=ColumnRole.KEY),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="similarity", role=ColumnRole.METADATA),
+        Column(name="score", role=ColumnRole.METADATA),
         Column(name="namespace", role=ColumnRole.METADATA),
     ]
 )
@@ -201,9 +223,11 @@ class SeriesSearchParams(BaseModel):
             min_length=1,
             max_length=512,
             description=(
-                "Natural-language description of the series. "
-                "Compose with codelist terms when known "
-                "(e.g. 'Spain monthly HICP all-items annual rate of change')."
+                "Structured field query (preferred). Use SDMX dimension names "
+                "with 'FIELD: value' clauses joined by '&&', e.g. "
+                "'REF_AREA: Germany && FREQ: Monthly'. Within a clause, "
+                "comma-separated values are OR. Plain text falls back to "
+                "title BM25 only when no field clause is recognized."
             ),
         ),
     ]
@@ -219,21 +243,33 @@ class SeriesSearchParams(BaseModel):
             ),
         ),
     ]
-    limit: int = Field(
-        default=10, ge=1, le=50, description="Top-N results to return."
-    )
+    limit: int = Field(default=10, ge=1, le=50, description="Top-N results to return.")
+    catalog_root: str | None = Field(default=None, description="Override catalog root, e.g. file:///tmp/sdmx.")
 
 
 @connector(
     output=SERIES_SEARCH_OUTPUT,
     tags=["sdmx", "tool"],
 )
-async def sdmx_series_search(params: SeriesSearchParams) -> pd.DataFrame:
-    """Hybrid-search a per-flow SDMX series catalog by natural language.
+async def sdmx_series_search(
+    query: str,
+    flow_id: str,
+    limit: int = 10,
+    catalog_root: str | None = None,
+) -> pd.DataFrame:
+    """Search a per-flow SDMX series catalog.
+
+    **Preferred:** structured field queries targeting SDMX dimensions:
+
+    * ``REF_AREA: Germany && FREQ: Monthly`` — AND across fields
+    * ``REF_AREA: Spain, Germany && FREQ: Monthly`` — OR within a field
+
+    Plain text without field syntax searches the ``title`` index only
+    (BM25 broad fallback).
 
     Loads the bundle for ``flow_id`` from :data:`DEFAULT_CATALOG_ROOT`
-    (a multi-bundle HF dataset repo) and runs RRF-fused BM25 + FAISS
-    retrieval, returning top-N (series_key, title, similarity).
+    (a multi-bundle HF dataset repo) and returns top-N
+    (series_key, title, score).
 
     The LRU caches loaded catalogs so a follow-up search on the same
     flow is in-memory; cold loads fetch only the namespace's subfolder
@@ -243,8 +279,9 @@ async def sdmx_series_search(params: SeriesSearchParams) -> pd.DataFrame:
     Agents typically chain: ``sdmx_datasets_search(query) ->
     sdmx_series_search(query, flow_id) -> sdmx_fetch(series_key)``.
     """
+    params = SeriesSearchParams(query=query, flow_id=flow_id, limit=limit, catalog_root=catalog_root)
     namespace = _resolve_series_namespace(params.flow_id)
-    catalog = await _get_or_load_catalog(namespace)
+    catalog = await _get_or_load_catalog(namespace, catalog_root=params.catalog_root)
     matches = await catalog.search(params.query, limit=params.limit)
 
     if not matches:
@@ -262,7 +299,7 @@ async def sdmx_series_search(params: SeriesSearchParams) -> pd.DataFrame:
             {
                 "series_key": m.code,
                 "title": m.title,
-                "similarity": round(m.similarity, 6),
+                "score": round(m.score, 6),
                 "namespace": m.namespace,
             }
             for m in matches
@@ -279,9 +316,17 @@ DATASETS_SEARCH_OUTPUT = OutputConfig(
     columns=[
         Column(name="flow_id", role=ColumnRole.KEY),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="similarity", role=ColumnRole.METADATA),
+        Column(name="score", role=ColumnRole.METADATA),
         Column(name="agency", role=ColumnRole.METADATA),
         Column(name="dataset_id", role=ColumnRole.METADATA),
+        Column(
+            name="dimensions",
+            role=ColumnRole.METADATA,
+            description=(
+                "Searchable SDMX dimension fields for sdmx_series_search structured queries. "
+                "Each item has id (field name) and sample values with code/label pairs."
+            ),
+        ),
     ]
 )
 
@@ -295,27 +340,36 @@ class DatasetsSearchParams(BaseModel):
             min_length=1,
             max_length=512,
             description=(
-                "Natural-language description of the dataset/flow you "
-                "want (e.g. 'consumer prices', 'unemployment'). "
-                "Returns the flow_id you then pass to sdmx_series_search."
+                "Structured field query (preferred), e.g. 'code: ECB|YC' or "
+                "'agency: ECB'. Plain text without field syntax searches title "
+                "only (BM25 broad fallback). Inspect returned dimensions to "
+                "compose sdmx_series_search field clauses."
             ),
         ),
     ]
     limit: int = Field(default=10, ge=1, le=50)
+    catalog_root: str | None = Field(default=None, description="Override catalog root, e.g. file:///tmp/sdmx.")
 
 
 @connector(
     output=DATASETS_SEARCH_OUTPUT,
     tags=["sdmx", "tool"],
 )
-async def sdmx_datasets_search(params: DatasetsSearchParams) -> pd.DataFrame:
-    """Discover which SDMX flow to query for a topic.
+async def sdmx_datasets_search(query: str, limit: int = 10, catalog_root: str | None = None) -> pd.DataFrame:
+    """Discover which SDMX flow to query.
+
+    **Preferred:** structured queries such as ``code: ECB|YC`` or
+    ``agency: IMF_DATA``. Plain text without field syntax searches the
+    ``title`` index only (BM25 broad fallback).
 
     Searches the cross-agency :data:`DATASETS_NAMESPACE` catalog. Returns
     one row per matching flow with the canonical ``AGENCY/DATASET_ID``
-    form ready to pass to :func:`sdmx_series_search`.
+    form ready to pass to :func:`sdmx_series_search`, plus a ``dimensions``
+    manifest listing searchable structured fields and sample values when
+    the catalog bundle carries them.
     """
-    catalog = await _get_or_load_catalog(DATASETS_NAMESPACE)
+    params = DatasetsSearchParams(query=query, limit=limit, catalog_root=catalog_root)
+    catalog = await _get_or_load_catalog(DATASETS_NAMESPACE, catalog_root=params.catalog_root)
     matches = await catalog.search(params.query, limit=params.limit)
 
     if not matches:
@@ -335,13 +389,17 @@ async def sdmx_datasets_search(params: DatasetsSearchParams) -> pd.DataFrame:
         agency = m.metadata.get("agency", "") if m.metadata else ""
         dataset_id = m.metadata.get("dataset_id", "") if m.metadata else ""
         flow_id = f"{agency}/{dataset_id}" if agency and dataset_id else m.code
+        dimensions = m.metadata.get("dimensions", []) if m.metadata else []
+        if not isinstance(dimensions, list):
+            dimensions = []
         rows.append(
             {
                 "flow_id": flow_id,
                 "title": m.title,
-                "similarity": round(m.similarity, 6),
+                "score": round(m.score, 6),
                 "agency": agency,
                 "dataset_id": dataset_id,
+                "dimensions": dimensions,
             }
         )
     return pd.DataFrame(rows)

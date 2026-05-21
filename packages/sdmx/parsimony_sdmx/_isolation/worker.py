@@ -51,9 +51,7 @@ def run_dataset(
     try:
         provider = get_provider(agency_id)
         series_iter = provider.list_series(dataset_id)
-        parquet_path = write_series(
-            series_iter, output_base, agency_id, dataset_id
-        )
+        parquet_path = write_series(series_iter, output_base, agency_id, dataset_id)
         rows = pq.ParquetFile(parquet_path).metadata.num_rows
         size_bytes = parquet_path.stat().st_size
         status = OutcomeStatus.OK if rows > 0 else OutcomeStatus.EMPTY
