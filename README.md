@@ -5,7 +5,7 @@
 [![CI](https://github.com/ockham-sh/parsimony-connectors/actions/workflows/ci.yml/badge.svg)](https://github.com/ockham-sh/parsimony-connectors/actions)
 [![Docs](https://img.shields.io/badge/docs-parsimony.dev-blue)](https://docs.parsimony.dev)
 
-Officially-maintained connectors for the [parsimony](https://github.com/ockham-sh/parsimony) framework. One calling convention across every source, separate PyPI distributions so you install only what you need.
+Officially-maintained connectors for the [parsimony](https://github.com/ockham-sh/parsimony) framework. One plain connector contract across every source, separate PyPI distributions so you install only what you need.
 
 ## Quickstart
 
@@ -18,9 +18,12 @@ import asyncio
 from parsimony import discover
 
 async def main():
-    connectors = discover.load_all().bind_env()
+    connectors = discover.load_all()
     fred = await connectors["fred_fetch"](series_id="UNRATE")
-    ecb = await connectors["sdmx_fetch"](agency="ECB", flow="ICP", key="M.U2.N.000000.4.ANR")
+    ecb = await connectors["sdmx_fetch"](
+        dataset_key="ECB-ICP",
+        series_key="M.U2.N.000000.4.ANR",
+    )
 
 asyncio.run(main())
 ```
@@ -63,7 +66,7 @@ The roster is generated from `packages/*/pyproject.toml` and the connector sourc
 
 ## Engineering guarantees
 
-**Conformance is the merge gate.** Every connector must pass `parsimony.testing.assert_plugin_valid()` to merge or release. The suite checks `CONNECTORS` exports, non-empty descriptions, and that declared `env_map` keys match real dependencies. Malformed plugins never reach PyPI.
+**Conformance is the merge gate.** Every connector must pass `parsimony.testing.assert_plugin_valid()` to merge or release. The suite checks `CONNECTORS` exports and non-empty descriptions. Malformed plugins never reach PyPI.
 
 **Secret-leak tests are baked in.** Every connector inherits `ErrorMappingSuite` from `test_support`, which injects a `CANARY_KEY` and asserts it never appears in a `ConnectorError` message, in `Result.provenance`, or in the `to_llm()` projection. One template, enforced everywhere.
 
@@ -96,22 +99,14 @@ parsimony-connectors/
     └── ...
 ```
 
-## Publishing HF catalogs
+## Building Catalogs
 
 Connectors that ship a curated HuggingFace dataset (the SDMX series
 catalog, BLS surveys, Treasury fiscal data, central-bank macro
-indicators, …) include a `scripts/publish_<name>.py` driver in their
-package. The heavy deps (`faiss`, `onnxruntime`, `sentence-transformers`)
-stay behind a `[publish]` optional extra so `pip install parsimony-<name>`
-is lean for runtime users:
-
-```toml
-publish = ["parsimony-core[standard-onnx]>=0.4.0,<0.5"]
-```
-
-Drivers stage output to the parsimony kernel cache via
-`parsimony.cache.catalogs_dir(provider)` — XDG-compliant, perm-hardened,
-1:1 mirror of `hf://ockham/<provider>`:
+indicators, ...) include a provider-owned `scripts/build_catalog.py`.
+Building is an operator workflow: the user-facing package surface remains
+`CONNECTORS`, while the script enumerates rows, builds indexes, and
+optionally calls ``await catalog.save(...)`` for local paths or ``hf://...`` uploads.
 
 | Platform | Default location |
 |---|---|
@@ -124,18 +119,17 @@ alternate disks). No per-driver knob — the kernel owns the convention.
 
 ```bash
 cd packages/sdmx
-uv run --extra publish python scripts/publish_ecb.py
+uv run python scripts/build_catalog.py --catalog series --agency ECB --dataset-id YC --save-root /tmp/sdmx
 
 # Redirect for an HF Space or a faster disk:
 PARSIMONY_CACHE_DIR=/data/parsimony \
-    uv run --extra publish python scripts/publish_ecb.py
+    uv run python scripts/build_catalog.py --catalog agency --agency ECB --save-root /data/parsimony/sdmx
 ```
 
-Then push to HF (the per-provider directory is the namespaced root —
-no path rewriting):
+Or push directly with a root URL:
 
 ```bash
-hf upload ockham/sdmx ~/.cache/parsimony/catalogs/sdmx/
+uv run python scripts/build_catalog.py --catalog agency --agency ECB --push-root hf://parsimony-dev/sdmx
 ```
 
 Inspect the cache occupancy and find paths via the kernel CLI:

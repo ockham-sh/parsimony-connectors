@@ -78,35 +78,34 @@ Don't commit this — it's developer-local.
 Scaffold `packages/foo/` by copying the smallest existing plugin (e.g.
 `packages/polymarket/`) and adapting it. Each plugin must contain:
 
-- `pyproject.toml` — pin `parsimony-core>=0.4,<0.5`, declare a
+- `pyproject.toml` — pin `parsimony-core>=0.7,<0.8`, declare a
   `[project.entry-points."parsimony.providers"]` line, and set
   `[project.urls] Homepage`. See the kernel's
   [`docs/guide-new-plugin.md`](https://github.com/ockham-sh/parsimony/blob/main/docs/guide-new-plugin.md)
   for the canonical template.
 - `parsimony_foo/__init__.py` — the connector module. Must export
-  `CONNECTORS` (and `CATALOGS` if the plugin publishes a catalog).
-  Declare env vars on each `@connector(env={...})`. See the kernel's
+  `CONNECTORS`. Catalog build workflows belong in provider-owned scripts,
+  not in the user-facing module.
+  Define plain async connector functions and keep any auth/env fallback
+  inside the connector implementation. Use `.bind(...)` in operator code
+  when a credential or other fixed value should be hidden from the public
+  call surface. Providers may optionally expose a side-effect-light
+  `load(...)` / `configure(...)` helper that returns bound connectors or
+  sets provider-local runtime defaults — this is a convention, not a kernel
+  requirement. Do not download catalogs, enumerate upstream entities, or
+  build indexes at import time. See the kernel's
   [`docs/contract.md`](https://github.com/ockham-sh/parsimony/blob/main/docs/contract.md)
   for the full spec.
 - `tests/` — a conformance test (`test_conformance.py`) plus a
   happy-path / error-mapping test file (`test_<name>_connectors.py`)
   following [`docs/testing-template.md`](docs/testing-template.md).
 - `README.md` — see any existing plugin for the standard shape.
-- `scripts/publish_<name>.py` *(only if your connector publishes a HF
-  catalog)* — driver that delegates to
-  `parsimony.publish.publish_provider` and stages output via
-  `parsimony.cache.catalogs_dir("<name>")` (XDG-compliant: defaults to
-  `~/.cache/parsimony/catalogs/<name>/<namespace>/`). Pair it with a
-  `[publish]` extra in `pyproject.toml`:
-  ```toml
-  publish = ["parsimony-core[standard-onnx]>=0.4.0,<0.5"]
-  ```
-  Heavy deps (faiss, onnxruntime, sentence-transformers) stay behind
-  the extra so `pip install parsimony-<name>` remains lean. See
-  `packages/sdmx/scripts/publish_ecb.py` or
-  `packages/bde/scripts/publish_bde.py` for the canonical shape — both
-  use `from parsimony.cache import catalogs_dir; TARGET_ROOT =
-  catalogs_dir("<name>")` and let the kernel own path resolution.
+- `scripts/build_catalog.py` *(only if maintainers build a hosted
+  catalog)* — operator driver that calls the enumerator, converts with
+  `entries_from_result`, configures one top-level index per field (use
+  `HybridIndex` to fuse BM25 + vector within a field), sets
+  `default_field`, calls `await catalog.build()`, then
+  `await catalog.save(...)` for local paths or `hf://...` uploads.
 
 Before opening a PR:
 
@@ -118,8 +117,8 @@ uv run parsimony list --strict   # conformance for every installed provider
 ```
 
 All four must pass. `parsimony list --strict` imports every plugin and
-runs the kernel-side conformance check (`@connector(env=…)` keys map to
-declared deps; `CONNECTORS` is well-formed; etc.).
+runs the kernel-side conformance check (`CONNECTORS` is well-formed,
+connector descriptions are present, etc.).
 
 ---
 

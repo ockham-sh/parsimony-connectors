@@ -40,6 +40,7 @@ from typing import Any, ClassVar
 import httpx
 import pytest
 import respx
+from pydantic import BaseModel
 from parsimony.errors import (
     ConnectorError,
     ProviderError,
@@ -82,6 +83,15 @@ class ErrorMappingSuite:
     #: per-connector test file.
     status_map: ClassVar[list[tuple[int, type[ConnectorError]]]] = STATUS_TO_EXC
 
+    async def _call(self, connector: Any) -> Any:
+        if isinstance(self.params, BaseModel):
+            if "params" in connector.exposed_signature.parameters:
+                return await connector(params=self.params)
+            return await connector(**self.params.model_dump())
+        if isinstance(self.params, dict):
+            return await connector(**self.params)
+        return await connector(self.params)
+
     # --- Tests ----------------------------------------------------------
 
     @respx.mock
@@ -106,7 +116,7 @@ class ErrorMappingSuite:
             else self.connector
         )
         with pytest.raises(exc_type) as exc_info:
-            await bound(self.params)
+            await self._call(bound)
 
         assert_no_secret_leak(exc_info.value, secret=self.env_value)
         if self.env_key is not None and self.provider is not None:
@@ -126,7 +136,7 @@ class ErrorMappingSuite:
             else self.connector
         )
         with pytest.raises(RateLimitError) as exc_info:
-            await bound(self.params)
+            await self._call(bound)
         assert exc_info.value.retry_after == 17.0
 
     @respx.mock
@@ -141,5 +151,5 @@ class ErrorMappingSuite:
             else self.connector
         )
         with pytest.raises(ProviderError) as exc_info:
-            await bound(self.params)
+            await self._call(bound)
         assert exc_info.value.status_code == 503
