@@ -33,13 +33,13 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
+from parsimony.catalog import CatalogEntry
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError, ParseError, ProviderError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Result,
 )
 from parsimony.transport import map_http_error
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -591,25 +591,16 @@ async def destatis_fetch(
     name: Annotated[str, "ns:destatis"],
     start_year: str | None = None,
     end_year: str | None = None,
-    username: str = "GAST",
-    password: str = "GAST",
-) -> Result:
+) -> pd.DataFrame:
     """Fetch a Destatis GENESIS table by table code.
 
     Hits the public ``/genesisGONLINE/api/rest/tables/{code}/data`` endpoint
     and parses the JSON-stat 2.0 response into a long-format DataFrame.
 
-    The new API does not require credentials — ``username`` and ``password``
-    are accepted for backward compatibility but ignored. ``start_year`` /
-    ``end_year`` are passed as query params on a best-effort basis; if the
-    new API does not support them the full series is fetched and the caller
-    should filter downstream.
+    ``start_year`` / ``end_year`` are passed as query params on a best-effort
+    basis; if the new API does not support them the full series is fetched and
+    the caller should filter downstream.
     """
-    # ``username``/``password`` retained for backward compat; the new
-    # GENESIS-Online API is fully anonymous and ignores them. Reference
-    # them so linters don't flag unused params.
-    del username, password
-
     params = DestatisFetchParams(table_id=name, start_year=start_year, end_year=end_year)
     table_code = params.name
     path = f"/tables/{table_code}/data"
@@ -688,38 +679,17 @@ async def destatis_fetch(
     frames = [_parse_jsonstat(d, table_code) for d in datasets]
     df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
 
-    return Result.from_dataframe(df).with_properties(
-        source_url="https://www-genesis.destatis.de/datenbank/online/"
-    )
+    return df
 
 
-@enumerator(output=DESTATIS_ENUMERATE_OUTPUT, tags=["macro", "de"])
-async def enumerate_destatis(username: str = "GAST", password: str = "GAST") -> pd.DataFrame:
-    """Enumerate every Destatis statistic + table on GENESIS-Online.
+@enumerator(tags=["macro", "de"])
+async def enumerate_destatis() -> list[CatalogEntry]:
+    """Enumerate Destatis statistics and tables from GENESIS-Online.
 
-    Pipeline:
-
-    1. ``GET /statistics`` — single call, returns ~331 statistics.
-    2. For each statistic, in parallel (concurrency=4, 0.25s inter-request
-       delay), call ``GET /statistics/{code}/information`` to pick up the
-       long German "Qualitätsbericht" description and
-       ``GET /statistics/{code}/tables`` to enumerate its tables.
-    3. Emit one ``entity_type='statistic'`` row keyed by the bare statistic
-       code (Destatis codes are unambiguous: tables always contain a
-       hyphen, statistic codes never do).
-    4. Emit one ``entity_type='table'`` row per table (~2,999 in total),
-       keyed by the table code (e.g. ``61111-0001``); the parent
-       statistic's German description is lifted into the table's
-       ``description`` so per-table semantic queries still see the
-       narrative signal.
-
-    On 429/5xx we retry 3× with exponential backoff and honor
-    ``Retry-After``. After exhausting retries the per-statistic call logs a
-    WARNING and that statistic is skipped — the catalog stays useful even
-    if a few entries fail.
+    Walks /statistics and per-statistic table listings with bounded
+    concurrency; failed statistics log WARNING and are skipped.
     """
     DestatisEnumerateParams()
-    del username, password  # retained for explicit binding compatibility
 
     semaphore = asyncio.Semaphore(_METADATA_CONCURRENCY)
     rows: list[dict[str, str]] = []
@@ -728,12 +698,12 @@ async def enumerate_destatis(username: str = "GAST", password: str = "GAST") -> 
         index = await _get_json(client, "/statistics", semaphore=semaphore)
         if index is None:
             logger.warning("Destatis enumerate: /statistics fetch failed; emitting empty catalog")
-            return pd.DataFrame(columns=list(_ENUMERATE_COLUMNS))
+            return DESTATIS_ENUMERATE_OUTPUT.build_entries(pd.DataFrame(columns=list(_ENUMERATE_COLUMNS)))
 
         statistics = _extract_statistics_list(index)
         if not statistics:
             logger.warning("Destatis enumerate: /statistics returned 0 entries")
-            return pd.DataFrame(columns=list(_ENUMERATE_COLUMNS))
+            return DESTATIS_ENUMERATE_OUTPUT.build_entries(pd.DataFrame(columns=list(_ENUMERATE_COLUMNS)))
 
         # Per-statistic fan-out: we need both the rich DE description from
         # ``/information`` and the table list from ``/tables``. Run them
@@ -780,7 +750,8 @@ async def enumerate_destatis(username: str = "GAST", password: str = "GAST") -> 
         logger.info("Destatis enumerate: %d statistics fetched successfully", len(statistics))
 
     columns = list(_ENUMERATE_COLUMNS)
-    return pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    df = pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    return DESTATIS_ENUMERATE_OUTPUT.build_entries(df)
 
 
 def _extract_statistics_list(index_payload: dict[str, Any] | list[Any]) -> list[dict[str, Any]]:

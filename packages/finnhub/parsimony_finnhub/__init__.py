@@ -29,9 +29,10 @@ Internal layout (not part of the public contract):
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import pandas as pd
+from parsimony.catalog import CatalogEntry
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import Result
@@ -77,7 +78,7 @@ _BASE_URL = "https://finnhub.io/api/v1"
 
 
 @connector(output=_SEARCH_OUTPUT, tags=["equities", "tool"])
-async def finnhub_search(params: FinnhubSearchParams, *, api_key: str) -> Result:
+async def finnhub_search(query: str, *, api_key: str) -> Result:
     """Search Finnhub for stocks, ETFs, and indices by name or ticker symbol.
     Returns symbol (the stable API identifier), description (company name),
     displaySymbol, and type. Use symbol with finnhub_quote, finnhub_profile,
@@ -85,6 +86,7 @@ async def finnhub_search(params: FinnhubSearchParams, *, api_key: str) -> Result
 
     Example: query='apple' → symbol='AAPL'; query='tesla' → symbol='TSLA'.
     """
+    params = FinnhubSearchParams(query=query)  # type: ignore[call-arg]
     http = _make_http(api_key)
     data = await _fh_fetch(http, path="/search", params={"q": params.query}, op_name="finnhub_search")
 
@@ -117,12 +119,13 @@ async def finnhub_search(params: FinnhubSearchParams, *, api_key: str) -> Result
 
 
 @connector(output=_QUOTE_OUTPUT, tags=["equities"])
-async def finnhub_quote(params: FinnhubQuoteParams, *, api_key: str) -> Result:
+async def finnhub_quote(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_key: str) -> Result:
     """Fetch real-time quote for a stock: current price, day high/low/open,
     previous close, and absolute/percent change vs prior close. Timestamp
     is day-granularity (last close time, not a tick timestamp). Use
     finnhub_search to resolve ticker symbols first.
     """
+    params = FinnhubQuoteParams(symbol=symbol)  # type: ignore[call-arg]
     http = _make_http(api_key)
     data = await _fh_fetch(http, path="/quote", params={"symbol": params.symbol}, op_name="finnhub_quote")
 
@@ -155,12 +158,13 @@ async def finnhub_quote(params: FinnhubQuoteParams, *, api_key: str) -> Result:
 
 
 @connector(tags=["equities"])
-async def finnhub_profile(params: FinnhubProfileParams, *, api_key: str) -> Result:
+async def finnhub_profile(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_key: str) -> Result:
     """Fetch company profile for a stock: name, exchange, country, currency,
     IPO date, industry, market cap (in millions USD), shares outstanding (millions),
     website, phone, and logo URL. Use finnhub_search to resolve ticker symbols.
     For time-series fundamentals use finnhub_basic_financials.
     """
+    params = FinnhubProfileParams(symbol=symbol)  # type: ignore[call-arg]
     http = _make_http(api_key)
     data = await _fh_fetch(http, path="/stock/profile2", params={"symbol": params.symbol}, op_name="finnhub_profile")
 
@@ -174,11 +178,12 @@ async def finnhub_profile(params: FinnhubProfileParams, *, api_key: str) -> Resu
 
 
 @connector(output=_PEERS_OUTPUT, tags=["equities"])
-async def finnhub_peers(params: FinnhubPeersParams, *, api_key: str) -> Result:
+async def finnhub_peers(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_key: str) -> Result:
     """Fetch peer/comparable companies for a stock. Returns a list of ticker
     symbols in the same industry and market cap range. Use finnhub_quote or
     finnhub_profile on returned symbols for further analysis.
     """
+    params = FinnhubPeersParams(symbol=symbol)  # type: ignore[call-arg]
     http = _make_http(api_key)
     data = await _fh_fetch(http, path="/stock/peers", params={"symbol": params.symbol}, op_name="finnhub_peers")
 
@@ -195,11 +200,12 @@ async def finnhub_peers(params: FinnhubPeersParams, *, api_key: str) -> Result:
 
 
 @connector(output=_RECOMMENDATION_OUTPUT, tags=["equities"])
-async def finnhub_recommendation(params: FinnhubRecommendationParams, *, api_key: str) -> Result:
+async def finnhub_recommendation(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_key: str) -> Result:
     """Fetch analyst buy/hold/sell recommendation trends for a stock.
     Returns monthly aggregated counts: strongBuy, buy, hold, sell, strongSell.
     Free tier returns approximately the last 4 months of data.
     """
+    params = FinnhubRecommendationParams(symbol=symbol)  # type: ignore[call-arg]
     http = _make_http(api_key)
     data = await _fh_fetch(
         http,
@@ -236,11 +242,12 @@ async def finnhub_recommendation(params: FinnhubRecommendationParams, *, api_key
 
 
 @connector(output=_EARNINGS_OUTPUT, tags=["equities"])
-async def finnhub_earnings(params: FinnhubEarningsParams, *, api_key: str) -> Result:
+async def finnhub_earnings(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_key: str) -> Result:
     """Fetch historical earnings per share (EPS) for a stock: actual EPS,
     consensus estimate, surprise, and surprise percent for the last ~4 quarters.
     For forward-looking earnings dates use finnhub_earnings_calendar.
     """
+    params = FinnhubEarningsParams(symbol=symbol)  # type: ignore[call-arg]
     http = _make_http(api_key)
     data = await _fh_fetch(http, path="/stock/earnings", params={"symbol": params.symbol}, op_name="finnhub_earnings")
 
@@ -273,7 +280,7 @@ async def finnhub_earnings(params: FinnhubEarningsParams, *, api_key: str) -> Re
 
 
 @connector(tags=["equities"])
-async def finnhub_basic_financials(params: FinnhubBasicFinancialsParams, *, api_key: str) -> Result:
+async def finnhub_basic_financials(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_key: str) -> Result:
     """Fetch ~120 fundamental metrics for a stock: PE, EPS, beta, 52-week
     high/low, gross margin, ROE, dividend yield, market cap, and more.
     Also includes annual and quarterly time-series (going back to ~2007 for
@@ -281,6 +288,7 @@ async def finnhub_basic_financials(params: FinnhubBasicFinancialsParams, *, api_
     Each time-series entry has period (ISO date) and v (float value).
     Response is a large dict with 'metric' (flat KPIs) and 'series' (time series).
     """
+    params = FinnhubBasicFinancialsParams(symbol=symbol)  # type: ignore[call-arg]
     http = _make_http(api_key)
     data = await _fh_fetch(
         http,
@@ -304,13 +312,20 @@ async def finnhub_basic_financials(params: FinnhubBasicFinancialsParams, *, api_
 
 
 @connector(output=_NEWS_OUTPUT, tags=["equities", "news"])
-async def finnhub_company_news(params: FinnhubCompanyNewsParams, *, api_key: str) -> Result:
+async def finnhub_company_news(
+    symbol: Annotated[str, 'ns:finnhub_symbol'],
+    from_date: str,
+    to_date: str,
+    *,
+    api_key: str
+) -> Result:
     """Fetch news articles for a specific company between two dates.
     Returns headline, source, publish datetime (unix timestamp), summary,
     URL, and related ticker. Free tier access is limited to recent months —
     historical dates silently return empty results (no error raised).
     Note: URL may be a Finnhub proxy redirect rather than a direct publisher link.
     """
+    params = FinnhubCompanyNewsParams(symbol=symbol, from_date=from_date, to_date=to_date)  # type: ignore[call-arg]
     http = _make_http(api_key)
     data = await _fh_fetch(
         http,
@@ -346,12 +361,17 @@ async def finnhub_company_news(params: FinnhubCompanyNewsParams, *, api_key: str
 
 
 @connector(output=_NEWS_OUTPUT, tags=["news"])
-async def finnhub_market_news(params: FinnhubMarketNewsParams, *, api_key: str) -> Result:
+async def finnhub_market_news(
+    category: Literal['general', 'forex', 'crypto', 'merger'] = 'general',
+    *,
+    api_key: str
+) -> Result:
     """Fetch latest market-wide news by category. Categories: 'general' (top
     business/market headlines), 'forex', 'crypto', 'merger'. Returns up to
     ~100 articles. The 'related' field is empty for market news (unlike company
     news). For company-specific articles use finnhub_company_news.
     """
+    params = FinnhubMarketNewsParams(category=category)  # type: ignore[call-arg]
     http = _make_http(api_key)
     data = await _fh_fetch(http, path="/news", params={"category": params.category}, op_name="finnhub_market_news")
 
@@ -387,13 +407,14 @@ async def finnhub_market_news(params: FinnhubMarketNewsParams, *, api_key: str) 
 
 
 @connector(output=_EARNINGS_CAL_OUTPUT, tags=["equities", "calendars"])
-async def finnhub_earnings_calendar(params: FinnhubEarningsCalendarParams, *, api_key: str) -> Result:
+async def finnhub_earnings_calendar(from_date: str, to_date: str, symbol: str | None = None, *, api_key: str) -> Result:
     """Fetch upcoming or recent earnings release dates for all (or one) stock.
     Returns per-report: date, fiscal year/quarter, release timing (bmo=before
     market open, amc=after market close), EPS estimate/actual, and revenue
     estimate/actual. Actuals are null for future events. Free tier is limited
     to near-future and recent-past dates — deep historical dates return empty.
     """
+    params = FinnhubEarningsCalendarParams(from_date=from_date, to_date=to_date, symbol=symbol)  # type: ignore[call-arg]
     http = _make_http(api_key)
     req: dict[str, Any] = {"from": params.from_date, "to": params.to_date}
     if params.symbol:
@@ -433,13 +454,14 @@ async def finnhub_earnings_calendar(params: FinnhubEarningsCalendarParams, *, ap
 
 
 @connector(output=_IPO_CAL_OUTPUT, tags=["equities", "calendars"])
-async def finnhub_ipo_calendar(params: FinnhubIpoCalendarParams, *, api_key: str) -> Result:
+async def finnhub_ipo_calendar(from_date: str, to_date: str, *, api_key: str) -> Result:
     """Fetch IPO calendar for a date range: company name, ticker, exchange,
     status (expected/priced/filed/withdrawn), IPO price, number of shares, and
     gross proceeds. Price is parsed from a string field — may be null when not
     yet priced. Symbol may be empty for pre-priced IPOs. Recent 3-month window
     has the most complete data on the free tier.
     """
+    params = FinnhubIpoCalendarParams(from_date=from_date, to_date=to_date)  # type: ignore[call-arg]
     http = _make_http(api_key)
     data = await _fh_fetch(
         http,
@@ -492,7 +514,7 @@ async def finnhub_ipo_calendar(params: FinnhubIpoCalendarParams, *, api_key: str
 
 
 @enumerator(output=_ENUMERATE_OUTPUT, tags=["equities"])
-async def enumerate_finnhub(params: FinnhubEnumerateParams, *, api_key: str) -> pd.DataFrame:
+async def enumerate_finnhub(exchange: str = 'US', *, api_key: str) -> list[CatalogEntry]:
     """Enumerate all symbols from Finnhub for catalog indexing.
 
     Calls /stock/symbol — returns ~30 000 rows for exchange='US' with symbol,
@@ -500,6 +522,7 @@ async def enumerate_finnhub(params: FinnhubEnumerateParams, *, api_key: str) -> 
     from a CDN static file snapshot so it has no rate-limit headers; refresh
     at most once per day.
     """
+    params = FinnhubEnumerateParams(exchange=exchange)  # type: ignore[call-arg]
     http = HttpClient(
         _BASE_URL,
         headers={"X-Finnhub-Token": api_key},
@@ -511,9 +534,10 @@ async def enumerate_finnhub(params: FinnhubEnumerateParams, *, api_key: str) -> 
     data: list[dict] = resp.json()
 
     if not data:
-        return pd.DataFrame(
+        df = pd.DataFrame(
             columns=["symbol", "description", "display_symbol", "type", "currency", "mic", "exchange", "isin"]
         )
+        return _ENUMERATE_OUTPUT.build_entries(df)
 
     rows = [
         {
@@ -529,7 +553,8 @@ async def enumerate_finnhub(params: FinnhubEnumerateParams, *, api_key: str) -> 
         for s in data
         if s.get("symbol")
     ]
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    return _ENUMERATE_OUTPUT.build_entries(df)
 
 
 CONNECTORS = Connectors(

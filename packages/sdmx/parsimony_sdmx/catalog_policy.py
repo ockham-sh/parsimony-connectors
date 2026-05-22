@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from parsimony.catalog import BM25Index, CatalogEntry, CatalogIndex, HybridIndex, VectorIndex
+from parsimony.catalog import BM25Index, CatalogEntry, CatalogIndex, HybridIndex, VectorIndex, field_text
 from parsimony.ranking import ZScoreFusion
 
 LABEL_SUFFIX = "_label"
@@ -16,33 +16,12 @@ HYBRID_BM25_WEIGHT = 0.5
 HYBRID_VECTOR_WEIGHT = 1.0
 
 
-def _catalog_field_text(entry: CatalogEntry, field: str) -> str:
-    """Mirror :func:`parsimony.catalog._field_text` for build-time cardinality checks."""
-
-    if field == "namespace":
-        return entry.namespace
-    if field == "code":
-        return entry.code
-    if field == "title":
-        return entry.title
-    value = entry.metadata.get(field)
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value
-    if isinstance(value, (list, tuple, set)):
-        return " ".join(str(item) for item in value if item is not None)
-    if isinstance(value, dict):
-        return " ".join(f"{key}: {item}" for key, item in value.items() if item is not None)
-    return str(value)
-
-
 def unique_nonempty_field_text_count(entries: Sequence[CatalogEntry], field: str) -> int:
     """Count distinct non-empty texts for *field* (matches vector-index deduplication input)."""
 
     texts: set[str] = set()
     for entry in entries:
-        text = _catalog_field_text(entry, field).strip()
+        text = field_text(entry, field).strip()
         if text:
             texts.add(text)
     return len(texts)

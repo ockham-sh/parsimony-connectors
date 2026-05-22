@@ -18,7 +18,6 @@ import pytest
 
 from parsimony_financial_reports import (
     CONNECTORS,
-    FrCompaniesSearchParams,
     fr_companies_search,
 )
 
@@ -66,7 +65,7 @@ async def test_fr_companies_search_returns_rows() -> None:
 
     with patch("parsimony_financial_reports._with_retry", side_effect=_fake_with_retry):
         bound = fr_companies_search.bind(api_key=_KEY)
-        result = await bound(FrCompaniesSearchParams(countries="US"))
+        result = await bound(countries="US")
 
     assert result.provenance.source == "fr_companies_search"
     df = result.data

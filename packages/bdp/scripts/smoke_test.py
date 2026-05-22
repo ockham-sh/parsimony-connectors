@@ -35,7 +35,7 @@ async def _main() -> int:
     print(f"Loaded catalog from {CATALOG_URL}", flush=True)
 
     for q in QUERIES:
-        hits = await cat.search(q, limit=5)
+        hits, _ = await cat.search(q, limit=5)
         print(f"\n=== {q} ===", flush=True)
         if not hits:
             print("  <no hits>", flush=True)

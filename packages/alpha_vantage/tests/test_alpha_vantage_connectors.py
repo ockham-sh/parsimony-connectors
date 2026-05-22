@@ -20,10 +20,6 @@ from parsimony.errors import RateLimitError, UnauthorizedError
 
 from parsimony_alpha_vantage import (
     CONNECTORS,
-    AlphaVantageDailyParams,
-    AlphaVantageFxRateParams,
-    AlphaVantageSearchParams,
-    AlphaVantageTechnicalParams,
     alpha_vantage_daily,
     alpha_vantage_fx_rate,
     alpha_vantage_search,
@@ -79,7 +75,7 @@ async def test_search_returns_best_matches() -> None:
     )
 
     bound = alpha_vantage_search.bind(api_key=_KEY)
-    result = await bound(AlphaVantageSearchParams(keywords="apple"))
+    result = await bound(keywords="apple")
 
     # Alpha Vantage uses per-endpoint provenance sources; confirm the prefix.
     assert result.provenance.source.startswith("alpha_vantage")
@@ -95,7 +91,7 @@ async def test_search_maps_401_without_leaking_key() -> None:
 
     bound = alpha_vantage_search.bind(api_key=_KEY)
     with pytest.raises(UnauthorizedError) as exc_info:
-        await bound(AlphaVantageSearchParams(keywords="x"))
+        await bound(keywords="x")
     assert _KEY not in str(exc_info.value)
 
 
@@ -108,7 +104,7 @@ async def test_search_maps_429_without_leaking_key() -> None:
 
     bound = alpha_vantage_search.bind(api_key=_KEY)
     with pytest.raises(RateLimitError) as exc_info:
-        await bound(AlphaVantageSearchParams(keywords="x"))
+        await bound(keywords="x")
     assert _KEY not in str(exc_info.value)
 
 
@@ -124,7 +120,7 @@ async def test_search_maps_in_body_rate_limit_note() -> None:
 
     bound = alpha_vantage_search.bind(api_key=_KEY)
     with pytest.raises(RateLimitError):
-        await bound(AlphaVantageSearchParams(keywords="x"))
+        await bound(keywords="x")
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +150,7 @@ async def test_daily_returns_ohlcv_rows() -> None:
     )
 
     bound = alpha_vantage_daily.bind(api_key=_KEY)
-    result = await bound(AlphaVantageDailyParams(symbol="AAPL"))
+    result = await bound(symbol="AAPL")
 
     df = result.data
     assert len(df) >= 1
@@ -189,7 +185,7 @@ async def test_fx_rate_returns_single_row() -> None:
     )
 
     bound = alpha_vantage_fx_rate.bind(api_key=_KEY)
-    result = await bound(AlphaVantageFxRateParams(from_currency="USD", to_currency="EUR"))
+    result = await bound(from_currency="USD", to_currency="EUR")
 
     df = result.data
     assert len(df) == 1
@@ -217,9 +213,11 @@ async def test_technical_intraday_preserves_time_component() -> None:
 
     bound = alpha_vantage_technical.bind(api_key=_KEY)
     result = await bound(
-        AlphaVantageTechnicalParams(
-            symbol="AAPL", function="SMA", interval="1min", time_period=20, series_type="close"
-        )
+        symbol="AAPL",
+        function="SMA",
+        interval="1min",
+        time_period=20,
+        series_type="close",
     )
 
     times = result.data["date"].dt.time.astype(str).tolist()

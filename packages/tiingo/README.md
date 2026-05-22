@@ -53,11 +53,11 @@ Get a key at <https://www.tiingo.com/account/api/token>.
 
 ```python
 import asyncio
-from parsimony_tiingo import CONNECTORS, TiingoEodParams
+from parsimony_tiingo import CONNECTORS
 
 async def main():
     connectors = CONNECTORS
-    result = await connectors["tiingo_eod"](TiingoEodParams(ticker="AAPL"))
+    result = await connectors["tiingo_eod"](ticker="AAPL")
     print(result.data.head())
 
 asyncio.run(main())

@@ -27,7 +27,7 @@ Internal layout (not part of the public contract):
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from parsimony.connector import Connectors, connector
 from parsimony.result import Result
@@ -67,6 +67,7 @@ from parsimony_eodhd.params import (
     EodhdSearchParams,
     EodhdSplitsParams,
     EodhdTechnicalParams,
+    _EodhdTechnicalFunction,
 )
 
 _LATENCY_TIMEOUT: float = 10.0
@@ -79,10 +80,18 @@ _BULK_TIMEOUT: float = 60.0
 
 
 @connector(output=_EOD_OUTPUT, tags=["eodhd", "equity"])
-async def eodhd_eod(params: EodhdEodParams, *, api_key: str) -> Result:
+async def eodhd_eod(
+    ticker: Annotated[str, 'ns:eodhd_symbols'],
+    from_date: str | None = None,
+    to_date: str | None = None,
+    period: Literal['d', 'w', 'm'] | None = None,
+    *,
+    api_key: str
+) -> Result:
     """[Free+] Fetch end-of-day OHLCV prices for a ticker. Supports daily, weekly, and monthly
     aggregation. Use from/to to limit the date range (ISO 8601). Empty result may indicate an
     invalid ticker or exchange code — verify with eodhd_search first."""
+    params = EodhdEodParams(ticker=ticker, from_date=from_date, to_date=to_date, period=period)  # type: ignore[call-arg]
     http = _make_http(api_key)
     p: dict[str, Any] = {"ticker": params.ticker}
     if params.from_date:
@@ -95,9 +104,10 @@ async def eodhd_eod(params: EodhdEodParams, *, api_key: str) -> Result:
 
 
 @connector(output=_LIVE_OUTPUT, tags=["eodhd", "equity", "tool"])
-async def eodhd_live(params: EodhdLiveParams, *, api_key: str) -> Result:
+async def eodhd_live(ticker: Annotated[str, 'ns:eodhd_symbols'], *, api_key: str) -> Result:
     """[Free+] Fetch live (real-time or 15-min delayed) quote for a ticker. Use eodhd_search
     to resolve a company name to its EODHD ticker format (e.g. AAPL.US)."""
+    params = EodhdLiveParams(ticker=ticker)  # type: ignore[call-arg]
     http = _make_http(api_key, timeout=_LATENCY_TIMEOUT)
     return await _eodhd_fetch(
         http,
@@ -109,10 +119,18 @@ async def eodhd_live(params: EodhdLiveParams, *, api_key: str) -> Result:
 
 
 @connector(output=_INTRADAY_OUTPUT, tags=["eodhd", "equity"])
-async def eodhd_intraday(params: EodhdIntradayParams, *, api_key: str) -> Result:
+async def eodhd_intraday(
+    ticker: Annotated[str, 'ns:eodhd_symbols'],
+    interval: Literal['1m', '5m', '1h'],
+    from_unix: int | None = None,
+    to_unix: int | None = None,
+    *,
+    api_key: str
+) -> Result:
     """[EOD+Intraday+] Fetch intraday OHLCV data for a ticker. Intervals: 1m, 5m, 1h.
     Provide from_unix / to_unix as Unix timestamps (seconds) to bound the range.
     Returns at most the last 100 data points when no range is specified."""
+    params = EodhdIntradayParams(ticker=ticker, interval=interval, from_unix=from_unix, to_unix=to_unix)  # type: ignore[call-arg]
     http = _make_http(api_key, timeout=_LATENCY_TIMEOUT)
     p: dict[str, Any] = {"ticker": params.ticker, "interval": params.interval}
     if params.from_unix is not None:
@@ -125,10 +143,11 @@ async def eodhd_intraday(params: EodhdIntradayParams, *, api_key: str) -> Result
 
 
 @connector(output=_BULK_EOD_OUTPUT, tags=["eodhd", "equity"])
-async def eodhd_bulk_eod(params: EodhdBulkEodParams, *, api_key: str) -> Result:
+async def eodhd_bulk_eod(exchange: str, date: str | None = None, *, api_key: str) -> Result:
     """[EOD Historical+] Fetch end-of-day prices for all symbols on an exchange in a single request.
     Returns the last trading day by default; pass date to fetch a specific day.
     Large response — use for batch ingestion, not per-ticker lookups."""
+    params = EodhdBulkEodParams(exchange=exchange, date=date)  # type: ignore[call-arg]
     http = _make_http(api_key, timeout=_BULK_TIMEOUT)
     p: dict[str, Any] = {"exchange": params.exchange}
     if params.date:
@@ -144,8 +163,15 @@ async def eodhd_bulk_eod(params: EodhdBulkEodParams, *, api_key: str) -> Result:
 
 
 @connector(output=_DIVIDENDS_OUTPUT, tags=["eodhd", "equity"])
-async def eodhd_dividends(params: EodhdDividendsParams, *, api_key: str) -> Result:
+async def eodhd_dividends(
+    ticker: Annotated[str, 'ns:eodhd_symbols'],
+    from_date: str | None = None,
+    to_date: str | None = None,
+    *,
+    api_key: str
+) -> Result:
     """[Free+] Fetch dividend history for a ticker. Use from/to to limit the range."""
+    params = EodhdDividendsParams(ticker=ticker, from_date=from_date, to_date=to_date)  # type: ignore[call-arg]
     http = _make_http(api_key)
     p: dict[str, Any] = {"ticker": params.ticker}
     if params.from_date:
@@ -158,9 +184,16 @@ async def eodhd_dividends(params: EodhdDividendsParams, *, api_key: str) -> Resu
 
 
 @connector(output=_SPLITS_OUTPUT, tags=["eodhd", "equity"])
-async def eodhd_splits(params: EodhdSplitsParams, *, api_key: str) -> Result:
+async def eodhd_splits(
+    ticker: Annotated[str, 'ns:eodhd_symbols'],
+    from_date: str | None = None,
+    to_date: str | None = None,
+    *,
+    api_key: str
+) -> Result:
     """[Free+] Fetch stock split history for a ticker. The split ratio column contains the
     ratio string as returned by the API (e.g. "4/1" for a 4-for-1 split). Use from/to to limit the range."""
+    params = EodhdSplitsParams(ticker=ticker, from_date=from_date, to_date=to_date)  # type: ignore[call-arg]
     http = _make_http(api_key)
     p: dict[str, Any] = {"ticker": params.ticker}
     if params.from_date:
@@ -178,10 +211,17 @@ async def eodhd_splits(params: EodhdSplitsParams, *, api_key: str) -> Result:
 
 
 @connector(output=_SEARCH_OUTPUT, tags=["eodhd", "tool"])
-async def eodhd_search(params: EodhdSearchParams, *, api_key: str) -> Result:
+async def eodhd_search(
+    query: str,
+    limit: int = 50,
+    type: Literal['Q', 'ETF', 'FUND', 'BOND', 'INDEX'] | None = None,
+    *,
+    api_key: str
+) -> Result:
     """[Free+] Search for instruments by company name or partial ticker. Use to resolve company
     names to EODHD ticker codes (format: TICKER.EXCHANGE, e.g. AAPL.US). Filter by type to
     narrow results."""
+    params = EodhdSearchParams(query=query, limit=limit, type=type)  # type: ignore[call-arg]
     http = _make_http(api_key)
     p: dict[str, Any] = {"query": params.query, "limit": params.limit}
     if params.type:
@@ -192,7 +232,7 @@ async def eodhd_search(params: EodhdSearchParams, *, api_key: str) -> Result:
 
 
 @connector(output=_EXCHANGES_OUTPUT, tags=["eodhd", "tool"])
-async def eodhd_exchanges(params: EodhdExchangesParams, *, api_key: str) -> Result:
+async def eodhd_exchanges(*, api_key: str) -> Result:
     """[Free+] List all exchanges supported by EODHD. Use to find valid exchange codes for
     eodhd_bulk_eod and eodhd_exchange_symbols."""
     http = _make_http(api_key)
@@ -202,10 +242,16 @@ async def eodhd_exchanges(params: EodhdExchangesParams, *, api_key: str) -> Resu
 
 
 @connector(output=_EXCHANGE_SYMBOLS_OUTPUT, tags=["eodhd"])
-async def eodhd_exchange_symbols(params: EodhdExchangeSymbolsParams, *, api_key: str) -> Result:
+async def eodhd_exchange_symbols(
+    exchange: str,
+    type: Literal['common_stock', 'preferred_stock', 'stock', 'etf', 'fund'] | None = None,
+    *,
+    api_key: str
+) -> Result:
     """[Free+] List all symbols traded on an exchange. Large response for major exchanges
     (US has 20 000+ symbols) — use type filter to limit. Empty result may indicate an
     invalid exchange code."""
+    params = EodhdExchangeSymbolsParams(exchange=exchange, type=type)  # type: ignore[call-arg]
     http = _make_http(api_key, timeout=_BULK_TIMEOUT)
     p: dict[str, Any] = {"exchange": params.exchange}
     if params.type:
@@ -225,7 +271,7 @@ async def eodhd_exchange_symbols(params: EodhdExchangeSymbolsParams, *, api_key:
 
 
 @connector(tags=["eodhd", "equity"])
-async def eodhd_fundamentals(params: EodhdFundamentalsParams, *, api_key: str) -> Result:
+async def eodhd_fundamentals(ticker: Annotated[str, 'ns:eodhd_symbols'], *, api_key: str) -> Result:
     """[Fundamentals+] Fetch full fundamentals for a stock or ETF. Returns a large nested dict
     (not a DataFrame). Typical top-level keys for equities: General, Highlights, Valuation,
     SharesStats, Technicals, SplitsDividends, AnalystRatings, Holders, InsiderTransactions,
@@ -236,6 +282,7 @@ async def eodhd_fundamentals(params: EodhdFundamentalsParams, *, api_key: str) -
       result.data['Financials']['Income_Statement']['annual']
 
     Returns raw dict — use result.data to access the nested structure."""
+    params = EodhdFundamentalsParams(ticker=ticker)  # type: ignore[call-arg]
     http = _make_http(api_key, timeout=_BULK_TIMEOUT)
     return await _eodhd_fetch(
         http,
@@ -258,13 +305,21 @@ _CALENDAR_PATHS: dict[str, str] = {
 
 
 @connector(output=_CALENDAR_OUTPUT, tags=["eodhd", "equity"])
-async def eodhd_calendar(params: EodhdCalendarParams, *, api_key: str) -> Result:
+async def eodhd_calendar(
+    type: Literal['earnings', 'ipo', 'trends'],
+    from_date: str | None = None,
+    to_date: str | None = None,
+    symbols: str | None = None,
+    *,
+    api_key: str
+) -> Result:
     """[Fundamentals+] Fetch market calendar data. Three types available:
       - earnings: upcoming earnings announcements with EPS estimates and actuals
       - ipo: upcoming and recent IPO listings
       - trends: analyst recommendation trends by sector
 
     Use from/to to narrow the date window (max 90 days recommended for earnings)."""
+    params = EodhdCalendarParams(type=type, from_date=from_date, to_date=to_date, symbols=symbols)  # type: ignore[call-arg]
     http = _make_http(api_key)
     path = _CALENDAR_PATHS[params.type]
     p: dict[str, Any] = {}
@@ -283,10 +338,19 @@ async def eodhd_calendar(params: EodhdCalendarParams, *, api_key: str) -> Result
 
 
 @connector(output=_NEWS_OUTPUT, tags=["eodhd", "tool"])
-async def eodhd_news(params: EodhdNewsParams, *, api_key: str) -> Result:
+async def eodhd_news(
+    ticker: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    *,
+    api_key: str
+) -> Result:
     """[Free+] Fetch financial news articles. Filter by ticker (e.g. AAPL.US) or leave
     empty for broad market news. Use from/to for date filtering and limit/offset for pagination.
     Empty result may indicate no news in the date range for the specified ticker."""
+    params = EodhdNewsParams(ticker=ticker, from_date=from_date, to_date=to_date, limit=limit, offset=offset)  # type: ignore[call-arg]
     http = _make_http(api_key)
     p: dict[str, Any] = {"limit": params.limit, "offset": params.offset}
     if params.ticker:
@@ -304,11 +368,12 @@ async def eodhd_news(params: EodhdNewsParams, *, api_key: str) -> Result:
 
 
 @connector(output=_MACRO_OUTPUT, tags=["eodhd", "macro"])
-async def eodhd_macro(params: EodhdMacroParams, *, api_key: str) -> Result:
+async def eodhd_macro(country: str, indicator: str, *, api_key: str) -> Result:
     """[Fundamentals+] Fetch a macro indicator time series for a country.
     Country must be an ISO 3-letter code (e.g. USA, DEU). Common indicators:
       gdp_current_usd, unemployment_total_percent, inflation_consumer_prices_annual,
       real_interest_rate, population_total, exports_of_goods_and_services_usd."""
+    params = EodhdMacroParams(country=country, indicator=indicator)  # type: ignore[call-arg]
     http = _make_http(api_key)
     return await _eodhd_fetch(
         http,
@@ -320,10 +385,11 @@ async def eodhd_macro(params: EodhdMacroParams, *, api_key: str) -> Result:
 
 
 @connector(output=_MACRO_OUTPUT, tags=["eodhd", "macro"])
-async def eodhd_macro_bulk(params: EodhdMacroBulkParams, *, api_key: str) -> Result:
+async def eodhd_macro_bulk(country: str, topic: str | None = None, *, api_key: str) -> Result:
     """[Fundamentals+] Fetch all available macro indicators for a country in a single request.
     Large response — use eodhd_macro for a specific indicator.
     Country must be an ISO 3-letter code (e.g. USA)."""
+    params = EodhdMacroBulkParams(country=country, topic=topic)  # type: ignore[call-arg]
     http = _make_http(api_key, timeout=_BULK_TIMEOUT)
     p: dict[str, Any] = {"country": params.country}
     if params.topic:
@@ -339,7 +405,16 @@ async def eodhd_macro_bulk(params: EodhdMacroBulkParams, *, api_key: str) -> Res
 
 
 @connector(output=_TECHNICAL_OUTPUT, tags=["eodhd", "equity"])
-async def eodhd_technical(params: EodhdTechnicalParams, *, api_key: str) -> Result:
+async def eodhd_technical(
+    ticker: Annotated[str, 'ns:eodhd_symbols'],
+    function: _EodhdTechnicalFunction,
+    period: int = 50,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    order: Literal['a', 'd'] = 'd',
+    *,
+    api_key: str
+) -> Result:
     """[EOD+Intraday+] Fetch technical indicator values for a ticker alongside OHLCV data.
     Indicator-specific output columns vary by function:
       - sma/ema/wma → sma/ema/wma column
@@ -349,6 +424,14 @@ async def eodhd_technical(params: EodhdTechnicalParams, *, api_key: str) -> Resu
       - adx/dmi → adx, plusDI, minusDI
 
     Use period to control the lookback window (default 50)."""
+    params = EodhdTechnicalParams(
+        ticker=ticker,
+        function=function,
+        period=period,
+        from_date=from_date,
+        to_date=to_date,
+        order=order)  # type: ignore[call-arg]
+
     http = _make_http(api_key)
     p: dict[str, Any] = {
         "ticker": params.ticker,
@@ -371,9 +454,16 @@ async def eodhd_technical(params: EodhdTechnicalParams, *, api_key: str) -> Resu
 
 
 @connector(output=_INSIDER_OUTPUT, tags=["eodhd", "equity"])
-async def eodhd_insider(params: EodhdInsiderParams, *, api_key: str) -> Result:
+async def eodhd_insider(
+    ticker: Annotated[str, 'ns:eodhd_symbols'] | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    *,
+    api_key: str
+) -> Result:
     """[Fundamentals+] Fetch insider (executive and director) transactions. Filter by ticker
     or omit for recent cross-market transactions. Use limit/offset to page."""
+    params = EodhdInsiderParams(ticker=ticker, limit=limit, offset=offset)  # type: ignore[call-arg]
     http = _make_http(api_key)
     p: dict[str, Any] = {"limit": params.limit, "offset": params.offset}
     if params.ticker:
@@ -384,11 +474,21 @@ async def eodhd_insider(params: EodhdInsiderParams, *, api_key: str) -> Result:
 
 
 @connector(output=_SCREENER_OUTPUT, tags=["eodhd", "equity", "tool"])
-async def eodhd_screener(params: EodhdScreenerParams, *, api_key: str) -> Result:
+async def eodhd_screener(
+    filters: list[tuple[str, str, str]] | None = None,
+    signals: str | None = None,
+    sort: str | None = None,
+    order: Literal['asc', 'desc'] = 'desc',
+    limit: int = 50,
+    offset: int = 0,
+    *,
+    api_key: str
+) -> Result:
     """[EOD+Intraday+] Screen stocks by fundamental, price, and exchange criteria.
     Filters are structured triples [field, operator, value] — see EodhdScreenerParams.filters.
     Empty result may indicate invalid filter field or operator — verify against the EODHD
     screener field list in their documentation."""
+    params = EodhdScreenerParams(filters=filters, signals=signals, sort=sort, order=order, limit=limit, offset=offset)  # type: ignore[call-arg]
     http = _make_http(api_key)
     p: dict[str, Any] = {"limit": params.limit, "offset": params.offset, "order": params.order}
     if params.filters:

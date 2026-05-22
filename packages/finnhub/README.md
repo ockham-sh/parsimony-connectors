@@ -41,11 +41,11 @@ Get a key at <https://finnhub.io>. Free tier: 60 calls/min.
 
 ```python
 import asyncio
-from parsimony_finnhub import CONNECTORS, FinnhubQuoteParams
+from parsimony_finnhub import CONNECTORS
 
 async def main():
     connectors = CONNECTORS
-    result = await connectors["finnhub_quote"](FinnhubQuoteParams(symbol="AAPL"))
+    result = await connectors["finnhub_quote"](symbol="AAPL")
     print(result.data.head())
 
 asyncio.run(main())

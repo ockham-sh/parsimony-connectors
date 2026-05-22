@@ -6,18 +6,45 @@ BdE BIEST is public (no api_key); template 401/429 contract does not apply.
 from __future__ import annotations
 
 import httpx
+import pandas as pd
 import pytest
 import respx
 from parsimony.errors import EmptyDataError
+from parsimony.result import Result
 
 from parsimony_bde import (
     BDE_ENUMERATE_OUTPUT,
     CONNECTORS,
-    BdeEnumerateParams,
     BdeFetchParams,
     bde_fetch,
     enumerate_bde,
 )
+
+_ENUMERATE_FRAME_COLUMNS = [
+    "key",
+    "title",
+    "description",
+    "source",
+    "alias",
+    "dataset",
+    "category",
+    "frequency",
+    "unit",
+    "decimals",
+    "start_date",
+    "end_date",
+    "n_obs",
+    "source_org",
+]
+
+
+def _enumerate_frame(result: Result) -> pd.DataFrame:
+    """Project enumerator ``CatalogEntry`` rows into a flat frame for assertions."""
+    entries = result.data
+    if not entries:
+        return pd.DataFrame(columns=_ENUMERATE_FRAME_COLUMNS)
+    rows = [{"key": entry.code, "title": entry.title, **entry.metadata} for entry in entries]
+    return pd.DataFrame(rows)
 
 # ---------------------------------------------------------------------------
 # Plugin contract shape
@@ -52,7 +79,7 @@ async def test_bde_fetch_merges_single_series_response() -> None:
         )
     )
 
-    result = await bde_fetch(BdeFetchParams(key="D_1NBAF472"))
+    result = await bde_fetch(key="D_1NBAF472")
 
     assert result.provenance.source == "bde_fetch"
     df = result.data
@@ -67,7 +94,7 @@ async def test_bde_fetch_raises_empty_data_on_empty_list() -> None:
     )
 
     with pytest.raises(EmptyDataError):
-        await bde_fetch(BdeFetchParams(key="XX"))
+        await bde_fetch(key="XX")
 
 
 def test_fetch_rejects_invalid_time_range() -> None:
@@ -326,8 +353,8 @@ def _mock_csv_chapters() -> None:
 @pytest.mark.asyncio
 async def test_enumerate_bde_pulls_all_seven_catalog_chapters() -> None:
     _mock_csv_chapters()
-    result = await enumerate_bde(BdeEnumerateParams())
-    df = result.data
+    result = await enumerate_bde()
+    df = _enumerate_frame(result)
 
     # One row per chapter mock — seven total — wired to BDE_ENUMERATE_OUTPUT.
     # CF (Financial Accounts of the Spanish Economy) and IE (International
@@ -354,7 +381,7 @@ async def test_enumerate_bde_includes_cf_financial_accounts_rows() -> None:
     and nowhere else. Regression guard: if someone removes ``cf`` from
     ``_CATALOG_CHAPTERS`` we lose those series silently."""
     _mock_csv_chapters()
-    df = (await enumerate_bde(BdeEnumerateParams())).data
+    df = _enumerate_frame(await enumerate_bde())
 
     cf_rows = df[df["category"] == "Financial Accounts"]
     assert len(cf_rows) >= 1
@@ -373,7 +400,7 @@ async def test_enumerate_bde_includes_ie_international_economy_rows() -> None:
     commodity-index series. Most IE codes overlap with BE under a
     different taxonomy, but the category-filtered view still matters."""
     _mock_csv_chapters()
-    df = (await enumerate_bde(BdeEnumerateParams())).data
+    df = _enumerate_frame(await enumerate_bde())
 
     ie_rows = df[df["category"] == "International Economy"]
     assert len(ie_rows) >= 1
@@ -385,7 +412,7 @@ async def test_enumerate_bde_includes_ie_international_economy_rows() -> None:
 async def test_enumerate_bde_populates_description_column() -> None:
     """The description metadata carries upstream long-form prose for search."""
     _mock_csv_chapters()
-    df = (await enumerate_bde(BdeEnumerateParams())).data
+    df = _enumerate_frame(await enumerate_bde())
 
     ti_row = df[df["key"] == "D_DTFK09A0"].iloc[0]
     # Spanish character round-trips through CP1252 → str unscathed.
@@ -400,7 +427,7 @@ async def test_enumerate_bde_carries_source_metadata_for_dispatch() -> None:
     """Every catalog row carries ``source`` so an agent dispatching off a
     search hit knows which fetch connector to call without parsing the key."""
     _mock_csv_chapters()
-    df = (await enumerate_bde(BdeEnumerateParams())).data
+    df = _enumerate_frame(await enumerate_bde())
 
     assert "source" in df.columns
     assert (df["source"] == "bde_biest").all()
@@ -412,7 +439,7 @@ async def test_enumerate_bde_normalises_frequency_to_english() -> None:
     """BdE encodes frequency in Spanish (``MENSUAL``, ``TRIMESTRAL``); the
     enumerator translates so an agent searching ``monthly`` hits Spanish series."""
     _mock_csv_chapters()
-    df = (await enumerate_bde(BdeEnumerateParams())).data
+    df = _enumerate_frame(await enumerate_bde())
 
     freqs = set(df["frequency"])
     assert "Monthly" in freqs
@@ -427,7 +454,7 @@ async def test_enumerate_bde_splits_dataset_from_leaf_title() -> None:
     the leaf becomes ``title`` (TITLE) — agents can filter by topic without
     coupling to the exact leaf phrasing."""
     _mock_csv_chapters()
-    df = (await enumerate_bde(BdeEnumerateParams())).data
+    df = _enumerate_frame(await enumerate_bde())
 
     ti_row = df[df["key"] == "D_DTFK09A0"].iloc[0]
     # Title is the leaf segment after the last "/" in the upstream title path.
@@ -442,7 +469,7 @@ async def test_enumerate_bde_splits_dataset_from_leaf_title() -> None:
 @pytest.mark.asyncio
 async def test_enumerate_bde_captures_dates_and_units_metadata() -> None:
     _mock_csv_chapters()
-    df = (await enumerate_bde(BdeEnumerateParams())).data
+    df = _enumerate_frame(await enumerate_bde())
 
     tc_row = df[df["key"] == "DTCCBCEUSDEUR.B"].iloc[0]
     assert tc_row["unit"].startswith("Dolares")
@@ -476,7 +503,7 @@ async def test_enumerate_bde_degrades_gracefully_on_chapter_outage() -> None:
         return_value=httpx.Response(200, content=_CSV_TI.encode("cp1252"))
     )
 
-    df = (await enumerate_bde(BdeEnumerateParams())).data
+    df = _enumerate_frame(await enumerate_bde())
     assert len(df) == 4
     assert set(df["category"]) == {
         "General Statistics",
@@ -539,7 +566,7 @@ async def test_enumerate_bde_skips_rows_missing_serie() -> None:
         return_value=httpx.Response(200, content=bogus.encode("cp1252"))
     )
 
-    df = (await enumerate_bde(BdeEnumerateParams())).data
+    df = _enumerate_frame(await enumerate_bde())
     assert list(df["key"]) == ["D_DTFK09A0"]
 
 
@@ -552,7 +579,7 @@ async def test_enumerate_bde_returns_empty_when_all_chapters_fail() -> None:
     for chapter in ("be", "cf", "ie", "pb", "si", "tc", "ti"):
         respx.get(f"{base}/catalogo_{chapter}.csv").mock(return_value=httpx.Response(503))
 
-    df = (await enumerate_bde(BdeEnumerateParams())).data
+    df = _enumerate_frame(await enumerate_bde())
     assert len(df) == 0
     # Schema columns are still present so downstream OutputConfig.apply works.
     assert "key" in df.columns

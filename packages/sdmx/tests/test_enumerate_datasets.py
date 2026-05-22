@@ -7,7 +7,7 @@ real subprocess primitive is covered by ``test_listing.py``.
 from __future__ import annotations
 
 import pytest
-from parsimony.catalog import entries_from_result
+from parsimony.catalog import CatalogEntry
 
 from parsimony_sdmx._isolation import ListDatasetsError
 from parsimony_sdmx.connectors.enumerate_datasets import (
@@ -48,23 +48,25 @@ def mock_list_datasets(monkeypatch: pytest.MonkeyPatch):
 @pytest.mark.asyncio
 async def test_enumerates_all_agencies(mock_list_datasets) -> None:
     result = await enumerate_sdmx_datasets()
-    df = result.data
-    assert set(df["code"]) == {
+    entries: list[CatalogEntry] = result.data
+    assert set(entry.code for entry in entries) == {
         "ECB|YC",
         "ECB|MIR",
         "ESTAT|prc_hicp_manr",
         "WB_WDI|WDI",
     }
-    assert set(df.columns) == {"code", "title", "agency", "dataset_id"}
+    assert {entry.title for entry in entries} == {
+        "Euro Yield Curve",
+        "Money Market Rates",
+        "HICP annual rate of change",
+        "World Development Indicators",
+    }
 
 
 @pytest.mark.asyncio
 async def test_ingests_into_expected_namespace(mock_list_datasets) -> None:
     result = await enumerate_sdmx_datasets()
-    output_config = enumerate_sdmx_datasets.output_config
-    assert output_config is not None
-    table = result.to_table(output_config)
-    entries = entries_from_result(table)
+    entries: list[CatalogEntry] = result.data
 
     assert all(e.namespace == DATASETS_NAMESPACE for e in entries)
     codes_to_titles = {e.code: e.title for e in entries}
@@ -92,8 +94,8 @@ async def test_agency_failure_skipped_silently(
     )
 
     result = await enumerate_sdmx_datasets()
-    df = result.data
-    assert list(df["code"]) == ["ECB|YC"]
+    entries: list[CatalogEntry] = result.data
+    assert [entry.code for entry in entries] == ["ECB|YC"]
 
 
 @pytest.mark.asyncio
@@ -115,9 +117,9 @@ async def test_all_agencies_fail_raises_emptydata(
 
 
 def test_enumerator_metadata_shape() -> None:
-    output_config = enumerate_sdmx_datasets.output_config
-    assert output_config is not None
-    cols = output_config.columns
+    from parsimony_sdmx.connectors.enumerate_datasets import ENUMERATE_DATASETS_OUTPUT
+
+    cols = ENUMERATE_DATASETS_OUTPUT.columns
     key_cols = [c for c in cols if c.role.value == "key"]
     assert len(key_cols) == 1
     assert key_cols[0].namespace == "sdmx_datasets"

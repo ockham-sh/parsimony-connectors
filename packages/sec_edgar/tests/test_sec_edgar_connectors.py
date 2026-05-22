@@ -25,7 +25,6 @@ from parsimony.errors import EmptyDataError
 
 from parsimony_sec_edgar import (
     CONNECTORS,
-    SecEdgarCompanyProfileParams,
     SecEdgarFindCompanyParams,
     sec_edgar_company_profile,
     sec_edgar_find_company,
@@ -93,7 +92,7 @@ async def test_sec_edgar_find_company_returns_entity_row() -> None:
     fake = _FakeEntity(name="Example Inc", cik="1234567", ticker="EX")
 
     with patch("parsimony_sec_edgar._resolve_company", return_value=fake):
-        result = await sec_edgar_find_company(SecEdgarFindCompanyParams(identifier="EX"))
+        result = await sec_edgar_find_company(identifier="EX")
 
     assert result.provenance.source == "sec_edgar_find_company"
     df = result.data
@@ -109,7 +108,7 @@ async def test_sec_edgar_find_company_propagates_empty_data_error() -> None:
         "parsimony_sec_edgar._resolve_company",
         side_effect=EmptyDataError(provider="sec_edgar", message="No SEC company found"),
     ), pytest.raises(EmptyDataError):
-        await sec_edgar_find_company(SecEdgarFindCompanyParams(identifier="zzz"))
+        await sec_edgar_find_company(identifier="zzz")
 
 
 # ---------------------------------------------------------------------------
@@ -125,9 +124,7 @@ async def test_sec_edgar_company_profile_returns_structured_row() -> None:
         return fake
 
     with patch("parsimony_sec_edgar._resolve_to_entity", side_effect=_resolve_entity):
-        result = await sec_edgar_company_profile(
-            SecEdgarCompanyProfileParams(identifier="EX")
-        )
+        result = await sec_edgar_company_profile(identifier="EX")
 
     df = result.data
     assert isinstance(df, pd.DataFrame)

@@ -13,12 +13,11 @@ import httpx
 import pytest
 import respx
 from parsimony.errors import EmptyDataError
+from parsimony_test_support import entries_result_to_dataframe
 
 from parsimony_boj import (
     BOJ_ENUMERATE_OUTPUT,
     CONNECTORS,
-    BojEnumerateParams,
-    BojFetchParams,
     boj_fetch,
     enumerate_boj,
 )
@@ -70,10 +69,10 @@ async def test_boj_fetch_returns_observations() -> None:
         )
     )
 
-    result = await boj_fetch(BojFetchParams(db="FM08", code="FXERD01"))
+    result = await boj_fetch(db="FM08", code="FXERD01")
 
     assert result.provenance.source == "boj_fetch"
-    df = result.data
+    df = entries_result_to_dataframe(result)
     assert len(df) == 2
     assert df.iloc[0]["title"] == "JPY/USD Spot Rate"
 
@@ -86,7 +85,7 @@ async def test_boj_fetch_raises_empty_data_on_empty_resultset() -> None:
     )
 
     with pytest.raises(EmptyDataError):
-        await boj_fetch(BojFetchParams(db="FM08", code="XX"))
+        await boj_fetch(db="FM08", code="XX")
 
 
 # ---------------------------------------------------------------------------
@@ -128,8 +127,8 @@ async def test_enumerate_boj_emits_one_row_per_series_with_description_and_sourc
     }
     _stub_metadata_endpoint(json=payload)
 
-    result = await enumerate_boj(BojEnumerateParams())
-    df = result.data
+    result = await enumerate_boj()
+    df = entries_result_to_dataframe(result)
 
     series_rows = df[df["entity_type"] == "series"]
     assert len(series_rows) >= 1
@@ -178,8 +177,8 @@ async def test_enumerate_boj_emits_db_rows_with_db_prefix_key() -> None:
     """
     _stub_metadata_endpoint(json={"RESULTSET": []})
 
-    result = await enumerate_boj(BojEnumerateParams())
-    df = result.data
+    result = await enumerate_boj()
+    df = entries_result_to_dataframe(result)
 
     db_rows = df[df["entity_type"] == "db"]
     assert len(db_rows) == 50
@@ -206,14 +205,8 @@ async def test_enumerate_boj_handles_403_with_retry_then_warning(
     )
 
     with caplog.at_level(logging.WARNING, logger="parsimony_boj"):
-        result = await enumerate_boj(BojEnumerateParams())
+        result = await enumerate_boj()
 
-    df = result.data
-    # No series rows came through (every DB 403'd) but DB rows are still
-    # absent because the connector emits them only for DBs whose metadata
-    # was successfully retrieved. The summary log line is what we assert.
-    warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
-    assert any("metadata fetch failed" in m.lower() for m in warning_messages)
     # The DataFrame remains rectangular even when every DB fails.
     expected_cols = [
         "code",
@@ -231,18 +224,22 @@ async def test_enumerate_boj_handles_403_with_retry_then_warning(
         "last_update",
         "source",
     ]
+    df = entries_result_to_dataframe(result, columns=expected_cols)
+    # No series rows came through (every DB 403'd) but DB rows are still
+    # absent because the connector emits them only for DBs whose metadata
+    # was successfully retrieved. The summary log line is what we assert.
+    warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("metadata fetch failed" in m.lower() for m in warning_messages)
     assert list(df.columns) == expected_cols
 
 
 @respx.mock
 @pytest.mark.asyncio
 async def test_enumerate_boj_emits_columns_required_for_catalog_entries() -> None:
-    """The Result returned by the enumerator must carry an output schema
-    that ``entries_from_result`` accepts: exactly one KEY (code), one
-    TITLE (title), and METADATA columns for the BoJ-specific dispatch hints.
+    """The Result returned by the enumerator must carry catalog entries
+    with exactly one KEY (code), one TITLE (title), and METADATA columns
+    for the BoJ-specific dispatch hints.
     """
-    from parsimony.catalog import entries_from_result
-
     payload = {
         "RESULTSET": [
             {"SERIES_CODE": "", "LAYER1": "Spot Rates"},
@@ -260,8 +257,8 @@ async def test_enumerate_boj_emits_columns_required_for_catalog_entries() -> Non
     }
     _stub_metadata_endpoint(json=payload)
 
-    result = await enumerate_boj(BojEnumerateParams())
-    entries = entries_from_result(result)
+    result = await enumerate_boj()
+    entries = result.data
 
     by_code = {e.code: e for e in entries}
     series_entry = by_code["FXERD01"]

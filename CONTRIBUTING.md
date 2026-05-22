@@ -160,7 +160,7 @@ issue.
 
 - **Formatter:** `ruff format` (120-char lines, the workspace root `pyproject.toml` configures this)
 - **Linter:** `ruff check` with the rules selected in the workspace root
-- **Types:** `mypy` clean. Connectors MUST type the `params` argument with a Pydantic model; return types are `Result` or a subclass.
+- **Types:** `mypy` clean. Public connector signatures are flat top-level parameters; Pydantic models are optional internal validators. Return types are `Result` or a subclass.
 - **Imports:** absolute imports only; no `from parsimony.*` star imports.
 - **Docstrings:** every `@connector`-decorated function needs a one-line summary (tool-tagged connectors need ≥40 chars — the first sentence becomes the MCP tool description).
 

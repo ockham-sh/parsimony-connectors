@@ -1,47 +1,13 @@
-"""Semantic search over the published Bank of Japan (BoJ) catalog.
-
-Wraps the parquet+FAISS catalog at ``hf://parsimony-dev/boj`` (override with
-``PARSIMONY_BOJ_CATALOG_URL`` for local testing) as an MCP tool.
-
-Codes returned by this tool are series codes (e.g. ``STRDCLUCON``) or
-database identifiers prefixed with ``db:`` (e.g. ``db:FM01``). Pass the
-returned ``code`` to :func:`boj_fetch` via its ``code`` parameter (and
-``db`` parameter — the ``db`` METADATA column on the catalog row tells you
-which DB the code lives in).
-"""
+"""Semantic search over the published Bank of Japan (BoJ) catalog."""
 
 from __future__ import annotations
 
-import asyncio
-import logging
-import os
-from typing import Annotated
-
-import pandas as pd
-from parsimony.catalog import Catalog
-from parsimony.connector import connector
 from parsimony.result import Column, ColumnRole, OutputConfig
-from pydantic import BaseModel, Field
+from parsimony.utils.catalog_search import CatalogSearchParams, make_catalog_search_connector
 
-logger = logging.getLogger(__name__)
+BojSearchParams = CatalogSearchParams
 
 PARSIMONY_BOJ_CATALOG_URL_ENV = "PARSIMONY_BOJ_CATALOG_URL"
-_DEFAULT_CATALOG_URL = "hf://parsimony-dev/boj"
-
-_catalog: Catalog | None = None
-_catalog_url: str | None = None
-_catalog_lock = asyncio.Lock()
-
-
-async def _get_catalog(catalog_url: str | None = None) -> Catalog:
-    global _catalog, _catalog_url
-    url = catalog_url or os.environ.get(PARSIMONY_BOJ_CATALOG_URL_ENV, _DEFAULT_CATALOG_URL)
-    async with _catalog_lock:
-        if _catalog is None or _catalog_url != url:
-            _catalog = await Catalog.load(url)
-            _catalog_url = url
-        return _catalog
-
 
 BOJ_SEARCH_OUTPUT = OutputConfig(
     columns=[
@@ -51,52 +17,14 @@ BOJ_SEARCH_OUTPUT = OutputConfig(
     ]
 )
 
-
-class BojSearchParams(BaseModel):
-    """Parameters for :func:`boj_search`."""
-
-    query: Annotated[
-        str,
-        Field(
-            min_length=1,
-            max_length=512,
-            description=(
-                "Natural-language description of the BoJ series or database "
-                "you want (e.g. 'JPY USD daily exchange rate', 'Japanese "
-                "10-year bond yield', 'monetary base'). Bilingual EN/JP "
-                "queries both work."
-            ),
-        ),
-    ]
-    limit: int = Field(default=10, ge=1, le=50, description="Top-N results.")
-    catalog_url: str | None = Field(default=None, description="Override catalog URL, e.g. file:///tmp/boj.")
-
-
-@connector(
-    output=BOJ_SEARCH_OUTPUT,
+boj_search = make_catalog_search_connector(
+    provider="boj",
+    default_url="hf://parsimony-dev/boj",
+    env_var=PARSIMONY_BOJ_CATALOG_URL_ENV,
     tags=["macro", "jp", "tool"],
+    description=(
+        "Semantic-search the Bank of Japan (BoJ) stat_search catalog. "
+        "Pass returned code to boj_fetch(db=..., code=...)."
+    ),
+    output_columns=BOJ_SEARCH_OUTPUT.columns,
 )
-async def boj_search(params: BojSearchParams) -> pd.DataFrame:
-    """Semantic-search the Bank of Japan (BoJ) stat_search catalog.
-
-    Returns the top matching series/DB codes from BoJ's stat_search API
-    (49 statistics databases spanning interest rates, financial markets,
-    monetary aggregates, balance sheets, prices, public finance, balance
-    of payments, BIS, derivatives, TANKAN, flow of funds, and more).
-
-    Pass the returned ``code`` to ``boj_fetch(db=..., code=...)``. Codes
-    prefixed ``db:`` identify a whole database (use the suffix as the
-    ``db`` parameter); bare codes identify a single series.
-    """
-    catalog = await _get_catalog(params.catalog_url)
-    matches = await catalog.search(params.query, limit=params.limit)
-    return pd.DataFrame(
-        [
-            {
-                "code": m.code,
-                "title": m.title,
-                "score": round(m.score, 6),
-            }
-            for m in matches
-        ]
-    )

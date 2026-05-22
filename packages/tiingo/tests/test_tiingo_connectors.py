@@ -14,7 +14,6 @@ from parsimony.errors import RateLimitError, UnauthorizedError
 from parsimony_tiingo import (
     CONNECTORS,
     TiingoEodParams,
-    TiingoSearchParams,
     tiingo_eod,
     tiingo_search,
 )
@@ -61,7 +60,7 @@ async def test_tiingo_search_returns_rows() -> None:
     )
 
     bound = tiingo_search.bind(api_key=_KEY)
-    result = await bound(TiingoSearchParams(query="apple"))
+    result = await bound(query="apple")
 
     assert result.provenance.source == "tiingo_search"
     assert result.data.iloc[0]["ticker"] == "AAPL"
@@ -76,7 +75,7 @@ async def test_tiingo_search_maps_401_without_leaking_key() -> None:
 
     bound = tiingo_search.bind(api_key=_KEY)
     with pytest.raises(UnauthorizedError) as exc_info:
-        await bound(TiingoSearchParams(query="apple"))
+        await bound(query="apple")
     assert _KEY not in str(exc_info.value)
 
 
@@ -89,7 +88,7 @@ async def test_tiingo_search_maps_429_without_leaking_key() -> None:
 
     bound = tiingo_search.bind(api_key=_KEY)
     with pytest.raises(RateLimitError) as exc_info:
-        await bound(TiingoSearchParams(query="apple"))
+        await bound(query="apple")
     assert _KEY not in str(exc_info.value)
 
 
@@ -125,7 +124,7 @@ async def test_tiingo_eod_returns_ohlcv() -> None:
     )
 
     bound = tiingo_eod.bind(api_key=_KEY)
-    result = await bound(TiingoEodParams(ticker="AAPL"))
+    result = await bound(ticker="AAPL")
 
     df = result.data
     assert len(df) == 1

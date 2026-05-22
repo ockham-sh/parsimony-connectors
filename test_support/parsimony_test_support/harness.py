@@ -130,3 +130,34 @@ def assert_provenance_shape(
             f"Provenance.params missing required keys: {missing}. "
             f"Got: {list(prov.params.keys())}"
         )
+
+
+def entries_result_to_dataframe(
+    result: Result,
+    *,
+    key: str = "code",
+    title: str = "title",
+    columns: list[str] | None = None,
+) -> Any:
+    """Project an enumerator ``Result`` carrying ``list[CatalogEntry]`` into a frame.
+
+    Connectors that return ``OutputConfig.build_entries(...)`` wrap a
+    ``list[CatalogEntry]`` in ``result.data``. Legacy tests often asserted
+    against a flat DataFrame; this helper preserves that shape without
+    reintroducing DataFrame return types on enumerators.
+    """
+    import pandas as pd
+
+    from parsimony.catalog import CatalogEntry
+
+    data = result.data
+    if isinstance(data, pd.DataFrame):
+        return data
+    entries: list[CatalogEntry] = data
+    if not entries:
+        return pd.DataFrame(columns=columns or [])
+    rows = [{key: entry.code, title: entry.title, **entry.metadata} for entry in entries]
+    frame = pd.DataFrame(rows)
+    if columns is not None:
+        return frame.reindex(columns=columns, fill_value="")
+    return frame

@@ -7,10 +7,10 @@ import asyncio
 import logging
 import os
 
-from parsimony.catalog import BM25Index, Catalog, HybridIndex, VectorIndex, entries_from_result
+from parsimony.catalog import BM25Index, Catalog, HybridIndex, VectorIndex
 from parsimony.ranking import ZScoreFusion
 
-from parsimony_bdf import BdfEnumerateParams, enumerate_bdf
+from parsimony_bdf import enumerate_bdf
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +51,9 @@ def _api_key(explicit: str | None) -> str:
 
 
 async def build(*, api_key: str | None, save: str | None, push: str | None) -> Catalog:
-    result = await enumerate_bdf(BdfEnumerateParams(), api_key=_api_key(api_key))
+    result = await enumerate_bdf(api_key=_api_key(api_key))
     catalog = _catalog()
-    catalog.set_entries(entries_from_result(result))
+    catalog.set_entries(result.data)
     await catalog.build()
     logger.info("Built %s catalog with %d entries", catalog.name, len(catalog))
     if save is not None:

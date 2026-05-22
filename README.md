@@ -32,7 +32,7 @@ The kernel finds every installed `parsimony-*` package through Python entry-poin
 
 ## Connector roster
 
-Every connector ships as its own PyPI distribution. The "Tool surface" column shows how many of each connector's functions are tagged `tool` (cheap discovery, agent-callable through the MCP server) versus how many are bulk-fetch (returned into a Python variable in a code interpreter).
+Every connector ships as its own PyPI distribution. The "Tool surface" column shows how many of each connector's functions are tagged `tool` (cheap discovery helpers for agents) versus how many are bulk-fetch (returned into a Python variable in a code interpreter).
 
 <!-- roster:start -->
 |  | Package | Source | Connectors | Tool surface |

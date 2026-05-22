@@ -8,17 +8,29 @@ respx still hooks into the transport.
 from __future__ import annotations
 
 import httpx
+import pandas as pd
 import pytest
 import respx
+from parsimony.catalog import CatalogEntry
 from parsimony.errors import EmptyDataError
+from parsimony.result import Result
 
 from parsimony_boc import (
     CONNECTORS,
-    BocEnumerateParams,
     BocFetchParams,
     boc_fetch,
     enumerate_boc,
 )
+
+
+def _enumerate_dataframe(result: Result) -> pd.DataFrame:
+    data = result.data
+    if isinstance(data, pd.DataFrame):
+        return data
+    entries: list[CatalogEntry] = data
+    return pd.DataFrame(
+        [{"series_name": e.code, "title": e.title, **e.metadata} for e in entries]
+    )
 
 
 def test_connectors_collection_exposes_expected_names() -> None:
@@ -57,7 +69,7 @@ async def test_boc_fetch_single_series_returns_observations() -> None:
         )
     )
 
-    result = await boc_fetch(BocFetchParams(series_name="FXUSDCAD"))
+    result = await boc_fetch(series_name="FXUSDCAD")
 
     assert result.provenance.source == "boc_fetch"
     df = result.data
@@ -86,7 +98,7 @@ async def test_boc_fetch_group_syntax_uses_group_endpoint() -> None:
         )
     )
 
-    result = await boc_fetch(BocFetchParams(series_name="group:FX_RATES_DAILY"))
+    result = await boc_fetch(series_name="group:FX_RATES_DAILY")
 
     assert result.provenance.source == "boc_fetch"
     assert len(result.data) >= 1
@@ -102,7 +114,7 @@ async def test_boc_fetch_raises_empty_data_when_no_observations() -> None:
     )
 
     with pytest.raises(EmptyDataError):
-        await boc_fetch(BocFetchParams(series_name="XX"))
+        await boc_fetch(series_name="XX")
 
 
 def test_fetch_rejects_empty_series_name() -> None:
@@ -185,8 +197,8 @@ async def test_enumerate_boc_emits_one_row_per_series_with_description_and_sourc
         },
     )
 
-    result = await enumerate_boc(BocEnumerateParams())
-    df = result.data
+    result = await enumerate_boc()
+    df = _enumerate_dataframe(result)
 
     # Per-series rows are emitted alongside group rows (groups are
     # discoverable as their own catalog entries via the ``group:`` prefix).
@@ -234,7 +246,7 @@ async def test_enumerate_boc_group_metadata_is_group_id_not_description() -> Non
         },
     )
 
-    df = (await enumerate_boc(BocEnumerateParams())).data
+    df = _enumerate_dataframe(await enumerate_boc())
     row = df[df["series_name"] == "FXUSDCAD"].iloc[0]
 
     assert row["group"] == "FX_RATES_DAILY"
@@ -271,7 +283,7 @@ async def test_enumerate_boc_series_with_no_group_membership_has_empty_group() -
         },
     )
 
-    df = (await enumerate_boc(BocEnumerateParams())).data
+    df = _enumerate_dataframe(await enumerate_boc())
     row = df[df["series_name"] == "ORPHAN_SERIES"].iloc[0]
     assert row["group"] == ""
     assert row["group_label"] == ""
@@ -313,7 +325,7 @@ async def test_enumerate_boc_keeps_first_group_when_series_in_multiple_groups() 
         },
     )
 
-    df = (await enumerate_boc(BocEnumerateParams())).data
+    df = _enumerate_dataframe(await enumerate_boc())
     row = df[df["series_name"] == "FXUSDCAD"].iloc[0]
     assert row["group"] == "FX_RATES_DAILY"
     assert row["group_label"] == "Daily exchange rates"
@@ -349,7 +361,7 @@ async def test_enumerate_boc_tolerates_failing_group_endpoint() -> None:
         return_value=httpx.Response(503)
     )
 
-    df = (await enumerate_boc(BocEnumerateParams())).data
+    df = _enumerate_dataframe(await enumerate_boc())
     # Series rows: one (FXUSDCAD). Plus a group row for DEAD_GROUP — the
     # group enumeration is independent of the per-group membership
     # fan-out, so a 503 on /groups/{name}/json strips membership info
@@ -397,7 +409,7 @@ async def test_enumerate_boc_emits_one_row_per_group_with_group_prefix_key() -> 
         },
     )
 
-    df = (await enumerate_boc(BocEnumerateParams())).data
+    df = _enumerate_dataframe(await enumerate_boc())
 
     group_rows = df[df["entity_type"] == "group"]
     assert set(group_rows["series_name"]) == {
@@ -422,13 +434,10 @@ async def test_enumerate_boc_emits_one_row_per_group_with_group_prefix_key() -> 
 @respx.mock
 @pytest.mark.asyncio
 async def test_enumerate_boc_emits_columns_required_for_catalog_entries() -> None:
-    """The Result returned by the enumerator must carry an output schema
-    that ``entries_from_result`` accepts: exactly one KEY (series_name),
-    one TITLE (title), and METADATA
+    """The Result returned by the enumerator must carry catalog entries
+    with exactly one KEY (series_name), one TITLE (title), and METADATA
     columns for source/group/group_label.
     """
-    from parsimony.catalog import entries_from_result
-
     _mock_enumerate_endpoints(
         series_payload={
             "series": {
@@ -451,8 +460,8 @@ async def test_enumerate_boc_emits_columns_required_for_catalog_entries() -> Non
         },
     )
 
-    result = await enumerate_boc(BocEnumerateParams())
-    entries = entries_from_result(result)
+    result = await enumerate_boc()
+    entries = result.data
     # One series row plus one group row. Groups are catalogued as their
     # own discoverable entities so agents can find them via group-level
     # description text.

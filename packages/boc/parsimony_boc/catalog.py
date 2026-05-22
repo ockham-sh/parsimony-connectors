@@ -5,11 +5,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 
 from huggingface_hub.errors import RepositoryNotFoundError
-from parsimony.catalog import BM25Index, Catalog, entries_from_result
+from parsimony.catalog import BM25Index, Catalog, CatalogEntry
 from parsimony.errors import ConnectorError
 from parsimony.result import Result
 
@@ -64,12 +64,13 @@ def bm25_catalog(name: str) -> Catalog:
 async def build_bm25_catalog_from_enumeration(
     *,
     name: str,
-    enumerate: Callable[[], Awaitable[Result]],
+    enumerate: Callable[[], Awaitable[Sequence[CatalogEntry] | Result]],
 ) -> Catalog:
     """Enumerate live provider entities and build an in-process BM25 catalog."""
-    result = await enumerate()
+    raw = await enumerate()
+    entries = raw.data if isinstance(raw, Result) else list(raw)
     catalog = bm25_catalog(name)
-    catalog.set_entries(entries_from_result(result))
+    catalog.set_entries(entries)
     await catalog.build()
     logger.info("Built BM25 fallback catalog %s with %d entries", catalog.name, len(catalog))
     return catalog
@@ -79,7 +80,7 @@ async def get_catalog(
     *,
     catalog_url: str | None = None,
     fallback_bm25: bool | None = None,
-    enumerate: Callable[[], Awaitable[Result]] | None = None,
+    enumerate: Callable[[], Awaitable[Sequence[CatalogEntry] | Result]] | None = None,
     catalog_name: str = "boc",
 ) -> Catalog:
     """Load a published catalog snapshot, optionally falling back to BM25 enumeration."""

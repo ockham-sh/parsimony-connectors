@@ -13,13 +13,13 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
+from parsimony.catalog import CatalogEntry
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Result,
 )
 from parsimony.transport import map_http_error
 from pydantic import BaseModel, Field, field_validator
@@ -585,11 +585,18 @@ def _emit_rows_for_db(
 
 
 @connector(output=BOJ_FETCH_OUTPUT, tags=["macro", "jp"])
-async def boj_fetch(params: BojFetchParams) -> Result:
+async def boj_fetch(
+    db: str,
+    code: Annotated[str, "ns:boj"],
+    start_date: str | None = None,
+    end_date: str | None = None,
+    lang: str = "en",
+) -> pd.DataFrame:
     """Fetch Bank of Japan time series by database and series code(s).
 
     Returns date + value with series metadata. Max 250 codes per request.
     """
+    params = BojFetchParams(db=db, code=code, start_date=start_date, end_date=end_date, lang=lang)
     url = f"{_BASE_URL}/getDataCode"
     req_params: dict[str, str] = {
         "db": params.db,
@@ -645,32 +652,15 @@ async def boj_fetch(params: BojFetchParams) -> Result:
     if not rows:
         raise EmptyDataError(provider="boj", message=f"No observations parsed for db={params.db}, code={params.code}")
 
-    return Result.from_dataframe(pd.DataFrame(rows)).with_properties(
-        source_url="https://www.stat-search.boj.or.jp",
-    )
+    return pd.DataFrame(rows)
 
 
-@enumerator(output=BOJ_ENUMERATE_OUTPUT, tags=["macro", "jp"])
-async def enumerate_boj(params: BojEnumerateParams) -> pd.DataFrame:
-    """Enumerate BoJ statistics by querying metadata for each canonical DB.
+@enumerator(tags=["macro", "jp"])
+async def enumerate_boj() -> list[CatalogEntry]:
+    """Enumerate BoJ series by fetching metadata for each canonical database.
 
-    Pipeline:
-
-    1. Iterate ``_BOJ_DATABASES`` (49 entries from the official API
-       manual).
-    2. For each DB, ``GET /getMetadata?db={code}&lang=en`` with a
-       browser User-Agent (Akamai blocks the default httpx UA).
-    3. Concurrency is capped at 2 with a 0.5s inter-request delay; 403/
-       429/5xx responses retry up to 3 times with exponential backoff and
-       honor ``Retry-After``. After exhausting retries we WARN and emit
-       no rows for that DB.
-    4. Emit one row per series (``code=SERIES_CODE``,
-       ``entity_type='series'``) and one DB-level row
-       (``code='db:{code}'``, ``entity_type='db'``).
-
-    Layer header rows in BoJ metadata (``SERIES_CODE`` empty) are not
-    emitted as catalog rows; they're consumed to build a breadcrumb path
-    that's stamped onto every subsequent series row in the same DB.
+    Emits series and database rows with breadcrumb context. Retries on
+    429/5xx with bounded concurrency.
     """
     semaphore = asyncio.Semaphore(_METADATA_CONCURRENCY)
     headers = {"User-Agent": _BROWSER_USER_AGENT}
@@ -712,7 +702,8 @@ async def enumerate_boj(params: BojEnumerateParams) -> pd.DataFrame:
         logger.info("BoJ enumerate: all %d DBs fetched successfully", len(_BOJ_DATABASES))
 
     columns = list(_ENUMERATE_COLUMNS)
-    return pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    df = pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    return BOJ_ENUMERATE_OUTPUT.build_entries(df)
 
 
 # ---------------------------------------------------------------------------

@@ -19,7 +19,7 @@ Both connectors take `path`, `method`, and arbitrary upstream query params — a
 pip install parsimony-polymarket
 ```
 
-Pulls in `parsimony-core>=0.5,<0.6` automatically. Verify discovery:
+Pulls in a compatible `parsimony-core` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"

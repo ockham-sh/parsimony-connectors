@@ -18,6 +18,7 @@ import asyncio
 from typing import Annotated
 
 import pandas as pd
+from parsimony.catalog import CatalogEntry
 from parsimony.connector import enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import Column, ColumnRole, OutputConfig
@@ -77,6 +78,23 @@ ENUMERATE_SERIES_OUTPUT = OutputConfig(
 )
 
 
+def _series_output_config(agency: AgencyId | str, dataset_id: str) -> OutputConfig:
+    """Per-call output schema with the dataset-specific KEY namespace stamped."""
+    ns = series_namespace(agency, dataset_id)
+    return OutputConfig(
+        columns=[
+            Column(
+                name="code",
+                role=ColumnRole.KEY,
+                namespace=ns,
+                description="SDMX series key (dot-separated dimension values).",
+            ),
+            Column(name="title", role=ColumnRole.TITLE),
+            Column(name="*", role=ColumnRole.METADATA),
+        ]
+    )
+
+
 @enumerator(
     output=ENUMERATE_SERIES_OUTPUT,
     tags=["sdmx"],
@@ -85,16 +103,13 @@ async def enumerate_sdmx_series(
     agency: AgencyId,
     dataset_id: str,
     fetch_timeout_s: float = FETCH_SERIES_DEFAULT_TIMEOUT_S,
-) -> pd.DataFrame:
+) -> list[CatalogEntry]:
     """List every series inside one SDMX dataset, hitting the live agency endpoint.
 
     Projects one row per series into the declared OutputConfig schema
     (KEY=code, TITLE=title, METADATA=(agency, dataset_id, dynamic
-    ``<DIM>_code`` / ``<DIM>_label`` fields)). The ``@enumerator``
-    decorator wraps the returned DataFrame into a
-    :class:`Result` with :data:`ENUMERATE_SERIES_OUTPUT` attached so
-    ``entries_from_result`` can read the schema. The build script stamps the
-    per-dataset namespace on the KEY column before building.
+    ``<DIM>_code`` / ``<DIM>_label`` fields)). The per-dataset KEY
+    namespace is stamped on each call before ``build_entries``.
 
     ``fetch_timeout_s`` bounds the subprocess wall-clock; a timeout or
     other subprocess failure raises :class:`~parsimony_sdmx._isolation.FetchSeriesError`
@@ -115,7 +130,8 @@ async def enumerate_sdmx_series(
             message=f"Live SDMX returned zero series for {params.agency.value}/{params.dataset_id}",
         )
 
-    return _series_frame(records, agency=params.agency.value, dataset_id=params.dataset_id)
+    df = _series_frame(records, agency=params.agency.value, dataset_id=params.dataset_id)
+    return _series_output_config(params.agency, params.dataset_id).build_entries(df)
 
 
 def _series_frame(records: list[SeriesRecord], *, agency: str, dataset_id: str) -> pd.DataFrame:

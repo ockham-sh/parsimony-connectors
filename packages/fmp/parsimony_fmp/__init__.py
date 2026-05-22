@@ -18,7 +18,7 @@ Internal layout (not part of the public contract):
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from parsimony.connector import Connectors, connector
 from parsimony.result import Result
@@ -124,16 +124,19 @@ _PRICES_PATH_MAP: dict[str, str] = {
 
 @connector(output=SEARCH_OUTPUT, tags=["equity", "utility", "tool"])
 async def fmp_search(
-    params: FmpSearchParams,
+    query: str,
+    limit: int = 20,
+    exchange: str | None = None,
     *,
     api_key: str,
-    base_url: str = _DEFAULT_BASE_URL,
+    base_url: str = _DEFAULT_BASE_URL
 ) -> Result:
     """[All plans] Search for companies by name fragment or partial ticker.
 
     Returns matches ranked by relevance. Use to resolve a company name
     to its ticker symbol.
     """
+    params = FmpSearchParams(query=query, limit=limit, exchange=exchange)  # type: ignore[call-arg]
     http = make_http(api_key, base_url)
     p: dict[str, Any] = {"query": params.query, "limit": params.limit}
     if params.exchange:
@@ -149,16 +152,17 @@ async def fmp_search(
 
 @connector(tags=["equity", "utility", "tool"])
 async def fmp_taxonomy(
-    params: FmpTaxonomyParams,
+    type: Literal['sectors', 'industries', 'exchanges', 'symbols_with_financials'],
     *,
     api_key: str,
-    base_url: str = _DEFAULT_BASE_URL,
+    base_url: str = _DEFAULT_BASE_URL
 ) -> Result:
     """[All plans] Return valid values for a taxonomy type: sectors, industries,
     exchanges, or symbols_with_financials.
 
     Use before building screener filters to ensure field values are valid.
     """
+    params = FmpTaxonomyParams(type=type)  # type: ignore[call-arg]
     http = make_http(api_key, base_url)
     path = _TAXONOMY_DISPATCH[params.type]
     return await fmp_fetch(
@@ -175,18 +179,14 @@ async def fmp_taxonomy(
 
 
 @connector(output=STOCK_QUOTE_OUTPUT, tags=["equity"])
-async def fmp_quotes(
-    params: FmpSymbolsParams,
-    *,
-    api_key: str,
-    base_url: str = _DEFAULT_BASE_URL,
-) -> Result:
+async def fmp_quotes(symbols: str, *, api_key: str, base_url: str = _DEFAULT_BASE_URL) -> Result:
     """[Starter+] Fetch real-time quotes for one or more symbols in a single
     request.
 
     Returns price, change, 52-week range, market cap, volume, moving
     averages. Demo: 3 symbols (AAPL, TSLA, MSFT). Starter+: all symbols.
     """
+    params = FmpSymbolsParams(symbols=symbols)  # type: ignore[call-arg]
     http = make_http(api_key, base_url)
     return await fmp_fetch(
         http,
@@ -199,10 +199,13 @@ async def fmp_quotes(
 
 @connector(output=HISTORICAL_PRICES_OUTPUT, tags=["equity"])
 async def fmp_prices(
-    params: FmpHistoricalPricesParams,
+    symbol: Annotated[str, 'ns:fmp_symbols'],
+    frequency: str = 'daily',
+    from_date: str | None = None,
+    to_date: str | None = None,
     *,
     api_key: str,
-    base_url: str = _DEFAULT_BASE_URL,
+    base_url: str = _DEFAULT_BASE_URL
 ) -> Result:
     """[Starter+] Fetch price history for a symbol.
 
@@ -211,6 +214,7 @@ async def fmp_prices(
     adjClose; intraday returns last ~5 days. Intraday (1min-4hour)
     requires Professional tier.
     """
+    params = FmpHistoricalPricesParams(symbol=symbol, frequency=frequency, from_date=from_date, to_date=to_date)  # type: ignore[call-arg]
     http = make_http(api_key, base_url)
     freq = params.frequency
 
@@ -241,16 +245,17 @@ async def fmp_prices(
 
 @connector(output=COMPANY_PROFILE_OUTPUT, tags=["equity", "tool"])
 async def fmp_company_profile(
-    params: FmpSymbolParams,
+    symbol: Annotated[str, 'ns:fmp_symbols'],
     *,
     api_key: str,
-    base_url: str = _DEFAULT_BASE_URL,
+    base_url: str = _DEFAULT_BASE_URL
 ) -> Result:
     """[Starter+] Fetch company profile: name, sector, industry, market cap,
     CEO, employees, website, ETF/ADR flags.
 
     Demo: 3 symbols (AAPL, TSLA, MSFT). Starter+: all symbols.
     """
+    params = FmpSymbolParams(symbol=symbol)  # type: ignore[call-arg]
     http = make_http(api_key, base_url)
     return await fmp_fetch(
         http,
@@ -263,16 +268,17 @@ async def fmp_company_profile(
 
 @connector(output=PEERS_OUTPUT, tags=["equity", "tool"])
 async def fmp_peers(
-    params: FmpSymbolParams,
+    symbol: Annotated[str, 'ns:fmp_symbols'],
     *,
     api_key: str,
-    base_url: str = _DEFAULT_BASE_URL,
+    base_url: str = _DEFAULT_BASE_URL
 ) -> Result:
     """[Starter+] Return the peer group for a company.
 
     Stocks in the same sector with comparable market cap on the same
     exchange. Demo: 3 symbols (AAPL, TSLA, MSFT). Starter+: all symbols.
     """
+    params = FmpSymbolParams(symbol=symbol)  # type: ignore[call-arg]
     http = make_http(api_key, base_url)
     return await fmp_fetch(
         http,
@@ -285,10 +291,12 @@ async def fmp_peers(
 
 @connector(output=INCOME_STATEMENT_OUTPUT, tags=["equity"])
 async def fmp_income_statements(
-    params: FmpFinancialStatementParams,
+    symbol: Annotated[str, 'ns:fmp_symbols'],
+    period: str = 'annual',
+    limit: int = 5,
     *,
     api_key: str,
-    base_url: str = _DEFAULT_BASE_URL,
+    base_url: str = _DEFAULT_BASE_URL
 ) -> Result:
     """[Starter+] Fetch income statements: revenue, EBITDA, net income, EPS
     for multiple periods.
@@ -296,6 +304,7 @@ async def fmp_income_statements(
     Demo: 3 symbols (AAPL, TSLA, MSFT). Starter+: all symbols with
     multi-year history.
     """
+    params = FmpFinancialStatementParams(symbol=symbol, period=period, limit=limit)  # type: ignore[call-arg]
     http = make_http(api_key, base_url)
     return await fmp_fetch(
         http,
@@ -308,10 +317,12 @@ async def fmp_income_statements(
 
 @connector(output=BALANCE_SHEET_OUTPUT, tags=["equity"])
 async def fmp_balance_sheet_statements(
-    params: FmpFinancialStatementParams,
+    symbol: Annotated[str, 'ns:fmp_symbols'],
+    period: str = 'annual',
+    limit: int = 5,
     *,
     api_key: str,
-    base_url: str = _DEFAULT_BASE_URL,
+    base_url: str = _DEFAULT_BASE_URL
 ) -> Result:
     """[Starter+] Fetch balance sheet: assets, liabilities, equity, debt, cash
     for multiple periods.
@@ -319,6 +330,7 @@ async def fmp_balance_sheet_statements(
     Demo: 3 symbols (AAPL, TSLA, MSFT). Starter+: all symbols with
     multi-year history.
     """
+    params = FmpFinancialStatementParams(symbol=symbol, period=period, limit=limit)  # type: ignore[call-arg]
     http = make_http(api_key, base_url)
     return await fmp_fetch(
         http,
@@ -331,10 +343,12 @@ async def fmp_balance_sheet_statements(
 
 @connector(output=CASH_FLOW_OUTPUT, tags=["equity"])
 async def fmp_cash_flow_statements(
-    params: FmpFinancialStatementParams,
+    symbol: Annotated[str, 'ns:fmp_symbols'],
+    period: str = 'annual',
+    limit: int = 5,
     *,
     api_key: str,
-    base_url: str = _DEFAULT_BASE_URL,
+    base_url: str = _DEFAULT_BASE_URL
 ) -> Result:
     """[Starter+] Fetch cash flow statement: operating, investing, financing
     activities, free cash flow for multiple periods.
@@ -342,6 +356,7 @@ async def fmp_cash_flow_statements(
     Demo: 3 symbols (AAPL, TSLA, MSFT). Starter+: all symbols with
     multi-year history.
     """
+    params = FmpFinancialStatementParams(symbol=symbol, period=period, limit=limit)  # type: ignore[call-arg]
     http = make_http(api_key, base_url)
     return await fmp_fetch(
         http,
@@ -359,16 +374,19 @@ async def fmp_cash_flow_statements(
 
 @connector(tags=["equity"])
 async def fmp_corporate_history(
-    params: FmpCorporateHistoryParams,
+    symbol: Annotated[str, 'ns:fmp_symbols'],
+    event_type: Literal['earnings', 'dividends', 'splits'],
+    limit: int = 10,
     *,
     api_key: str,
-    base_url: str = _DEFAULT_BASE_URL,
+    base_url: str = _DEFAULT_BASE_URL
 ) -> Result:
     """[Starter+] Fetch historical corporate events for a symbol: earnings
     (EPS, revenue actual vs estimated), dividends, or splits.
 
     Demo: 3 symbols (AAPL, TSLA, MSFT). Starter+: all symbols.
     """
+    params = FmpCorporateHistoryParams(symbol=symbol, event_type=event_type, limit=limit)  # type: ignore[call-arg]
     http = make_http(api_key, base_url)
     path = _CORPORATE_HISTORY_DISPATCH[params.event_type]
     return await fmp_fetch(
@@ -381,14 +399,17 @@ async def fmp_corporate_history(
 
 @connector(tags=["equity"])
 async def fmp_event_calendar(
-    params: FmpEventCalendarParams,
+    event_type: Literal['earnings', 'dividends', 'splits'],
+    from_date: str | None = None,
+    to_date: str | None = None,
     *,
     api_key: str,
-    base_url: str = _DEFAULT_BASE_URL,
+    base_url: str = _DEFAULT_BASE_URL
 ) -> Result:
     """[All plans] Return the market-wide calendar for earnings, dividends,
     or splits within a date window (max 90 days).
     """
+    params = FmpEventCalendarParams(event_type=event_type, from_date=from_date, to_date=to_date)  # type: ignore[call-arg]
     http = make_http(api_key, base_url)
     path = _EVENT_CALENDAR_DISPATCH[params.event_type]
     p: dict[str, Any] = {}
@@ -406,16 +427,19 @@ async def fmp_event_calendar(
 
 @connector(output=ANALYST_ESTIMATES_OUTPUT, tags=["equity"])
 async def fmp_analyst_estimates(
-    params: FmpAnalystEstimatesParams,
+    symbol: Annotated[str, 'ns:fmp_symbols'],
+    period: str = 'annual',
+    limit: int = 4,
     *,
     api_key: str,
-    base_url: str = _DEFAULT_BASE_URL,
+    base_url: str = _DEFAULT_BASE_URL
 ) -> Result:
     """[Professional+] Fetch forward analyst consensus estimates: revenue,
     EBITDA, net income, EPS low/avg/high plus analyst coverage counts.
 
     Requires Professional tier or above.
     """
+    params = FmpAnalystEstimatesParams(symbol=symbol, period=period, limit=limit)  # type: ignore[call-arg]
     http = make_http(api_key, base_url)
     return await fmp_fetch(
         http,
@@ -433,10 +457,15 @@ async def fmp_analyst_estimates(
 
 @connector(output=NEWS_OUTPUT, tags=["equity"])
 async def fmp_news(
-    params: FmpNewsParams,
+    type: Literal['news', 'press_releases'],
+    symbols: str,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    limit: int = 20,
+    page: int = 0,
     *,
     api_key: str,
-    base_url: str = _DEFAULT_BASE_URL,
+    base_url: str = _DEFAULT_BASE_URL
 ) -> Result:
     """[Starter+] Fetch stock news articles or official press releases for
     one or more symbols.
@@ -445,6 +474,7 @@ async def fmp_news(
     company IR communications. Demo: 3 symbols (AAPL, TSLA, MSFT).
     Starter+: all symbols.
     """
+    params = FmpNewsParams(type=type, symbols=symbols, from_date=from_date, to_date=to_date, limit=limit, page=page)  # type: ignore[call-arg]
     http = make_http(api_key, base_url)
     path = _NEWS_DISPATCH[params.type]
     p: dict[str, Any] = {"symbols": params.symbols, "limit": params.limit, "page": params.page}
@@ -463,14 +493,17 @@ async def fmp_news(
 
 @connector(output=INSIDER_TRADES_OUTPUT, tags=["equity"])
 async def fmp_insider_trades(
-    params: FmpInsiderTradesParams,
+    symbol: Annotated[str, 'ns:fmp_symbols'],
+    limit: int = 20,
+    page: int = 0,
     *,
     api_key: str,
-    base_url: str = _DEFAULT_BASE_URL,
+    base_url: str = _DEFAULT_BASE_URL
 ) -> Result:
     """[Professional+] Fetch insider trading activity (executive and director
     trades): transaction type, shares, price, insider name.
     """
+    params = FmpInsiderTradesParams(symbol=symbol, limit=limit, page=page)  # type: ignore[call-arg]
     http = make_http(api_key, base_url)
     return await fmp_fetch(
         http,
@@ -483,14 +516,17 @@ async def fmp_insider_trades(
 
 @connector(output=INSTITUTIONAL_POSITIONS_OUTPUT, tags=["equity"])
 async def fmp_institutional_positions(
-    params: FmpInstitutionalPositionsParams,
+    symbol: Annotated[str, 'ns:fmp_symbols'],
+    year: str,
+    quarter: str,
     *,
     api_key: str,
-    base_url: str = _DEFAULT_BASE_URL,
+    base_url: str = _DEFAULT_BASE_URL
 ) -> Result:
     """[Professional+] Fetch quarterly institutional (13F) ownership snapshot:
     investor count, share changes, invested value, ownership %.
     """
+    params = FmpInstitutionalPositionsParams(symbol=symbol, year=year, quarter=quarter)  # type: ignore[call-arg]
     http = make_http(api_key, base_url)
     return await fmp_fetch(
         http,
@@ -503,12 +539,15 @@ async def fmp_institutional_positions(
 
 @connector(output=EARNINGS_TRANSCRIPT_OUTPUT, tags=["equity"])
 async def fmp_earnings_transcript(
-    params: FmpEarningsTranscriptParams,
+    symbol: Annotated[str, 'ns:fmp_symbols'],
+    year: str,
+    quarter: str,
     *,
     api_key: str,
-    base_url: str = _DEFAULT_BASE_URL,
+    base_url: str = _DEFAULT_BASE_URL
 ) -> Result:
     """[Professional+] Fetch the full text transcript of an earnings call for a symbol, year, and quarter."""
+    params = FmpEarningsTranscriptParams(symbol=symbol, year=year, quarter=quarter)  # type: ignore[call-arg]
     http = make_http(api_key, base_url)
     return await fmp_fetch(
         http,
@@ -526,12 +565,13 @@ async def fmp_earnings_transcript(
 
 @connector(output=INDEX_CONSTITUENTS_OUTPUT, tags=["equity", "tool"])
 async def fmp_index_constituents(
-    params: FmpIndexConstituentsParams,
+    index: Literal['SP500', 'NASDAQ', 'DOW_JONES'],
     *,
     api_key: str,
-    base_url: str = _DEFAULT_BASE_URL,
+    base_url: str = _DEFAULT_BASE_URL
 ) -> Result:
     """[All plans] Return current constituents of SP500, NASDAQ, or DOW_JONES: symbol, name, sector, headquarters."""
+    params = FmpIndexConstituentsParams(index=index)  # type: ignore[call-arg]
     http = make_http(api_key, base_url)
     path = _INDEX_DISPATCH[params.index]
     return await fmp_fetch(
@@ -545,14 +585,15 @@ async def fmp_index_constituents(
 
 @connector(output=MARKET_MOVERS_OUTPUT, tags=["equity", "tool"])
 async def fmp_market_movers(
-    params: FmpMarketMoversParams,
+    type: Literal['gainers', 'losers', 'most_actives'],
     *,
     api_key: str,
-    base_url: str = _DEFAULT_BASE_URL,
+    base_url: str = _DEFAULT_BASE_URL
 ) -> Result:
     """[All plans] Return today's biggest market movers: gainers (highest %
     up), losers (biggest % down), or most_actives (highest volume).
     """
+    params = FmpMarketMoversParams(type=type)  # type: ignore[call-arg]
     http = make_http(api_key, base_url)
     path = _MARKET_MOVERS_DISPATCH[params.type]
     return await fmp_fetch(
@@ -572,10 +613,32 @@ async def fmp_market_movers(
 
 @connector(output=SCREENER_OUTPUT, tags=["equity", "tool"])
 async def fmp_screener(
-    params: FmpScreenerParams,
+    sector: str | None = None,
+    industry: str | None = None,
+    country: str | None = None,
+    exchange: str | None = None,
+    market_cap_min: float | None = None,
+    market_cap_max: float | None = None,
+    price_min: float | None = None,
+    price_max: float | None = None,
+    volume_min: float | None = None,
+    volume_max: float | None = None,
+    beta_min: float | None = None,
+    beta_max: float | None = None,
+    dividend_min: float | None = None,
+    dividend_max: float | None = None,
+    is_etf: bool | None = None,
+    is_fund: bool | None = None,
+    is_actively_trading: bool | None = None,
+    where_clause: str | None = None,
+    sort_by: str | None = None,
+    sort_order: str = 'desc',
+    limit: int = 100,
+    prefilter_limit: int | None = None,
+    fields: list[str] | None = None,
     *,
     api_key: str,
-    base_url: str = _DEFAULT_BASE_URL,
+    base_url: str = _DEFAULT_BASE_URL
 ) -> Result:
     """[Starter+] Screen the global equity universe by financial metrics.
 
@@ -586,6 +649,31 @@ async def fmp_screener(
     enrichment. Use sort_by + limit for top-N. Increase prefilter_limit
     (1000-2000) for broad global searches sorted by TTM columns.
     """
+    params = FmpScreenerParams(
+        sector=sector,
+        industry=industry,
+        country=country,
+        exchange=exchange,
+        market_cap_min=market_cap_min,
+        market_cap_max=market_cap_max,
+        price_min=price_min,
+        price_max=price_max,
+        volume_min=volume_min,
+        volume_max=volume_max,
+        beta_min=beta_min,
+        beta_max=beta_max,
+        dividend_min=dividend_min,
+        dividend_max=dividend_max,
+        is_etf=is_etf,
+        is_fund=is_fund,
+        is_actively_trading=is_actively_trading,
+        where_clause=where_clause,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        limit=limit,
+        prefilter_limit=prefilter_limit,
+        fields=fields)  # type: ignore[call-arg]
+
     http = make_http(api_key, base_url)
     return await _screener.execute(params, http)
 

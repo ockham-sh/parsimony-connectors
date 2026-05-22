@@ -13,13 +13,13 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
+from parsimony.catalog import CatalogEntry
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Result,
 )
 from parsimony.transport import map_http_error
 from pydantic import BaseModel, Field, field_validator
@@ -239,12 +239,17 @@ async def _build_series_to_group_map(
 
 
 @connector(output=BOC_FETCH_OUTPUT, tags=["macro", "ca"])
-async def boc_fetch(params: BocFetchParams) -> Result:
+async def boc_fetch(
+    series_name: Annotated[str, "ns:boc"],
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> pd.DataFrame:
     """Fetch Bank of Canada time series by series name(s) or group name.
 
     Use 'group:GROUP_NAME' syntax for group queries (e.g. group:FX_RATES_DAILY).
     Otherwise, pass comma-separated series names (e.g. FXUSDCAD,FXEURCAD).
     """
+    params = BocFetchParams(series_name=series_name, start_date=start_date, end_date=end_date)
     async with httpx.AsyncClient(base_url=_BASE_URL, timeout=60.0) as client:
         req_params: dict[str, str] = {}
         if params.start_date:
@@ -270,32 +275,18 @@ async def boc_fetch(params: BocFetchParams) -> Result:
     if df.empty:
         raise EmptyDataError(provider="boc", message=f"No observations returned for: {params.series_name}")
 
-    return Result.from_dataframe(df).with_properties(
-        source_url="https://www.bankofcanada.ca/valet/docs"
-    )
+    return df
 
 
-@enumerator(
-    output=BOC_ENUMERATE_OUTPUT,
-    tags=["macro", "ca"],
-)
-async def enumerate_boc(params: BocEnumerateParams) -> pd.DataFrame:
+@enumerator(tags=["macro", "ca"])
+async def enumerate_boc() -> list[CatalogEntry]:
     """Enumerate every Bank of Canada series via Valet's three list endpoints.
 
     Granularity is one row per series — Valet addresses observations per
     series, so series-level keys are the right unit (~15k rows).
 
-    Pipeline:
-
-    1. ``/lists/series/json`` — single call returning all ~15k series with
-       upstream ``label`` and ``description``. ``description`` is catalog
-       metadata and can be indexed explicitly by a catalog index.
-    2. ``/lists/groups/json`` — single call returning all ~2.3k groups
-       with their labels.
-    3. ``/groups/{name}/json`` — fanned out concurrently for every group
-       to discover series membership; a series→group map is built and
-       attached to every row. Groups exist purely for discovery; missing
-       membership leaves the ``group`` field empty.
+    Pipeline: /lists/series/json and /lists/groups/json, then concurrent
+    /groups/{name}/json fan-out for series membership.
     """
     async with httpx.AsyncClient(base_url=_BASE_URL, timeout=60.0) as client:
         series_resp = await client.get("/lists/series/json")
@@ -381,7 +372,8 @@ async def enumerate_boc(params: BocEnumerateParams) -> pd.DataFrame:
         "group",
         "group_label",
     ]
-    return pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    df = pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    return BOC_ENUMERATE_OUTPUT.build_entries(df)
 
 
 # ---------------------------------------------------------------------------

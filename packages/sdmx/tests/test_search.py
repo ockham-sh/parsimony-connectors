@@ -37,6 +37,8 @@ from parsimony_sdmx.connectors.search import (
     sdmx_series_search,
 )
 
+_CATALOG_LOAD = "parsimony.utils.catalog_search.Catalog.load"
+
 
 @pytest.fixture(autouse=True)
 def _reset_lru() -> Iterator[None]:
@@ -143,7 +145,7 @@ class _FakeCatalog:
                 score=0.5,
                 metadata=self._metadata,
             )
-        ]
+        ], []
 
 
 def test_load_uses_default_root_url(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -156,7 +158,7 @@ def test_load_uses_default_root_url(monkeypatch: pytest.MonkeyPatch) -> None:
         seen.append(url)
         return _FakeCatalog()
 
-    monkeypatch.setattr(search_module.Catalog, "load", _spy_load)
+    monkeypatch.setattr(_CATALOG_LOAD, _spy_load)
     search_module._clear_catalog_lru()
 
     asyncio.run(sdmx_series_search(query="HICP", flow_id="ECB/test", limit=1))
@@ -174,7 +176,7 @@ def test_env_overrides_default_root(monkeypatch: pytest.MonkeyPatch) -> None:
         seen.append(url)
         return _FakeCatalog()
 
-    monkeypatch.setattr(search_module.Catalog, "load", _spy_load)
+    monkeypatch.setattr(_CATALOG_LOAD, _spy_load)
     search_module._clear_catalog_lru()
 
     asyncio.run(sdmx_series_search(query="HICP", flow_id="ECB/test", limit=1))
@@ -198,17 +200,17 @@ def test_lru_caches_catalog_across_searches(
         load_calls.append(url)
         return _FakeCatalog()
 
-    monkeypatch.setattr(search_module.Catalog, "load", _spy_load)
+    monkeypatch.setattr(_CATALOG_LOAD, _spy_load)
     search_module._clear_catalog_lru()
 
     df1 = asyncio.run(sdmx_series_search(query="HICP", flow_id="ECB/test", limit=1))
     df2 = asyncio.run(sdmx_series_search(query="HICP again", flow_id="ECB/test", limit=1))
 
     assert len(load_calls) == 1
-    col_names = [c.name for c in df1.columns]
+    col_names = list(df1.data.columns)
     assert col_names == ["series_key", "title", "score", "namespace"]
-    assert df1.df["series_key"].iloc[0] == "A.1"
-    assert df2.df["series_key"].iloc[0] == "A.1"
+    assert df1.data["series_key"].iloc[0] == "A.1"
+    assert df2.data["series_key"].iloc[0] == "A.1"
 
 
 def test_series_search_uses_loaded_catalog_default_ranker(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -224,7 +226,7 @@ def test_series_search_uses_loaded_catalog_default_ranker(monkeypatch: pytest.Mo
     async def _spy_load(url: str) -> Any:
         return _CatalogWithDefaultRanker()
 
-    monkeypatch.setattr(search_module.Catalog, "load", _spy_load)
+    monkeypatch.setattr(_CATALOG_LOAD, _spy_load)
     search_module._clear_catalog_lru()
 
     asyncio.run(sdmx_series_search(query="HICP", flow_id="ECB/test", limit=1))
@@ -242,12 +244,12 @@ def test_empty_search_results_raise_empty_data_error(
         indexes: list[Any] = []
 
         async def search(self, query, limit, *, namespaces=None):  # noqa: ARG002
-            return []
+            return [], []
 
     async def _spy_load(url: str) -> Any:
         return _EmptyCatalog()
 
-    monkeypatch.setattr(search_module.Catalog, "load", _spy_load)
+    monkeypatch.setattr(_CATALOG_LOAD, _spy_load)
     search_module._clear_catalog_lru()
 
     with pytest.raises(EmptyDataError, match="No matches"):
@@ -268,7 +270,7 @@ def test_repo_not_found_wraps_into_connector_error(
     async def _raise_repo_not_found(url: str) -> Any:
         raise RepositoryNotFoundError("404 not found")
 
-    monkeypatch.setattr(search_module.Catalog, "load", _raise_repo_not_found)
+    monkeypatch.setattr(_CATALOG_LOAD, _raise_repo_not_found)
     search_module._clear_catalog_lru()
 
     with pytest.raises(ConnectorError, match="DO NOT retry"):
@@ -284,7 +286,7 @@ def test_missing_bundle_wraps_into_connector_error(
     async def _raise_file_not_found(url: str) -> Any:
         raise FileNotFoundError("meta.json not found")
 
-    monkeypatch.setattr(search_module.Catalog, "load", _raise_file_not_found)
+    monkeypatch.setattr(_CATALOG_LOAD, _raise_file_not_found)
     search_module._clear_catalog_lru()
 
     with pytest.raises(ConnectorError, match="DO NOT retry"):
@@ -329,13 +331,13 @@ def test_datasets_search_returns_dimensions_manifest(
             )
         return _FakeCatalog()
 
-    monkeypatch.setattr(search_module.Catalog, "load", _spy_load)
+    monkeypatch.setattr(_CATALOG_LOAD, _spy_load)
     search_module._clear_catalog_lru()
 
     df = asyncio.run(sdmx_datasets_search(query="code: ECB|YC", limit=1))
 
-    assert df.df["flow_id"].iloc[0] == "ECB/YC"
-    assert df.df["dimensions"].iloc[0] == manifest
+    assert df.data["flow_id"].iloc[0] == "ECB/YC"
+    assert df.data["dimensions"].iloc[0] == manifest
 
 
 def test_datasets_search_returns_empty_dimensions_for_legacy_catalogs(
@@ -350,9 +352,9 @@ def test_datasets_search_returns_empty_dimensions_for_legacy_catalogs(
             )
         return _FakeCatalog()
 
-    monkeypatch.setattr(search_module.Catalog, "load", _spy_load)
+    monkeypatch.setattr(_CATALOG_LOAD, _spy_load)
     search_module._clear_catalog_lru()
 
     df = asyncio.run(sdmx_datasets_search(query="code: ECB|YC", limit=1))
 
-    assert df.df["dimensions"].iloc[0] == []
+    assert df.data["dimensions"].iloc[0] == []

@@ -14,8 +14,6 @@ from parsimony.errors import RateLimitError, UnauthorizedError
 
 from parsimony_eodhd import (
     CONNECTORS,
-    EodhdEodParams,
-    EodhdExchangesParams,
     EodhdSearchParams,
     eodhd_eod,
     eodhd_exchanges,
@@ -66,7 +64,7 @@ async def test_eodhd_search_returns_rows() -> None:
     )
 
     bound = eodhd_search.bind(api_key=_KEY)
-    result = await bound(EodhdSearchParams(query="apple"))
+    result = await bound(query="apple")
 
     assert result.provenance.source == "eodhd_search"
     df = result.data
@@ -82,7 +80,7 @@ async def test_eodhd_search_maps_401_without_leaking_key() -> None:
 
     bound = eodhd_search.bind(api_key=_KEY)
     with pytest.raises(UnauthorizedError) as exc_info:
-        await bound(EodhdSearchParams(query="apple"))
+        await bound(query="apple")
     assert _KEY not in str(exc_info.value)
 
 
@@ -95,7 +93,7 @@ async def test_eodhd_search_maps_429_without_leaking_key() -> None:
 
     bound = eodhd_search.bind(api_key=_KEY)
     with pytest.raises(RateLimitError) as exc_info:
-        await bound(EodhdSearchParams(query="apple"))
+        await bound(query="apple")
     assert _KEY not in str(exc_info.value)
 
 
@@ -125,7 +123,7 @@ async def test_eodhd_eod_returns_ohlc_rows() -> None:
     )
 
     bound = eodhd_eod.bind(api_key=_KEY)
-    result = await bound(EodhdEodParams(ticker="AAPL.US"))
+    result = await bound(ticker="AAPL.US")
 
     df = result.data
     assert len(df) == 1
@@ -151,7 +149,7 @@ async def test_eodhd_exchanges_lists_exchanges() -> None:
     )
 
     bound = eodhd_exchanges.bind(api_key=_KEY)
-    result = await bound(EodhdExchangesParams())
+    result = await bound()
 
     df = result.data
     assert set(df["Code"]) == {"US", "LSE"}

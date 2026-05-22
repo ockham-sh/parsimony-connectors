@@ -34,13 +34,12 @@ def test_fred_fetch_is_not_tool_tagged() -> None:
     assert "tool" not in fetch.tags
 
 
-def test_load_binds_api_key_and_hides_from_schema() -> None:
+def test_load_binds_api_key_and_hides_from_exposed_signature() -> None:
     from parsimony_fred import load
 
     runtime = load(api_key="secret-key")
     search = runtime["fred_search"]
-    schema = search.to_json_schema()
-    assert "api_key" not in schema.get("properties", {})
+    assert "api_key" not in search.exposed_signature.parameters
     assert search.bound_arguments.get("api_key") == "secret-key"
 
 

@@ -1,9 +1,7 @@
-"""Pydantic parameter models for the Alpha Vantage connectors.
+"""Pydantic parameter models used as internal validators for connector inputs.
 
-Every ``@connector`` / ``@enumerator`` function in ``__init__.py`` accepts
-one of the classes defined here as its typed ``params`` argument. These
-classes form part of the public import surface — tests and downstream
-callers depend on them.
+Connector functions expose these fields as flat top-level parameters; the models
+are constructed inside each connector body and are not part of the call surface.
 """
 
 from __future__ import annotations

@@ -33,7 +33,8 @@ uv run parsimony list --strict   # conformance across all installed plugins
 - Connectors are plain async callables; auth/env fallback belongs in connector implementation, not decorator metadata
 - Use `Connector.bind(api_key=...)` to create an operator-bound variant that hides the bound value from call-time provenance
 - `CONNECTORS` is the required export; catalog build workflows live in provider-owned scripts
-- Pin `parsimony-core>=0.5,<0.6` — contract-version pin, not a floor
+- Pin `parsimony-core>=0.7,<0.8` — contract-version pin, not a floor
+- Declare auth-bearing parameters via `secrets=(...)` on `@connector` / `@enumerator` / `@loader`
 - Respx mocks are hand-authored from upstream API docs; no recorded cassettes (`.gitignore` enforces)
 - No provider-SDK copy-paste; no affiliation claims in READMEs
 - Run `make verify PKG=<name>` before committing changes to one package; `make verify-all` before releasing

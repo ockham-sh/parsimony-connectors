@@ -15,13 +15,13 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
+from parsimony.catalog import CatalogEntry
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Result,
 )
 from parsimony.transport import HttpClient, map_http_error
 from pydantic import BaseModel, Field, field_validator
@@ -628,13 +628,26 @@ def _series_from_dimensions(
 
 
 @connector(output=SNB_FETCH_OUTPUT, tags=["macro", "ch"])
-async def snb_fetch(params: SnbFetchParams) -> Result:
+async def snb_fetch(
+    cube_id: Annotated[str, "ns:snb"],
+    from_date: str | None = None,
+    to_date: str | None = None,
+    dim_sel: str | None = None,
+    lang: str = "en",
+) -> pd.DataFrame:
     """Fetch SNB cube data by cube_id.
 
     Returns the cube's time series as a DataFrame with date + value
     columns named by the SNB.  Column names are the original dimension
     labels from the cube.
     """
+    params = SnbFetchParams(
+        cube_id=cube_id,
+        from_date=from_date,
+        to_date=to_date,
+        dim_sel=dim_sel,
+        lang=lang,
+    )
     http = HttpClient(_BASE_URL)
 
     req_params: dict[str, str] = {}
@@ -674,9 +687,7 @@ async def snb_fetch(params: SnbFetchParams) -> Result:
     except Exception as exc:
         logger.warning("Could not fetch title for SNB cube %s: %s", params.cube_id, exc)
 
-    return Result.from_dataframe(df).with_properties(
-        source_url=f"https://data.snb.ch/en/topics/{params.cube_id}"
-    )
+    return df
 
 
 async def _probe_cube(
@@ -738,28 +749,12 @@ async def _probe_cube(
     return dim_payload, frequency
 
 
-@enumerator(
-    output=SNB_ENUMERATE_OUTPUT,
-    tags=["macro", "ch"],
-)
-async def enumerate_snb(params: SnbEnumerateParams) -> pd.DataFrame:
-    """Enumerate every addressable SNB series across the curated cube list.
+@enumerator(tags=["macro", "ch"])
+async def enumerate_snb() -> list[CatalogEntry]:
+    """Enumerate SNB cube dimension leaves as fetchable series rows.
 
-    Strategy: for each cube in :data:`_KNOWN_CUBES`, hit
-    ``/api/cube/{id}/dimensions/en`` to learn the dimension tree, then
-    cartesian-product the leaves to produce one catalog row per
-    addressable time series. Emitting one row per (cube, series) pair —
-    rather than one row per cube — surfaces the SNB's actual fetchable
-    granularity (yield-curve maturities, currency pairs, etc.) to
-    embedding-based search.
-
-    Compound code is ``{cube_id}#{leaf_path}`` so an agent can split on
-    ``#`` and pass the right-hand side as :attr:`SnbFetchParams.dim_sel`
-    to retrieve that single series — same scheme as Treasury's
-    ``{endpoint}#{field}``.
-
-    Cubes that the SNB has retired (HTTP 404 / JSON error envelope)
-    are skipped silently so the curated list can age gracefully.
+    Compound codes are ``cube_id#leaf_path`` so agents can route hits to
+    ``snb_fetch`` without reparsing cube metadata.
     """
     rows: list[dict[str, str]] = []
     # Concurrency cap: at 237 cubes × two requests per cube the SNB CDN
@@ -796,7 +791,8 @@ async def enumerate_snb(params: SnbEnumerateParams) -> pd.DataFrame:
         "category",
         "frequency",
     ]
-    return pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    df = pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    return SNB_ENUMERATE_OUTPUT.build_entries(df)
 
 
 # ---------------------------------------------------------------------------

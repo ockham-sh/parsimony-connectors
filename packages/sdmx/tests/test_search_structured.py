@@ -69,7 +69,7 @@ async def test_search_structured_end_to_end() -> None:
             catalog_root=f"file://{tmpdir}",
         )
 
-        df = res_df.df
+        df = res_df.data
         assert isinstance(df, pd.DataFrame)
         assert len(df) == 1
         assert df.loc[0, "series_key"] == "M.DE.IF_1Y"

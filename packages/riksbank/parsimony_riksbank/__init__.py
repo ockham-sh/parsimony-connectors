@@ -42,13 +42,13 @@ from typing import Annotated, Any, Literal
 
 import httpx
 import pandas as pd
+from parsimony.catalog import CatalogEntry
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Result,
 )
 from parsimony.transport import HttpClient, map_http_error
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -555,13 +555,13 @@ def _normalize_observation_date(value: Any) -> str:
 # ---------------------------------------------------------------------------
 
 
-@connector(output=RIKSBANK_FETCH_OUTPUT, tags=["macro", "se"])
+@connector(output=RIKSBANK_FETCH_OUTPUT, tags=["macro", "se"], secrets=('api_key',))
 async def riksbank_fetch(
     series_id: Annotated[str, "ns:riksbank"],
     from_date: str | None = None,
     to_date: str | None = None,
     api_key: str = "",
-) -> Result:
+) -> pd.DataFrame:
     """Fetch a single Riksbank SWEA time series by series_id.
 
     Returns date + value with the upstream series name as title. Use
@@ -622,18 +622,16 @@ async def riksbank_fetch(
     if not rows:
         raise EmptyDataError(provider="riksbank", message=f"No observations returned for: {params.series_id}")
 
-    return Result.from_dataframe(pd.DataFrame(rows)).with_properties(
-        source_url="https://www.riksbank.se/en-gb/statistics/"
-    )
+    return pd.DataFrame(rows)
 
 
-@connector(output=RIKSBANK_SWESTR_FETCH_OUTPUT, tags=["macro", "se"])
+@connector(output=RIKSBANK_SWESTR_FETCH_OUTPUT, tags=["macro", "se"], secrets=('api_key',))
 async def riksbank_swestr_fetch(
     series: Annotated[SwestrSeries, "ns:riksbank"],
     from_date: str | None = None,
     to_date: str | None = None,
     api_key: str = "",
-) -> Result:
+) -> pd.DataFrame:
     """Fetch a SWESTR fixing / compounded average / index series.
 
     Dispatches on :func:`_swestr_kind` across three URL families:
@@ -694,46 +692,15 @@ async def riksbank_swestr_fetch(
     df = pd.DataFrame(rows)
     df["title"] = title
 
-    return Result.from_dataframe(df).with_properties(
-        source_url="https://www.riksbank.se/en-gb/statistics/swestr/"
-    )
+    return df
 
 
-@enumerator(output=RIKSBANK_ENUMERATE_OUTPUT, tags=["macro", "se"])
-async def enumerate_riksbank(api_key: str = "") -> pd.DataFrame:
-    """Enumerate every Riksbank time series available over the SWEA API.
+@enumerator(tags=["macro", "se"], secrets=('api_key',))
+async def enumerate_riksbank(api_key: str = "") -> list[CatalogEntry]:
+    """Enumerate Riksbank SWEA series plus static SWESTR registry rows.
 
-    Two upstream calls — ``/Groups`` (a hierarchy of categorisation
-    buckets) and ``/Series`` (one entry per series with descriptions and
-    observation date span). Each output row is one (series_id, group)
-    pair with rich description, frequency, and date-range metadata.
-
-    SWEA rows carry ``source="swea"``. SWESTR rows (the overnight
-    fixing, five compounded averages, one index) are appended from a
-    static registry and carry ``source="swestr"`` — the registry is
-    the right surface for that family because the series set is small
-    (seven), stable, and the live SWESTR endpoints return observations
-    rather than metadata (there is no ``/Series`` equivalent). Agents
-    route SWESTR hits to :func:`riksbank_swestr_fetch`.
-
-    A third family — forecasts/outcomes at
-    ``api.riksbank.se/forecasts/v1`` — is documented by Riksbank but
-    every probed path returns ``404 Resource not found`` as of the
-    catalog freeze date (third-party clients that target the same URL
-    scheme carry in-code comments warning the API "may be temporarily
-    unavailable"). Forecasts are therefore *not* catalogued: emitting
-    rows for 404-ing endpoints would mislead dispatching agents. When
-    Riksbank re-opens the forecasts endpoint, this enumerator extends
-    to emit additional rows with ``source="forecasts"`` and a sibling
-    ``riksbank_forecasts_fetch`` connector lands here — the
-    ``source`` dispatch contract is already in place.
-
-    A fourth family was investigated under the working name **CBA**
-    (Central Bank Asset), but no corresponding endpoint exists on
-    ``api.riksbank.se``: probes against ``/cba``, ``/cba/v1/...``,
-    ``/cba/Series``, ``/cba/CrossRates`` etc. all return
-    ``404 Resource not found``, and the developer portal SPA does not
-    expose a machine-readable product index. CBA is not implemented.
+    Calls /Groups and /Series for live metadata; appends SWESTR codes from
+    the static registry. Optional api_key raises upstream rate limits.
     """
     RiksbankEnumerateParams()
     http = _make_http(api_key)
@@ -819,7 +786,8 @@ async def enumerate_riksbank(api_key: str = "") -> pd.DataFrame:
         "observation_max",
         "series_closed",
     ]
-    return pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    df = pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    return RIKSBANK_ENUMERATE_OUTPUT.build_entries(df)
 
 
 # ---------------------------------------------------------------------------

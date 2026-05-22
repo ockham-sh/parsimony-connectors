@@ -6,8 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 import pyarrow.parquet as pq
-from parsimony.catalog import entries_from_result
-from parsimony.result import ColumnRole, Result
+from parsimony.result import Column, ColumnRole, OutputConfig
 
 from parsimony_sdmx.connectors.enumerate_series import ENUMERATE_SERIES_OUTPUT, _series_frame
 from parsimony_sdmx.core.models import DimensionValue, SeriesRecord
@@ -105,14 +104,19 @@ def test_entries_from_sdmx_result_receives_dimension_metadata() -> None:
             "dataset_id": ["YC", "YC"],
         }
     )
-    result = Result.from_dataframe(df).to_table(ENUMERATE_SERIES_OUTPUT)
-    assert result.output_schema is not None
-    columns = [
-        column.model_copy(update={"namespace": "sdmx_series_ecb_yc"}) if column.role == ColumnRole.KEY else column
-        for column in result.output_schema.columns
-    ]
-    result = result.model_copy(update={"output_schema": result.output_schema.model_copy(update={"columns": columns})})
-    entries = entries_from_result(result)
+    schema = OutputConfig(
+        columns=[
+            Column(name="code", role=ColumnRole.KEY, namespace="sdmx_series_ecb_yc"),
+            Column(name="title", role=ColumnRole.TITLE),
+            Column(name="FREQ_code", role=ColumnRole.METADATA),
+            Column(name="FREQ_label", role=ColumnRole.METADATA),
+            Column(name="REF_AREA_code", role=ColumnRole.METADATA),
+            Column(name="REF_AREA_label", role=ColumnRole.METADATA),
+            Column(name="agency", role=ColumnRole.METADATA),
+            Column(name="dataset_id", role=ColumnRole.METADATA),
+        ]
+    )
+    entries = schema.build_entries(df)
 
     by_code = {entry.code: entry for entry in entries}
     assert by_code["A.U2"].metadata["FREQ_code"] == "A"

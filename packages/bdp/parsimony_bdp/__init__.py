@@ -37,13 +37,13 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pandas as pd
+from parsimony.catalog import CatalogEntry
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Result,
 )
 from parsimony.transport import map_http_error
 from pydantic import BaseModel, Field, field_validator
@@ -427,11 +427,26 @@ def _normalize_page_url(url: str) -> str:
 
 
 @connector(output=BDP_FETCH_OUTPUT, tags=["macro", "pt"])
-async def bdp_fetch(params: BdpFetchParams) -> Result:
+async def bdp_fetch(
+    domain_id: int,
+    dataset_id: Annotated[str, "ns:bdp"],
+    series_ids: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    lang: str = "en",
+) -> pd.DataFrame:
     """Fetch Banco de Portugal time series by domain and dataset ID.
 
     Uses the BPstat API. Two-step workflow: domain → dataset → observations.
     """
+    params = BdpFetchParams(
+        domain_id=domain_id,
+        dataset_id=dataset_id,
+        series_ids=series_ids,
+        start_date=start_date,
+        end_date=end_date,
+        lang=lang,
+    )
     url = f"{_BASE_URL}/domains/{params.domain_id}/datasets/{params.dataset_id}/"
     req_params: dict[str, str] = {"lang": params.lang.upper()}
 
@@ -531,9 +546,7 @@ async def bdp_fetch(params: BdpFetchParams) -> Result:
             message=f"No observations parsed for domain={params.domain_id}, dataset={params.dataset_id}",
         )
 
-    return Result.from_dataframe(pd.DataFrame(rows)).with_properties(
-        source_url="https://bpstat.bportugal.pt"
-    )
+    return pd.DataFrame(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -767,33 +780,13 @@ def _emit_rows_for_dataset(
     return rows
 
 
-@enumerator(output=BDP_ENUMERATE_OUTPUT, tags=["macro", "pt"])
-async def enumerate_bdp(params: BdpEnumerateParams) -> pd.DataFrame:
-    """Enumerate every Banco de Portugal series with parent context.
+@enumerator(tags=["macro", "pt"])
+async def enumerate_bdp() -> list[CatalogEntry]:
+    """Enumerate Banco de Portugal domains, datasets, and paginated series.
 
-    Pipeline:
-
-    1. ``GET /domains/`` — emit one ``entity_type='domain'`` row per leaf
-       domain (``has_series=true``, ~65 of 77).
-    2. For each leaf domain, ``GET /domains/{domain_id}/datasets/`` to
-       discover datasets; emit one ``entity_type='dataset'`` row per
-       dataset (~215 in total).
-    3. For each dataset, walk paginated ``GET /domains/{d}/datasets/{ds}/``
-       (10 series per page; ``next_page`` cursor) and emit one
-       ``entity_type='series'`` row per discovered series (~72 K total).
-
-    The dataset detail endpoint is paginated upstream at a fixed 10
-    series/page; ``limit`` and ``obs_since=2099`` query params do *not*
-    suppress observation traffic without dropping the series stubs as
-    well, so we pay the bandwidth cost (~40 KB/page) and discard ``value``
-    after parsing. At concurrency=4 with a 0.25 s inter-request delay,
-    enumeration completes in ~15–20 minutes.
-
-    Concurrency is capped at 4; 403/429/5xx retry 3× with exponential
-    backoff and ``Retry-After`` honoring. After exhausting retries the
-    affected dataset is skipped with a WARNING.
+    Walks leaf domains and dataset pages with bounded concurrency; retries
+    transient 403/429/5xx responses before skipping a failed dataset.
     """
-    del params
 
     semaphore = asyncio.Semaphore(_METADATA_CONCURRENCY)
     rows: list[dict[str, str]] = []
@@ -807,7 +800,7 @@ async def enumerate_bdp(params: BdpEnumerateParams) -> pd.DataFrame:
         domains = await _list_domains(client, semaphore)
         if not domains:
             logger.warning("BdP enumerate: /domains fetch failed; emitting empty catalog")
-            return pd.DataFrame(columns=list(_ENUMERATE_COLUMNS))
+            return BDP_ENUMERATE_OUTPUT.build_entries(pd.DataFrame(columns=list(_ENUMERATE_COLUMNS)))
 
         leaf_domains = [d for d in domains if d.get("has_series")]
         logger.info(
@@ -928,7 +921,8 @@ async def enumerate_bdp(params: BdpEnumerateParams) -> pd.DataFrame:
         logger.info("BdP enumerate: emitted %d rows", len(rows))
 
     columns = list(_ENUMERATE_COLUMNS)
-    return pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    df = pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    return BDP_ENUMERATE_OUTPUT.build_entries(df)
 
 
 # ---------------------------------------------------------------------------

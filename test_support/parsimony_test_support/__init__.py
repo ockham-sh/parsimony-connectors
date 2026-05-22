@@ -19,6 +19,7 @@ from parsimony_test_support.harness import (
     STATUS_TO_EXC,
     assert_no_secret_leak,
     assert_provenance_shape,
+    entries_result_to_dataframe,
 )
 from parsimony_test_support.integration import require_env
 from parsimony_test_support.suites import ErrorMappingSuite
@@ -29,5 +30,6 @@ __all__ = [
     "STATUS_TO_EXC",
     "assert_no_secret_leak",
     "assert_provenance_shape",
+    "entries_result_to_dataframe",
     "require_env",
 ]

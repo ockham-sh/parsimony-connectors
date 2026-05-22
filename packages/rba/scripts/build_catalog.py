@@ -6,10 +6,10 @@ import argparse
 import asyncio
 import logging
 
-from parsimony.catalog import BM25Index, Catalog, HybridIndex, VectorIndex, entries_from_result
+from parsimony.catalog import BM25Index, Catalog, HybridIndex, VectorIndex
 from parsimony.ranking import ZScoreFusion
 
-from parsimony_rba import RbaEnumerateParams, enumerate_rba
+from parsimony_rba import enumerate_rba
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +43,9 @@ def _catalog() -> Catalog:
 
 
 async def build(*, save: str | None, push: str | None) -> Catalog:
-    result = await enumerate_rba(RbaEnumerateParams())
+    result = await enumerate_rba()
     catalog = _catalog()
-    catalog.set_entries(entries_from_result(result))
+    catalog.set_entries(result.data)
     await catalog.build()
     logger.info("Built %s catalog with %d entries", catalog.name, len(catalog))
     if save is not None:

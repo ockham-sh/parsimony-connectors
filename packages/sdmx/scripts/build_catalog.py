@@ -34,8 +34,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
-from parsimony.catalog import Catalog, entries_from_result
-from parsimony.result import ColumnRole, Result
+from parsimony.catalog import Catalog
 
 from parsimony_sdmx._isolation import ListDatasetsError, list_datasets
 from parsimony_sdmx.catalog_build import (
@@ -60,16 +59,6 @@ from parsimony_sdmx.core.models import DatasetRecord
 logger = logging.getLogger(__name__)
 
 
-def _with_key_namespace(result: Result, namespace: str) -> Result:
-    if result.output_schema is None:
-        raise ValueError("SDMX catalog enumerators must return a Result with output_schema")
-    columns = [
-        column.model_copy(update={"namespace": namespace}) if column.role == ColumnRole.KEY else column
-        for column in result.output_schema.columns
-    ]
-    return result.model_copy(update={"output_schema": result.output_schema.model_copy(update={"columns": columns})})
-
-
 @dataclass(frozen=True, slots=True)
 class SeriesBuildResult:
     catalog: Catalog
@@ -85,7 +74,7 @@ async def build_series(
 ) -> SeriesBuildResult:
     namespace = series_namespace(agency, dataset_id)
     result = await enumerate_sdmx_series(agency=agency, dataset_id=dataset_id, fetch_timeout_s=fetch_timeout_s)
-    raw_entries = entries_from_result(_with_key_namespace(result, namespace))
+    raw_entries = result.data
     dim_codes = discover_dim_codes(raw_entries)
     manifest = manifest_from_series_entries(raw_entries)
     entries = sdmx_series_entries(raw_entries, dim_codes)

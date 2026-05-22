@@ -9,7 +9,7 @@ import pytest
 import respx
 from parsimony.errors import ConnectorError
 
-from parsimony_boc import BocSearchParams, boc_search, load
+from parsimony_boc import boc_search, load
 from parsimony_boc.catalog import _clear_catalog_cache_for_tests, get_catalog
 
 
@@ -65,7 +65,7 @@ async def test_get_catalog_raises_on_integrity_failure_without_fallback(
 @respx.mock
 @pytest.mark.asyncio
 async def test_get_catalog_builds_bm25_fallback_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    from parsimony_boc import BocEnumerateParams, enumerate_boc
+    from parsimony_boc import enumerate_boc
 
     _clear_catalog_cache_for_tests()
     _mock_minimal_enumeration()
@@ -77,12 +77,12 @@ async def test_get_catalog_builds_bm25_fallback_when_enabled(monkeypatch: pytest
     catalog = await get_catalog(
         catalog_url="file:///tmp/missing-boc",
         fallback_bm25=True,
-        enumerate=lambda: enumerate_boc(BocEnumerateParams()),
+        enumerate=lambda: enumerate_boc(),
     )
 
     assert catalog.name == "boc"
     assert len(catalog) >= 1
-    matches = await catalog.search("USD", limit=5)
+    matches, _ = await catalog.search("USD", limit=5)
     assert len(matches) >= 1
     assert matches[0].code == "FXUSDCAD"
 
@@ -108,11 +108,9 @@ async def test_boc_search_uses_bm25_fallback_when_requested(monkeypatch: pytest.
     )
 
     result = await boc_search(
-        BocSearchParams(
-            query="USD",
-            catalog_url="file:///tmp/missing-boc",
-            fallback_bm25=True,
-        )
+        query="USD",
+        catalog_url="file:///tmp/missing-boc",
+        fallback_bm25=True,
     )
     df = result.data
 

@@ -55,7 +55,7 @@ async def test_eia_fetch_returns_rows() -> None:
     )
 
     bound = eia_fetch.bind(api_key=_KEY)
-    result = await bound(EiaFetchParams(route="petroleum/pri/spt"))
+    result = await bound(route="petroleum/pri/spt")
 
     assert result.provenance.source == "eia_fetch"
     assert len(result.data) == 2
@@ -71,7 +71,7 @@ async def test_eia_fetch_maps_401_without_leaking_key() -> None:
 
     bound = eia_fetch.bind(api_key=_KEY)
     with pytest.raises(UnauthorizedError) as exc_info:
-        await bound(EiaFetchParams(route="petroleum/pri/spt"))
+        await bound(route="petroleum/pri/spt")
     assert _KEY not in str(exc_info.value)
 
 
@@ -84,7 +84,7 @@ async def test_eia_fetch_maps_429_without_leaking_key() -> None:
 
     bound = eia_fetch.bind(api_key=_KEY)
     with pytest.raises(RateLimitError) as exc_info:
-        await bound(EiaFetchParams(route="petroleum/pri/spt"))
+        await bound(route="petroleum/pri/spt")
     assert _KEY not in str(exc_info.value)
 
 
@@ -97,7 +97,7 @@ async def test_eia_fetch_raises_empty_data_when_no_records() -> None:
 
     bound = eia_fetch.bind(api_key=_KEY)
     with pytest.raises(EmptyDataError):
-        await bound(EiaFetchParams(route="petroleum/pri/spt"))
+        await bound(route="petroleum/pri/spt")
 
 
 # ---------------------------------------------------------------------------

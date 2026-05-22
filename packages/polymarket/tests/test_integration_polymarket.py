@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from parsimony_test_support import assert_provenance_shape
 
-from parsimony_polymarket import POLYMARKET_GAMMA, PolymarketFetchParams
+from parsimony_polymarket import POLYMARKET_GAMMA
 
 pytestmark = pytest.mark.integration
 
@@ -18,7 +18,7 @@ pytestmark = pytest.mark.integration
 async def test_polymarket_gamma_events_returns_active_markets() -> None:
     # ``limit`` is an extra field accepted via ``ConfigDict(extra="allow")``;
     # mypy doesn't see it on the BaseModel signature.
-    result = await POLYMARKET_GAMMA(PolymarketFetchParams(path="/events", limit=5))  # type: ignore[call-arg]
+    result = await POLYMARKET_GAMMA(path="/events", limit=5)
 
     assert_provenance_shape(
         result,
@@ -33,7 +33,7 @@ async def test_polymarket_gamma_events_returns_active_markets() -> None:
 
 @pytest.mark.asyncio
 async def test_polymarket_gamma_markets_returns_data() -> None:
-    result = await POLYMARKET_GAMMA(PolymarketFetchParams(path="/markets", limit=5))  # type: ignore[call-arg]
+    result = await POLYMARKET_GAMMA(path="/markets", limit=5)
 
     assert_provenance_shape(result, expected_source="polymarket_gamma")
     df = result.data

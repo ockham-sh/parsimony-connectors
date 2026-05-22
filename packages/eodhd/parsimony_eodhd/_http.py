@@ -23,7 +23,7 @@ from parsimony.errors import (
     ParseError,
     ProviderError,
 )
-from parsimony.result import OutputConfig, Result
+from parsimony.result import OutputConfig, Result, TabularResult
 from parsimony.transport import HttpClient, map_http_error, map_timeout_error
 
 # Per-request timeout. 15s is defensible for EODHD's REST endpoints, which
@@ -162,7 +162,7 @@ async def eodhd_fetch(
 
     if output_config is not None:
         return output_config.build_table_result(df)
-    return Result.from_dataframe(df)
+    return TabularResult.from_dataframe(df)
 
 
 __all__ = [

@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 from parsimony_test_support import assert_provenance_shape, require_env
 
-from parsimony_financial_reports import FrCompaniesSearchParams, fr_companies_search
+from parsimony_financial_reports import fr_companies_search
 
 pytestmark = pytest.mark.integration
 
@@ -36,7 +36,7 @@ async def test_fr_companies_search_germany() -> None:
     bound = fr_companies_search.bind(api_key=creds["FINANCIAL_REPORTS_API_KEY"])
 
     # Germany is large enough that the first page of search results is stable.
-    result = await bound(FrCompaniesSearchParams(countries="DE", page_size=5))
+    result = await bound(countries="DE", page_size=5)
 
     assert_provenance_shape(result)
     df = result.data

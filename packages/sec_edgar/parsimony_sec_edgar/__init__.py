@@ -21,6 +21,7 @@ from parsimony.result import (
     ColumnRole,
     OutputConfig,
     Result,
+    TabularResult,
 )
 from pydantic import BaseModel, Field
 
@@ -129,7 +130,8 @@ SEARCH_FILINGS_OUTPUT = OutputConfig(
 
 
 # ---------------------------------------------------------------------------
-# Parameter models
+# Parameter models — internal validators for connector inputs.
+# Connector functions expose these fields as flat top-level parameters.
 # ---------------------------------------------------------------------------
 
 
@@ -357,12 +359,13 @@ def _get_filing_by_accession(accession_number: str) -> Any:
 
 
 @connector(output=FIND_COMPANY_OUTPUT, tags=["sec_edgar", "tool"])
-async def sec_edgar_find_company(params: SecEdgarFindCompanyParams) -> Result:
+async def sec_edgar_find_company(identifier: str) -> Result:
     """Search SEC EDGAR for companies by name, ticker symbol, or CIK number.
 
     Returns matching companies with CIK, name, and ticker.
     Use the ticker or CIK in other sec_edgar_* connectors to get filings and financials.
     """
+    params = SecEdgarFindCompanyParams(identifier=identifier)  # type: ignore[call-arg]
     result = await asyncio.to_thread(_resolve_company, params.identifier)
     if _is_company_search_results(result):
         df = result.results.copy()
@@ -386,11 +389,12 @@ async def sec_edgar_find_company(params: SecEdgarFindCompanyParams) -> Result:
 
 
 @connector(tags=["sec_edgar", "tool"])
-async def sec_edgar_company_profile(params: SecEdgarCompanyProfileParams) -> Result:
+async def sec_edgar_company_profile(identifier: str) -> Result:
     """Retrieve a company's SEC EDGAR profile: name, CIK, ticker, industry, SIC code, and fiscal year end.
 
     Use this to get structured company information before fetching financials or filings.
     """
+    params = SecEdgarCompanyProfileParams(identifier=identifier)  # type: ignore[call-arg]
     entity = await asyncio.to_thread(_resolve_to_entity, params.identifier)
     tickers = getattr(entity, "tickers", None) or []
     df = pd.DataFrame(
@@ -405,49 +409,80 @@ async def sec_edgar_company_profile(params: SecEdgarCompanyProfileParams) -> Res
             }
         ]
     )
-    return Result.from_dataframe(df)
+    return TabularResult.from_dataframe(df)
 
 
 @connector(tags=["sec_edgar"])
-async def sec_edgar_income_statement(params: SecEdgarFinancialStatementParams) -> Result:
+async def sec_edgar_income_statement(
+    identifier: str,
+    periods: int = 4,
+    annual: bool = True,
+    view: Literal['summary', 'detailed'] = 'summary'
+) -> Result:
     """Retrieve income statement data from SEC 10-K/10-Q XBRL filings.
 
     Returns revenue, expenses, net income, and other P&L line items.
     Use view='summary' for multi-period comparison or view='detailed' for full line items from the latest filing.
     """
+    params = SecEdgarFinancialStatementParams(identifier=identifier, periods=periods, annual=annual, view=view)  # type: ignore[call-arg]
     df = await _fetch_statement("income_statement", params)
-    return Result.from_dataframe(df)
+    return TabularResult.from_dataframe(df)
 
 
 @connector(tags=["sec_edgar"])
-async def sec_edgar_balance_sheet(params: SecEdgarFinancialStatementParams) -> Result:
+async def sec_edgar_balance_sheet(
+    identifier: str,
+    periods: int = 4,
+    annual: bool = True,
+    view: Literal['summary', 'detailed'] = 'summary'
+) -> Result:
     """Retrieve balance sheet data from SEC 10-K/10-Q XBRL filings.
 
     Returns assets, liabilities, equity, and other balance sheet line items.
     Use view='summary' for multi-period comparison or view='detailed' for full line items from the latest filing.
     """
+    params = SecEdgarFinancialStatementParams(identifier=identifier, periods=periods, annual=annual, view=view)  # type: ignore[call-arg]
     df = await _fetch_statement("balance_sheet", params)
-    return Result.from_dataframe(df)
+    return TabularResult.from_dataframe(df)
 
 
 @connector(tags=["sec_edgar"])
-async def sec_edgar_cashflow_statement(params: SecEdgarFinancialStatementParams) -> Result:
+async def sec_edgar_cashflow_statement(
+    identifier: str,
+    periods: int = 4,
+    annual: bool = True,
+    view: Literal['summary', 'detailed'] = 'summary'
+) -> Result:
     """Retrieve cash flow statement data from SEC 10-K/10-Q XBRL filings.
 
     Returns operating, investing, and financing cash flows.
     Use view='summary' for multi-period comparison or view='detailed' for full line items from the latest filing.
     """
+    params = SecEdgarFinancialStatementParams(identifier=identifier, periods=periods, annual=annual, view=view)  # type: ignore[call-arg]
     df = await _fetch_statement("cashflow_statement", params)
-    return Result.from_dataframe(df)
+    return TabularResult.from_dataframe(df)
 
 
 @connector(output=SEARCH_FILINGS_OUTPUT, tags=["sec_edgar", "tool"])
-async def sec_edgar_search_filings(params: SecEdgarSearchFilingsParams) -> Result:
+async def sec_edgar_search_filings(
+    query: str,
+    forms: list[str] | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    limit: int = 20
+) -> Result:
     """Full-text search across all SEC EDGAR filings.
 
     Search for specific topics, risk factors, or disclosures across all public companies.
     Returns form type, company, filing date, accession number, and CIK.
     """
+    params = SecEdgarSearchFilingsParams(
+        query=query,
+        forms=forms,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit)  # type: ignore[call-arg]
+
     from edgar import search_filings
 
     _ensure_edgar_identity()
@@ -476,12 +511,18 @@ async def sec_edgar_search_filings(params: SecEdgarSearchFilingsParams) -> Resul
 
 
 @connector(output=FILINGS_OUTPUT, tags=["sec_edgar"])
-async def sec_edgar_filings(params: SecEdgarFilingsParams) -> Result:
+async def sec_edgar_filings(
+    identifier: str | None = None,
+    form: str | None = None,
+    filing_date: str | None = None,
+    limit: int = 20
+) -> Result:
     """List filings from SEC EDGAR for a specific company or across all companies.
 
     Returns filing metadata: form type, filing date, accession number.
     Use the accession number with sec_edgar_filing_document or sec_edgar_filing_metadata.
     """
+    params = SecEdgarFilingsParams(identifier=identifier, form=form, filing_date=filing_date, limit=limit)  # type: ignore[call-arg]
     from edgar import get_filings
 
     _ensure_edgar_identity()
@@ -501,27 +542,29 @@ async def sec_edgar_filings(params: SecEdgarFilingsParams) -> Result:
 
 
 @connector(tags=["sec_edgar"])
-async def sec_edgar_company_facts(params: SecEdgarCompanyFactsParams) -> Result:
+async def sec_edgar_company_facts(identifier: str) -> Result:
     """Retrieve all XBRL company facts from SEC EDGAR for a given company.
 
     Returns a comprehensive table of all reported financial data points (revenue, assets, shares, etc.)
     across all filing periods. Useful for building custom financial time series.
     """
+    params = SecEdgarCompanyFactsParams(identifier=identifier)  # type: ignore[call-arg]
     entity = await asyncio.to_thread(_resolve_to_entity, params.identifier)
     facts = await asyncio.to_thread(entity.get_facts)
     if facts is None:
         raise EmptyDataError(provider="sec_edgar", message=f"No company facts found for '{params.identifier}'")
     df = await asyncio.to_thread(_to_dataframe, facts)
-    return Result.from_dataframe(df)
+    return TabularResult.from_dataframe(df)
 
 
 @connector(tags=["sec_edgar"])
-async def sec_edgar_filing_document(params: SecEdgarFilingDocumentParams) -> Result:
+async def sec_edgar_filing_document(accession_number: str) -> Result:
     """Retrieve a filing's full content as markdown text by accession number.
 
     Returns the filing document converted to markdown for reading and analysis.
     Use accession numbers from sec_edgar_filings or sec_edgar_search_filings results.
     """
+    params = SecEdgarFilingDocumentParams(accession_number=accession_number)  # type: ignore[call-arg]
     filing = await asyncio.to_thread(_get_filing_by_accession, params.accession_number)
     markdown = await asyncio.to_thread(filing.markdown)
     content = str(markdown or "").strip()
@@ -531,7 +574,7 @@ async def sec_edgar_filing_document(params: SecEdgarFilingDocumentParams) -> Res
 
 
 @connector(tags=["sec_edgar"])
-async def sec_edgar_filing_metadata(params: SecEdgarFilingMetadataParams) -> Result:
+async def sec_edgar_filing_metadata(accession_number: str) -> Result:
     """Retrieve AI-optimized metadata summary of a SEC filing by accession number.
 
     Returns structured metadata (markdown-KV format) covering all form-specific fields:
@@ -539,6 +582,7 @@ async def sec_edgar_filing_metadata(params: SecEdgarFilingMetadataParams) -> Res
     filing type (8-K, 10-K, 10-Q, 13F, etc.). Use for quick inspection before reading
     the full document with sec_edgar_filing_document.
     """
+    params = SecEdgarFilingMetadataParams(accession_number=accession_number)  # type: ignore[call-arg]
     filing = await asyncio.to_thread(_get_filing_by_accession, params.accession_number)
 
     # Try obj().to_context() first — form-specific, richest metadata
@@ -561,13 +605,14 @@ async def sec_edgar_filing_metadata(params: SecEdgarFilingMetadataParams) -> Res
 
 
 @connector(tags=["sec_edgar"])
-async def sec_edgar_filing_sections(params: SecEdgarFilingSectionsParams) -> Result:
+async def sec_edgar_filing_sections(accession_number: str) -> Result:
     """List the sections/items (table of contents) of a SEC filing by accession number.
 
     Returns available section identifiers and titles. Use the item identifiers with
     sec_edgar_filing_item to fetch specific section text, or with sec_edgar_filing_tables
     to scope table extraction to a section.
     """
+    params = SecEdgarFilingSectionsParams(accession_number=accession_number)  # type: ignore[call-arg]
     filing = await asyncio.to_thread(_get_filing_by_accession, params.accession_number)
     obj = await asyncio.to_thread(_get_filing_obj, filing)
 
@@ -598,11 +643,11 @@ async def sec_edgar_filing_sections(params: SecEdgarFilingSectionsParams) -> Res
             pass  # Fall back to simple items list
 
     df = pd.DataFrame(rows)
-    return Result.from_dataframe(df)
+    return TabularResult.from_dataframe(df)
 
 
 @connector(tags=["sec_edgar"])
-async def sec_edgar_filing_item(params: SecEdgarFilingItemParams) -> Result:
+async def sec_edgar_filing_item(accession_number: str, item: str) -> Result:
     """Retrieve a specific section/item from a SEC filing as text.
 
     Supports flexible item lookup: '1A' or 'Item 1A' (10-K Risk Factors),
@@ -610,6 +655,7 @@ async def sec_edgar_filing_item(params: SecEdgarFilingItemParams) -> Result:
     'Part I, Item 1' (part-qualified for 10-Q). Use sec_edgar_filing_sections
     to discover available items first.
     """
+    params = SecEdgarFilingItemParams(accession_number=accession_number, item=item)  # type: ignore[call-arg]
     filing = await asyncio.to_thread(_get_filing_by_accession, params.accession_number)
     obj = await asyncio.to_thread(_get_filing_obj, filing)
 
@@ -625,13 +671,14 @@ async def sec_edgar_filing_item(params: SecEdgarFilingItemParams) -> Result:
 
 
 @connector(tags=["sec_edgar"])
-async def sec_edgar_filing_tables(params: SecEdgarFilingTablesParams) -> Result:
+async def sec_edgar_filing_tables(accession_number: str, item: str | None = None) -> Result:
     """List all tables in a SEC filing with their caption, type, and size.
 
     Returns a summary DataFrame with table_index, caption, is_financial, row_count,
     and col_count. Use table_index with sec_edgar_filing_table to fetch a specific
     table as a DataFrame. Optionally scope to a specific section with the item parameter.
     """
+    params = SecEdgarFilingTablesParams(accession_number=accession_number, item=item)  # type: ignore[call-arg]
     filing = await asyncio.to_thread(_get_filing_by_accession, params.accession_number)
     tables = await asyncio.to_thread(_get_tables_from_filing, filing, params.item)
 
@@ -657,17 +704,18 @@ async def sec_edgar_filing_tables(params: SecEdgarFilingTablesParams) -> Result:
         )
 
     df = pd.DataFrame(rows)
-    return Result.from_dataframe(df)
+    return TabularResult.from_dataframe(df)
 
 
 @connector(tags=["sec_edgar"])
-async def sec_edgar_filing_table(params: SecEdgarFilingTableParams) -> Result:
+async def sec_edgar_filing_table(accession_number: str, table_index: int, item: str | None = None) -> Result:
     """Retrieve a specific table from a SEC filing as a DataFrame.
 
     Use sec_edgar_filing_tables first to list available tables and find the table_index.
     Returns the table with proper column headers, numeric type handling, and
     colspan/rowspan resolution.
     """
+    params = SecEdgarFilingTableParams(accession_number=accession_number, table_index=table_index, item=item)  # type: ignore[call-arg]
     filing = await asyncio.to_thread(_get_filing_by_accession, params.accession_number)
     tables = await asyncio.to_thread(_get_tables_from_filing, filing, params.item)
 
@@ -714,17 +762,23 @@ async def sec_edgar_filing_table(params: SecEdgarFilingTableParams) -> Result:
                 if len(types) > 1:
                     df[col] = df[col].apply(lambda x: str(x) if x is not None else "")
 
-    return Result.from_dataframe(df)
+    return TabularResult.from_dataframe(df)
 
 
 @connector(tags=["sec_edgar"])
-async def sec_edgar_insider_trades(params: SecEdgarInsiderTradesParams) -> Result:
+async def sec_edgar_insider_trades(
+    identifier: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    limit: int = 10
+) -> Result:
     """Retrieve structured insider trades (Form 4) for a company from SEC EDGAR.
 
     Returns a DataFrame with transaction details: owner name, relationship,
     transaction type (Purchase/Sale/Grant/etc.), date, shares, price, and
     shares owned after transaction. Extracts structured XML data from Form 4 filings.
     """
+    params = SecEdgarInsiderTradesParams(identifier=identifier, start_date=start_date, end_date=end_date, limit=limit)  # type: ignore[call-arg]
     entity = await asyncio.to_thread(_resolve_to_entity, params.identifier)
 
     # Get Form 4 filings with optional date filtering
@@ -797,7 +851,7 @@ async def sec_edgar_insider_trades(params: SecEdgarInsiderTradesParams) -> Resul
     available = [c for c in keep_cols if c in df.columns]
     df = df[available]
 
-    return Result.from_dataframe(df)
+    return TabularResult.from_dataframe(df)
 
 
 # ---------------------------------------------------------------------------

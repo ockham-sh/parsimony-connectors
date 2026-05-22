@@ -98,10 +98,23 @@ def make_polymarket_connector(
 
     # Escape hatch: implementation is `_fetch`; public connector name must be per-endpoint.
     @connector(name=f"{source_name}_fetch", description=desc, tags=["polymarket"])
-    async def _fetch(params: PolymarketFetchParams) -> Result:
+    async def _fetch(
+        path: str,
+        method: Literal["GET", "POST"] = "GET",
+        response_path: str | None = None,
+        expand: Literal["markets", "outcomes"] | None = None,
+        **extra: Any,
+    ) -> Result:
+        params = PolymarketFetchParams(
+            method=method,
+            path=path,
+            response_path=response_path,
+            expand=expand,
+            **extra,
+        )
         raw = params.model_dump()
         raw.update(params.model_extra or {})
-        method = str(raw.pop("method", "GET")).upper()
+        http_method = str(raw.pop("method", "GET")).upper()
         path = raw.pop("path")
         response_path = raw.pop("response_path", None)
         expand = raw.pop("expand", None)
@@ -109,7 +122,7 @@ def make_polymarket_connector(
         rendered_path, request_params = interpolate_path(path, raw)
 
         try:
-            response = await http.request(method, rendered_path, params=request_params)
+            response = await http.request(http_method, rendered_path, params=request_params)
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             map_http_error(exc, provider="polymarket", op_name=rendered_path)
@@ -134,7 +147,7 @@ def make_polymarket_connector(
             df = df.copy()
             df["markets_count"] = df["markets"].apply(lambda x: len(x) if isinstance(x, list) else 0)
 
-        return Result.from_dataframe(df)
+        return Result(data=df)
 
     return _fetch
 

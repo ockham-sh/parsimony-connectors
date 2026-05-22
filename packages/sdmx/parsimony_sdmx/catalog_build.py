@@ -6,7 +6,7 @@ import logging
 from collections.abc import Sequence
 from pathlib import Path
 
-from parsimony.catalog import Catalog, CatalogEntry, entries_from_result
+from parsimony.catalog import Catalog, CatalogEntry
 
 from parsimony_sdmx.catalog_policy import discover_dim_codes, sdmx_datasets_indexes, sdmx_dimension_manifest
 from parsimony_sdmx.connectors._agencies import AgencyId
@@ -165,7 +165,7 @@ async def enrich_datasets_from_enumeration(
     *,
     existing_path: str | Path | None = None,
 ) -> Catalog:
-    entries = enrich_dataset_entries(entries_from_result(enumeration_result), manifests)
+    entries = enrich_dataset_entries(enumeration_result.data, manifests)
     return await build_datasets_catalog(entries, existing_path=existing_path)
 
 

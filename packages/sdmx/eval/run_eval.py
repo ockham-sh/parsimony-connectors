@@ -133,7 +133,7 @@ def ndcg_at_k(relevant: list[str], top_k: list[str]) -> float:
 async def _run_queries(catalog: Catalog, queries: list[Query]) -> list[QueryResult]:
     results: list[QueryResult] = []
     for q in queries:
-        hits = await catalog.search(q.query, limit=10)
+        hits, _ = await catalog.search(q.query, limit=10)
         top_codes = [h.code for h in hits]
         skipped = not q.relevant_codes
         if skipped:

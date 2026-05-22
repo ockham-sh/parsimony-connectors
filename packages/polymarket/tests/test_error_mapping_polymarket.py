@@ -22,7 +22,7 @@ from parsimony.errors import (
 )
 from parsimony_test_support import CANARY_KEY, STATUS_TO_EXC, assert_no_secret_leak
 
-from parsimony_polymarket import POLYMARKET_GAMMA, PolymarketFetchParams
+from parsimony_polymarket import POLYMARKET_GAMMA
 
 _GAMMA_EVENTS_URL = "https://gamma-api.polymarket.com/events"
 
@@ -38,7 +38,7 @@ async def test_polymarket_gamma_maps_status(
     )
 
     with pytest.raises(exc_type) as exc_info:
-        await POLYMARKET_GAMMA(PolymarketFetchParams(path="/events"))
+        await POLYMARKET_GAMMA(path="/events")
 
     # Nothing sensitive is sent on the wire yet, but pin the structural
     # invariant so future additions of auth / proxy headers trip the test.
@@ -53,7 +53,7 @@ async def test_polymarket_rate_limit_carries_retry_after() -> None:
     )
 
     with pytest.raises(RateLimitError) as exc_info:
-        await POLYMARKET_GAMMA(PolymarketFetchParams(path="/events"))
+        await POLYMARKET_GAMMA(path="/events")
     assert exc_info.value.retry_after == 15.0
 
 
@@ -63,5 +63,5 @@ async def test_polymarket_provider_error_carries_status_code() -> None:
     respx.get(_GAMMA_EVENTS_URL).mock(return_value=httpx.Response(503, text="unavailable"))
 
     with pytest.raises(ProviderError) as exc_info:
-        await POLYMARKET_GAMMA(PolymarketFetchParams(path="/events"))
+        await POLYMARKET_GAMMA(path="/events")
     assert exc_info.value.status_code == 503

@@ -42,7 +42,7 @@ async def test_bdp_fetch_parses_json_stat_response() -> None:
         )
     )
 
-    result = await bdp_fetch(BdpFetchParams(domain_id=11, dataset_id="ABC"))
+    result = await bdp_fetch(domain_id=11, dataset_id="ABC")
 
     assert result.provenance.source == "bdp_fetch"
     df = result.data
@@ -58,7 +58,7 @@ async def test_bdp_fetch_raises_empty_data_on_no_observations() -> None:
     )
 
     with pytest.raises(EmptyDataError):
-        await bdp_fetch(BdpFetchParams(domain_id=11, dataset_id="ABC"))
+        await bdp_fetch(domain_id=11, dataset_id="ABC")
 
 
 def test_fetch_rejects_empty_dataset_id() -> None:

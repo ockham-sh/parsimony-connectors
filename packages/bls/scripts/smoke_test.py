@@ -73,7 +73,7 @@ async def _smoke_one_namespace(
     print(f"\n--- {namespace} ({len(queries)} queries) ---", flush=True)
     passed = 0
     for query, expected in queries:
-        hits = await cat.search(query, limit=5)
+        hits, _ = await cat.search(query, limit=5)
         top3 = hits[:3]
         ok = bool(top3) and any(_matches_any(h, expected) for h in top3)
         status = "PASS" if ok else "FAIL"

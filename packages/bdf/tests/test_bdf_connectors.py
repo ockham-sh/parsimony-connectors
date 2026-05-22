@@ -63,7 +63,7 @@ async def test_bdf_fetch_parses_json_response() -> None:
     )
 
     bound = bdf_fetch.bind(api_key=_KEY)
-    result = await bound(BdfFetchParams(key="EXR.M.USD.EUR.SP00.E"))
+    result = await bound(key="EXR.M.USD.EUR.SP00.E")
 
     assert result.provenance.source == "bdf_fetch"
     # api_key never propagates into provenance (it's passed as a request header)
@@ -80,7 +80,7 @@ async def test_bdf_fetch_raises_empty_data_on_no_observations() -> None:
 
     bound = bdf_fetch.bind(api_key=_KEY)
     with pytest.raises(EmptyDataError):
-        await bound(BdfFetchParams(key="XX"))
+        await bound(key="XX")
 
 
 def test_fetch_rejects_empty_key() -> None:

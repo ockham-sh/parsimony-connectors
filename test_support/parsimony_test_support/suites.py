@@ -9,13 +9,13 @@ These mixins encode the two most-repeated test patterns in the monorepo:
 
 Usage (connectors with an API key)::
 
-    from parsimony_fred import fred_search, FredSearchParams
+    from parsimony_fred import fred_search
     from parsimony_test_support import CANARY_KEY
     from parsimony_test_support.suites import ErrorMappingSuite
 
     class TestFredErrorMapping(ErrorMappingSuite):
         connector = fred_search
-        params = FredSearchParams(search_text="x")
+        call_kwargs = {"search_text": "x"}
         route_url = "https://api.stlouisfed.org/fred/series/search"
         method = "GET"
         env_key = "api_key"
@@ -26,7 +26,7 @@ Usage (public connectors, no key)::
 
     class TestPolymarketErrorMapping(ErrorMappingSuite):
         connector = POLYMARKET_GAMMA
-        params = PolymarketFetchParams(path="/events")
+        call_kwargs = {"path": "/events"}
         route_url = "https://gamma-api.polymarket.com/events"
         method = "GET"
         env_key = None
@@ -40,7 +40,6 @@ from typing import Any, ClassVar
 import httpx
 import pytest
 import respx
-from pydantic import BaseModel
 from parsimony.errors import (
     ConnectorError,
     ProviderError,
@@ -61,14 +60,14 @@ class ErrorMappingSuite:
     ``@pytest.mark.asyncio`` decorator — inherited methods already carry
     it via pytest-asyncio auto-mode.
 
-    Override :attr:`connector`, :attr:`params`, :attr:`route_url`,
+    Override :attr:`connector`, :attr:`call_kwargs`, :attr:`route_url`,
     :attr:`method`. Override :attr:`env_key` to ``None`` for public
     connectors.
     """
 
     # --- Required overrides ---------------------------------------------
     connector: ClassVar[Any] = None
-    params: ClassVar[Any] = None
+    call_kwargs: ClassVar[dict[str, Any]] = {}
     route_url: ClassVar[str] = ""
     method: ClassVar[str] = "GET"
 
@@ -84,13 +83,7 @@ class ErrorMappingSuite:
     status_map: ClassVar[list[tuple[int, type[ConnectorError]]]] = STATUS_TO_EXC
 
     async def _call(self, connector: Any) -> Any:
-        if isinstance(self.params, BaseModel):
-            if "params" in connector.exposed_signature.parameters:
-                return await connector(params=self.params)
-            return await connector(**self.params.model_dump())
-        if isinstance(self.params, dict):
-            return await connector(**self.params)
-        return await connector(self.params)
+        return await connector(**self.call_kwargs)
 
     # --- Tests ----------------------------------------------------------
 

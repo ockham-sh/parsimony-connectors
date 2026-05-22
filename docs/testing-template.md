@@ -28,39 +28,31 @@ For every connector exported in `CONNECTORS`, write one async test that:
 
 1. Mocks the upstream HTTP response with `respx` at the full upstream URL.
 2. Binds keyword-only deps via `connector.bind(api_key="test-key", ...)`.
-3. Awaits the bound callable with a valid `Params` instance.
+3. Awaits the bound callable with flat keyword arguments matching the connector signature.
 4. Asserts on the **public `Result` surface only** — never on internal helpers,
    request headers, or full DataFrame equality.
 
 Minimum assertions, required on every happy-path test:
 
-- `isinstance(result, Result)` — the `@enumerator` decorator is expected to
-  wrap the returned `pd.DataFrame` into a `Result`; this assertion is what
-  catches silent decorator regressions.
+- `isinstance(result, Result)` — every connector call returns a `Result`.
+- For tabular connectors with `output=`, assert `len(result.columns) > 0`.
 - `result.provenance.source == "<provider-name>"` — matches the
   `ENV_VARS` / entry-point key.
 - `result.data` has the expected columns (by name, not by full content).
-- For `@enumerator`: row count > 0 on the happy-path fixture.
+- For `@enumerator`: `result.data` is a non-empty `list[CatalogEntry]`.
 
 ---
 
 ## 3. Provenance envelope
 
-Every `Provenance(...)` constructed inside a connector must populate at least:
+The kernel builds `Provenance` in `Connector._wrap_result`. Connectors must
+**not** construct `Provenance` directly. Attach source-specific extras with
+`result.with_properties(...)` on a `TabularResult`, or return a plain
+`DataFrame` and let `@connector(output=...)` apply the schema.
 
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `source` | `str` | yes | Provider identifier (matches entry-point key). |
-| `params` | `dict[str, Any]` | yes | The parameter payload that produced the result. Never include the `api_key`. |
-| `properties["retrieved_at"]` | `str` (ISO-8601 UTC) | yes | `datetime.now(timezone.utc).isoformat()`. |
-| `properties["upstream_endpoint"]` | `str` | yes | The request path (e.g. `/series/observations`) — **not** the full URL with query string (which may contain the API key). |
-| `properties["as_of"]` | `str` | when upstream exposes it | Upstream vintage / version / `last_updated` date. Omit if the provider has no concept of vintage. |
-
-Everything else goes under `properties[...]` or is elided. Do not write an
-authenticated URL into any provenance field — downstream LLM tools read this.
-
-The happy-path test asserts on `source`; the error-mapping test asserts the
-api-key value does **not** appear in `str(raised_exception)` (see §4).
+Never put API keys or authenticated URLs in provenance fields. The happy-path
+test asserts `result.provenance.source`; error-mapping tests assert the api-key
+value does **not** appear in `str(raised_exception)` (see §4).
 
 ---
 
@@ -78,7 +70,7 @@ async def test_<name>_maps_401_to_unauthorized() -> None:
     respx.get("<upstream-url>").mock(return_value=httpx.Response(401, json={...}))
     bound = <connector>.bind(api_key="live-looking-key-123")
     with pytest.raises(UnauthorizedError) as exc_info:
-        await bound(<Params>(...))
+        await bound(query="...", limit=10)
     assert "live-looking-key-123" not in str(exc_info.value)
 ```
 

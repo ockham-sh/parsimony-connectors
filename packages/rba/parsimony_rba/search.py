@@ -1,45 +1,13 @@
-"""Semantic search over the published Reserve Bank of Australia (RBA) catalog.
-
-Wraps the parquet+FAISS catalog at ``hf://parsimony-dev/rba`` (override with
-``PARSIMONY_RBA_CATALOG_URL`` for local testing) as an MCP tool.
-
-Codes returned by this tool are compound ``{table_id}#{series_id}`` keys.
-Pass the ``table_id`` portion (everything before ``#``) to :func:`rba_fetch`
-via its ``table_id`` parameter — RBA fetches an entire table at once.
-"""
+"""Semantic search over the published Reserve Bank of Australia (RBA) catalog."""
 
 from __future__ import annotations
 
-import asyncio
-import logging
-import os
-from typing import Annotated
-
-import pandas as pd
-from parsimony.catalog import Catalog
-from parsimony.connector import connector
 from parsimony.result import Column, ColumnRole, OutputConfig
-from pydantic import BaseModel, Field
+from parsimony.utils.catalog_search import CatalogSearchParams, make_catalog_search_connector
 
-logger = logging.getLogger(__name__)
+RbaSearchParams = CatalogSearchParams
 
 PARSIMONY_RBA_CATALOG_URL_ENV = "PARSIMONY_RBA_CATALOG_URL"
-_DEFAULT_CATALOG_URL = "hf://parsimony-dev/rba"
-
-_catalog: Catalog | None = None
-_catalog_url: str | None = None
-_catalog_lock = asyncio.Lock()
-
-
-async def _get_catalog(catalog_url: str | None = None) -> Catalog:
-    global _catalog, _catalog_url
-    url = catalog_url or os.environ.get(PARSIMONY_RBA_CATALOG_URL_ENV, _DEFAULT_CATALOG_URL)
-    async with _catalog_lock:
-        if _catalog is None or _catalog_url != url:
-            _catalog = await Catalog.load(url)
-            _catalog_url = url
-        return _catalog
-
 
 RBA_SEARCH_OUTPUT = OutputConfig(
     columns=[
@@ -49,50 +17,14 @@ RBA_SEARCH_OUTPUT = OutputConfig(
     ]
 )
 
-
-class RbaSearchParams(BaseModel):
-    """Parameters for :func:`rba_search`."""
-
-    query: Annotated[
-        str,
-        Field(
-            min_length=1,
-            max_length=512,
-            description=(
-                "Natural-language description of the RBA series you want "
-                "(e.g. 'Australian cash rate target', 'AUD USD exchange "
-                "rate', 'CPI inflation Australia')."
-            ),
-        ),
-    ]
-    limit: int = Field(default=10, ge=1, le=50, description="Top-N results.")
-    catalog_url: str | None = Field(default=None, description="Override catalog URL, e.g. file:///tmp/rba.")
-
-
-@connector(
-    output=RBA_SEARCH_OUTPUT,
+rba_search = make_catalog_search_connector(
+    provider="rba",
+    default_url="hf://parsimony-dev/rba",
+    env_var=PARSIMONY_RBA_CATALOG_URL_ENV,
     tags=["macro", "au", "tool"],
+    description=(
+        "Semantic-search the Reserve Bank of Australia (RBA) statistical catalog. "
+        "Pass the table_id portion (everything before #) to rba_fetch(table_id=...)."
+    ),
+    output_columns=RBA_SEARCH_OUTPUT.columns,
 )
-async def rba_search(params: RbaSearchParams) -> pd.DataFrame:
-    """Semantic-search the Reserve Bank of Australia (RBA) statistical catalog.
-
-    Returns the top matching ``{table_id}#{series_id}`` codes from RBA's
-    statistical tables (~4.7k series across CSV tables, XLSX-exclusive
-    sheets, and historical xls binaries — covering cash rate, exchange
-    rates, banking, monetary aggregates, payments, etc.).
-
-    Pass the ``table_id`` portion (everything before ``#``) to
-    ``rba_fetch(table_id=...)`` — RBA fetches one whole table at a time.
-    """
-    catalog = await _get_catalog(params.catalog_url)
-    matches = await catalog.search(params.query, limit=params.limit)
-    return pd.DataFrame(
-        [
-            {
-                "code": m.code,
-                "title": m.title,
-                "score": round(m.score, 6),
-            }
-            for m in matches
-        ]
-    )

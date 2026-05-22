@@ -27,13 +27,13 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
+from parsimony.catalog import CatalogEntry
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Result,
 )
 from parsimony.transport import map_http_error
 from pydantic import BaseModel, Field, field_validator
@@ -413,11 +413,16 @@ async def _fetch_catalog_chapter(
 
 
 @connector(output=BDE_FETCH_OUTPUT, tags=["macro", "es"])
-async def bde_fetch(params: BdeFetchParams) -> Result:
+async def bde_fetch(
+    key: Annotated[str, "ns:bde"],
+    time_range: str | None = None,
+    lang: str = "en",
+) -> pd.DataFrame:
     """Fetch Banco de España time series by series code(s).
 
     Uses the BdE REST API (BIEST). Returns date + value with series metadata.
     """
+    params = BdeFetchParams(key=key, time_range=time_range, lang=lang)
     url = f"{_BASE_URL}/listaSeries"
 
     # BdE API: fetch each series individually and merge results.
@@ -450,29 +455,15 @@ async def bde_fetch(params: BdeFetchParams) -> Result:
     if df.empty:
         raise EmptyDataError(provider="bde", message=f"No observations parsed for: {params.key}")
 
-    return Result.from_dataframe(df).with_properties(
-        source_url="https://www.bde.es/webbe/en/estadisticas/recursos/api-estadisticas-bde.html",
-    )
+    return df
 
 
-@enumerator(
-    output=BDE_ENUMERATE_OUTPUT,
-    tags=["macro", "es"],
-)
-async def enumerate_bde(params: BdeEnumerateParams) -> pd.DataFrame:
-    """Enumerate every BdE statistical series across the seven published catalog chapters.
+@enumerator(tags=["macro", "es"])
+async def enumerate_bde() -> list[CatalogEntry]:
+    """Enumerate BdE statistical series from published catalog CSV chapters.
 
-    BdE has no list endpoint or SDMX feed. The only authoritative discovery
-    surface is the ``catalogo_{be,cf,ie,pb,si,tc,ti}.csv`` files BdE publishes
-    alongside its statistical bulletin. Each row maps onto a series the
-    ``/listaSeries`` API can fetch by ``serie`` code, and carries the
-    descriptive prose, frequency, units, and date range needed to rank it
-    in semantic search. Per-chapter network failures degrade gracefully —
-    the enumerator returns whatever chapters succeeded rather than empty.
-    Some ``serie`` codes appear in more than one chapter (e.g. a national
-    accounts series listed under both BE and CF); we keep all occurrences so
-    agents filtering by ``category`` see the series under every taxonomy it
-    belongs to. Downstream de-duplication by ``key`` is the caller's call.
+    Each chapter CSV maps to fetchable ``listaSeries`` codes; per-chapter
+    network failures degrade gracefully instead of failing the batch.
     """
     rows: list[dict[str, str]] = []
     async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
@@ -496,7 +487,8 @@ async def enumerate_bde(params: BdeEnumerateParams) -> pd.DataFrame:
         "n_obs",
         "source_org",
     ]
-    return pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    df = pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    return BDE_ENUMERATE_OUTPUT.build_entries(df)
 
 
 # ---------------------------------------------------------------------------

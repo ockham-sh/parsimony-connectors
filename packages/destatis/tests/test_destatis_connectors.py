@@ -20,10 +20,12 @@ from __future__ import annotations
 import logging
 
 import httpx
+import pandas as pd
 import pytest
 import respx
 from parsimony.errors import ProviderError
 from parsimony.result import ColumnRole
+from parsimony_test_support import entries_result_to_dataframe
 
 from parsimony_destatis import (
     CONNECTORS,
@@ -66,13 +68,6 @@ _JSONSTAT_FIXTURE = {
 # ---------------------------------------------------------------------------
 # Plugin contract shape
 # ---------------------------------------------------------------------------
-
-
-def test_operator_credentials_are_bindable_but_not_required() -> None:
-    """The current public API is anonymous; legacy credentials remain bindable."""
-    bound = CONNECTORS["destatis_fetch"].bind(username="GAST", password="GAST")
-    assert "username" not in bound.to_json_schema()["properties"]
-    assert "password" not in bound.to_json_schema()["properties"]
 
 
 def test_connectors_collection_exposes_expected_names() -> None:
@@ -123,7 +118,7 @@ async def test_destatis_fetch_parses_jsonstat_response() -> None:
     # so the parser falls back to the table code.
     assert df.iloc[0]["title"] == "61111-0001"
     # Dates parsed via ``_normalize_german_date`` (German month names).
-    assert set(df["date"]) == {"2026-01-01", "2026-02-01"}
+    assert set(pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")) == {"2026-01-01", "2026-02-01"}
     assert sorted(df["value"].tolist()) == [108.4, 108.7]
 
 
@@ -247,7 +242,7 @@ async def test_enumerate_destatis_emits_statistic_and_table_rows() -> None:
     )
 
     result = await enumerate_destatis()
-    df = result.data
+    df = entries_result_to_dataframe(result)
 
     # Exactly the 11-column schema, in declared order.
     expected_cols = [
@@ -314,7 +309,7 @@ async def test_enumerate_destatis_lifts_parent_description_into_table_rows() -> 
     )
 
     result = await enumerate_destatis()
-    df = result.data
+    df = entries_result_to_dataframe(result)
 
     table_rows = df[df["entity_type"] == "table"]
     assert len(table_rows) == 2
@@ -346,7 +341,6 @@ async def test_enumerate_destatis_handles_429_with_retry(
     with caplog.at_level(logging.WARNING, logger="parsimony_destatis"):
         result = await enumerate_destatis()
 
-    df = result.data
     # No rows came through (the only statistic 429'd both endpoints) but
     # the schema is still rectangular and the warning is logged.
     expected_cols = [
@@ -362,6 +356,7 @@ async def test_enumerate_destatis_handles_429_with_retry(
         "variable_names_en",
         "source",
     ]
+    df = entries_result_to_dataframe(result, columns=expected_cols)
     assert list(df.columns) == expected_cols
 
     warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
@@ -371,12 +366,10 @@ async def test_enumerate_destatis_handles_429_with_retry(
 @respx.mock
 @pytest.mark.asyncio
 async def test_enumerate_destatis_emits_columns_required_for_catalog_entries() -> None:
-    """The ``Result`` returned by the enumerator must carry an output
-    schema that ``entries_from_result`` accepts: exactly one KEY (code),
-    one TITLE (title), and METADATA columns for the Destatis-specific dispatch hints.
+    """The ``Result`` returned by the enumerator must carry catalog entries
+    with exactly one KEY (code), one TITLE (title), and METADATA columns
+    for the Destatis-specific dispatch hints.
     """
-    from parsimony.catalog import entries_from_result
-
     _stub_index([{"code": "61111", "name": {"de": "VPI", "en": "CPI"}}])
     _stub_information(
         "61111",
@@ -393,7 +386,7 @@ async def test_enumerate_destatis_emits_columns_required_for_catalog_entries() -
     )
 
     result = await enumerate_destatis()
-    entries = entries_from_result(result)
+    entries = result.data
 
     by_code = {e.code: e for e in entries}
     assert "61111" in by_code

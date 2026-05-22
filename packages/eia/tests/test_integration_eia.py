@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from parsimony_test_support import assert_provenance_shape, require_env
 
-from parsimony_eia import EiaFetchParams, eia_fetch
+from parsimony_eia import eia_fetch
 
 pytestmark = pytest.mark.integration
 
@@ -16,7 +16,7 @@ async def test_eia_fetch_petroleum_spot_prices() -> None:
     bound = eia_fetch.bind(api_key=creds["EIA_API_KEY"])
 
     # petroleum/pri/spt — spot prices — is a stable EIA v2 route.
-    result = await bound(EiaFetchParams(route="petroleum/pri/spt"))
+    result = await bound(route="petroleum/pri/spt")
 
     assert_provenance_shape(result)
     df = result.data

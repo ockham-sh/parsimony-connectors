@@ -83,7 +83,7 @@ async def test_polymarket_gamma_fetch_returns_events() -> None:
         )
     )
 
-    result = await POLYMARKET_GAMMA(PolymarketFetchParams(path="/events"))
+    result = await POLYMARKET_GAMMA(path="/events")
 
     assert result.provenance.source == "polymarket_gamma_fetch"
     df = result.data
@@ -100,7 +100,7 @@ async def test_polymarket_gamma_fetch_raises_provider_error_on_500() -> None:
     )
 
     with pytest.raises(ProviderError):
-        await POLYMARKET_GAMMA(PolymarketFetchParams(path="/events"))
+        await POLYMARKET_GAMMA(path="/events")
 
 
 # ---------------------------------------------------------------------------
@@ -124,9 +124,7 @@ async def test_polymarket_clob_fetch_supports_response_path() -> None:
         )
     )
 
-    result = await POLYMARKET_CLOB(
-        PolymarketFetchParams(path="/markets", response_path="data")
-    )
+    result = await POLYMARKET_CLOB(path="/markets", response_path="data")
 
     df = result.data
     assert result.provenance.source == "polymarket_clob_fetch"

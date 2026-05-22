@@ -25,18 +25,15 @@ Two-layer caching keeps the steady state cheap:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
-from collections import OrderedDict
 from typing import Annotated
 
 import pandas as pd
-from huggingface_hub.errors import RepositoryNotFoundError
-from parsimony.catalog import Catalog
 from parsimony.connector import connector
 from parsimony.errors import ConnectorError, EmptyDataError
 from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.utils.catalog_search import CatalogLRU, resolved_catalog_url
 from pydantic import BaseModel, Field
 
 from parsimony_sdmx.connectors._agencies import AgencyId
@@ -70,9 +67,7 @@ def _lru_size_from_env() -> int:
     return max(1, n)
 
 
-_CATALOGS: OrderedDict[str, Catalog] = OrderedDict()
-_CATALOGS_LOCK = asyncio.Lock()
-_LRU_SIZE = _lru_size_from_env()
+_lru = CatalogLRU(_lru_size_from_env())
 
 
 # ---------------------------------------------------------------------------
@@ -80,27 +75,19 @@ _LRU_SIZE = _lru_size_from_env()
 # ---------------------------------------------------------------------------
 
 
-def _catalog_root(catalog_root: str | None = None) -> str:
-    """Resolve the catalog root: env override or :data:`DEFAULT_CATALOG_ROOT`."""
-    return (catalog_root or os.environ.get(PARSIMONY_SDMX_CATALOG_URL_ENV, DEFAULT_CATALOG_ROOT)).rstrip("/")
-
-
-async def _get_or_load_catalog(namespace: str, *, catalog_root: str | None = None) -> Catalog:
-    """Return a cached :class:`Catalog` for *namespace*, loading on miss.
-
-    Wraps :class:`~parsimony.catalog.Catalog.load` to translate the
-    kernel's raw ``RepositoryNotFoundError`` / ``FileNotFoundError``
-    into a directive-bearing :class:`ConnectorError` — agents need a
-    recovery hint, not a stack trace.
-    """
-    url = f"{_catalog_root(catalog_root)}/{namespace}"
-    async with _CATALOGS_LOCK:
-        if url in _CATALOGS:
-            _CATALOGS.move_to_end(url)
-            return _CATALOGS[url]
-        try:
-            catalog = await Catalog.load(url)
-        except RepositoryNotFoundError as exc:
+async def _get_or_load_catalog(namespace: str, *, catalog_root: str | None = None):
+    """Return a cached catalog for *namespace*, loading on miss."""
+    root = resolved_catalog_url(
+        PARSIMONY_SDMX_CATALOG_URL_ENV,
+        DEFAULT_CATALOG_ROOT,
+        override=catalog_root,
+    )
+    url = f"{root}/{namespace}"
+    try:
+        return await _lru.get_or_load(url)
+    except ConnectorError as exc:
+        message = str(exc)
+        if "not found" in message.lower():
             raise ConnectorError(
                 (
                     f"SDMX catalog repo for {namespace!r} not found at {url}. "
@@ -109,7 +96,7 @@ async def _get_or_load_catalog(namespace: str, *, catalog_root: str | None = Non
                 ),
                 provider="sdmx",
             ) from exc
-        except FileNotFoundError as exc:
+        if "not present" in message.lower():
             raise ConnectorError(
                 (
                     f"SDMX bundle for {namespace!r} not present at {url}. "
@@ -118,25 +105,20 @@ async def _get_or_load_catalog(namespace: str, *, catalog_root: str | None = Non
                 ),
                 provider="sdmx",
             ) from exc
-        _CATALOGS[url] = catalog
-        while len(_CATALOGS) > _LRU_SIZE:
-            _CATALOGS.popitem(last=False)
-        return catalog
+        raise
 
 
 def _clear_catalog_lru() -> None:
     """Drop all cached catalogs. Test-only."""
-    _CATALOGS.clear()
+    _lru.clear()
 
 
 def set_catalog_lru_size(size: int) -> None:
     """Set the in-process catalog LRU capacity for subsequent search calls."""
-    global _LRU_SIZE
+    global _lru
     if size < 1:
         raise ValueError("catalog_lru_size must be >= 1")
-    _LRU_SIZE = size
-    while len(_CATALOGS) > _LRU_SIZE:
-        _CATALOGS.popitem(last=False)
+    _lru = CatalogLRU(size)
 
 
 # ---------------------------------------------------------------------------
@@ -259,30 +241,21 @@ async def sdmx_series_search(
 ) -> pd.DataFrame:
     """Search a per-flow SDMX series catalog.
 
-    **Preferred:** structured field queries targeting SDMX dimensions:
+    Structured queries target SDMX dimensions, joined with ``&&``
+    (AND across fields, ``,`` for OR within a field):
 
-    * ``REF_AREA: Germany && FREQ: Monthly`` — AND across fields
-    * ``REF_AREA: Spain, Germany && FREQ: Monthly`` — OR within a field
+    * ``REF_AREA: Germany && FREQ: Monthly``
+    * ``REF_AREA: Spain, Germany && FREQ: Monthly``
 
-    Plain text without field syntax searches the ``title`` index only
-    (BM25 broad fallback).
-
-    Loads the bundle for ``flow_id`` from :data:`DEFAULT_CATALOG_ROOT`
-    (a multi-bundle HF dataset repo) and returns top-N
-    (series_key, title, score).
-
-    The LRU caches loaded catalogs so a follow-up search on the same
-    flow is in-memory; cold loads fetch only the namespace's subfolder
-    (50-300 MB once), then disk-cached by huggingface_hub. Unpublished
-    flows raise :class:`ConnectorError` with a recovery directive.
-
-    Agents typically chain: ``sdmx_datasets_search(query) ->
-    sdmx_series_search(query, flow_id) -> sdmx_fetch(series_key)``.
+    Plain text falls back to ``title`` BM25. Loads the bundle for
+    ``flow_id``; unpublished flows raise :class:`ConnectorError` with
+    a recovery directive. Typical chain:
+    ``sdmx_datasets_search -> sdmx_series_search -> sdmx_fetch``.
     """
     params = SeriesSearchParams(query=query, flow_id=flow_id, limit=limit, catalog_root=catalog_root)
     namespace = _resolve_series_namespace(params.flow_id)
     catalog = await _get_or_load_catalog(namespace, catalog_root=params.catalog_root)
-    matches = await catalog.search(params.query, limit=params.limit)
+    matches, _ = await catalog.search(params.query, limit=params.limit)
 
     if not matches:
         raise EmptyDataError(
@@ -370,7 +343,7 @@ async def sdmx_datasets_search(query: str, limit: int = 10, catalog_root: str | 
     """
     params = DatasetsSearchParams(query=query, limit=limit, catalog_root=catalog_root)
     catalog = await _get_or_load_catalog(DATASETS_NAMESPACE, catalog_root=params.catalog_root)
-    matches = await catalog.search(params.query, limit=params.limit)
+    matches, _ = await catalog.search(params.query, limit=params.limit)
 
     if not matches:
         raise EmptyDataError(

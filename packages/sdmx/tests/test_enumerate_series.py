@@ -64,15 +64,18 @@ def mock_fetch_series(monkeypatch: pytest.MonkeyPatch):
 @pytest.mark.asyncio
 async def test_enumerates_one_dataset(mock_fetch_series) -> None:
     result = await enumerate_sdmx_series(agency=AgencyId.ECB, dataset_id="YC")
-    df = result.data
-    assert set(df["code"]) == {
+    entries = result.data
+    by_code = {entry.code: entry for entry in entries}
+    assert set(by_code) == {
         "B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y",
         "B.U2.EUR.4F.G_N_A.SV_C_YM.SR_2Y",
     }
-    assert set(df["DATA_TYPE_FM_code"]) == {"SR_10Y", "SR_2Y"}
-    assert "Yield curve spot rate, 10-year maturity" in set(df["DATA_TYPE_FM_label"])
-    assert set(df["agency"]) == {"ECB"}
-    assert set(df["dataset_id"]) == {"YC"}
+    metadata_codes = {entry.metadata["DATA_TYPE_FM_code"] for entry in entries}
+    assert metadata_codes == {"SR_10Y", "SR_2Y"}
+    metadata_labels = {entry.metadata["DATA_TYPE_FM_label"] for entry in entries}
+    assert "Yield curve spot rate, 10-year maturity" in metadata_labels
+    assert {entry.metadata["agency"] for entry in entries} == {"ECB"}
+    assert {entry.metadata["dataset_id"] for entry in entries} == {"YC"}
 
 
 @pytest.mark.asyncio
@@ -135,10 +138,9 @@ def test_series_namespace_lowercases_agency_and_dataset() -> None:
 
 def test_enumerator_output_has_no_namespace_on_key() -> None:
     """Per-dataset namespace comes from the catalog name at ingest time;
-    the enumerator's KEY column must stay namespace-less.
+    the declared OutputConfig's KEY column must stay namespace-less.
     """
-    output_config = enumerate_sdmx_series.output_config
-    assert output_config is not None
-    cols = output_config.columns
-    key_col = next(c for c in cols if c.role.value == "key")
+    from parsimony_sdmx.connectors.enumerate_series import ENUMERATE_SERIES_OUTPUT
+
+    key_col = next(c for c in ENUMERATE_SERIES_OUTPUT.columns if c.role.value == "key")
     assert key_col.namespace is None

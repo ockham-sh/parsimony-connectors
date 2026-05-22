@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from parsimony_test_support import assert_provenance_shape, require_env
 
-from parsimony_tiingo import TiingoSearchParams, tiingo_search
+from parsimony_tiingo import tiingo_search
 
 pytestmark = pytest.mark.integration
 
@@ -19,7 +19,7 @@ async def test_tiingo_search_apple() -> None:
     creds = require_env("TIINGO_API_KEY")
     bound = tiingo_search.bind(api_key=creds["TIINGO_API_KEY"])
 
-    result = await bound(TiingoSearchParams(query="apple"))
+    result = await bound(query="apple")
 
     assert_provenance_shape(result)
     df = result.data

@@ -14,6 +14,7 @@ import pytest
 import respx
 from parsimony.errors import EmptyDataError
 from parsimony.result import ColumnRole
+from parsimony_test_support import entries_result_to_dataframe
 
 from parsimony_riksbank import (
     CONNECTORS,
@@ -205,7 +206,7 @@ async def test_enumerate_riksbank_emits_description_for_embedder() -> None:
     _mock_swea_endpoints()
     bound = enumerate_riksbank.bind(api_key="")
     result = await bound()
-    df = result.data
+    df = entries_result_to_dataframe(result, key="series_id")
     assert "description" in df.columns
 
     repo = df.loc[df["series_id"] == "SECBREPOEFF"].iloc[0]
@@ -228,7 +229,7 @@ async def test_enumerate_riksbank_emits_source_metadata_for_dispatch() -> None:
     _mock_swea_endpoints()
     bound = enumerate_riksbank.bind(api_key="")
     result = await bound()
-    df = result.data
+    df = entries_result_to_dataframe(result, key="series_id")
     assert set(df["source"].unique()) == {"swea", "swestr"}
 
 
@@ -241,7 +242,7 @@ async def test_enumerate_riksbank_resolves_group_hierarchy() -> None:
     _mock_swea_endpoints()
     bound = enumerate_riksbank.bind(api_key="")
     result = await bound()
-    df = result.data
+    df = entries_result_to_dataframe(result, key="series_id")
 
     repo = df.loc[df["series_id"] == "SECBREPOEFF"].iloc[0]
     assert "Riksbank key interest rates" in repo["group"]
@@ -265,7 +266,7 @@ async def test_enumerate_riksbank_infers_frequency_with_provenance_tag() -> None
     _mock_swea_endpoints()
     bound = enumerate_riksbank.bind(api_key="")
     result = await bound()
-    df = result.data
+    df = entries_result_to_dataframe(result, key="series_id")
 
     # group=2 → Daily via group lookup, regardless of suffix shape.
     repo = df.loc[df["series_id"] == "SECBREPOEFF"].iloc[0]
@@ -298,7 +299,7 @@ async def test_enumerate_riksbank_passes_through_provider_and_date_range() -> No
     _mock_swea_endpoints()
     bound = enumerate_riksbank.bind(api_key="")
     result = await bound()
-    df = result.data
+    df = entries_result_to_dataframe(result, key="series_id")
 
     eur = df.loc[df["series_id"] == "SEKEURPMI"].iloc[0]
     assert eur["provider"] == "Refinitiv"
@@ -338,7 +339,7 @@ async def test_enumerate_riksbank_emits_swestr_family() -> None:
     _mock_swea_endpoints()
     bound = enumerate_riksbank.bind(api_key="")
     result = await bound()
-    df = result.data
+    df = entries_result_to_dataframe(result, key="series_id")
 
     swestr_rows = df[df["source"] == "swestr"]
     assert len(swestr_rows) == 7
@@ -390,7 +391,7 @@ async def test_riksbank_swestr_fetch_latest_rate_hits_latest_endpoint() -> None:
     )
     bound = riksbank_swestr_fetch.bind(api_key="")
     result = await bound(series="SWESTR")
-    df = result.data
+    df = entries_result_to_dataframe(result, key="series_id")
     assert len(df) == 1
     assert df.iloc[0]["value"] == pytest.approx(1.639)
     assert df.iloc[0]["series"] == "SWESTR"
@@ -427,7 +428,7 @@ async def test_riksbank_swestr_fetch_windowed_average_hits_avg_endpoint() -> Non
     )
     bound = riksbank_swestr_fetch.bind(api_key="")
     result = await bound(series="SWESTRAVG1W", from_date="2026-04-15", to_date="2026-04-16")
-    df = result.data
+    df = entries_result_to_dataframe(result, key="series_id")
     assert len(df) == 2
     assert list(df["series"].unique()) == ["SWESTRAVG1W"]
     # ``startDate`` is the window-start for a compounded average; the
@@ -456,7 +457,7 @@ async def test_riksbank_swestr_fetch_index_normalises_value_field() -> None:
     )
     bound = riksbank_swestr_fetch.bind(api_key="")
     result = await bound(series="SWESTRINDEX")
-    df = result.data
+    df = entries_result_to_dataframe(result, key="series_id")
     assert len(df) == 1
     assert df.iloc[0]["value"] == pytest.approx(110.25032277)
 

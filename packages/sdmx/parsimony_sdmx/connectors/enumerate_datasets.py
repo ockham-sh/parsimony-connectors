@@ -18,6 +18,7 @@ import asyncio
 import logging
 
 import pandas as pd
+from parsimony.catalog import CatalogEntry
 from parsimony.connector import enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import Column, ColumnRole, OutputConfig
@@ -56,11 +57,8 @@ ENUMERATE_DATASETS_OUTPUT = OutputConfig(
 )
 
 
-@enumerator(
-    output=ENUMERATE_DATASETS_OUTPUT,
-    tags=["sdmx"],
-)
-async def enumerate_sdmx_datasets(fetch_timeout_s: float = LISTING_TIMEOUT_S) -> pd.DataFrame:
+@enumerator(tags=["sdmx"])
+async def enumerate_sdmx_datasets(fetch_timeout_s: float = LISTING_TIMEOUT_S) -> list[CatalogEntry]:
     """List every SDMX dataset across every supported agency.
 
     Spawns one subprocess per agency (sequential, not parallel — parallel
@@ -114,4 +112,4 @@ async def enumerate_sdmx_datasets(fetch_timeout_s: float = LISTING_TIMEOUT_S) ->
             message="Live SDMX dataset listing produced no rows for any agency",
         )
 
-    return pd.concat(frames, ignore_index=True)
+    return ENUMERATE_DATASETS_OUTPUT.build_entries(pd.concat(frames, ignore_index=True))

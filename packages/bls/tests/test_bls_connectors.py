@@ -58,9 +58,7 @@ async def test_bls_fetch_returns_series_observations() -> None:
         )
     )
 
-    result = await bls_fetch(
-        BlsFetchParams(series_id="LNS14000000", start_year="2026", end_year="2026")
-    )
+    result = await bls_fetch(series_id="LNS14000000", start_year="2026", end_year="2026")
 
     assert result.provenance.source == "bls_fetch"
     df = result.data
@@ -79,7 +77,7 @@ async def test_bls_fetch_raises_provider_error_on_bls_status_failure() -> None:
     )
 
     with pytest.raises(ProviderError):
-        await bls_fetch(BlsFetchParams(series_id="BAD", start_year="2026", end_year="2026"))
+        await bls_fetch(series_id="BAD", start_year="2026", end_year="2026")
 
 
 @respx.mock
@@ -93,7 +91,7 @@ async def test_bls_fetch_raises_empty_data_when_no_series_returned() -> None:
     )
 
     with pytest.raises(EmptyDataError):
-        await bls_fetch(BlsFetchParams(series_id="XYZ", start_year="2026", end_year="2026"))
+        await bls_fetch(series_id="XYZ", start_year="2026", end_year="2026")
 
 
 # ---------------------------------------------------------------------------

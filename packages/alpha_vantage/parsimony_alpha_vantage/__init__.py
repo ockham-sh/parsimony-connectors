@@ -41,9 +41,10 @@ Internal layout (not part of the public contract):
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import pandas as pd
+from parsimony.catalog import CatalogEntry
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import Result
@@ -112,7 +113,7 @@ _ENV: dict[str, str] = {"api_key": "ALPHA_VANTAGE_API_KEY"}
 
 
 @connector(output=_SEARCH_OUTPUT, tags=["equities", "tool"])
-async def alpha_vantage_search(params: AlphaVantageSearchParams, *, api_key: str) -> Result:
+async def alpha_vantage_search(keywords: str, *, api_key: str) -> Result:
     """Search Alpha Vantage for stocks, ETFs, and mutual funds by name or ticker.
 
     Returns symbol (the ticker), name, type (Equity/ETF), region, and currency.
@@ -120,6 +121,7 @@ async def alpha_vantage_search(params: AlphaVantageSearchParams, *, api_key: str
     alpha_vantage_overview for further data.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageSearchParams(keywords=keywords)
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -162,12 +164,13 @@ async def alpha_vantage_search(params: AlphaVantageSearchParams, *, api_key: str
 
 
 @connector(output=_QUOTE_OUTPUT, tags=["equities"])
-async def alpha_vantage_quote(params: AlphaVantageQuoteParams, *, api_key: str) -> Result:
+async def alpha_vantage_quote(symbol: Annotated[str, 'ns:alpha_vantage'], *, api_key: str) -> Result:
     """Fetch real-time quote for a stock: current price, day high/low/open,
     volume, previous close, and change/change percent.
     Use alpha_vantage_search to resolve ticker symbols first.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageQuoteParams(symbol=symbol)
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -211,7 +214,12 @@ async def alpha_vantage_quote(params: AlphaVantageQuoteParams, *, api_key: str) 
 
 
 @connector(output=_DAILY_OUTPUT, tags=["equities"])
-async def alpha_vantage_daily(params: AlphaVantageDailyParams, *, api_key: str) -> Result:
+async def alpha_vantage_daily(
+    symbol: Annotated[str, 'ns:alpha_vantage'],
+    outputsize: Literal['compact', 'full'] = 'compact',
+    *,
+    api_key: str
+) -> Result:
     """Fetch daily OHLCV (open, high, low, close, volume) time series for a stock.
 
     outputsize='compact' returns the last 100 trading days (default).
@@ -219,6 +227,7 @@ async def alpha_vantage_daily(params: AlphaVantageDailyParams, *, api_key: str) 
     Use alpha_vantage_search to resolve ticker symbols first.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageDailyParams(symbol=symbol, outputsize=outputsize)
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -264,13 +273,14 @@ async def alpha_vantage_daily(params: AlphaVantageDailyParams, *, api_key: str) 
 
 
 @connector(tags=["equities"])
-async def alpha_vantage_overview(params: AlphaVantageOverviewParams, *, api_key: str) -> Result:
+async def alpha_vantage_overview(symbol: Annotated[str, 'ns:alpha_vantage'], *, api_key: str) -> Result:
     """Fetch company fundamentals for a stock: name, exchange, sector, industry,
     market cap, PE ratio, EPS, dividend yield, 52-week high/low, beta, and ~50
     more financial metrics. Returns a flat dict of string values.
     Use alpha_vantage_search to resolve ticker symbols first.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageOverviewParams(symbol=symbol)
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -294,13 +304,19 @@ async def alpha_vantage_overview(params: AlphaVantageOverviewParams, *, api_key:
 
 
 @connector(tags=["equities"])
-async def alpha_vantage_income_statement(params: AlphaVantageStatementParams, *, api_key: str) -> Result:
+async def alpha_vantage_income_statement(
+    symbol: Annotated[str, 'ns:alpha_vantage'],
+    period: Literal['annual', 'quarterly'] = 'annual',
+    *,
+    api_key: str
+) -> Result:
     """Fetch income statement for a stock: revenue, gross profit, operating income,
     EBITDA, net income, R&D, SGA, and ~20 more line items. Returns annual or
     quarterly reports (up to 20 annual, 81 quarterly). All values are strings.
     Use alpha_vantage_search to resolve ticker symbols first.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageStatementParams(symbol=symbol, period=period)
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -321,13 +337,19 @@ async def alpha_vantage_income_statement(params: AlphaVantageStatementParams, *,
 
 
 @connector(tags=["equities"])
-async def alpha_vantage_balance_sheet(params: AlphaVantageStatementParams, *, api_key: str) -> Result:
+async def alpha_vantage_balance_sheet(
+    symbol: Annotated[str, 'ns:alpha_vantage'],
+    period: Literal['annual', 'quarterly'] = 'annual',
+    *,
+    api_key: str
+) -> Result:
     """Fetch balance sheet for a stock: total assets, liabilities, equity,
     cash, receivables, goodwill, long-term debt, and ~35 more line items.
     Returns annual or quarterly reports. All values are strings.
     Use alpha_vantage_search to resolve ticker symbols first.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageStatementParams(symbol=symbol, period=period)
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -348,13 +370,19 @@ async def alpha_vantage_balance_sheet(params: AlphaVantageStatementParams, *, ap
 
 
 @connector(tags=["equities"])
-async def alpha_vantage_cash_flow(params: AlphaVantageStatementParams, *, api_key: str) -> Result:
+async def alpha_vantage_cash_flow(
+    symbol: Annotated[str, 'ns:alpha_vantage'],
+    period: Literal['annual', 'quarterly'] = 'annual',
+    *,
+    api_key: str
+) -> Result:
     """Fetch cash flow statement for a stock: operating cash flow, capex,
     dividends, buybacks, financing, investing activities, and ~25 more items.
     Returns annual or quarterly reports. All values are strings.
     Use alpha_vantage_search to resolve ticker symbols first.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageStatementParams(symbol=symbol, period=period)
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -380,13 +408,14 @@ async def alpha_vantage_cash_flow(params: AlphaVantageStatementParams, *, api_ke
 
 
 @connector(output=_EARNINGS_OUTPUT, tags=["equities"])
-async def alpha_vantage_earnings(params: AlphaVantageEarningsParams, *, api_key: str) -> Result:
+async def alpha_vantage_earnings(symbol: Annotated[str, 'ns:alpha_vantage'], *, api_key: str) -> Result:
     """Fetch quarterly earnings for a stock: reported EPS, estimated EPS,
     surprise, surprise percentage, and report timing (pre/post market).
     Returns up to 120 quarters of history.
     Use alpha_vantage_search to resolve ticker symbols first.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageEarningsParams(symbol=symbol)
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -416,11 +445,12 @@ async def alpha_vantage_earnings(params: AlphaVantageEarningsParams, *, api_key:
 
 
 @connector(output=_FX_RATE_OUTPUT, tags=["forex", "crypto", "tool"])
-async def alpha_vantage_fx_rate(params: AlphaVantageFxRateParams, *, api_key: str) -> Result:
+async def alpha_vantage_fx_rate(from_currency: str, to_currency: str, *, api_key: str) -> Result:
     """Fetch real-time exchange rate between two currencies. Works for both
     forex (EUR/USD) and crypto (BTC/USD). Returns bid/ask prices.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageFxRateParams(from_currency=from_currency, to_currency=to_currency)
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -462,13 +492,20 @@ async def alpha_vantage_fx_rate(params: AlphaVantageFxRateParams, *, api_key: st
 
 
 @connector(output=_FX_DAILY_OUTPUT, tags=["forex"])
-async def alpha_vantage_fx_daily(params: AlphaVantageFxDailyParams, *, api_key: str) -> Result:
+async def alpha_vantage_fx_daily(
+    from_symbol: str,
+    to_symbol: str,
+    outputsize: Literal['compact', 'full'] = 'compact',
+    *,
+    api_key: str
+) -> Result:
     """Fetch daily forex OHLC time series for a currency pair.
 
     outputsize='compact' returns last 100 days (default); 'full' for full history.
     Note: no volume data for forex pairs.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageFxDailyParams(from_symbol=from_symbol, to_symbol=to_symbol, outputsize=outputsize)
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -512,11 +549,12 @@ async def alpha_vantage_fx_daily(params: AlphaVantageFxDailyParams, *, api_key: 
 
 
 @connector(output=_CRYPTO_DAILY_OUTPUT, tags=["crypto"])
-async def alpha_vantage_crypto_daily(params: AlphaVantageCryptoDailyParams, *, api_key: str) -> Result:
+async def alpha_vantage_crypto_daily(symbol: str, market: str = 'USD', *, api_key: str) -> Result:
     """Fetch daily OHLCV time series for a cryptocurrency priced in a market
     currency (default USD). Returns full history.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageCryptoDailyParams(symbol=symbol, market=market)
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -559,7 +597,13 @@ async def alpha_vantage_crypto_daily(params: AlphaVantageCryptoDailyParams, *, a
 
 
 @connector(output=_ECON_OUTPUT, tags=["macro"])
-async def alpha_vantage_econ(params: AlphaVantageEconParams, *, api_key: str) -> Result:
+async def alpha_vantage_econ(
+    function: str,
+    interval: Literal['daily', 'weekly', 'monthly', 'quarterly', 'annual'] | None = None,
+    maturity: Literal['3month', '2year', '5year', '7year', '10year', '30year'] | None = None,
+    *,
+    api_key: str
+) -> Result:
     """Fetch US economic indicator time series. Covers real GDP, CPI, inflation,
     unemployment, federal funds rate, treasury yield (with maturity selection),
     retail sales, durables, and nonfarm payroll. Commodity data is available
@@ -567,6 +611,7 @@ async def alpha_vantage_econ(params: AlphaVantageEconParams, *, api_key: str) ->
     Use maturity param for TREASURY_YIELD (default 10year).
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageEconParams(function=function, interval=interval, maturity=maturity)
     http = _make_http(api_key)
     req_params: dict[str, Any] = {}
     if params.interval is not None:
@@ -620,13 +665,21 @@ async def alpha_vantage_econ(params: AlphaVantageEconParams, *, api_key: str) ->
 
 
 @connector(output=_NEWS_OUTPUT, tags=["news", "tool"])
-async def alpha_vantage_news(params: AlphaVantageNewsParams, *, api_key: str) -> Result:
+async def alpha_vantage_news(
+    tickers: str | None = None,
+    topics: str | None = None,
+    sort: Literal['LATEST', 'EARLIEST', 'RELEVANCE'] = 'LATEST',
+    limit: int = 50,
+    *,
+    api_key: str
+) -> Result:
     """Fetch news articles with sentiment scores. Filter by ticker(s) and/or
     topics. Each article includes title, summary, source, sentiment score
     (-1 to 1), and sentiment label. For ticker-specific sentiment, check the
     ticker_sentiment array in the raw response.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageNewsParams(tickers=tickers, topics=topics, sort=sort, limit=limit)
     http = _make_http(api_key)
     req_params: dict[str, Any] = {"sort": params.sort, "limit": params.limit}
     if params.tickers:
@@ -679,12 +732,13 @@ async def alpha_vantage_news(params: AlphaVantageNewsParams, *, api_key: str) ->
 
 
 @connector(output=_MOVERS_OUTPUT, tags=["equities", "tool"])
-async def alpha_vantage_top_movers(params: AlphaVantageTopMoversParams, *, api_key: str) -> Result:
+async def alpha_vantage_top_movers(*, api_key: str) -> Result:
     """Fetch today's top 20 gainers, top 20 losers, and top 20 most actively
     traded US equities. Each entry includes ticker, price, change amount,
     change percentage, and volume. No parameters required.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageTopMoversParams()  # noqa: F841
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -724,12 +778,18 @@ async def alpha_vantage_top_movers(params: AlphaVantageTopMoversParams, *, api_k
 
 
 @connector(output=_OPTIONS_OUTPUT, tags=["equities", "options"])
-async def alpha_vantage_options(params: AlphaVantageOptionsParams, *, api_key: str) -> Result:
+async def alpha_vantage_options(
+    symbol: Annotated[str, 'ns:alpha_vantage'],
+    date: str | None = None,
+    *,
+    api_key: str
+) -> Result:
     """[Premium] Fetch historical options chain for a stock: contract ID,
     expiration, strike, type (call/put), last price, bid/ask, volume,
     open interest, implied volatility, and Greeks (delta, gamma, theta, vega).
     Requires a premium Alpha Vantage plan.
     """
+    params = AlphaVantageOptionsParams(symbol=symbol, date=date)
     http = _make_http(api_key)
     req_params: dict[str, Any] = {"symbol": params.symbol}
     if params.date:
@@ -762,13 +822,14 @@ async def alpha_vantage_options(params: AlphaVantageOptionsParams, *, api_key: s
 
 
 @connector(output=_DAILY_OUTPUT, tags=["equities"])
-async def alpha_vantage_weekly(params: AlphaVantageWeeklyParams, *, api_key: str) -> Result:
+async def alpha_vantage_weekly(symbol: Annotated[str, 'ns:alpha_vantage'], *, api_key: str) -> Result:
     """Fetch weekly OHLCV (open, high, low, close, volume) time series for a stock.
 
     Returns 20+ years of weekly data. Last trading day of each week is the timestamp.
     Use alpha_vantage_search to resolve ticker symbols first.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageWeeklyParams(symbol=symbol)
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -806,13 +867,14 @@ async def alpha_vantage_weekly(params: AlphaVantageWeeklyParams, *, api_key: str
 
 
 @connector(output=_DAILY_OUTPUT, tags=["equities"])
-async def alpha_vantage_monthly(params: AlphaVantageMonthlyParams, *, api_key: str) -> Result:
+async def alpha_vantage_monthly(symbol: Annotated[str, 'ns:alpha_vantage'], *, api_key: str) -> Result:
     """Fetch monthly OHLCV (open, high, low, close, volume) time series for a stock.
 
     Returns 20+ years of monthly data. Last trading day of each month is the timestamp.
     Use alpha_vantage_search to resolve ticker symbols first.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageMonthlyParams(symbol=symbol)
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -855,7 +917,13 @@ async def alpha_vantage_monthly(params: AlphaVantageMonthlyParams, *, api_key: s
 
 
 @connector(output=_INTRADAY_OUTPUT, tags=["equities"])
-async def alpha_vantage_intraday(params: AlphaVantageIntradayParams, *, api_key: str) -> Result:
+async def alpha_vantage_intraday(
+    symbol: Annotated[str, 'ns:alpha_vantage'],
+    interval: Literal['1min', '5min', '15min', '30min', '60min'] = '60min',
+    outputsize: Literal['compact', 'full'] = 'compact',
+    *,
+    api_key: str
+) -> Result:
     """Fetch intraday OHLCV time series for a stock at 1/5/15/30/60 min intervals.
 
     outputsize='compact' returns the last 100 data points (default).
@@ -863,6 +931,7 @@ async def alpha_vantage_intraday(params: AlphaVantageIntradayParams, *, api_key:
     previous trading day.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageIntradayParams(symbol=symbol, interval=interval, outputsize=outputsize)
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -909,12 +978,13 @@ async def alpha_vantage_intraday(params: AlphaVantageIntradayParams, *, api_key:
 
 
 @connector(output=_FX_DAILY_OUTPUT, tags=["forex"])
-async def alpha_vantage_fx_weekly(params: AlphaVantageFxWeeklyParams, *, api_key: str) -> Result:
+async def alpha_vantage_fx_weekly(from_symbol: str, to_symbol: str, *, api_key: str) -> Result:
     """Fetch weekly forex OHLC time series for a currency pair.
 
     Returns full history of weekly data. No volume data for forex.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageFxWeeklyParams(from_symbol=from_symbol, to_symbol=to_symbol)
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -952,12 +1022,13 @@ async def alpha_vantage_fx_weekly(params: AlphaVantageFxWeeklyParams, *, api_key
 
 
 @connector(output=_FX_DAILY_OUTPUT, tags=["forex"])
-async def alpha_vantage_fx_monthly(params: AlphaVantageFxMonthlyParams, *, api_key: str) -> Result:
+async def alpha_vantage_fx_monthly(from_symbol: str, to_symbol: str, *, api_key: str) -> Result:
     """Fetch monthly forex OHLC time series for a currency pair.
 
     Returns full history of monthly data. No volume data for forex.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageFxMonthlyParams(from_symbol=from_symbol, to_symbol=to_symbol)
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -1000,10 +1071,11 @@ async def alpha_vantage_fx_monthly(params: AlphaVantageFxMonthlyParams, *, api_k
 
 
 @connector(output=_CRYPTO_DAILY_OUTPUT, tags=["crypto"])
-async def alpha_vantage_crypto_weekly(params: AlphaVantageCryptoWeeklyParams, *, api_key: str) -> Result:
+async def alpha_vantage_crypto_weekly(symbol: str, market: str = 'USD', *, api_key: str) -> Result:
     """Fetch weekly OHLCV time series for a cryptocurrency. Returns full history.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageCryptoWeeklyParams(symbol=symbol, market=market)
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -1041,10 +1113,11 @@ async def alpha_vantage_crypto_weekly(params: AlphaVantageCryptoWeeklyParams, *,
 
 
 @connector(output=_CRYPTO_DAILY_OUTPUT, tags=["crypto"])
-async def alpha_vantage_crypto_monthly(params: AlphaVantageCryptoMonthlyParams, *, api_key: str) -> Result:
+async def alpha_vantage_crypto_monthly(symbol: str, market: str = 'USD', *, api_key: str) -> Result:
     """Fetch monthly OHLCV time series for a cryptocurrency. Returns full history.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageCryptoMonthlyParams(symbol=symbol, market=market)
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -1087,13 +1160,14 @@ async def alpha_vantage_crypto_monthly(params: AlphaVantageCryptoMonthlyParams, 
 
 
 @connector(tags=["equities", "etf"])
-async def alpha_vantage_etf_profile(params: AlphaVantageEtfProfileParams, *, api_key: str) -> Result:
+async def alpha_vantage_etf_profile(symbol: Annotated[str, 'ns:alpha_vantage'], *, api_key: str) -> Result:
     """Fetch ETF profile: net assets, expense ratio, portfolio turnover,
     dividend yield, inception date, top holdings (symbol, description, weight),
     and sector allocation. Note: aggressive rate limiting on free tier.
     Use alpha_vantage_search to resolve ETF symbols first.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageEtfProfileParams(symbol=symbol)
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -1117,12 +1191,18 @@ async def alpha_vantage_etf_profile(params: AlphaVantageEtfProfileParams, *, api
 
 
 @connector(output=_EARNINGS_CAL_OUTPUT, tags=["equities", "calendars"])
-async def alpha_vantage_earnings_calendar(params: AlphaVantageEarningsCalendarParams, *, api_key: str) -> Result:
+async def alpha_vantage_earnings_calendar(
+    horizon: Literal['3month', '6month', '12month'] = '3month',
+    symbol: str | None = None,
+    *,
+    api_key: str
+) -> Result:
     """Fetch upcoming earnings release dates. Returns company name, report date,
     fiscal date ending, EPS estimate, and currency. Filter by symbol or get
     all upcoming earnings within the horizon window.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageEarningsCalendarParams(horizon=horizon, symbol=symbol)
     http = _make_http(api_key)
     req_params: dict[str, Any] = {"horizon": params.horizon}
     if params.symbol:
@@ -1151,11 +1231,12 @@ async def alpha_vantage_earnings_calendar(params: AlphaVantageEarningsCalendarPa
 
 
 @connector(output=_IPO_CAL_OUTPUT, tags=["equities", "calendars"])
-async def alpha_vantage_ipo_calendar(params: AlphaVantageIpoCalendarParams, *, api_key: str) -> Result:
+async def alpha_vantage_ipo_calendar(*, api_key: str) -> Result:
     """Fetch upcoming and recent IPOs: company name, expected IPO date,
     price range (low/high), currency, and exchange.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageIpoCalendarParams()  # noqa: F841
     http = _make_http(api_key)
     df = await _av_fetch_csv(
         http,
@@ -1180,13 +1261,28 @@ async def alpha_vantage_ipo_calendar(params: AlphaVantageIpoCalendarParams, *, a
 
 
 @connector(output=_TECHNICAL_OUTPUT, tags=["equities", "technical"])
-async def alpha_vantage_technical(params: AlphaVantageTechnicalParams, *, api_key: str) -> Result:
+async def alpha_vantage_technical(
+    symbol: Annotated[str, 'ns:alpha_vantage'],
+    function: str,
+    interval: Literal['1min', '5min', '15min', '30min', '60min', 'daily', 'weekly', 'monthly'] = 'daily',
+    time_period: int = 20,
+    series_type: Literal['close', 'open', 'high', 'low'] = 'close',
+    *,
+    api_key: str
+) -> Result:
     """Fetch a technical indicator for a stock. Supports 50+ indicators including
     SMA, EMA, RSI, MACD, Bollinger Bands, Stochastic, ADX, CCI, OBV, ATR, and more.
     The response columns vary by indicator (e.g. SMA returns 'SMA', BBANDS returns
     'Real Upper Band', 'Real Middle Band', 'Real Lower Band'). All values are numeric.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageTechnicalParams(
+        symbol=symbol,
+        function=function,
+        interval=interval,
+        time_period=time_period,
+        series_type=series_type)
+
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -1232,11 +1328,12 @@ async def alpha_vantage_technical(params: AlphaVantageTechnicalParams, *, api_ke
 
 
 @connector(output=_METAL_SPOT_OUTPUT, tags=["commodities"])
-async def alpha_vantage_metal_spot(params: AlphaVantageMetalSpotParams, *, api_key: str) -> Result:
+async def alpha_vantage_metal_spot(symbol: Literal['GOLD', 'XAU', 'SILVER', 'XAG'], *, api_key: str) -> Result:
     """Fetch real-time spot price for gold or silver. Returns current price and
     timestamp. Use GOLD/XAU for gold, SILVER/XAG for silver.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageMetalSpotParams(symbol=symbol)
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -1264,11 +1361,17 @@ async def alpha_vantage_metal_spot(params: AlphaVantageMetalSpotParams, *, api_k
 
 
 @connector(output=_METAL_HISTORY_OUTPUT, tags=["commodities"])
-async def alpha_vantage_metal_history(params: AlphaVantageMetalHistoryParams, *, api_key: str) -> Result:
+async def alpha_vantage_metal_history(
+    symbol: Literal['GOLD', 'XAU', 'SILVER', 'XAG'],
+    interval: Literal['daily', 'weekly', 'monthly'] = 'monthly',
+    *,
+    api_key: str
+) -> Result:
     """Fetch historical prices for gold or silver. Returns date and price.
     Note: uses 'price' field (not 'value') unlike other commodity endpoints.
     Free tier: 25 requests/day total across all endpoints.
     """
+    params = AlphaVantageMetalHistoryParams(symbol=symbol, interval=interval)
     http = _make_http(api_key)
     data = await _av_fetch(
         http,
@@ -1303,12 +1406,17 @@ async def alpha_vantage_metal_history(params: AlphaVantageMetalHistoryParams, *,
 
 
 @enumerator(output=_LISTING_OUTPUT, tags=["equities"])
-async def enumerate_alpha_vantage(params: AlphaVantageListingParams, *, api_key: str) -> pd.DataFrame:
+async def enumerate_alpha_vantage(
+    state: Literal["active", "delisted"] = "active",
+    *,
+    api_key: str,
+) -> list[CatalogEntry]:
     """Enumerate all US-listed securities from Alpha Vantage for catalog indexing.
 
     Returns symbol, name, exchange, asset type (Stock/ETF), IPO date, and status.
     Use state='active' for current listings (default), 'delisted' for historical.
     """
+    params = AlphaVantageListingParams(state=state)
     http = _make_http(api_key)
     df = await _av_fetch_csv(
         http,
@@ -1318,12 +1426,13 @@ async def enumerate_alpha_vantage(params: AlphaVantageListingParams, *, api_key:
     )
 
     if df.empty:
-        return pd.DataFrame(columns=["symbol", "name", "exchange", "assetType", "ipoDate", "status"])
+        empty = pd.DataFrame(columns=["symbol", "name", "exchange", "assetType", "ipoDate", "status"])
+        return _LISTING_OUTPUT.build_entries(empty)
 
     # Keep only the columns we care about
     keep = ["symbol", "name", "exchange", "assetType", "ipoDate", "status"]
     cols = [c for c in keep if c in df.columns]
-    return df[cols]
+    return _LISTING_OUTPUT.build_entries(df[cols])
 
 
 CONNECTORS = Connectors(

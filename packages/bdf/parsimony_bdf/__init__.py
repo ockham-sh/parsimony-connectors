@@ -36,13 +36,13 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
+from parsimony.catalog import CatalogEntry
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Result,
 )
 from parsimony.transport import map_http_error
 from pydantic import BaseModel, Field, field_validator
@@ -51,8 +51,6 @@ logger = logging.getLogger(__name__)
 
 
 _BASE_URL = "https://webstat.banque-france.fr/api/explore/v2.1/catalog/datasets"
-
-_ENV: dict[str, str] = {"api_key": "BANQUEDEFRANCE_KEY"}
 
 # Conservative throttling. The Opendatasoft endpoint is rate-limited
 # globally at 10K requests/day and per-IP at a modest QPS; concurrency=4
@@ -368,14 +366,21 @@ def _series_description(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=BDF_FETCH_OUTPUT, tags=["macro", "fr"])
-async def bdf_fetch(params: BdfFetchParams, *, api_key: str) -> Result:
+@connector(output=BDF_FETCH_OUTPUT, tags=["macro", "fr"], secrets=('api_key',))
+async def bdf_fetch(
+    key: Annotated[str, "ns:bdf"],
+    start_period: str | None = None,
+    end_period: str | None = None,
+    *,
+    api_key: str,
+) -> pd.DataFrame:
     """Fetch Banque de France time series via the Webstat Opendatasoft API.
 
     Pulls observation rows for a single series key and returns
     ``(key, title, date, value)`` rows. Optional ``start_period`` /
     ``end_period`` filter on ``time_period_start``.
     """
+    params = BdfFetchParams(key=key, start_period=start_period, end_period=end_period)
     headers = _auth_headers(api_key)
     where = f'series_key="{params.key}"'
     if params.start_period:
@@ -444,9 +449,7 @@ async def bdf_fetch(params: BdfFetchParams, *, api_key: str) -> Result:
             message=f"No observations parsed for key: {params.key}",
         )
 
-    return Result.from_dataframe(pd.DataFrame(rows)).with_properties(
-        source_url="https://webstat.banque-france.fr"
-    )
+    return pd.DataFrame(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -599,29 +602,14 @@ def _emit_rows_for_dataset(
     return rows
 
 
-@enumerator(output=BDF_ENUMERATE_OUTPUT, tags=["macro", "fr"])
-async def enumerate_bdf(params: BdfEnumerateParams, *, api_key: str) -> pd.DataFrame:
+@enumerator(tags=["macro", "fr"], secrets=('api_key',))
+async def enumerate_bdf(*, api_key: str) -> list[CatalogEntry]:
     """Enumerate every BdF series with parent dataset context.
 
-    Pipeline:
-
-    1. ``GET /webstat-datasets/exports/json`` — pull all 45 datasets in
-       a single request.
-    2. For each dataset, ``GET /series/exports/json?refine=dataset_id:{ID}``
-       — pull all series for that dataset (full listing in one
-       response).
-    3. Emit one ``entity_type='dataset'`` stub per dataset (~45) and one
-       ``entity_type='series'`` row per discovered series (~41,607).
-
-    Concurrency is capped at 4 with a 0.25 s inter-request delay; 429/
-    5xx responses retry up to 3 times with exponential backoff and
-    honor ``Retry-After``. After exhausting retries the affected
-    dataset's series rows are skipped (the dataset stub is still
-    emitted) with a WARNING.
-
-    Cost: ~46 requests total (well under the 10K/day quota).
+    Pull dataset list, then per-dataset series exports; emit dataset stubs
+    and series rows. Concurrency capped at 4 with backoff on 429/5xx; failed
+    datasets log WARNING and skip series rows. About 46 requests total.
     """
-    del params
 
     semaphore = asyncio.Semaphore(_METADATA_CONCURRENCY)
     rows: list[dict[str, str]] = []
@@ -635,7 +623,7 @@ async def enumerate_bdf(params: BdfEnumerateParams, *, api_key: str) -> pd.DataF
         datasets = await _list_datasets(client, semaphore)
         if not datasets:
             logger.warning("BdF enumerate: dataset list fetch failed; emitting empty catalog")
-            return pd.DataFrame(columns=list(_ENUMERATE_COLUMNS))
+            return BDF_ENUMERATE_OUTPUT.build_entries(pd.DataFrame(columns=list(_ENUMERATE_COLUMNS)))
 
         logger.info("BdF enumerate: discovered %d datasets", len(datasets))
 
@@ -664,7 +652,8 @@ async def enumerate_bdf(params: BdfEnumerateParams, *, api_key: str) -> pd.DataF
         logger.info("BdF enumerate: emitted %d rows", len(rows))
 
     columns = list(_ENUMERATE_COLUMNS)
-    return pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    df = pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    return BDF_ENUMERATE_OUTPUT.build_entries(df)
 
 
 # ---------------------------------------------------------------------------

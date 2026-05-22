@@ -20,8 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
-from parsimony.catalog import CatalogEntry, entries_from_result
-from parsimony.result import ColumnRole
+from parsimony.catalog import CatalogEntry
 
 from parsimony_sdmx.catalog_build import (
     build_agency_dataset_entries,
@@ -35,7 +34,7 @@ from parsimony_sdmx.catalog_policy import (
     sdmx_series_indexes,
 )
 from parsimony_sdmx.connectors._agencies import AgencyId
-from parsimony_sdmx.connectors.enumerate_series import enumerate_sdmx_series, series_namespace
+from parsimony_sdmx.connectors.enumerate_series import enumerate_sdmx_series
 from parsimony_sdmx.core.models import DatasetRecord
 
 # Flows verified against live endpoints (May 2026). Dataset IDs are case-sensitive
@@ -61,15 +60,11 @@ class LiveManifestResult:
 
 
 def _catalog_entries_from_enumeration(agency: AgencyId, dataset_id: str, result) -> list[CatalogEntry]:
-    namespace = series_namespace(agency, dataset_id)
-    assert result.output_schema is not None
-    columns = [
-        column.model_copy(update={"namespace": namespace}) if column.role == ColumnRole.KEY else column
-        for column in result.output_schema.columns
-    ]
-    schema = result.output_schema.model_copy(update={"columns": columns})
-    table = result.model_copy(update={"output_schema": schema}).to_table(schema)
-    return entries_from_result(table)
+    del agency, dataset_id
+    entries: list[CatalogEntry] = result.data
+    assert entries
+    assert all(isinstance(entry, CatalogEntry) for entry in entries)
+    return entries
 
 
 async def _live_manifest(agency: AgencyId, dataset_id: str, *, fetch_timeout_s: float) -> LiveManifestResult:

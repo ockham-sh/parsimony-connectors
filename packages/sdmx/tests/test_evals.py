@@ -8,8 +8,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-from parsimony_sdmx.connectors import enumerate_sdmx_datasets
-
 _QUERIES_PATH = Path(__file__).parent / "evals" / "queries.yaml"
 _BUNDLE_URL_TEMPLATE = os.environ.get("SDMX_BUNDLE_URL_TEMPLATE", "hf://parsimony-dev/sdmx/{namespace}")
 _SLICES = ("dataset_title_nl", "series_title_nl", "series_dimension_label")
@@ -28,9 +26,9 @@ def test_eval_file_has_required_sections(eval_set: dict) -> None:
 
 
 def test_dataset_queries_use_datasets_namespace(eval_set: dict) -> None:
-    output_config = enumerate_sdmx_datasets.output_config
-    assert output_config is not None
-    datasets_ns = output_config.columns[0].namespace
+    from parsimony_sdmx.connectors.enumerate_datasets import ENUMERATE_DATASETS_OUTPUT
+
+    datasets_ns = ENUMERATE_DATASETS_OUTPUT.columns[0].namespace
     for q in eval_set["dataset_title_nl"]:
         assert q["namespace"] == datasets_ns
 
@@ -63,7 +61,7 @@ async def _required_recall(eval_set: dict, slice: str) -> float:
     for q in queries:
         catalog = await _load_bundle_for(q["namespace"])
         assert await catalog.get(q["namespace"], q["expected"]) is not None
-        matches = await catalog.search(q["query"], limit=10, namespaces=[q["namespace"]])
+        matches, _ = await catalog.search(q["query"], limit=10, namespaces=[q["namespace"]])
         codes = [catalog_key(m.namespace, m.code)[1] for m in matches]
         if q["expected"] in codes:
             hits += 1
@@ -99,7 +97,7 @@ async def test_optional_probes_smoke(eval_set: dict) -> None:
             if not q.get("optional"):
                 continue
             catalog = await _load_bundle_for(q["namespace"])
-            matches = await catalog.search(q["query"], limit=10, namespaces=[q["namespace"]])
+            matches, _ = await catalog.search(q["query"], limit=10, namespaces=[q["namespace"]])
             codes = [catalog_key(m.namespace, m.code)[1] for m in matches]
             hit = q["expected"] in codes
             print(f"[optional {slice}] {q['id']}: hit={hit}")

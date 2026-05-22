@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from parsimony_test_support import assert_provenance_shape, require_env
 
-from parsimony_bls import BlsFetchParams, bls_fetch
+from parsimony_bls import bls_fetch
 
 pytestmark = pytest.mark.integration
 
@@ -17,7 +17,7 @@ async def test_bls_fetch_unemployment() -> None:
 
     # LNS14000000 is the canonical US unemployment rate series from BLS.
     result = await bound(
-        BlsFetchParams(series_id="LNS14000000", start_year="2025", end_year="2026")
+        series_id="LNS14000000", start_year="2025", end_year="2026"
     )
 
     assert_provenance_shape(result)

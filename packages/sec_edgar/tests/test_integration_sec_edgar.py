@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from parsimony_test_support import assert_provenance_shape
 
-from parsimony_sec_edgar import SecEdgarFindCompanyParams, sec_edgar_find_company
+from parsimony_sec_edgar import sec_edgar_find_company
 
 pytestmark = pytest.mark.integration
 
@@ -18,7 +18,7 @@ pytestmark = pytest.mark.integration
 @pytest.mark.asyncio
 async def test_sec_edgar_find_apple() -> None:
     # "AAPL" is the canonical test case — Apple is CIK 0000320193.
-    result = await sec_edgar_find_company(SecEdgarFindCompanyParams(identifier="AAPL"))
+    result = await sec_edgar_find_company(identifier="AAPL")
 
     assert_provenance_shape(result)
     df = result.data

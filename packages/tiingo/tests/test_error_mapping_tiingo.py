@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from parsimony_test_support import ErrorMappingSuite
 
-from parsimony_tiingo import TiingoSearchParams, tiingo_search
+from parsimony_tiingo import tiingo_search
 
 
 class TestTiingoSearchErrorMapping(ErrorMappingSuite):
     connector = tiingo_search
-    params = TiingoSearchParams(query="apple")
+    call_kwargs = {"query": "apple"}
     route_url = "https://api.tiingo.com/tiingo/utilities/search"
     provider = "tiingo"

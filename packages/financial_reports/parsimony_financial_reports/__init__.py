@@ -21,6 +21,7 @@ from parsimony.result import (
     ColumnRole,
     OutputConfig,
     Result,
+    TabularResult,
 )
 from pydantic import BaseModel, Field
 
@@ -274,7 +275,8 @@ REFERENCE_GENERIC_OUTPUT = OutputConfig(
 
 
 # ---------------------------------------------------------------------------
-# Parameter models
+# Parameter models — internal validators for connector inputs.
+# Connector functions expose these fields as flat top-level parameters.
 # ---------------------------------------------------------------------------
 
 
@@ -423,7 +425,22 @@ class FrReferenceDataParams(BaseModel):
     output=COMPANIES_SEARCH_OUTPUT,
     tags=["financial_reports", "tool"],
 )
-async def fr_companies_search(params: FrCompaniesSearchParams, *, api_key: str) -> Result:
+async def fr_companies_search(
+    countries: str | None = None,
+    isin: str | None = None,
+    lei: str | None = None,
+    ticker: str | None = None,
+    sector: str | None = None,
+    industry_group: str | None = None,
+    industry: str | None = None,
+    sub_industry: str | None = None,
+    ordering: str | None = None,
+    page: int | None = None,
+    page_size: int | None = None,
+    view: Literal['full'] | None = None,
+    *,
+    api_key: str
+) -> Result:
     """Search companies on Financial Reports by name, country, ISIN, ticker, or industry.
 
     Returns company profiles with ID, name, country, and ticker.
@@ -432,6 +449,20 @@ async def fr_companies_search(params: FrCompaniesSearchParams, *, api_key: str) 
     fr_company_retrieve(id=id) for the full profile.
     Use fr_isic_browse to discover valid ISIC codes for sector/industry filters.
     """
+    params = FrCompaniesSearchParams(
+        countries=countries,
+        isin=isin,
+        lei=lei,
+        ticker=ticker,
+        sector=sector,
+        industry_group=industry_group,
+        industry=industry,
+        sub_industry=sub_industry,
+        ordering=ordering,
+        page=page,
+        page_size=page_size,
+        view=view)  # type: ignore[call-arg]
+
     kwargs = _strip_none(params.model_dump())
     resp = await _with_retry(lambda c: c.companies.list(**kwargs), api_key)
     df = _to_dataframe(resp)
@@ -441,7 +472,7 @@ async def fr_companies_search(params: FrCompaniesSearchParams, *, api_key: str) 
 
 
 @connector(output=COMPANY_RETRIEVE_OUTPUT, tags=["financial_reports"])
-async def fr_company_retrieve(params: FrCompanyRetrieveParams, *, api_key: str) -> Result:
+async def fr_company_retrieve(id: int, *, api_key: str) -> Result:
     """Retrieve full company profile by ID from Financial Reports.
 
     Returns detailed info: name, LEI, ISINs, country, address, industry
@@ -449,6 +480,7 @@ async def fr_company_retrieve(params: FrCompanyRetrieveParams, *, api_key: str) 
     Use fr_filings_search(company=id) to find this company's filings.
     Use fr_isin_lookup(company=id) for ISIN/FIGI cross-references.
     """
+    params = FrCompanyRetrieveParams(id=id)  # type: ignore[call-arg]
     resp = await _with_retry(lambda c: c.companies.retrieve(id=params.id), api_key)
     df = _to_dataframe(resp)
     if df.empty:
@@ -457,7 +489,34 @@ async def fr_company_retrieve(params: FrCompanyRetrieveParams, *, api_key: str) 
 
 
 @connector(output=FILINGS_SEARCH_OUTPUT, tags=["financial_reports"])
-async def fr_filings_search(params: FrFilingsSearchParams, *, api_key: str) -> Result:
+async def fr_filings_search(
+    company: int | None = None,
+    company_isin: str | None = None,
+    lei: str | None = None,
+    countries: str | None = None,
+    type: str | None = None,
+    types: str | None = None,
+    category: int | None = None,
+    categories: str | None = None,
+    language: str | None = None,
+    languages: str | None = None,
+    fiscal_year: int | None = None,
+    fiscal_period: Literal['FY', 'Q1', 'Q2', 'Q3', 'Q4', 'H1', 'H2'] | None = None,
+    period_ending_date: str | None = None,
+    period_ending_date_from: str | None = None,
+    period_ending_date_to: str | None = None,
+    release_datetime_from: str | None = None,
+    release_datetime_to: str | None = None,
+    extensions: str | None = None,
+    source: int | None = None,
+    sources: str | None = None,
+    ordering: str | None = None,
+    page: int | None = None,
+    page_size: int | None = None,
+    view: Literal['full'] | None = None,
+    *,
+    api_key: str
+) -> Result:
     """Search filings on Financial Reports by company, type, date, country, and more.
 
     Returns filing metadata: ID, title, release date, company, filing type.
@@ -466,6 +525,32 @@ async def fr_filings_search(params: FrFilingsSearchParams, *, api_key: str) -> R
     fr_filing_history(id=id) for the audit trail.
     Discover valid filing type codes via fr_reference_data(resource='filing_types').
     """
+    params = FrFilingsSearchParams(
+        company=company,
+        company_isin=company_isin,
+        lei=lei,
+        countries=countries,
+        type=type,
+        types=types,
+        category=category,
+        categories=categories,
+        language=language,
+        languages=languages,
+        fiscal_year=fiscal_year,
+        fiscal_period=fiscal_period,
+        period_ending_date=period_ending_date,
+        period_ending_date_from=period_ending_date_from,
+        period_ending_date_to=period_ending_date_to,
+        release_datetime_from=release_datetime_from,
+        release_datetime_to=release_datetime_to,
+        extensions=extensions,
+        source=source,
+        sources=sources,
+        ordering=ordering,
+        page=page,
+        page_size=page_size,
+        view=view)  # type: ignore[call-arg]
+
     kwargs = _strip_none(params.model_dump())
     resp = await _with_retry(lambda c: c.filings.list(**kwargs), api_key)
     df = _to_dataframe(resp)
@@ -475,7 +560,7 @@ async def fr_filings_search(params: FrFilingsSearchParams, *, api_key: str) -> R
 
 
 @connector(output=FILING_RETRIEVE_OUTPUT, tags=["financial_reports"])
-async def fr_filing_retrieve(params: FrFilingRetrieveParams, *, api_key: str) -> Result:
+async def fr_filing_retrieve(id: int, *, api_key: str) -> Result:
     """Retrieve full filing details by ID from Financial Reports.
 
     Returns detailed metadata: title, release date, company, filing type,
@@ -483,6 +568,7 @@ async def fr_filing_retrieve(params: FrFilingRetrieveParams, *, api_key: str) ->
     Use fr_filing_markdown(id=id) to read the actual document content.
     Use fr_filing_history(id=id) for the audit trail of changes to this filing.
     """
+    params = FrFilingRetrieveParams(id=id)  # type: ignore[call-arg]
     resp = await _with_retry(lambda c: c.filings.retrieve(id=params.id), api_key)
     df = _to_dataframe(resp)
     if df.empty:
@@ -491,12 +577,13 @@ async def fr_filing_retrieve(params: FrFilingRetrieveParams, *, api_key: str) ->
 
 
 @connector(tags=["financial_reports"])
-async def fr_filing_markdown(params: FrFilingMarkdownParams, *, api_key: str) -> Result:
+async def fr_filing_markdown(id: int, *, api_key: str) -> Result:
     """Retrieve a filing's full content as markdown text (requires Level 2 API access).
 
     Returns the filing document converted to markdown for reading and analysis.
     Use fr_filing_retrieve(id=id) first to check if markdown_url is available.
     """
+    params = FrFilingMarkdownParams(id=id)  # type: ignore[call-arg]
     text = await _with_retry(lambda c: c.filings.markdown_retrieve(id=params.id), api_key)
     content = text if isinstance(text, str) else (text.decode() if isinstance(text, bytes) else str(text or ""))
     if not content.strip():
@@ -507,13 +594,14 @@ async def fr_filing_markdown(params: FrFilingMarkdownParams, *, api_key: str) ->
 
 
 @connector(output=FILING_HISTORY_OUTPUT, tags=["financial_reports"])
-async def fr_filing_history(params: FrFilingHistoryParams, *, api_key: str) -> Result:
+async def fr_filing_history(id: int, *, api_key: str) -> Result:
     """Retrieve the audit trail of changes to a filing (reclassifications, metadata corrections).
 
     Returns history entries with date, change type (+ created, ~ changed, - deleted),
     and a changes dict describing what fields were modified.
     Use fr_filing_retrieve(id=id) first to get the current state of the filing.
     """
+    params = FrFilingHistoryParams(id=id)  # type: ignore[call-arg]
     resp = await _with_retry(lambda c: c.filings.history_retrieve(id=params.id), api_key)
     df = _to_dataframe(resp)
     if df.empty:
@@ -522,24 +610,31 @@ async def fr_filing_history(params: FrFilingHistoryParams, *, api_key: str) -> R
 
 
 @connector(tags=["financial_reports"])
-async def fr_next_annual_report(params: FrNextAnnualReportParams, *, api_key: str) -> Result:
+async def fr_next_annual_report(id: int, *, api_key: str) -> Result:
     """Predict when a company's next annual report will be published.
 
     Returns a date window (start_date, end_date), confidence score (0-100),
     and is_overdue flag. Higher confidence means the company has a consistent
     historical release pattern. Use fr_companies_search to find company IDs.
     """
+    params = FrNextAnnualReportParams(id=id)  # type: ignore[call-arg]
     resp = await _with_retry(lambda c: c.companies.next_annual_report_retrieve(id=params.id), api_key)
     df = _to_dataframe(resp)
     if df.empty:
         raise EmptyDataError(
             provider="financial_reports", message=f"No annual report prediction available for company {params.id}"
         )
-    return Result.from_dataframe(df)
+    return TabularResult.from_dataframe(df)
 
 
 @connector(output=ISIC_BROWSE_OUTPUT, tags=["financial_reports", "tool"])
-async def fr_isic_browse(params: FrIsicBrowseParams, *, api_key: str) -> Result:
+async def fr_isic_browse(
+    level: Literal['sections', 'divisions', 'groups', 'classes'],
+    page: int | None = None,
+    page_size: int | None = None,
+    *,
+    api_key: str
+) -> Result:
     """Browse ISIC industry classifications to find valid filter codes.
 
     Returns code/name pairs at the chosen hierarchy level.
@@ -547,6 +642,7 @@ async def fr_isic_browse(params: FrIsicBrowseParams, *, api_key: str) -> Result:
     (divisions), industry (groups), sub_industry (classes).
     Start with level='sections' for the broadest view, then drill down.
     """
+    params = FrIsicBrowseParams(level=level, page=page, page_size=page_size)  # type: ignore[call-arg]
     kwargs: dict[str, Any] = {}
     if params.page is not None:
         kwargs["page"] = params.page
@@ -580,13 +676,22 @@ async def fr_isic_browse(params: FrIsicBrowseParams, *, api_key: str) -> Result:
 
 
 @connector(output=ISIN_LOOKUP_OUTPUT, tags=["financial_reports", "tool"])
-async def fr_isin_lookup(params: FrIsinLookupParams, *, api_key: str) -> Result:
+async def fr_isin_lookup(
+    codes: str | None = None,
+    company: int | None = None,
+    search: str | None = None,
+    page: int | None = None,
+    page_size: int | None = None,
+    *,
+    api_key: str
+) -> Result:
     """Look up ISINs with OpenFIGI enrichment (FIGI, security type, exchange).
 
     Returns ISIN codes with associated company and financial instrument data.
     Use fr_companies_search to find company IDs, then fr_isin_lookup(company=id)
     to get all ISINs for that company.
     """
+    params = FrIsinLookupParams(codes=codes, company=company, search=search, page=page, page_size=page_size)  # type: ignore[call-arg]
     kwargs = _strip_none(params.model_dump())
 
     async def _call(client: Any) -> Any:
@@ -614,7 +719,15 @@ _REFERENCE_OUTPUT_MAP: dict[str, OutputConfig] = {
 
 
 @connector(output=REFERENCE_GENERIC_OUTPUT, tags=["financial_reports"])
-async def fr_reference_data(params: FrReferenceDataParams, *, api_key: str) -> Result:
+async def fr_reference_data(
+    resource: Literal['filing_types', 'filing_categories', 'languages', 'countries', 'sources'],
+    search: str | None = None,
+    category: int | None = None,
+    page: int | None = None,
+    page_size: int | None = None,
+    *,
+    api_key: str
+) -> Result:
     """List reference/lookup data: filing types, categories, languages, countries, or sources.
 
     Use this to discover valid filter values for other connectors:
@@ -624,6 +737,7 @@ async def fr_reference_data(params: FrReferenceDataParams, *, api_key: str) -> R
     - languages: ISO 639-1 codes for fr_filings_search(language=..., languages=...)
     - sources: source IDs for fr_filings_search(source=..., sources=...)
     """
+    params = FrReferenceDataParams(resource=resource, search=search, category=category, page=page, page_size=page_size)  # type: ignore[call-arg]
     kwargs: dict[str, Any] = {}
     if params.page is not None:
         kwargs["page"] = params.page
