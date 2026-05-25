@@ -142,19 +142,7 @@ mergeable when every item below is satisfied:
 
 ---
 
-## 5. MCP host
-
-The MCP (Model Context Protocol) host adapter now lives in its own
-repository at [`ockham-sh/parsimony-mcp`](https://github.com/ockham-sh/parsimony-mcp).
-It is a CONSUMER of the kernel contract — it receives a `Connectors`
-collection from whichever plugins the user has installed and serves
-them as MCP tools to coding agents — not a `parsimony.providers`
-plugin, so it belongs outside this monorepo. Contributions to the MCP
-host should be sent to that repository, not here.
-
----
-
-## 6. Reporting bugs
+## 5. Reporting bugs
 
 Open a GitHub issue with:
 
@@ -169,7 +157,7 @@ issue.
 
 ---
 
-## 7. Code style
+## 6. Code style
 
 - **Formatter:** `ruff format` (120-char lines, the workspace root `pyproject.toml` configures this)
 - **Linter:** `ruff check` with the rules selected in the workspace root
@@ -179,21 +167,15 @@ issue.
 
 ---
 
-## 8. Taking over an abandoned connector
+## 7. Taking over an abandoned connector
 
 If a connector steward has been unresponsive to issues and PRs for 90 days,
 anyone may open a takeover PR. See [GOVERNANCE.md §2](GOVERNANCE.md#2-stewardship)
 for the full policy.
 
-**Note:** this rule applies to connector packages in this monorepo.
-The MCP host adapter, which now lives in a separate repository
-(`ockham-sh/parsimony-mcp`), is NOT subject to the 90-day-abandonment
-takeover rule; ownership transfers there require explicit handoff
-from the current owner.
-
 ---
 
-## 9. Getting help
+## 8. Getting help
 
 - Open a discussion on GitHub Discussions
 - Ask in the parsimony issue tracker

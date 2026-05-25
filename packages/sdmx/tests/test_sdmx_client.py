@@ -29,7 +29,7 @@ def fake_session_state(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         state["send_calls"].append(request.url)
         return None
 
-    session.send = _record  # type: ignore[method-assign]
+    session.send = _record  # type: ignore[method-assign,assignment]
     state["session"] = session
 
     fake_client = MagicMock()

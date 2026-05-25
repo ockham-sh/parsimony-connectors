@@ -1,8 +1,8 @@
-# parsimony-sec_edgar
+# parsimony-sec-edgar
 
 SEC EDGAR connector plugin for parsimony — public-company filings, financial statements (XBRL), filing documents, and insider trades for U.S. issuers.
 
-Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connectors) monorepo. Distributed standalone on PyPI as `parsimony-sec_edgar`.
+Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connectors) monorepo. Distributed standalone on PyPI as `parsimony-sec-edgar`.
 
 ## Connectors
 
@@ -27,7 +27,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 ## Install
 
 ```bash
-pip install parsimony-sec_edgar
+pip install parsimony-sec-edgar
 ```
 
 Pulls in `parsimony-core>=0.4,<0.5` automatically. Verify discovery:

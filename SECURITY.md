@@ -32,22 +32,6 @@ enforces:
 
 ---
 
-## Migration provenance
-
-### MCP host — now lives in `ockham-sh/parsimony-mcp`
-
-The MCP host adapter (`parsimony-mcp` on PyPI) briefly lived in this
-monorepo as `packages/mcp/` (imported from `ockham-sh/parsimony-mcp`
-on 2026-04-20 via `git-filter-repo`). With the introduction of the
-kernel's `parsimony.discover` surface, the MCP host became a pure
-consumer of the kernel contract and no longer shared build/test
-infrastructure with the `parsimony.providers` plugins in this repo,
-so it was moved back out to its own repository at
-[`ockham-sh/parsimony-mcp`](https://github.com/ockham-sh/parsimony-mcp).
-This monorepo is now reserved exclusively for `parsimony.providers`
-plugin packages (enforced by the `Enforce plugin-only monorepo` step
-in `.github/workflows/ci.yml`).
-
-Full commit history for the MCP host is preserved in the
-`ockham-sh/parsimony-mcp` repository. Contributions and
-security-sensitive reports for the MCP host belong there.
+This monorepo is reserved exclusively for `parsimony.providers` plugin
+packages (enforced by the `Enforce plugin-only monorepo` step in
+`.github/workflows/ci.yml`).
