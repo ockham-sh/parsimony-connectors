@@ -56,8 +56,6 @@ from parsimony import discover
 connectors = discover.load_all().bind_env()
 ```
 
-To expose tool-tagged connectors over MCP, install the standalone server: <https://github.com/ockham-sh/parsimony-mcp>.
-
 ## Catalog discovery
 
 FRED ships a native search endpoint, so this plugin does **not** publish an

@@ -221,6 +221,4 @@ governance.
 
 ---
 
-*This is governance v1. Revisit whenever a trigger from the kernel's
-`DESIGN-distribution-model.md` §11 fires, or whenever a concrete situation
-arises that this document handles badly.*
+*This is governance v1. Revisit whenever the kernel contract or the connector model changes in a material way, or whenever a concrete situation arises that this document handles badly.*

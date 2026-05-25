@@ -6,6 +6,3 @@ contact_links:
   - name: Kernel / framework question
     url: https://github.com/ockham-sh/parsimony/discussions
     about: Questions about the parsimony kernel, contract, or discovery belong on the kernel repo.
-  - name: MCP server question
-    url: https://github.com/ockham-sh/parsimony-mcp/issues
-    about: Questions about the MCP server belong on the parsimony-mcp repo.

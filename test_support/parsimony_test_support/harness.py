@@ -56,10 +56,9 @@ def assert_no_secret_leak(target: Any, secret: str = CANARY_KEY) -> None:
     params (the agent-facing serialisations). For a :class:`ConnectorError`
     we check only ``str()`` — the chained ``__cause__`` (the raw
     ``httpx.HTTPStatusError``) commonly embeds the query-string API key,
-    but redacting the chain is the consumer's job (e.g.
-    ``parsimony_mcp.bridge.translate_error``) not the connector's. The
-    contract at this layer is "the ConnectorError's own message is safe";
-    the chain is for debugging with secrets masked by the caller.
+    but redacting the chain is the consumer's job — not the connector's.
+    The contract at this layer is "the ConnectorError's own message is
+    safe"; the chain is for debugging with secrets masked by the caller.
     """
     needles: list[str] = [str(target)]
 

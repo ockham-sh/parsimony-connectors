@@ -123,7 +123,7 @@ one python process eventually OOMs the host. `scripts/publish_overnight.sh`
 wraps `scripts/publish_agency.py` in a per-batch restart loop:
 
 ```bash
-cd /home/espinet/ockham/parsimony-connectors                  # one-time
+cd <path-to-parsimony-connectors>                             # one-time
 uv sync --all-packages --extra publish
 
 cd packages/sdmx                                              # then, every run
