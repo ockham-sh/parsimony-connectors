@@ -1,6 +1,6 @@
 """Happy-path tests for the Tiingo connectors.
 
-Follows ``docs/testing-template.md``. Tiingo auth is a ``Authorization: Token
+Follows ``CONTRIBUTING.md §4``. Tiingo auth is a ``Authorization: Token
 <key>`` header; error-mapping contract covered on ``tiingo_search``.
 """
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from parsimony.errors import RateLimitError, UnauthorizedError
+from parsimony.errors import InvalidParameterError, RateLimitError, UnauthorizedError
 
 from parsimony_tiingo import (
     CONNECTORS,
@@ -137,5 +137,5 @@ async def test_tiingo_eod_returns_ohlcv() -> None:
 
 
 def test_eod_rejects_unsafe_ticker() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidParameterError):
         TiingoEodParams(ticker="../etc/passwd")

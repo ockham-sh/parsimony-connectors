@@ -24,20 +24,22 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
-from huggingface_hub.errors import RepositoryNotFoundError
-from parsimony.errors import ConnectorError, EmptyDataError
+from parsimony.errors import ConnectorError, EmptyDataError, InvalidParameterError
 
 from parsimony_sdmx.connectors import search as search_module
+from parsimony_sdmx.connectors._agencies import AgencyId
 from parsimony_sdmx.connectors.search import (
     DEFAULT_CATALOG_ROOT,
     PARSIMONY_SDMX_CATALOG_URL_ENV,
     _clear_catalog_lru,
+    _resolve_datasets_namespace,
     _resolve_series_namespace,
     sdmx_datasets_search,
     sdmx_series_search,
 )
 
-_CATALOG_LOAD = "parsimony.utils.catalog_search.Catalog.load"
+_LOAD_OR_BUILD = "parsimony.catalog.search.load_or_build_catalog"
+_CATALOG_LOAD = "parsimony.catalog.Catalog.load"
 
 
 @pytest.fixture(autouse=True)
@@ -77,13 +79,21 @@ class TestResolveSeriesNamespace:
         with pytest.raises(ConnectorError, match="missing dataset id"):
             _resolve_series_namespace("ECB/")
 
-    def test_bare_token_defaults_to_ecb_with_warning(self, caplog: pytest.LogCaptureFixture) -> None:
-        import logging
+    def test_bare_token_without_agency_raises(self) -> None:
+        with pytest.raises(ConnectorError, match="must include agency"):
+            _resolve_series_namespace("HICP")
 
-        with caplog.at_level(logging.WARNING):
-            ns = _resolve_series_namespace("HICP")
-        assert ns == "sdmx_series_ecb_hicp"
-        assert any("no agency separator" in rec.message for rec in caplog.records)
+
+class TestResolveDatasetsNamespace:
+    def test_explicit_agency(self) -> None:
+        assert _resolve_datasets_namespace(agency=AgencyId.ECB) == "sdmx_datasets_ecb"
+
+    def test_string_agency(self) -> None:
+        assert _resolve_datasets_namespace(agency="ECB") == "sdmx_datasets_ecb"
+
+    def test_missing_agency_raises(self) -> None:
+        with pytest.raises(ConnectorError, match="requires agency"):
+            _resolve_datasets_namespace(agency=None)
 
 
 # ---------------------------------------------------------------------------
@@ -264,13 +274,13 @@ def test_empty_search_results_raise_empty_data_error(
 def test_repo_not_found_wraps_into_connector_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``RepositoryNotFoundError`` from the kernel is wrapped with a
+    """CatalogLRU ``ConnectorError`` for a missing repo is wrapped with a
     recovery directive so the agent has a path forward."""
 
-    async def _raise_repo_not_found(url: str) -> Any:
-        raise RepositoryNotFoundError("404 not found")
+    async def _raise_catalog_not_found(url: str, *, cache_path: Any = None, build: Any = None) -> Any:
+        raise ConnectorError(f"Catalog repo not found at {url}. DO NOT retry.", provider="catalog")
 
-    monkeypatch.setattr(_CATALOG_LOAD, _raise_repo_not_found)
+    monkeypatch.setattr(search_module._lru, "get_or_load", _raise_catalog_not_found)
     search_module._clear_catalog_lru()
 
     with pytest.raises(ConnectorError, match="DO NOT retry"):
@@ -283,10 +293,10 @@ def test_missing_bundle_wraps_into_connector_error(
     """``FileNotFoundError`` (kernel ``_load_file`` couldn't find
     ``meta.json``) becomes a directive-bearing ``ConnectorError``."""
 
-    async def _raise_file_not_found(url: str) -> Any:
-        raise FileNotFoundError("meta.json not found")
+    async def _raise_missing(url: str, *, cache_path: Any, build: Any = None) -> Any:
+        raise ConnectorError(f"Catalog bundle not present at {url}. DO NOT retry.", provider="catalog")
 
-    monkeypatch.setattr(_CATALOG_LOAD, _raise_file_not_found)
+    monkeypatch.setattr(_LOAD_OR_BUILD, _raise_missing)
     search_module._clear_catalog_lru()
 
     with pytest.raises(ConnectorError, match="DO NOT retry"):
@@ -309,8 +319,57 @@ def test_load_binds_catalog_root_on_search_connectors() -> None:
 def test_set_catalog_lru_size_rejects_invalid_values() -> None:
     from parsimony_sdmx.connectors.search import set_catalog_lru_size
 
-    with pytest.raises(ValueError, match=">= 1"):
+    with pytest.raises(InvalidParameterError, match=">= 1"):
         set_catalog_lru_size(0)
+
+
+def test_datasets_search_code_query_loads_agency_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[str] = []
+
+    async def _spy_load(url: str) -> Any:
+        seen.append(url)
+        return _FakeCatalog(
+            code="ECB|YC",
+            title="Yield curve",
+            metadata={"agency": "ECB", "dataset_id": "YC", "dimensions": []},
+        )
+
+    monkeypatch.setattr(_CATALOG_LOAD, _spy_load)
+    search_module._clear_catalog_lru()
+
+    asyncio.run(sdmx_datasets_search(query="code: ECB|YC", agency="ECB", limit=1))
+
+    assert seen == [f"{DEFAULT_CATALOG_ROOT}/sdmx_datasets_ecb"]
+
+
+def test_datasets_search_explicit_agency_loads_agency_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[str] = []
+
+    async def _spy_load(url: str) -> Any:
+        seen.append(url)
+        return _FakeCatalog(
+            code="ECB|YC",
+            title="Yield curve",
+            metadata={"agency": "ECB", "dataset_id": "YC", "dimensions": []},
+        )
+
+    monkeypatch.setattr(_CATALOG_LOAD, _spy_load)
+    search_module._clear_catalog_lru()
+
+    asyncio.run(sdmx_datasets_search(query="yield curve", agency="ECB", limit=1))
+
+    assert seen == [f"{DEFAULT_CATALOG_ROOT}/sdmx_datasets_ecb"]
+
+
+def test_datasets_search_empty_agency_raises() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        asyncio.run(sdmx_datasets_search(query="yield curve", agency="", limit=1))
 
 
 def test_datasets_search_returns_dimensions_manifest(
@@ -319,7 +378,7 @@ def test_datasets_search_returns_dimensions_manifest(
     manifest = [{"id": "FREQ", "values": [{"code": "M", "label": "Monthly"}]}]
 
     async def _spy_load(url: str) -> Any:
-        if url.endswith("/sdmx_datasets"):
+        if url.endswith("/sdmx_datasets_ecb"):
             return _FakeCatalog(
                 code="ECB|YC",
                 title="Yield curve",
@@ -334,17 +393,17 @@ def test_datasets_search_returns_dimensions_manifest(
     monkeypatch.setattr(_CATALOG_LOAD, _spy_load)
     search_module._clear_catalog_lru()
 
-    df = asyncio.run(sdmx_datasets_search(query="code: ECB|YC", limit=1))
+    df = asyncio.run(sdmx_datasets_search(query="code: ECB|YC", agency="ECB", limit=1))
 
     assert df.data["flow_id"].iloc[0] == "ECB/YC"
     assert df.data["dimensions"].iloc[0] == manifest
 
 
-def test_datasets_search_returns_empty_dimensions_for_legacy_catalogs(
+def test_datasets_search_returns_empty_dimensions_when_manifest_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def _spy_load(url: str) -> Any:
-        if url.endswith("/sdmx_datasets"):
+        if url.endswith("/sdmx_datasets_ecb"):
             return _FakeCatalog(
                 code="ECB|YC",
                 title="Yield curve",
@@ -355,6 +414,6 @@ def test_datasets_search_returns_empty_dimensions_for_legacy_catalogs(
     monkeypatch.setattr(_CATALOG_LOAD, _spy_load)
     search_module._clear_catalog_lru()
 
-    df = asyncio.run(sdmx_datasets_search(query="code: ECB|YC", limit=1))
+    df = asyncio.run(sdmx_datasets_search(query="code: ECB|YC", agency="ECB", limit=1))
 
     assert df.data["dimensions"].iloc[0] == []

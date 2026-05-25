@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from parsimony.result import Column, ColumnRole, OutputConfig
-from parsimony.utils.catalog_search import CatalogSearchParams, make_catalog_search_connector
+from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
 
 RiksbankSearchParams = CatalogSearchParams
 
@@ -13,14 +13,17 @@ RIKSBANK_SEARCH_OUTPUT = OutputConfig(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="riksbank"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="score", role=ColumnRole.METADATA),
+        Column(name="score", role=ColumnRole.DATA),
     ]
 )
 
-riksbank_search = make_catalog_search_connector(
+from parsimony_riksbank.catalog_build import build_riksbank_catalog
+
+riksbank_search = make_local_search_connector(
     provider="riksbank",
     default_url="hf://parsimony-dev/riksbank",
-    env_var=PARSIMONY_RIKSBANK_CATALOG_URL_ENV,
+    catalog_url_env_var=PARSIMONY_RIKSBANK_CATALOG_URL_ENV,
+    build_catalog=build_riksbank_catalog,
     tags=["macro", "se", "tool"],
     description=(
         "Semantic-search the Sveriges Riksbank catalog. "

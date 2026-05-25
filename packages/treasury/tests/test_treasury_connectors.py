@@ -1,6 +1,6 @@
 """Happy-path tests for the US Treasury Fiscal Data connectors.
 
-Follows ``docs/testing-template.md``: respx-mocked upstream, assertions limited to
+Follows ``CONTRIBUTING.md §4``: respx-mocked upstream, assertions limited to
 the public ``Result`` surface. Treasury has no ``api_key`` dep, so the
 401/429 error-mapping tests in the template do not apply here.
 """
@@ -12,7 +12,6 @@ import pandas as pd
 import pytest
 import respx
 from parsimony.errors import EmptyDataError
-from parsimony_test_support import entries_result_to_dataframe
 
 from parsimony_treasury import (
     CONNECTORS,
@@ -82,7 +81,7 @@ async def test_treasury_fetch_returns_records() -> None:
         "sort": None,
         "page_size": 100,
     }
-    df = entries_result_to_dataframe(result)
+    df = result.data
     assert "record_date" in df.columns
     assert "endpoint" in df.columns
     assert list(df["endpoint"]) == ["v2/accounting/od/debt_to_penny"]
@@ -136,7 +135,7 @@ async def test_treasury_rates_fetch_parses_xml_and_normalises_record_date() -> N
 
     result = await treasury_rates_fetch(feed="daily_treasury_yield_curve", year=2026)
 
-    df = entries_result_to_dataframe(result)
+    df = result.data
     assert len(df) == 2
     # Native rate columns are preserved; numeric typing applied.
     assert df["BC_10YEAR"].tolist() == [4.19, 4.20]
@@ -150,7 +149,7 @@ async def test_treasury_rates_fetch_parses_xml_and_normalises_record_date() -> N
         "feed": "daily_treasury_yield_curve",
         "year": 2026,
     }
-    assert "field_tdr_date_value=2026" in result.provenance.properties["source_url"]
+    assert "field_tdr_date_value=2026" in str(result.data["source_url"].iloc[0])
 
 
 @respx.mock
@@ -238,7 +237,7 @@ async def test_enumerate_treasury_emits_one_row_per_measure_field() -> None:
 
     result = await enumerate_treasury()
 
-    df = entries_result_to_dataframe(result)
+    df = result.data
     fiscal = df[~df["endpoint"].str.startswith("home/")]
     assert len(fiscal) == 2, "one row per measure field (DATE is filtered out)"
     assert set(fiscal["code"]) == {
@@ -310,7 +309,7 @@ async def test_enumerate_treasury_keeps_tcir_string_rate_fields() -> None:
     )
 
     result = await enumerate_treasury()
-    df = entries_result_to_dataframe(result)
+    df = result.data
     fiscal = df[~df["endpoint"].str.startswith("home/")]
     # Only the genuine rate-bearing string field is kept; *_desc and Y/N flags
     # are filtered out, dates remain excluded.
@@ -331,7 +330,7 @@ async def test_enumerate_treasury_appends_office_of_debt_management_rates() -> N
     )
 
     result = await enumerate_treasury()
-    df = entries_result_to_dataframe(result)
+    df = result.data
     home = df[df["endpoint"].str.startswith("home/")]
     assert len(home) > 30, "expected the full rate-feed registry to land"
 
@@ -391,7 +390,7 @@ async def test_enumerate_treasury_emits_source_metadata_for_dispatch() -> None:
         )
     )
 
-    df = entries_result_to_dataframe(await enumerate_treasury())
+    df = (await enumerate_treasury()).data
     fiscal_sources = set(df[df["endpoint"] == "v2/accounting/od/debt_to_penny"]["source"])
     rates_sources = set(df[df["endpoint"].str.startswith("home/")]["source"])
     assert fiscal_sources == {"fiscal_data"}

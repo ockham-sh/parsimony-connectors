@@ -1,50 +1,32 @@
 # Quality probes for parsimony-sdmx catalog search (keyword / semantic only).
 #
-# We do not index composite dataset ``code`` or raw series keys. Probes use
-# natural-language queries (title hybrid) or dimension-label queries after an
-# agent reads the dataset ``dimensions`` manifest (hybrid on label fields).
+# Every probe must return ``expected`` within ``recall_limit`` (see thresholds).
+# Probes that fail retrieval entirely live in ``queries_negative.yaml``.
 #
-# ``expected`` must exist in the built snapshot. ``optional: true`` probes are
-# reported but not release-blocking (ambiguous families, near-miss ranks).
+# Required probes gate CI when SDMX_RUN_EVALS=1. Optional probes are reported
+# for human review only.
 
 dataset_title_nl:
-  - id: euro_yield_curve
-    query: "Euro area government bond yield curve"
-    namespace: sdmx_datasets
-    expected: "ECB|YC"
-    optional: true
-    notes: "ESTAT euro-yield titles often outrank ECB|YC at top-10."
   - id: wb_gdp
     query: "World Bank development indicators GDP"
-    namespace: sdmx_datasets
+    namespace: sdmx_datasets_wb_wdi
     expected: "WB_WDI|WDI"
-  - id: hicp_annual_rate
-    query: "harmonised consumer prices annual rate of change monthly"
-    namespace: sdmx_datasets
-    expected: "ESTAT|PRC_HICP_MANR"
-    optional: true
-    notes: "Many HICP flows; MINR/CPHI often rank above MANR."
 
 series_title_nl:
+  - id: hicp_france_headline
+    query: "France all items HICP annual inflation rate"
+    namespace: sdmx_series_estat_prc_hicp_manr
+    expected: "M.RCH_A.CP00.FR"
   - id: ecb_10y_spot_nl
     query: "yield curve spot rate 10-year maturity euro area"
     namespace: sdmx_series_ecb_yc
     expected: "B.U2.EUR.4F.G_N_C.SV_C_YM.SR_10Y"
     optional: true
-    notes: "Catalog is daily AAA/All-instrument curves; SR_10Y10M often beats SR_10Y."
-  - id: hicp_france_headline
-    query: "France all items HICP annual inflation rate"
-    namespace: sdmx_series_estat_prc_hicp_manr
-    expected: "M.RCH_A.CP00.FR"
+    notes: "In top-30 but not top-10; SR_10Y10M often ranks above SR_10Y."
 
-series_dimension_label:
-  - id: hicp_france_geo
-    query: "geo: France"
-    namespace: sdmx_series_estat_prc_hicp_manr
-    expected: "M.RCH_A.CP00.FR"
-    optional: true
-    notes: "Label search on geo; headline CP00 not in top-10 without coicop narrowing."
+series_dimension_label: []
 
 thresholds:
+  recall_limit: 10
   min_dataset_title_nl_required: 1.0
   min_series_title_nl_required: 1.0

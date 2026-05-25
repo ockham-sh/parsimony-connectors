@@ -1,0 +1,34 @@
+# Curated search probes for the Riksbank catalog (schema v4 snapshots).
+# Regenerate drafts: uv run python scripts/validate_catalog.py --provider riksbank \
+#   --catalog-url file:///tmp/parsimony-catalogs/riksbank --write-queries \
+#   packages/riksbank/catalog_tests/queries.generated.yaml
+#
+# Expected usage: hybrid title/description search (BM25 + vector on text fields).
+# Structured ``code:`` probes exercise the code BM25 index.
+
+catalog_url: hf://parsimony-dev/riksbank
+
+queries:
+  - id: code_sekurpmi
+    query: "code: SEKEURPMI"
+    expected_code: SEKEURPMI
+    mode: code
+    required: true
+    why: "Direct lookup on indexed code field"
+
+  - id: title_exchange_rate
+    query: "SEK EUR exchange rate"
+    expected_code: SEKEURPMI
+    mode: title_bm25
+    required: true
+    why: "Lexical title probe on hybrid title index"
+
+  - id: title_swestr_semantic
+    query: "Swedish overnight benchmark rate SWESTR"
+    expected_code: SWESTR
+    mode: hybrid_title
+    optional: true
+    why: "Semantic-style title probe; ranking may vary on hybrid index"
+
+thresholds:
+  min_required_recall: 1.0

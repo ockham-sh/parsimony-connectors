@@ -13,9 +13,8 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
-from parsimony.catalog import CatalogEntry
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError
+from parsimony.errors import EmptyDataError, InvalidParameterError
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -60,7 +59,7 @@ class BocFetchParams(BaseModel):
     def _non_empty(cls, v: str) -> str:
         v = v.strip()
         if not v:
-            raise ValueError("series_name must be non-empty")
+            raise InvalidParameterError("boc", "series_name must be non-empty")
         return v
 
 
@@ -278,8 +277,8 @@ async def boc_fetch(
     return df
 
 
-@enumerator(tags=["macro", "ca"])
-async def enumerate_boc() -> list[CatalogEntry]:
+@enumerator(output=BOC_ENUMERATE_OUTPUT, tags=["macro", "ca"])
+async def enumerate_boc() -> pd.DataFrame:
     """Enumerate every Bank of Canada series via Valet's three list endpoints.
 
     Granularity is one row per series — Valet addresses observations per
@@ -373,7 +372,7 @@ async def enumerate_boc() -> list[CatalogEntry]:
         "group_label",
     ]
     df = pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
-    return BOC_ENUMERATE_OUTPUT.build_entries(df)
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -390,9 +389,8 @@ from parsimony_boc.search import (  # noqa: E402, F401  (after public decorators
 CONNECTORS = Connectors([boc_fetch, enumerate_boc, boc_search])
 
 
-def load(*, catalog_url: str | None = None, fallback_bm25: bool = False) -> Connectors:
-    """Return :data:`CONNECTORS` with provider-local catalog defaults configured."""
-    from parsimony_boc.catalog import configure
-
-    configure(catalog_url=catalog_url, fallback_bm25=fallback_bm25)
-    return CONNECTORS
+def load(*, catalog_url: str | None = None) -> Connectors:
+    """Return :data:`CONNECTORS` with optional catalog search defaults bound."""
+    if catalog_url is None:
+        return CONNECTORS
+    return CONNECTORS.bind(catalog_url=catalog_url)

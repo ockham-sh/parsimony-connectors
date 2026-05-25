@@ -57,9 +57,8 @@ class TestParentStaysSdmxFree:
 
             leaked = sorted(m for m in sys.modules if m == "sdmx" or m.startswith("sdmx."))
             if leaked:
-                print(f"LEAKED: {leaked}")
                 sys.exit(1)
-            print("CLEAN")
+            sys.exit(0)
             """
         )
         result = subprocess.run(  # noqa: S603
@@ -69,7 +68,6 @@ class TestParentStaysSdmxFree:
             timeout=30,
         )
         assert result.returncode == 0, f"parent leaked sdmx imports — stdout={result.stdout!r} stderr={result.stderr!r}"
-        assert "CLEAN" in result.stdout
 
     def test_plugin_surface_import_does_not_pull_sdmx(self) -> None:
         # Agent/runtime imports of ``parsimony_sdmx`` must stay sdmx-free —
@@ -81,9 +79,8 @@ class TestParentStaysSdmxFree:
 
             leaked = sorted(m for m in sys.modules if m == "sdmx" or m.startswith("sdmx."))
             if leaked:
-                print(f"LEAKED: {leaked}")
                 sys.exit(1)
-            print("CLEAN")
+            sys.exit(0)
             """
         )
         result = subprocess.run(  # noqa: S603

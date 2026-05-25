@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from parsimony.result import Column, ColumnRole, OutputConfig
-from parsimony.utils.catalog_search import CatalogSearchParams, make_catalog_search_connector
+from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
 
 BdeSearchParams = CatalogSearchParams
 
@@ -13,14 +13,17 @@ BDE_SEARCH_OUTPUT = OutputConfig(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="bde"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="score", role=ColumnRole.METADATA),
+        Column(name="score", role=ColumnRole.DATA),
     ]
 )
 
-bde_search = make_catalog_search_connector(
+from parsimony_bde.catalog_build import build_bde_catalog
+
+bde_search = make_local_search_connector(
     provider="bde",
     default_url="hf://parsimony-dev/bde",
-    env_var=PARSIMONY_BDE_CATALOG_URL_ENV,
+    catalog_url_env_var=PARSIMONY_BDE_CATALOG_URL_ENV,
+    build_catalog=build_bde_catalog,
     tags=["macro", "es", "tool"],
     description=(
         "Semantic-search the Banco de España (BdE) catalog. "

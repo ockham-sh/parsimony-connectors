@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 import pandas as pd
 import pytest
-from parsimony.errors import EmptyDataError
+from parsimony.errors import EmptyDataError, InvalidParameterError
 
 
 def _fake_dsd(dim_ids: list[str]) -> Any:
@@ -113,6 +113,7 @@ class TestSdmxFetch:
             "CURRENCY",
             "TIME_PERIOD",
             "value",
+            "series_url",
         ]
         assert list(df["series_key"]) == ["M.DE.EUR", "M.FR.EUR"]
         assert list(df["FREQ"]) == ["M", "M"]
@@ -135,13 +136,13 @@ class TestSdmxFetch:
     def test_unknown_agency_rejected_at_param_validation(self) -> None:
         from parsimony_sdmx.connectors.fetch import SdmxFetchParams
 
-        with pytest.raises(ValueError, match="Unknown agency"):
+        with pytest.raises(InvalidParameterError, match="Unknown agency"):
             SdmxFetchParams(dataset_key="BOGUS-X", series_key="M.DE")
 
     def test_dataset_key_must_include_agency_prefix(self) -> None:
         from parsimony_sdmx.connectors.fetch import SdmxFetchParams
 
-        with pytest.raises(ValueError, match="must include agency prefix"):
+        with pytest.raises(InvalidParameterError, match="must include agency prefix"):
             SdmxFetchParams(dataset_key="YCONLY", series_key="M.DE")
 
     def test_series_url_metadata_for_ecb(self, patch_sdmx: dict[str, Any]) -> None:
@@ -163,10 +164,8 @@ class TestSdmxFetch:
         params = SdmxFetchParams(dataset_key="ECB-YC", series_key="M.DE")
         result = asyncio.run(sdmx_fetch(**params.model_dump()))
 
-        metadata = result.provenance.properties.get("metadata", [])
-        urls = [m["value"] for m in metadata if m.get("name") == "series_url"]
-        assert urls, "expected series_url metadata entry"
-        parsed = urlparse(urls[0])
+        assert "series_url" in result.data.columns
+        parsed = urlparse(str(result.data["series_url"].iloc[0]))
         assert parsed.scheme == "https"
         assert parsed.hostname == "data.ecb.europa.eu"
 
@@ -188,7 +187,7 @@ class TestSdmxFetch:
 
         params = SdmxFetchParams(dataset_key="WB_WDI-WDI", series_key="A.USA")
         result = asyncio.run(sdmx_fetch(**params.model_dump()))
-        assert result.provenance.properties.get("metadata", []) == []
+        assert "series_url" not in result.data.columns or result.data["series_url"].isna().all()
 
     def test_namespace_uses_normalized_dataset_key(self, patch_sdmx: dict[str, Any]) -> None:
         from parsimony_sdmx.connectors.fetch import (
@@ -223,7 +222,7 @@ class TestSdmxFetchOutputBuilder:
 
         out = _sdmx_fetch_output("sdmx_test", ["FREQ", "REF_AREA"])
         names = [c.name for c in out.columns]
-        assert names == ["series_key", "title", "FREQ", "REF_AREA", "TIME_PERIOD", "value"]
+        assert names == ["series_key", "title", "FREQ", "REF_AREA", "TIME_PERIOD", "value", "series_url"]
 
         roles = {c.name: c.role for c in out.columns}
         assert roles["series_key"] == ColumnRole.KEY
@@ -232,3 +231,4 @@ class TestSdmxFetchOutputBuilder:
         assert roles["REF_AREA"] == ColumnRole.METADATA
         assert roles["TIME_PERIOD"] == ColumnRole.DATA
         assert roles["value"] == ColumnRole.DATA
+        assert roles["series_url"] == ColumnRole.METADATA

@@ -17,12 +17,10 @@ import re
 from typing import Any
 
 import pandas as pd
-from parsimony.errors import EmptyDataError, ParseError, PaymentRequiredError, UnauthorizedError
-from parsimony.result import Result
+from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError, PaymentRequiredError, UnauthorizedError
 from parsimony.transport import HttpClient
 
 from parsimony_fmp._http import fetch_json, pooled_client
-from parsimony_fmp.outputs import SCREENER_OUTPUT
 from parsimony_fmp.params import FmpScreenerParams
 
 logger = logging.getLogger(__name__)
@@ -286,7 +284,7 @@ async def _fetch_enrichment_df(
     return df
 
 
-async def execute(params: FmpScreenerParams, http: HttpClient) -> Result:
+async def execute(params: FmpScreenerParams, http: HttpClient) -> Any:
     """Run the full screener pipeline and return a :class:`Result`.
 
     Called from the ``@connector fmp_screener`` stub in ``__init__.py``.
@@ -407,20 +405,22 @@ async def execute(params: FmpScreenerParams, http: HttpClient) -> Result:
             sug_str = "; ".join(
                 f"'{c}' → {v}" if v else f"'{c}' → no close match" for c, v in suggestions.items()
             )
-            raise ValueError(
+            raise InvalidParameterError(
+                "fmp",
                 f"Invalid where_clause: {exc}\n"
                 + (f"Unknown column(s): {unknown}. Suggestions: {sug_str}\n" if unknown else "")
-                + f"Available columns ({len(allowed_cols)}): {allowed_cols}"
+                + f"Available columns ({len(allowed_cols)}): {allowed_cols}",
             ) from exc
 
     # Step 6: Sort and limit
     if sort_by is not None:
         if sort_by not in df.columns:
             sort_suggestions = difflib.get_close_matches(sort_by, allowed_cols, n=5, cutoff=0.6)
-            raise ValueError(
+            raise InvalidParameterError(
+                "fmp",
                 f"Invalid sort_by column: '{sort_by}'. "
                 f"Suggestions: {sort_suggestions if sort_suggestions else 'no close matches'}. "
-                f"Available columns ({len(allowed_cols)}): {allowed_cols}"
+                f"Available columns ({len(allowed_cols)}): {allowed_cols}",
             )
         df = df.sort_values(by=sort_by, ascending=(sort_order == "asc"))
 
@@ -432,9 +432,10 @@ async def execute(params: FmpScreenerParams, http: HttpClient) -> Result:
         keep = ["symbol"] + [f for f in fields if f != "symbol"]
         missing = [f for f in keep if f not in df.columns]
         if missing:
-            raise ValueError(
+            raise InvalidParameterError(
+                "fmp",
                 f"Unknown field(s) in 'fields': {missing}. "
-                f"Available columns ({len(allowed_cols)}): {allowed_cols}"
+                f"Available columns ({len(allowed_cols)}): {allowed_cols}",
             )
         df = df[keep]
 
@@ -444,9 +445,7 @@ async def execute(params: FmpScreenerParams, http: HttpClient) -> Result:
             message="Screener returned no rows after applying all filters.",
         )
 
-    return SCREENER_OUTPUT.build_table_result(
-        df,
-    )
+    return df
 
 
 __all__ = [

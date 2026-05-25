@@ -14,16 +14,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-from typing import Annotated
+from typing import Annotated, Any
 
-from parsimony.catalog import code_token, normalize_code
+from parsimony.catalog import code_token, normalize_namespace
 from parsimony.connector import connector
-from parsimony.errors import EmptyDataError, ParseError, ProviderError
+from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError, ProviderError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Result,
 )
 from pydantic import BaseModel, Field, field_validator
 from requests.exceptions import ConnectionError as RequestsConnectionError
@@ -79,15 +78,15 @@ class SdmxFetchParams(BaseModel):
     def _validate_dataset_key(cls, v: str) -> str:
         stripped = v.strip()
         if "-" not in stripped:
-            raise ValueError("dataset_key must include agency prefix (e.g. 'ECB-YC')")
+            raise InvalidParameterError("sdmx", "dataset_key must include agency prefix (e.g. 'ECB-YC')")
         agency, dataset_id = stripped.split("-", 1)
         allowed = {a.value for a in ALL_AGENCIES}
         if agency.upper() not in allowed:
-            raise ValueError(f"Unknown agency {agency!r}; allowed: {sorted(allowed)}")
+            raise InvalidParameterError("sdmx", f"Unknown agency {agency!r}; allowed: {sorted(allowed)}")
         import re
 
         if not re.match(_DATASET_KEY_PATTERN, dataset_id):
-            raise ValueError(f"dataset_id {dataset_id!r} contains disallowed characters")
+            raise InvalidParameterError("sdmx", f"dataset_id {dataset_id!r} contains disallowed characters")
         return f"{agency.upper()}-{dataset_id}"
 
 
@@ -108,6 +107,7 @@ def _sdmx_fetch_output(namespace: str, dimension_ids: list[str]) -> OutputConfig
         [
             Column(name="TIME_PERIOD", dtype="datetime", role=ColumnRole.DATA),
             Column(name="value", dtype="numeric", role=ColumnRole.DATA),
+            Column(name="series_url", role=ColumnRole.METADATA),
         ]
     )
     return OutputConfig(columns=cols)
@@ -115,7 +115,7 @@ def _sdmx_fetch_output(namespace: str, dimension_ids: list[str]) -> OutputConfig
 
 def _sdmx_namespace_from_dataset_key(dataset_key: str) -> str:
     """Catalog namespace for one SDMX dataset (``sdmx_<tokenized_dataset>``)."""
-    return normalize_code(f"sdmx_{code_token(dataset_key)}")
+    return normalize_namespace(f"sdmx_{code_token(dataset_key)}")
 
 
 def _is_retryable(exc: BaseException) -> bool:
@@ -134,7 +134,7 @@ async def sdmx_fetch(
     series_key: str,
     start_period: str | None = None,
     end_period: str | None = None,
-) -> Result:
+) -> Any:
     """Fetch an SDMX time series from the live agency endpoint.
 
     Dataset_key format: ``{AGENCY}-{DATASET_ID}`` where AGENCY is one of the
@@ -195,7 +195,7 @@ async def sdmx_fetch(
             ) from exc
 
 
-async def _do_sdmx_fetch(params: SdmxFetchParams) -> Result:
+async def _do_sdmx_fetch(params: SdmxFetchParams) -> Any:
     """Inner fetch — performs SDMX I/O and shapes the observation table.
 
     Imports ``sdmx`` / ``pandas`` and the provider helpers function-locally
@@ -304,15 +304,9 @@ async def _do_sdmx_fetch(params: SdmxFetchParams) -> Result:
             lambda code, _labels=dim_labels: format_code_with_label(str(code), _labels.get(str(code)))
         )
 
-    long_df = df[["series_key", "title", *dsd_dim_ids, "TIME_PERIOD", "value"]]
+    long_df = df[["series_key", "title", *dsd_dim_ids, "TIME_PERIOD", "value"]].copy()
 
-    additional_metadata: list[dict[str, str]] = []
     series_url = build_sdmx_dataset_url(agency_id, dataset_id)
     if series_url:
-        additional_metadata.append({"name": "series_url", "value": series_url})
-
-    ns = _sdmx_namespace_from_dataset_key(params.dataset_key)
-    result = _sdmx_fetch_output(ns, dsd_dim_ids).build_table_result(long_df)
-    if additional_metadata:
-        return result.with_properties(metadata=additional_metadata)
-    return result
+        long_df["series_url"] = series_url
+    return long_df

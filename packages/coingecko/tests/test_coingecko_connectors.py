@@ -1,6 +1,6 @@
 """Happy-path tests for the CoinGecko connectors.
 
-Follows ``docs/testing-template.md``. CoinGecko connectors take an ``api_key``
+Follows ``CONTRIBUTING.md §4``. CoinGecko connectors take an ``api_key``
 keyword dep → we exercise the template's 401/429 error-mapping contract and
 assert the api-key value never appears in raised-exception strings.
 """
@@ -10,7 +10,8 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from parsimony.errors import RateLimitError, UnauthorizedError
+from parsimony.errors import InvalidParameterError, RateLimitError, UnauthorizedError
+from pydantic import ValidationError
 
 from parsimony_coingecko import (
     CONNECTORS,
@@ -207,9 +208,9 @@ async def test_enumerate_coingecko_emits_catalog_rows() -> None:
     bound = enumerate_coingecko.bind(api_key=_KEY)
     result = await bound()
 
-    entries = result.data
-    assert len(entries) == 2
-    assert {e.code for e in entries} == {"bitcoin", "ethereum"}
+    df = result.data
+    assert len(df) == 2
+    assert set(df["id"]) == {"bitcoin", "ethereum"}
 
 
 # ---------------------------------------------------------------------------
@@ -218,10 +219,10 @@ async def test_enumerate_coingecko_emits_catalog_rows() -> None:
 
 
 def test_search_params_requires_non_empty_query() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValidationError):
         CoinGeckoSearchParams(query="")
 
 
 def test_coin_id_namespace_rejects_path_traversal() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidParameterError):
         CoinGeckoMarketChartParams(coin_id="../etc/passwd", days="1")

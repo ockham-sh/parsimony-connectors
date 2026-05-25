@@ -26,11 +26,10 @@ def test_eval_file_has_required_sections(eval_set: dict) -> None:
 
 
 def test_dataset_queries_use_datasets_namespace(eval_set: dict) -> None:
-    from parsimony_sdmx.connectors.enumerate_datasets import ENUMERATE_DATASETS_OUTPUT
+    from parsimony_sdmx.connectors.enumerate_datasets import is_datasets_namespace
 
-    datasets_ns = ENUMERATE_DATASETS_OUTPUT.columns[0].namespace
     for q in eval_set["dataset_title_nl"]:
-        assert q["namespace"] == datasets_ns
+        assert is_datasets_namespace(q["namespace"])
 
 
 def test_series_slices_use_series_namespace_prefix(eval_set: dict) -> None:
@@ -51,27 +50,25 @@ async def _load_bundle_for(namespace: str):
 
 
 async def _required_recall(eval_set: dict, slice: str) -> float:
-    from parsimony.catalog import catalog_key
+    from parsimony.catalog import entity_key
 
     queries = [q for q in eval_set[slice] if not q.get("optional")]
     if not queries:
         return 1.0
 
+    recall_limit = int((eval_set.get("thresholds") or {}).get("recall_limit", 10))
     hits = 0
     for q in queries:
         catalog = await _load_bundle_for(q["namespace"])
         assert await catalog.get(q["namespace"], q["expected"]) is not None
-        matches, _ = await catalog.search(q["query"], limit=10, namespaces=[q["namespace"]])
-        codes = [catalog_key(m.namespace, m.code)[1] for m in matches]
+        matches, _ = await catalog.search(q["query"], limit=recall_limit, namespaces=[q["namespace"]])
+        codes = [entity_key(m.namespace, m.code)[1] for m in matches]
         if q["expected"] in codes:
             hits += 1
-        else:
-            print(f"MISS [{slice}] {q['id']}: expected {q['expected']!r}")
-            for i, m in enumerate(matches[:5], 1):
-                print(f"  {i} {m.code}  {m.title[:80]}")
     return hits / len(queries)
 
 
+@pytest.mark.eval
 @pytest.mark.skipif(os.environ.get("SDMX_RUN_EVALS") != "1", reason="set SDMX_RUN_EVALS=1")
 @pytest.mark.asyncio
 async def test_dataset_title_nl_required_recall(eval_set: dict) -> None:
@@ -79,6 +76,7 @@ async def test_dataset_title_nl_required_recall(eval_set: dict) -> None:
     assert recall >= eval_set["thresholds"]["min_dataset_title_nl_required"]
 
 
+@pytest.mark.eval
 @pytest.mark.skipif(os.environ.get("SDMX_RUN_EVALS") != "1", reason="set SDMX_RUN_EVALS=1")
 @pytest.mark.asyncio
 async def test_series_title_nl_required_recall(eval_set: dict) -> None:
@@ -86,21 +84,23 @@ async def test_series_title_nl_required_recall(eval_set: dict) -> None:
     assert recall >= eval_set["thresholds"]["min_series_title_nl_required"]
 
 
+@pytest.mark.eval
 @pytest.mark.skipif(os.environ.get("SDMX_RUN_EVALS") != "1", reason="set SDMX_RUN_EVALS=1")
 @pytest.mark.asyncio
 async def test_optional_probes_smoke(eval_set: dict) -> None:
     """Optional probes: print rankings for human review, no assertion."""
-    from parsimony.catalog import catalog_key
+    from parsimony.catalog import entity_key
 
+    recall_limit = int((eval_set.get("thresholds") or {}).get("recall_limit", 10))
     for slice in _SLICES:
-        for q in eval_set[slice]:
+        for q in eval_set.get(slice) or []:
             if not q.get("optional"):
                 continue
             catalog = await _load_bundle_for(q["namespace"])
-            matches, _ = await catalog.search(q["query"], limit=10, namespaces=[q["namespace"]])
-            codes = [catalog_key(m.namespace, m.code)[1] for m in matches]
+            matches, _ = await catalog.search(q["query"], limit=recall_limit, namespaces=[q["namespace"]])
+            codes = [entity_key(m.namespace, m.code)[1] for m in matches]
             hit = q["expected"] in codes
-            print(f"[optional {slice}] {q['id']}: hit={hit}")
+            print(f"[optional {slice}] {q['id']}: hit={hit} (top-{recall_limit})")
             for i, m in enumerate(matches[:5], 1):
                 mark = "*" if m.code == q["expected"] else " "
                 print(f"  {mark}{i} {m.code}  {m.title[:70]}")

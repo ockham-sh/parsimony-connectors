@@ -42,9 +42,8 @@ from typing import Annotated, Any, Literal
 
 import httpx
 import pandas as pd
-from parsimony.catalog import CatalogEntry
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError
+from parsimony.errors import EmptyDataError, InvalidParameterError
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -82,7 +81,7 @@ class RiksbankFetchParams(BaseModel):
     def _non_empty(cls, v: str) -> str:
         v = v.strip()
         if not v:
-            raise ValueError("series_id must be non-empty")
+            raise InvalidParameterError("riksbank", "series_id must be non-empty")
         return v
 
     @field_validator("to_date")
@@ -90,7 +89,7 @@ class RiksbankFetchParams(BaseModel):
     def _both_dates_or_neither(cls, v: str | None, info: Any) -> str | None:
         from_date = info.data.get("from_date")
         if (from_date is None) != (v is None):
-            raise ValueError("Provide both from_date and to_date, or neither")
+            raise InvalidParameterError("riksbank", "Provide both from_date and to_date, or neither")
         return v
 
 
@@ -150,7 +149,7 @@ class RiksbankSwestrFetchParams(BaseModel):
         # unlike a ``field_validator`` which silently skips when the
         # field takes its None default.
         if (self.from_date is None) != (self.to_date is None):
-            raise ValueError("Provide both from_date and to_date, or neither")
+            raise InvalidParameterError("riksbank", "Provide both from_date and to_date, or neither")
         return self
 
 
@@ -695,8 +694,8 @@ async def riksbank_swestr_fetch(
     return df
 
 
-@enumerator(tags=["macro", "se"], secrets=('api_key',))
-async def enumerate_riksbank(api_key: str = "") -> list[CatalogEntry]:
+@enumerator(output=RIKSBANK_ENUMERATE_OUTPUT, tags=["macro", "se"], secrets=('api_key',))
+async def enumerate_riksbank(api_key: str = "") -> pd.DataFrame:
     """Enumerate Riksbank SWEA series plus static SWESTR registry rows.
 
     Calls /Groups and /Series for live metadata; appends SWESTR codes from
@@ -787,7 +786,7 @@ async def enumerate_riksbank(api_key: str = "") -> list[CatalogEntry]:
         "series_closed",
     ]
     df = pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
-    return RIKSBANK_ENUMERATE_OUTPUT.build_entries(df)
+    return df
 
 
 # ---------------------------------------------------------------------------

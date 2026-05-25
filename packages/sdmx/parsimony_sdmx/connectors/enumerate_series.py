@@ -18,8 +18,7 @@ import asyncio
 from typing import Annotated
 
 import pandas as pd
-from parsimony.catalog import CatalogEntry
-from parsimony.connector import enumerator
+from parsimony.connector import connector
 from parsimony.errors import EmptyDataError
 from parsimony.result import Column, ColumnRole, OutputConfig
 from pydantic import BaseModel, Field, field_validator
@@ -95,7 +94,7 @@ def _series_output_config(agency: AgencyId | str, dataset_id: str) -> OutputConf
     )
 
 
-@enumerator(
+@connector(
     output=ENUMERATE_SERIES_OUTPUT,
     tags=["sdmx"],
 )
@@ -103,13 +102,13 @@ async def enumerate_sdmx_series(
     agency: AgencyId,
     dataset_id: str,
     fetch_timeout_s: float = FETCH_SERIES_DEFAULT_TIMEOUT_S,
-) -> list[CatalogEntry]:
+) -> pd.DataFrame:
     """List every series inside one SDMX dataset, hitting the live agency endpoint.
 
     Projects one row per series into the declared OutputConfig schema
     (KEY=code, TITLE=title, METADATA=(agency, dataset_id, dynamic
     ``<DIM>_code`` / ``<DIM>_label`` fields)). The per-dataset KEY
-    namespace is stamped on each call before ``build_entries``.
+    namespace is stamped on each call before ``build_entities``.
 
     ``fetch_timeout_s`` bounds the subprocess wall-clock; a timeout or
     other subprocess failure raises :class:`~parsimony_sdmx._isolation.FetchSeriesError`
@@ -131,7 +130,7 @@ async def enumerate_sdmx_series(
         )
 
     df = _series_frame(records, agency=params.agency.value, dataset_id=params.dataset_id)
-    return _series_output_config(params.agency, params.dataset_id).build_entries(df)
+    return df
 
 
 def _series_frame(records: list[SeriesRecord], *, agency: str, dataset_id: str) -> pd.DataFrame:

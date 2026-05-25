@@ -26,7 +26,7 @@ TRENDING_OUTPUT = OutputConfig(
         Column(name="name", role=ColumnRole.TITLE),
         Column(name="symbol", role=ColumnRole.METADATA),
         Column(name="market_cap_rank", role=ColumnRole.METADATA),
-        Column(name="score", role=ColumnRole.METADATA),
+        Column(name="score", role=ColumnRole.DATA),
     ]
 )
 

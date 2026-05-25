@@ -15,9 +15,8 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
-from parsimony.catalog import CatalogEntry
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError
+from parsimony.errors import EmptyDataError, InvalidParameterError
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -343,7 +342,7 @@ class SnbFetchParams(BaseModel):
     def _non_empty(cls, v: str) -> str:
         v = v.strip()
         if not v:
-            raise ValueError("cube_id must be non-empty")
+            raise InvalidParameterError("snb", "cube_id must be non-empty")
         return v
 
 
@@ -749,8 +748,8 @@ async def _probe_cube(
     return dim_payload, frequency
 
 
-@enumerator(tags=["macro", "ch"])
-async def enumerate_snb() -> list[CatalogEntry]:
+@enumerator(output=SNB_ENUMERATE_OUTPUT, tags=["macro", "ch"])
+async def enumerate_snb() -> pd.DataFrame:
     """Enumerate SNB cube dimension leaves as fetchable series rows.
 
     Compound codes are ``cube_id#leaf_path`` so agents can route hits to
@@ -792,7 +791,7 @@ async def enumerate_snb() -> list[CatalogEntry]:
         "frequency",
     ]
     df = pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
-    return SNB_ENUMERATE_OUTPUT.build_entries(df)
+    return df
 
 
 # ---------------------------------------------------------------------------

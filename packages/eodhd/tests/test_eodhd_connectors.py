@@ -1,6 +1,6 @@
 """Happy-path tests for the EODHD connectors.
 
-Follows ``docs/testing-template.md``. EODHD auth is ``?api_token=<key>``
+Follows ``CONTRIBUTING.md §4``. EODHD auth is ``?api_token=<key>``
 via ``HttpClient(query_params=...)``; error-mapping contract covered on
 ``eodhd_search`` which is tool-tagged.
 """

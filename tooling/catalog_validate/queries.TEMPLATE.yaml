@@ -1,0 +1,32 @@
+# Template for packages/<provider>/catalog_tests/queries.yaml
+# Copy to your package and curate after running:
+#   uv run python scripts/validate_catalog.py --provider <name> \
+#     --catalog-url file:///tmp/parsimony-catalogs/<name> --write-queries \
+#     packages/<name>/catalog_tests/queries.generated.yaml
+
+catalog_url: hf://parsimony-dev/<provider>
+
+queries:
+  - id: code_example
+    query: "code: <SAMPLE_CODE>"
+    expected_code: "<SAMPLE_CODE>"
+    mode: code
+    required: true
+    why: "code field indexed as bm25"
+
+  - id: title_lexical_example
+    query: "<few title words>"
+    expected_code: "<SAMPLE_CODE>"
+    mode: title_bm25
+    required: true
+    why: "title field indexed; lexical probe"
+
+  - id: title_semantic_example
+    query: "<longer natural phrase from title>"
+    expected_code: "<SAMPLE_CODE>"
+    mode: hybrid_title
+    optional: true
+    why: "only when title uses hybrid index; ranking may vary"
+
+thresholds:
+  min_required_recall: 1.0

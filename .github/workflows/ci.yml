@@ -54,6 +54,10 @@ jobs:
           set -euo pipefail
           fail=0
           for f in packages/*/pyproject.toml; do
+            base=$(dirname "$f")
+            case "$base" in
+              packages/_*) continue ;;
+            esac
             if ! grep -q 'entry-points\."parsimony\.providers"' "$f"; then
               echo "::error file=$f::missing [project.entry-points.\"parsimony.providers\"] stanza"
               fail=1
@@ -68,7 +72,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pkgs=$(find packages -mindepth 2 -maxdepth 2 -name pyproject.toml -exec dirname {} \; | sed 's|^packages/||' | sort | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          pkgs=$(find packages -mindepth 2 -maxdepth 2 -name pyproject.toml ! -path 'packages/_*/*' -exec dirname {} \; | sed 's|^packages/||' | sort | jq -R -s -c 'split("\n") | map(select(length > 0))')
           echo "packages=${pkgs}" >> "$GITHUB_OUTPUT"
           if [[ "${pkgs}" == "[]" ]]; then
             echo "has_packages=false" >> "$GITHUB_OUTPUT"
@@ -175,7 +179,4 @@ jobs:
           set -euo pipefail
           uv run --with pip-audit pip-audit --disable-pip --strict \
             --ignore-vuln GHSA-4xh5-x5gv-qwph \
-            "packages/$PKG" || {
-              echo "::warning::pip-audit reported advisories for packages/$PKG — review before release"
-              exit 0
-            }
+            "packages/$PKG"

@@ -11,7 +11,7 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from parsimony.errors import EmptyDataError
+from parsimony.errors import InvalidParameterError, EmptyDataError
 
 from parsimony_bdf import (
     CONNECTORS,
@@ -84,5 +84,5 @@ async def test_bdf_fetch_raises_empty_data_on_no_observations() -> None:
 
 
 def test_fetch_rejects_empty_key() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidParameterError):
         BdfFetchParams(key="   ")

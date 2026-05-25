@@ -1,8 +1,8 @@
 """Live integration tests for parsimony-sec-edgar.
 
 SEC EDGAR is public but requires a ``User-Agent`` header identifying
-the client (SEC's fair-use policy). The ``edgartools`` library handles
-that for us. No API key required.
+the client (SEC's fair-use policy). The connector reads it from the
+mandatory ``SEC_EDGAR_USER_AGENT`` env var. No API key required.
 """
 
 from __future__ import annotations

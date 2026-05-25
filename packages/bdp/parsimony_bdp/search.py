@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from parsimony.result import Column, ColumnRole, OutputConfig
-from parsimony.utils.catalog_search import CatalogSearchParams, make_catalog_search_connector
+from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
 
 BdpSearchParams = CatalogSearchParams
 
@@ -13,14 +13,17 @@ BDP_SEARCH_OUTPUT = OutputConfig(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="bdp"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="score", role=ColumnRole.METADATA),
+        Column(name="score", role=ColumnRole.DATA),
     ]
 )
 
-bdp_search = make_catalog_search_connector(
+from parsimony_bdp.catalog_build import build_bdp_catalog
+
+bdp_search = make_local_search_connector(
     provider="bdp",
     default_url="hf://parsimony-dev/bdp",
-    env_var=PARSIMONY_BDP_CATALOG_URL_ENV,
+    catalog_url_env_var=PARSIMONY_BDP_CATALOG_URL_ENV,
+    build_catalog=build_bdp_catalog,
     tags=["macro", "pt", "tool"],
     description=(
         "Semantic-search the Banco de Portugal (BdP) BPstat catalog. "

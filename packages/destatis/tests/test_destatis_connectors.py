@@ -23,17 +23,14 @@ import httpx
 import pandas as pd
 import pytest
 import respx
-from parsimony.errors import ProviderError
+from parsimony.errors import InvalidParameterError, ProviderError
 from parsimony.result import ColumnRole
-from parsimony_test_support import entries_result_to_dataframe
 
-from parsimony_destatis import (
-    CONNECTORS,
-    DESTATIS_ENUMERATE_OUTPUT,
-    DestatisFetchParams,
-    destatis_fetch,
-    enumerate_destatis,
-)
+from parsimony_destatis import CONNECTORS
+from parsimony_destatis.connectors.enumerate import enumerate_destatis
+from parsimony_destatis.connectors.fetch import destatis_fetch
+from parsimony_destatis.outputs import DESTATIS_ENUMERATE_OUTPUT
+from parsimony_destatis.params import DestatisFetchParams
 
 _BASE = "https://www-genesis.destatis.de/genesisGONLINE/api/rest"
 
@@ -172,7 +169,7 @@ async def test_destatis_fetch_raises_provider_error_on_announcement_redirect() -
 
 def test_fetch_requires_table_id() -> None:
     """``name=`` (the canonical field) must be non-empty."""
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidParameterError):
         DestatisFetchParams(table_id="")
 
 
@@ -242,7 +239,7 @@ async def test_enumerate_destatis_emits_statistic_and_table_rows() -> None:
     )
 
     result = await enumerate_destatis()
-    df = entries_result_to_dataframe(result)
+    df = result.data
 
     # Exactly the 11-column schema, in declared order.
     expected_cols = [
@@ -309,7 +306,7 @@ async def test_enumerate_destatis_lifts_parent_description_into_table_rows() -> 
     )
 
     result = await enumerate_destatis()
-    df = entries_result_to_dataframe(result)
+    df = result.data
 
     table_rows = df[df["entity_type"] == "table"]
     assert len(table_rows) == 2
@@ -356,7 +353,7 @@ async def test_enumerate_destatis_handles_429_with_retry(
         "variable_names_en",
         "source",
     ]
-    df = entries_result_to_dataframe(result, columns=expected_cols)
+    df = result, columns=expected_cols.data
     assert list(df.columns) == expected_cols
 
     warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
@@ -386,7 +383,7 @@ async def test_enumerate_destatis_emits_columns_required_for_catalog_entries() -
     )
 
     result = await enumerate_destatis()
-    entries = result.data
+    entries = result.output_schema.build_entities(result.data)  # type: ignore[union-attr]
 
     by_code = {e.code: e for e in entries}
     assert "61111" in by_code

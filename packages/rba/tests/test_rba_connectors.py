@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from parsimony.errors import InvalidParameterError
 import respx
-from parsimony_test_support import entries_result_to_dataframe
 
 from parsimony_rba import (
     CONNECTORS,
@@ -104,7 +104,7 @@ async def test_rba_fetch_raises_value_error_for_unknown_table() -> None:
         return_value=httpx.Response(200, text=_TABLES_HTML)
     )
 
-    with pytest.raises(ValueError, match="not found"):
+    with pytest.raises(InvalidParameterError, match="not found"):
         await rba_fetch(table_id="nonexistent-table")
 
 
@@ -140,7 +140,7 @@ async def test_enumerate_rba_emits_description_table_id_unit_and_source() -> Non
         return_value=httpx.Response(404, text="missing")
     )
 
-    df = entries_result_to_dataframe(await enumerate_rba())
+    df = (await enumerate_rba()).data
 
     # Schema completeness — every Treasury-grade column must be present.
     assert {
@@ -186,7 +186,7 @@ async def test_enumerate_rba_compound_code_keeps_cross_table_series_id_collision
         return_value=httpx.Response(200, text=_B13_2_1_CSV)
     )
 
-    df = entries_result_to_dataframe(await enumerate_rba())
+    df = (await enumerate_rba()).data
 
     same_sid = df[df["series_id"] == "BFC5WDZ"]
     assert len(same_sid) == 2, "shared series_id must produce two distinct entries"
@@ -216,7 +216,7 @@ async def test_enumerate_rba_source_metadata_uniform() -> None:
         return_value=httpx.Response(200, text=_B13_2_1_CSV)
     )
 
-    df = entries_result_to_dataframe(await enumerate_rba())
+    df = (await enumerate_rba()).data
     assert set(df["source"]) == {"rba_csv"}
 
 
@@ -345,7 +345,7 @@ async def test_enumerate_rba_pulls_xlsx_exclusive_sub_sheet() -> None:
         return_value=httpx.Response(200, text="<html></html>")
     )
 
-    df = entries_result_to_dataframe(await enumerate_rba())
+    df = (await enumerate_rba()).data
 
     # Bond Purchase Program sheet's single series must be present and
     # tagged rba_xlsx; the allow-listed skip must keep the CSV-duplicate
@@ -428,7 +428,7 @@ async def test_enumerate_rba_pulls_xls_hist_discontinued_series() -> None:
     orig = pkg._parse_xls_hist
     pkg._parse_xls_hist = fake_parse
     try:
-        df = entries_result_to_dataframe(await enumerate_rba())
+        df = (await enumerate_rba()).data
     finally:
         pkg._parse_xls_hist = orig
 

@@ -12,9 +12,9 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from parsimony.errors import EmptyDataError
+from parsimony.errors import InvalidParameterError, EmptyDataError
+from pydantic import ValidationError
 from parsimony.result import ColumnRole
-from parsimony_test_support import entries_result_to_dataframe
 
 from parsimony_riksbank import (
     CONNECTORS,
@@ -101,7 +101,7 @@ async def test_riksbank_fetch_raises_empty_data_when_no_observations() -> None:
 
 
 def test_fetch_rejects_empty_series_id() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidParameterError):
         RiksbankFetchParams(series_id="   ")
 
 
@@ -206,7 +206,7 @@ async def test_enumerate_riksbank_emits_description_for_embedder() -> None:
     _mock_swea_endpoints()
     bound = enumerate_riksbank.bind(api_key="")
     result = await bound()
-    df = entries_result_to_dataframe(result, key="series_id")
+    df = result.data
     assert "description" in df.columns
 
     repo = df.loc[df["series_id"] == "SECBREPOEFF"].iloc[0]
@@ -229,7 +229,7 @@ async def test_enumerate_riksbank_emits_source_metadata_for_dispatch() -> None:
     _mock_swea_endpoints()
     bound = enumerate_riksbank.bind(api_key="")
     result = await bound()
-    df = entries_result_to_dataframe(result, key="series_id")
+    df = result.data
     assert set(df["source"].unique()) == {"swea", "swestr"}
 
 
@@ -242,7 +242,7 @@ async def test_enumerate_riksbank_resolves_group_hierarchy() -> None:
     _mock_swea_endpoints()
     bound = enumerate_riksbank.bind(api_key="")
     result = await bound()
-    df = entries_result_to_dataframe(result, key="series_id")
+    df = result.data
 
     repo = df.loc[df["series_id"] == "SECBREPOEFF"].iloc[0]
     assert "Riksbank key interest rates" in repo["group"]
@@ -266,7 +266,7 @@ async def test_enumerate_riksbank_infers_frequency_with_provenance_tag() -> None
     _mock_swea_endpoints()
     bound = enumerate_riksbank.bind(api_key="")
     result = await bound()
-    df = entries_result_to_dataframe(result, key="series_id")
+    df = result.data
 
     # group=2 → Daily via group lookup, regardless of suffix shape.
     repo = df.loc[df["series_id"] == "SECBREPOEFF"].iloc[0]
@@ -299,7 +299,7 @@ async def test_enumerate_riksbank_passes_through_provider_and_date_range() -> No
     _mock_swea_endpoints()
     bound = enumerate_riksbank.bind(api_key="")
     result = await bound()
-    df = entries_result_to_dataframe(result, key="series_id")
+    df = result.data
 
     eur = df.loc[df["series_id"] == "SEKEURPMI"].iloc[0]
     assert eur["provider"] == "Refinitiv"
@@ -339,7 +339,7 @@ async def test_enumerate_riksbank_emits_swestr_family() -> None:
     _mock_swea_endpoints()
     bound = enumerate_riksbank.bind(api_key="")
     result = await bound()
-    df = entries_result_to_dataframe(result, key="series_id")
+    df = result.data
 
     swestr_rows = df[df["source"] == "swestr"]
     assert len(swestr_rows) == 7
@@ -391,7 +391,7 @@ async def test_riksbank_swestr_fetch_latest_rate_hits_latest_endpoint() -> None:
     )
     bound = riksbank_swestr_fetch.bind(api_key="")
     result = await bound(series="SWESTR")
-    df = entries_result_to_dataframe(result, key="series_id")
+    df = result.data
     assert len(df) == 1
     assert df.iloc[0]["value"] == pytest.approx(1.639)
     assert df.iloc[0]["series"] == "SWESTR"
@@ -428,7 +428,7 @@ async def test_riksbank_swestr_fetch_windowed_average_hits_avg_endpoint() -> Non
     )
     bound = riksbank_swestr_fetch.bind(api_key="")
     result = await bound(series="SWESTRAVG1W", from_date="2026-04-15", to_date="2026-04-16")
-    df = entries_result_to_dataframe(result, key="series_id")
+    df = result.data
     assert len(df) == 2
     assert list(df["series"].unique()) == ["SWESTRAVG1W"]
     # ``startDate`` is the window-start for a compounded average; the
@@ -457,7 +457,7 @@ async def test_riksbank_swestr_fetch_index_normalises_value_field() -> None:
     )
     bound = riksbank_swestr_fetch.bind(api_key="")
     result = await bound(series="SWESTRINDEX")
-    df = entries_result_to_dataframe(result, key="series_id")
+    df = result.data
     assert len(df) == 1
     assert df.iloc[0]["value"] == pytest.approx(110.25032277)
 
@@ -469,7 +469,7 @@ async def test_riksbank_swestr_fetch_raises_empty_data_when_no_observations() ->
         return_value=httpx.Response(200, json={})
     )
     bound = riksbank_swestr_fetch.bind(api_key="")
-    from parsimony.errors import EmptyDataError as _EmptyDataError
+    from parsimony.errors import InvalidParameterError, EmptyDataError as _EmptyDataError
 
     with pytest.raises(_EmptyDataError):
         await bound(series="SWESTR")
@@ -477,12 +477,12 @@ async def test_riksbank_swestr_fetch_raises_empty_data_when_no_observations() ->
 
 def test_swestr_fetch_rejects_unknown_series() -> None:
     """Closed enum: pydantic rejects unknown ids at param-validation time."""
-    with pytest.raises(ValueError):
+    with pytest.raises(ValidationError):
         RiksbankSwestrFetchParams(series="SWESTRAVGBOGUS")  # type: ignore[arg-type]
 
 
 def test_swestr_fetch_rejects_lonely_from_date() -> None:
     """``from_date`` without ``to_date`` is ambiguous against the
     window vs. latest dispatch. The validator rejects it."""
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidParameterError):
         RiksbankSwestrFetchParams(series="SWESTR", from_date="2026-01-01")

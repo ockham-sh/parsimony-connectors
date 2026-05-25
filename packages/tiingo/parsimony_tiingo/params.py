@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from typing import Annotated
 
+from parsimony.errors import InvalidParameterError
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # Regex guard for values that are interpolated directly into request paths
@@ -37,7 +38,7 @@ class TiingoEodParams(BaseModel):
     @classmethod
     def _path_safe_ticker(cls, v: str) -> str:
         if not _TICKER_RE.match(v):
-            raise ValueError(f"ticker contains unsafe characters for URL path: {v!r}")
+            raise InvalidParameterError("tiingo", f"ticker contains unsafe characters for URL path: {v!r}")
         return v
 
 
@@ -67,7 +68,7 @@ class TiingoIexHistParams(BaseModel):
     @classmethod
     def _path_safe_ticker(cls, v: str) -> str:
         if not _TICKER_RE.match(v):
-            raise ValueError(f"ticker contains unsafe characters for URL path: {v!r}")
+            raise InvalidParameterError("tiingo", f"ticker contains unsafe characters for URL path: {v!r}")
         return v
 
 
@@ -82,7 +83,7 @@ class TiingoMetaParams(BaseModel):
     @classmethod
     def _path_safe_ticker(cls, v: str) -> str:
         if not _TICKER_RE.match(v):
-            raise ValueError(f"ticker contains unsafe characters for URL path: {v!r}")
+            raise InvalidParameterError("tiingo", f"ticker contains unsafe characters for URL path: {v!r}")
         return v
 
 

@@ -2,38 +2,32 @@
 
 from __future__ import annotations
 
-import importlib.util
+import sys
 from pathlib import Path
 
-from parsimony.catalog import HybridIndex
-from parsimony.ranking import ZScoreFusion
+from parsimony.catalog import BM25Index, Catalog, Entity, HybridIndex
 
-_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "build_catalog.py"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(_REPO_ROOT / "tooling") not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT / "tooling"))
 
-
-def _build_module():
-    spec = importlib.util.spec_from_file_location("boc_build_catalog", _SCRIPT)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+from parsimony.catalog.policy import discovery_indexes as macro_discovery_indexes  # noqa: E402
 
 
-def test_build_catalog_uses_current_hybrid_index_api() -> None:
-    catalog = _build_module()._catalog()
+def _sample_entries() -> list[Entity]:
+    return [
+        Entity(namespace="boc", code="v62318738", title="GDP growth", metadata={"description": "Real GDP"}),
+        Entity(namespace="boc", code="v62318739", title="CPI index", metadata={"description": "Consumer prices"}),
+    ]
+
+
+def test_macro_discovery_indexes_for_boc_sample() -> None:
+    entries = _sample_entries()
+    indexes = macro_discovery_indexes(entries)
+    catalog = Catalog("boc", indexes=indexes, default_field="title")
     assert catalog.name == "boc"
     assert catalog.default_field == "title"
-    assert len(catalog._indexes) == 3
-
-    title_idx = catalog.index_for("title")
-    assert isinstance(title_idx, HybridIndex)
-    fusion = title_idx._fusion
-    assert isinstance(fusion, ZScoreFusion)
-    assert fusion.weights["title_bm25"] == 0.6
-    assert fusion.weights["title_vector"] == 1.0
-
-    description_idx = catalog.index_for("description")
-    assert isinstance(description_idx, HybridIndex)
-    desc_fusion = description_idx._fusion
-    assert isinstance(desc_fusion, ZScoreFusion)
-    assert desc_fusion.weights["description_bm25"] == 0.5
+    assert set(indexes) == {"code", "title", "description"}
+    assert isinstance(indexes["code"], BM25Index)
+    assert isinstance(indexes["title"], HybridIndex)
+    assert isinstance(indexes["description"], HybridIndex)

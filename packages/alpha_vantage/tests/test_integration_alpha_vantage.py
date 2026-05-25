@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from parsimony_test_support import assert_provenance_shape, require_env
 
-from parsimony_alpha_vantage import alpha_vantage_search
+from parsimony_alpha_vantage.connectors.connectors import alpha_vantage_search
 
 pytestmark = pytest.mark.integration
 

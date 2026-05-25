@@ -37,9 +37,8 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pandas as pd
-from parsimony.catalog import CatalogEntry
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError
+from parsimony.errors import EmptyDataError, InvalidParameterError
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -50,14 +49,18 @@ from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
+from parsimony_shared.cb_enumerate import (
+    MetadataCrawlConfig,
+    ThrottledJsonFetcher,
+    enumerate_descriptions,
+    truncate_description,
+)
 
 _BASE_URL = "https://bpstat.bportugal.pt/data/v1"
 
 # WAF / throttling. BPstat sits behind Akamai; the values below are
 # conservative defaults that have empirically held up across the full
 # enumeration (~7,200 dataset-detail pages at ~0.4–0.6 s each).
-_METADATA_CONCURRENCY = 4
-_INTER_REQUEST_DELAY_S = 0.25
 _BROWSER_USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -68,13 +71,12 @@ _HEADERS = {
     "Origin": "https://bpstat.bportugal.pt",
     "Referer": "https://bpstat.bportugal.pt/",
 }
-_RETRY_STATUSES = frozenset({403, 429, 500, 502, 503, 504})
-_RETRY_BACKOFFS_S: tuple[float, ...] = (1.0, 2.0, 4.0)
+_METADATA_CRAWL = MetadataCrawlConfig(concurrency=4, inter_request_delay_s=0.25, retry_statuses=frozenset({403, 429, 500, 502, 503, 504}))
 
 # Cap descriptions before they reach the embedder. BdP labels run up to a
 # few hundred chars and rarely warrant truncation, but a hard cap keeps the
 # embedder context-window-safe (Destatis pattern).
-_DESCRIPTION_CHAR_CAP = 1500
+DESCRIPTION_CHAR_CAP = 1500
 
 # Request budget guard. The BdP catalog has ~72 K series across ~7,200
 # pages; nothing should ever exceed this in normal operation, but we cap
@@ -108,7 +110,7 @@ class BdpFetchParams(BaseModel):
     def _non_empty(cls, v: str) -> str:
         v = v.strip()
         if not v:
-            raise ValueError("dataset_id must be non-empty")
+            raise InvalidParameterError("bdp", "dataset_id must be non-empty")
         return v
 
 
@@ -184,75 +186,9 @@ _ENUMERATE_COLUMNS: tuple[str, ...] = (
 # ---------------------------------------------------------------------------
 
 
-def _retry_after_seconds(response: httpx.Response) -> float | None:
-    """Parse the ``Retry-After`` header; ``None`` if absent/malformed."""
-    raw = response.headers.get("Retry-After")
-    if not raw:
-        return None
-    try:
-        return float(raw)
-    except ValueError:
-        return None
 
 
-async def _get_json(
-    client: httpx.AsyncClient,
-    url: str,
-    *,
-    semaphore: asyncio.Semaphore,
-    params: dict[str, str] | None = None,
-) -> Any | None:
-    """GET ``url`` and return the parsed JSON body.
-
-    Retries 403/429/5xx with exponential backoff and honors ``Retry-After``.
-    On exhausted retries / network errors / non-JSON bodies, logs a WARNING
-    and returns ``None`` so the caller can decide whether to skip.
-    """
-    async with semaphore:
-        await asyncio.sleep(_INTER_REQUEST_DELAY_S)
-        last_status: int | None = None
-        last_error: str | None = None
-        for attempt, backoff in enumerate((*_RETRY_BACKOFFS_S, None)):
-            try:
-                response = await client.get(url, params=params)
-            except httpx.HTTPError as exc:
-                last_error = f"{type(exc).__name__}: {exc}"
-                if backoff is None:
-                    break
-                await asyncio.sleep(backoff)
-                continue
-
-            if response.status_code == 200:
-                try:
-                    return response.json()
-                except ValueError as exc:
-                    logger.warning("BdP %s returned non-JSON body: %s", url, exc)
-                    return None
-
-            last_status = response.status_code
-            if response.status_code in _RETRY_STATUSES and backoff is not None:
-                wait = _retry_after_seconds(response) or backoff
-                logger.info(
-                    "BdP %s returned %s (attempt %d); retrying in %.1fs",
-                    url,
-                    response.status_code,
-                    attempt + 1,
-                    wait,
-                )
-                await asyncio.sleep(wait)
-                continue
-            break
-
-        logger.warning(
-            "BdP fetch failed for %s after retries (last_status=%s, last_error=%s)",
-            url,
-            last_status,
-            last_error,
-        )
-        return None
-
-
-def _truncate(text: str, cap: int = _DESCRIPTION_CHAR_CAP) -> str:
+def truncate_description(text: str, cap: int = DESCRIPTION_CHAR_CAP) -> str:
     """Cap a string at ``cap`` chars; return as-is if shorter."""
     if not text:
         return ""
@@ -292,7 +228,7 @@ def _series_description(
     chunks.append(f"Banco de Portugal BPstat (domain={domain_id}, dataset={dataset_id}).")
     if title_pt and title_pt.strip() and title_pt.strip().lower() != (title or "").strip().lower():
         chunks.append(f"PT: {title_pt}.")
-    return _truncate(" ".join(c for c in chunks if c).strip())
+    return truncate_description(" ".join(c for c in chunks if c).strip())
 
 
 def _dataset_description(
@@ -310,7 +246,7 @@ def _dataset_description(
         f"Holds {num_series} series." if num_series else "",
         f"Fetch via bdp_fetch(domain_id={domain_id}, dataset_id='{dataset_id}', series_ids=...).",
     ]
-    return _truncate(" ".join(p for p in parts if p).strip())
+    return truncate_description(" ".join(p for p in parts if p).strip())
 
 
 def _domain_description(*, name: str, description: str, num_series: int, num_datasets: int) -> str:
@@ -322,7 +258,7 @@ def _domain_description(*, name: str, description: str, num_series: int, num_dat
         body,
         f"Holds {num_datasets} datasets and {num_series} series." if (num_datasets or num_series) else "",
     ]
-    return _truncate(" ".join(p for p in parts if p).strip())
+    return truncate_description(" ".join(p for p in parts if p).strip())
 
 
 def _frequency_from_dimension(dataset_payload: dict[str, Any]) -> str:
@@ -554,37 +490,26 @@ async def bdp_fetch(
 # ---------------------------------------------------------------------------
 
 
-async def _list_domains(client: httpx.AsyncClient, semaphore: asyncio.Semaphore) -> list[dict[str, Any]]:
+async def _list_domains(fetcher: ThrottledJsonFetcher) -> list[dict[str, Any]]:
     """Return the BdP domain list (77 entries).
 
     Empty list on failure; the caller logs and emits an empty catalog.
     """
-    payload = await _get_json(
-        client,
-        f"{_BASE_URL}/domains/",
-        params={"lang": "EN"},
-        semaphore=semaphore,
-    )
+    payload = await fetcher.get_json(f"{_BASE_URL}/domains/", params={"lang": "EN"})
     if not isinstance(payload, list):
         return []
     return [d for d in payload if isinstance(d, dict)]
 
 
 async def _list_datasets(
-    client: httpx.AsyncClient,
+    fetcher: ThrottledJsonFetcher,
     domain_id: int | str,
-    semaphore: asyncio.Semaphore,
 ) -> list[dict[str, Any]]:
     """Return the dataset stubs under ``domain_id``.
 
     Each stub carries ``label`` and ``extension.{id, num_series, obs_updated_at}``.
     """
-    payload = await _get_json(
-        client,
-        f"{_BASE_URL}/domains/{domain_id}/datasets/",
-        params={"lang": "EN"},
-        semaphore=semaphore,
-    )
+    payload = await fetcher.get_json(f"{_BASE_URL}/domains/{domain_id}/datasets/", params={"lang": "EN"})
     if not isinstance(payload, dict):
         return []
     items = payload.get("link", {}).get("item", []) if isinstance(payload.get("link"), dict) else []
@@ -594,10 +519,9 @@ async def _list_datasets(
 
 
 async def _crawl_dataset_series(
-    client: httpx.AsyncClient,
+    fetcher: ThrottledJsonFetcher,
     domain_id: int | str,
     dataset_id: str,
-    semaphore: asyncio.Semaphore,
     *,
     lang: str = "EN",
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
@@ -611,7 +535,7 @@ async def _crawl_dataset_series(
     base = f"{_BASE_URL}/domains/{domain_id}/datasets/{dataset_id}/"
     first_url = base
     first_params = {"lang": lang}
-    first_payload = await _get_json(client, first_url, params=first_params, semaphore=semaphore)
+    first_payload = await fetcher.get_json(first_url, params=first_params)
     if not isinstance(first_payload, dict):
         return [], None
 
@@ -639,7 +563,7 @@ async def _crawl_dataset_series(
     next_url = _next_page_url(first_payload, first_url + "?" + "&".join(f"{k}={v}" for k, v in first_params.items()))
     pages = 1
     while next_url and pages < _MAX_PAGES_PER_DATASET:
-        page_payload = await _get_json(client, next_url, semaphore=semaphore)
+        page_payload = await fetcher.get_json(next_url)
         if not isinstance(page_payload, dict):
             break
         _accumulate(page_payload)
@@ -658,9 +582,8 @@ async def _crawl_dataset_series(
 
 
 async def _fetch_pt_labels(
-    client: httpx.AsyncClient,
+    fetcher: ThrottledJsonFetcher,
     series_ids: list[str],
-    semaphore: asyncio.Semaphore,
 ) -> dict[str, str]:
     """Bulk-fetch Portuguese labels for ``series_ids`` via ``/series/``.
 
@@ -679,7 +602,7 @@ async def _fetch_pt_labels(
     async def _one(batch: list[str]) -> None:
         url = f"{_BASE_URL}/series/"
         params = {"series_ids": ",".join(batch), "lang": "PT"}
-        payload = await _get_json(client, url, params=params, semaphore=semaphore)
+        payload = await fetcher.get_json(url, params=params)
         if not isinstance(payload, list):
             return
         for entry in payload:
@@ -780,15 +703,14 @@ def _emit_rows_for_dataset(
     return rows
 
 
-@enumerator(tags=["macro", "pt"])
-async def enumerate_bdp() -> list[CatalogEntry]:
+@enumerator(output=BDP_ENUMERATE_OUTPUT, tags=["macro", "pt"])
+async def enumerate_bdp() -> pd.DataFrame:
     """Enumerate Banco de Portugal domains, datasets, and paginated series.
 
     Walks leaf domains and dataset pages with bounded concurrency; retries
     transient 403/429/5xx responses before skipping a failed dataset.
     """
 
-    semaphore = asyncio.Semaphore(_METADATA_CONCURRENCY)
     rows: list[dict[str, str]] = []
     failed_datasets: list[str] = []
 
@@ -797,10 +719,11 @@ async def enumerate_bdp() -> list[CatalogEntry]:
         headers=_HEADERS,
         follow_redirects=True,
     ) as client:
-        domains = await _list_domains(client, semaphore)
+        fetcher = ThrottledJsonFetcher(client, provider="bdp", config=_METADATA_CRAWL, logger=logger)
+        domains = await _list_domains(fetcher)
         if not domains:
             logger.warning("BdP enumerate: /domains fetch failed; emitting empty catalog")
-            return BDP_ENUMERATE_OUTPUT.build_entries(pd.DataFrame(columns=list(_ENUMERATE_COLUMNS)))
+            return pd.DataFrame(columns=list(_ENUMERATE_COLUMNS))
 
         leaf_domains = [d for d in domains if d.get("has_series")]
         logger.info(
@@ -846,7 +769,7 @@ async def enumerate_bdp() -> list[CatalogEntry]:
         # Discover datasets per leaf domain (concurrent fan-out).
         async def _discover(domain: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             did = domain.get("id", "")
-            stubs = await _list_datasets(client, did, semaphore)
+            stubs = await _list_datasets(fetcher, did)
             return domain, stubs
 
         domain_results = await asyncio.gather(*[_discover(d) for d in leaf_domains])
@@ -878,7 +801,7 @@ async def enumerate_bdp() -> list[CatalogEntry]:
             last_update = str(ext.get("obs_updated_at") or "")
 
             series_stubs, first_payload = await _crawl_dataset_series(
-                client, did, dataset_id, semaphore
+                fetcher, did, dataset_id
             )
             if first_payload is None:
                 failed_datasets.append(f"{did}/{dataset_id}")
@@ -891,9 +814,8 @@ async def enumerate_bdp() -> list[CatalogEntry]:
             pt_labels: dict[str, str] = {}
             if 0 < len(series_stubs) <= 1000:
                 pt_labels = await _fetch_pt_labels(
-                    client,
+                    fetcher,
                     [str(s.get("id")) for s in series_stubs if s.get("id")],
-                    semaphore,
                 )
 
             return _emit_rows_for_dataset(
@@ -922,7 +844,7 @@ async def enumerate_bdp() -> list[CatalogEntry]:
 
     columns = list(_ENUMERATE_COLUMNS)
     df = pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
-    return BDP_ENUMERATE_OUTPUT.build_entries(df)
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -938,16 +860,4 @@ from parsimony_bdp.search import (  # noqa: E402  (after public decorators)
 
 CONNECTORS = Connectors([bdp_fetch, enumerate_bdp, bdp_search])
 
-__all__ = [
-    "BDP_ENUMERATE_OUTPUT",
-    "BDP_FETCH_OUTPUT",
-    "BDP_SEARCH_OUTPUT",
-    "CONNECTORS",
-    "BdpEnumerateParams",
-    "BdpFetchParams",
-    "BdpSearchParams",
-    "PARSIMONY_BDP_CATALOG_URL_ENV",
-    "bdp_fetch",
-    "bdp_search",
-    "enumerate_bdp",
-]
+__all__ = ["CONNECTORS"]

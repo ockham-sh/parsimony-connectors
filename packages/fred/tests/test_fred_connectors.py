@@ -5,6 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
+from parsimony.errors import InvalidParameterError
 
 from parsimony_fred import (
     CONNECTORS,
@@ -149,7 +150,7 @@ async def test_fred_fetch_returns_observations_with_metadata() -> None:
 
 
 def test_fred_fetch_params_rejects_empty_series_id() -> None:
-    with pytest.raises(ValueError, match="series_id"):
+    with pytest.raises(InvalidParameterError, match="series_id"):
         FredFetchParams(series_id="   ")
 
 

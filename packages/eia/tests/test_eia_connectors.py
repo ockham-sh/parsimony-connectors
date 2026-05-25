@@ -1,6 +1,6 @@
 """Happy-path tests for the EIA connectors.
 
-Follows ``docs/testing-template.md``. EIA auth is ``?api_key=<key>`` via
+Follows ``CONTRIBUTING.md §4``. EIA auth is ``?api_key=<key>`` via
 ``HttpClient(query_params=...)``; HTTP errors are mapped to
 ``parsimony.errors`` (``UnauthorizedError`` / ``RateLimitError`` /
 ``EmptyDataError``) at the transport boundary.
@@ -11,7 +11,7 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from parsimony.errors import EmptyDataError, RateLimitError, UnauthorizedError
+from parsimony.errors import InvalidParameterError, EmptyDataError, RateLimitError, UnauthorizedError
 
 from parsimony_eia import (
     CONNECTORS,
@@ -106,5 +106,5 @@ async def test_eia_fetch_raises_empty_data_when_no_records() -> None:
 
 
 def test_fetch_rejects_empty_route() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidParameterError):
         EiaFetchParams(route="   ")

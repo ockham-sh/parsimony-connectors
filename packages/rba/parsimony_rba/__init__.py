@@ -39,9 +39,8 @@ import httpx
 import openpyxl
 import pandas as pd
 import xlrd
-from parsimony.catalog import CatalogEntry
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError
+from parsimony.errors import EmptyDataError, InvalidParameterError
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -110,7 +109,7 @@ class RbaFetchParams(BaseModel):
         if v.endswith(".csv"):
             v = v[:-4]
         if not v:
-            raise ValueError("table_id must be non-empty")
+            raise InvalidParameterError("rba", "table_id must be non-empty")
         return v
 
 
@@ -240,7 +239,10 @@ async def _resolve_csv_url(table_id: str) -> str:
             return f"{_BASE_URL}{path}"
 
     available = sorted(stem_to_path.keys())[:20]
-    raise ValueError(f"RBA table '{table_id}' not found. Available tables include: {', '.join(available)}...")
+    raise InvalidParameterError(
+        "rba",
+        f"RBA table '{table_id}' not found. Available tables include: {', '.join(available)}...",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -673,8 +675,8 @@ _ENUMERATE_COLUMNS: tuple[str, ...] = (
 )
 
 
-@enumerator(tags=["macro", "au"])
-async def enumerate_rba() -> list[CatalogEntry]:
+@enumerator(output=RBA_ENUMERATE_OUTPUT, tags=["macro", "au"])
+async def enumerate_rba() -> pd.DataFrame:
     """Discover RBA series from CSV index, XLSX sheets, and xls-hist files.
 
     Compound catalog keys use ``table_id#series_id`` so duplicate series ids
@@ -686,7 +688,7 @@ async def enumerate_rba() -> list[CatalogEntry]:
     xlsx_stems = set(_XLSX_LINK_PATTERN.findall(html))
 
     if not csv_links and not xlsx_stems:
-        return RBA_ENUMERATE_OUTPUT.build_entries(pd.DataFrame(columns=list(_ENUMERATE_COLUMNS)))
+        return pd.DataFrame(columns=list(_ENUMERATE_COLUMNS))
 
     all_rows: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -758,7 +760,7 @@ async def enumerate_rba() -> list[CatalogEntry]:
         if all_rows
         else pd.DataFrame(columns=list(_ENUMERATE_COLUMNS))
     )
-    return RBA_ENUMERATE_OUTPUT.build_entries(df)
+    return df
 
 
 # ---------------------------------------------------------------------------

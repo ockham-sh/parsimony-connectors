@@ -4,20 +4,15 @@ version = "0.0.0"
 description = "Workspace root for the parsimony connectors monorepo. Not published."
 requires-python = ">=3.11"
 dependencies = [
-    # Anchor for the CPU-only torch source pin below. sentence-transformers
-    # (transitive via `parsimony-core[standard-onnx]` in any connector's
-    # `[publish]` extra) declares plain `torch`, which otherwise resolves
-    # to the +cu130 wheel (~2 GB + triton). We embed via ONNX Runtime,
-    # never via torch, so CPU torch is plenty. Direct dep here exists only
-    # so `[tool.uv.sources]` has something to bind against.
-    "torch>=2.0",
+    "pyyaml>=6.0",
+    "rank-bm25>=0.2",
 ]
 
 [tool.uv.workspace]
 members = ["packages/*", "test_support"]
 
 [tool.uv.sources]
-# The kernel pin is `parsimony-core>=0.7,<0.8` on PyPI. The editable
+# The kernel pin is `parsimony-core>=0.6,<0.7` on PyPI. The editable
 # override below keeps local dev + CI wired against the sibling
 # `ockham-sh/parsimony` checkout at `../parsimony`, so the monorepo
 # can test against unreleased kernel changes. CI achieves this by
@@ -26,12 +21,7 @@ members = ["packages/*", "test_support"]
 # PyPI, breaking the ability to verify a kernel+connectors change in
 # a single PR.
 parsimony-core = { path = "../parsimony", editable = true }
-torch = { index = "pytorch-cpu" }
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
+parsimony-shared = { workspace = true }
 
 [tool.ruff]
 target-version = "py311"
@@ -51,17 +41,15 @@ ignore_missing_imports = true
 # mypy doesn't nag about stubs the connectors don't need.
 disable_error_code = ["import-untyped", "unused-ignore"]
 
-# The financial_reports SDK (financial_reports_generated_client) ships a
-# module with a syntax error we stub out at runtime. Skip-follow imports
-# into the SDK so mypy doesn't parse the broken file.
-[[tool.mypy.overrides]]
-module = "financial_reports_generated_client.*"
-follow_imports = "skip"
+# The financial_reports package was removed in 0.6.0.
 
 [tool.pytest.ini_options]
-addopts = "--import-mode=importlib -m 'not integration and not slow'"
+addopts = "--import-mode=importlib -m 'not integration and not slow and not eval'"
 asyncio_mode = "auto"
+pythonpath = ["tooling"]
 markers = [
     "integration: hits live APIs (may be slow, requires env vars)",
+    "remote_catalog: loads published HF/file catalog snapshots (opt-in via PARSIMONY_RUN_REMOTE_CATALOGS=1)",
     "slow: long-running test (subprocess / heavy I/O)",
+    "eval: offline retrieval/catalog evaluation harness (opt-in)",
 ]

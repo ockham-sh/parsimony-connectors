@@ -48,6 +48,7 @@ verify-all:
 	@set -e; \
 	for d in packages/*/; do \
 		pkg=$$(basename "$$d"); \
+		[ "$$pkg" = "_shared" ] && continue; \
 		$(MAKE) --no-print-directory verify PKG=$$pkg; \
 	done
 

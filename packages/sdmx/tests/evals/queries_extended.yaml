@@ -1,0 +1,38 @@
+# Extended rerank eval — every probe must return ``expected`` within ``recall_limit``.
+# Retrieval-gap cases are in ``queries_negative.yaml``.
+
+dataset_title_nl:
+  - id: wb_gdp
+    query: "World Bank development indicators GDP"
+    namespace: sdmx_datasets_wb_wdi
+    expected: "WB_WDI|WDI"
+
+dataset_structured:
+  - id: dataset_code_ecb_yc
+    query: "code: ECB|YC"
+    namespace: sdmx_datasets_ecb
+    expected: "ECB|YC"
+
+series_title_nl:
+  - id: ecb_10y_spot_nl
+    query: "yield curve spot rate 10-year maturity euro area"
+    namespace: sdmx_series_ecb_yc
+    expected: "B.U2.EUR.4F.G_N_C.SV_C_YM.SR_10Y"
+    optional: true
+  - id: hicp_france_headline
+    query: "France all items HICP annual inflation rate"
+    namespace: sdmx_series_estat_prc_hicp_manr
+    expected: "M.RCH_A.CP00.FR"
+  - id: hicp_germany_headline
+    query: "Germany all items HICP annual inflation rate"
+    namespace: sdmx_series_estat_prc_hicp_manr
+    expected: "M.RCH_A.CP00.DE"
+  - id: ecb_yc_title_token
+    query: "SR_10Y"
+    namespace: sdmx_series_ecb_yc
+    expected: "B.U2.EUR.4F.G_N_C.SV_C_YM.SR_10Y"
+    optional: true
+
+thresholds:
+  recall_limit: 30
+  min_required_recall: 0.0

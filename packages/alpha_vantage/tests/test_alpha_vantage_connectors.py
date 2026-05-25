@@ -7,7 +7,7 @@ RateLimitError, 'Note'/'Information' in body → RateLimitError/
 PaymentRequiredError. We test the error paths through one connector
 (``alpha_vantage_search``) rather than 29 times.
 
-Following ``docs/testing-template.md`` §4: api_key value must not leak into
+Following ``CONTRIBUTING.md §4`` §4: api_key value must not leak into
 raised exceptions.
 """
 
@@ -18,8 +18,8 @@ import pytest
 import respx
 from parsimony.errors import RateLimitError, UnauthorizedError
 
-from parsimony_alpha_vantage import (
-    CONNECTORS,
+from parsimony_alpha_vantage import CONNECTORS
+from parsimony_alpha_vantage.connectors.connectors import (
     alpha_vantage_daily,
     alpha_vantage_fx_rate,
     alpha_vantage_search,

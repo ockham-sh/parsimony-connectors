@@ -11,9 +11,8 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
-from parsimony.catalog import CatalogEntry
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError
+from parsimony.errors import EmptyDataError, InvalidParameterError
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -43,7 +42,7 @@ class EiaFetchParams(BaseModel):
     def _non_empty(cls, v: str) -> str:
         v = v.strip()
         if not v:
-            raise ValueError("route must be non-empty")
+            raise InvalidParameterError("eia", "route must be non-empty")
         return v
 
 
@@ -138,8 +137,8 @@ async def eia_fetch(
     return df
 
 
-@enumerator(tags=["macro", "energy", "us"], secrets=('api_key',))
-async def enumerate_eia(*, api_key: str) -> list[CatalogEntry]:
+@enumerator(output=EIA_ENUMERATE_OUTPUT, tags=["macro", "energy", "us"], secrets=('api_key',))
+async def enumerate_eia(*, api_key: str) -> pd.DataFrame:
     """Enumerate top-level EIA API routes for catalog indexing."""
     http = HttpClient(_BASE_URL, query_params={"api_key": api_key})
 
@@ -163,7 +162,7 @@ async def enumerate_eia(*, api_key: str) -> list[CatalogEntry]:
         )
 
     df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["route", "title", "category", "frequency"])
-    return EIA_ENUMERATE_OUTPUT.build_entries(df)
+    return df
 
 
 # ---------------------------------------------------------------------------

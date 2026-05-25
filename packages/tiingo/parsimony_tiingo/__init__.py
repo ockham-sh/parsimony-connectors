@@ -31,10 +31,8 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
-from parsimony.catalog import CatalogEntry
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
-from parsimony.result import Result
 
 from parsimony_tiingo._http import make_http as _make_http
 from parsimony_tiingo._http import tiingo_fetch as _tiingo_fetch
@@ -76,7 +74,7 @@ _TIINGO_ENV = {"api_key": "TIINGO_API_KEY"}
 
 
 @connector(output=_SEARCH_OUTPUT, tags=["equities", "tool"])
-async def tiingo_search(query: str, limit: int = 25, *, api_key: str) -> Result:
+async def tiingo_search(query: str, limit: int = 25, *, api_key: str) -> Any:
     """Search Tiingo for stocks, ETFs, mutual funds, and crypto by name or ticker.
     Returns ticker (the stable API identifier), name, assetType (Stock, ETF,
     Mutual Fund), isActive, and countryCode. Use ticker with tiingo_eod,
@@ -113,11 +111,7 @@ async def tiingo_search(query: str, limit: int = 25, *, api_key: str) -> Result:
         if r.get("ticker")
     ]
     df = pd.DataFrame(rows)
-    return _SEARCH_OUTPUT.build_table_result(
-        df,
-    )
-
-
+    return df
 # ---------------------------------------------------------------------------
 # Equities — EOD prices
 # ---------------------------------------------------------------------------
@@ -130,7 +124,7 @@ async def tiingo_eod(
     end_date: str | None = None,
     *,
     api_key: str
-) -> Result:
+) -> Any:
     """Fetch historical end-of-day OHLCV prices for a stock with split/dividend
     adjusted values. Returns date, open/high/low/close, volume, and adjusted
     counterparts (adjOpen, adjHigh, adjLow, adjClose, adjVolume), plus divCash
@@ -178,18 +172,14 @@ async def tiingo_eod(
     ]
     df = pd.DataFrame(rows)
     df["ticker"] = params.ticker
-    return _EOD_OUTPUT.build_table_result(
-        df,
-    )
-
-
+    return df
 # ---------------------------------------------------------------------------
 # Equities — IEX real-time quotes
 # ---------------------------------------------------------------------------
 
 
 @connector(output=_IEX_OUTPUT, tags=["equities"])
-async def tiingo_iex(tickers: str, *, api_key: str) -> Result:
+async def tiingo_iex(tickers: str, *, api_key: str) -> Any:
     """Fetch real-time IEX quotes for one or more stocks. Returns Tiingo's
     composite last price (tngoLast), OHLV for the day, previous close,
     mid/bid/ask prices and sizes. Timestamp is ISO 8601 UTC.
@@ -230,11 +220,7 @@ async def tiingo_iex(tickers: str, *, api_key: str) -> Result:
         if r.get("ticker")
     ]
     df = pd.DataFrame(rows)
-    return _IEX_OUTPUT.build_table_result(
-        df,
-    )
-
-
+    return df
 # ---------------------------------------------------------------------------
 # Equities — IEX historical intraday
 # ---------------------------------------------------------------------------
@@ -248,7 +234,7 @@ async def tiingo_iex_historical(
     resample_freq: str = '1hour',
     *,
     api_key: str
-) -> Result:
+) -> Any:
     """Fetch historical IEX intraday OHLC prices for a stock at a given
     frequency. Returns the most recent 2000 data points at the specified
     frequency — cannot request arbitrarily old data. Free tier supported.
@@ -287,18 +273,14 @@ async def tiingo_iex_historical(
     ]
     df = pd.DataFrame(rows)
     df["ticker"] = params.ticker
-    return _IEX_HIST_OUTPUT.build_table_result(
-        df,
-    )
-
-
+    return df
 # ---------------------------------------------------------------------------
 # Equities — company metadata
 # ---------------------------------------------------------------------------
 
 
 @connector(tags=["equities"])
-async def tiingo_meta(ticker: Annotated[str, 'ns:tiingo_ticker'], *, api_key: str) -> Result:
+async def tiingo_meta(ticker: Annotated[str, 'ns:tiingo_ticker'], *, api_key: str) -> Any:
     """Fetch company metadata for a stock: name, description, exchange,
     listing start/end dates. Use tiingo_search to resolve ticker symbols.
     For sector/industry data use tiingo_fundamentals_meta.
@@ -318,7 +300,7 @@ async def tiingo_meta(ticker: Annotated[str, 'ns:tiingo_ticker'], *, api_key: st
             message=f"No metadata returned for ticker: {params.ticker}",
         )
 
-    return Result(data=data)
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -327,7 +309,7 @@ async def tiingo_meta(ticker: Annotated[str, 'ns:tiingo_ticker'], *, api_key: st
 
 
 @connector(tags=["equities"])
-async def tiingo_fundamentals_meta(tickers: str, *, api_key: str) -> Result:
+async def tiingo_fundamentals_meta(tickers: str, *, api_key: str) -> Any:
     """Fetch fundamentals metadata for one or more stocks: sector, industry,
     SIC code/sector/industry, reporting currency, location, company website,
     SEC filing link, ADR flag, and data freshness timestamps.
@@ -350,7 +332,7 @@ async def tiingo_fundamentals_meta(tickers: str, *, api_key: str) -> Result:
 
     # Single ticker → return dict; multiple → return list
     result_data = data[0] if len(data) == 1 else data
-    return Result(data=result_data)
+    return result_data
 
 
 # ---------------------------------------------------------------------------
@@ -359,7 +341,7 @@ async def tiingo_fundamentals_meta(tickers: str, *, api_key: str) -> Result:
 
 
 @connector(output=_DEFINITIONS_OUTPUT, tags=["equities"])
-async def tiingo_fundamentals_definitions(*, api_key: str) -> Result:
+async def tiingo_fundamentals_definitions(*, api_key: str) -> Any:
     """List all available fundamental metric definitions: dataCode (metric ID),
     name, description, statementType (overview/incomeStatement/balanceSheet/
     cashFlow), and units. Use dataCodes to interpret tiingo_fundamentals_daily
@@ -392,11 +374,7 @@ async def tiingo_fundamentals_definitions(*, api_key: str) -> Result:
         if r.get("dataCode")
     ]
     df = pd.DataFrame(rows)
-    return _DEFINITIONS_OUTPUT.build_table_result(
-        df,
-    )
-
-
+    return df
 # ---------------------------------------------------------------------------
 # News (Power+ plan required)
 # ---------------------------------------------------------------------------
@@ -411,7 +389,7 @@ async def tiingo_news(
     limit: int = 50,
     *,
     api_key: str
-) -> Result:
+) -> Any:
     """[Power+] Fetch news articles from Tiingo. Filter by tickers, source, and
     date range. Returns title, publishedDate, source, related tickers, tags,
     description, and URL. Requires Power+ plan (free tier returns 403).
@@ -450,11 +428,7 @@ async def tiingo_news(
         for article in data
     ]
     df = pd.DataFrame(rows)
-    return _NEWS_OUTPUT.build_table_result(
-        df,
-    )
-
-
+    return df
 # ---------------------------------------------------------------------------
 # Crypto — historical prices
 # ---------------------------------------------------------------------------
@@ -468,7 +442,7 @@ async def tiingo_crypto_prices(
     resample_freq: str = '1day',
     *,
     api_key: str
-) -> Result:
+) -> Any:
     """Fetch historical crypto OHLCV prices. Returns date, open, high, low,
     close, volume (in base currency), volumeNotional (in quote currency), and
     tradesDone. Supports multiple resample frequencies from 1min to 1day.
@@ -526,18 +500,14 @@ async def tiingo_crypto_prices(
         )
 
     df = pd.DataFrame(all_rows)
-    return _CRYPTO_PRICES_OUTPUT.build_table_result(
-        df,
-    )
-
-
+    return df
 # ---------------------------------------------------------------------------
 # Crypto — real-time top-of-book
 # ---------------------------------------------------------------------------
 
 
 @connector(output=_CRYPTO_TOP_OUTPUT, tags=["crypto"])
-async def tiingo_crypto_top(tickers: str, *, api_key: str) -> Result:
+async def tiingo_crypto_top(tickers: str, *, api_key: str) -> Any:
     """Fetch real-time top-of-book quotes for crypto pairs: last price, bid/ask
     prices and sizes, last trade size (notional), and exchange. Free tier
     supported. Use lowercase pairs, e.g. 'btcusd', 'ethusd'.
@@ -583,11 +553,7 @@ async def tiingo_crypto_top(tickers: str, *, api_key: str) -> Result:
         )
 
     df = pd.DataFrame(rows)
-    return _CRYPTO_TOP_OUTPUT.build_table_result(
-        df,
-    )
-
-
+    return df
 # ---------------------------------------------------------------------------
 # Forex — historical prices
 # ---------------------------------------------------------------------------
@@ -601,7 +567,7 @@ async def tiingo_fx_prices(
     resample_freq: str = '1day',
     *,
     api_key: str
-) -> Result:
+) -> Any:
     """Fetch historical forex OHLC prices. Returns date, open, high, low, close
     for a currency pair. Supports multiple resample frequencies from 1min to 1day.
     Free tier supported. Pairs are lowercase, e.g. 'eurusd', 'gbpjpy'.
@@ -644,18 +610,14 @@ async def tiingo_fx_prices(
         for r in data
     ]
     df = pd.DataFrame(rows)
-    return _FX_PRICES_OUTPUT.build_table_result(
-        df,
-    )
-
-
+    return df
 # ---------------------------------------------------------------------------
 # Forex — real-time top-of-book
 # ---------------------------------------------------------------------------
 
 
 @connector(output=_FX_TOP_OUTPUT, tags=["forex"])
-async def tiingo_fx_top(tickers: str, *, api_key: str) -> Result:
+async def tiingo_fx_top(tickers: str, *, api_key: str) -> Any:
     """Fetch real-time top-of-book forex quotes: mid, bid/ask prices and sizes.
     Free tier supported. Pairs are lowercase, e.g. 'eurusd', 'gbpjpy'.
     """
@@ -688,18 +650,14 @@ async def tiingo_fx_top(tickers: str, *, api_key: str) -> Result:
         if r.get("ticker")
     ]
     df = pd.DataFrame(rows)
-    return _FX_TOP_OUTPUT.build_table_result(
-        df,
-    )
-
-
+    return df
 # ---------------------------------------------------------------------------
 # Enumerator — supported tickers for catalog indexing
 # ---------------------------------------------------------------------------
 
 
 @enumerator(output=_ENUMERATE_OUTPUT, tags=["equities"])
-async def enumerate_tiingo(*, api_key: str) -> list[CatalogEntry]:
+async def enumerate_tiingo(*, api_key: str) -> pd.DataFrame:
     """Enumerate all supported tickers from Tiingo for catalog indexing.
 
     Downloads the supported_tickers.zip CSV from apimedia.tiingo.com — returns
@@ -739,9 +697,7 @@ async def enumerate_tiingo(*, api_key: str) -> list[CatalogEntry]:
     ]
 
     df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=_COLS)
-    return _ENUMERATE_OUTPUT.build_entries(df)
-
-
+    return df
 # ---------------------------------------------------------------------------
 # Connector collections
 # ---------------------------------------------------------------------------
@@ -768,34 +724,4 @@ CONNECTORS = Connectors(
 )
 
 
-__all__ = [
-    "CONNECTORS",
-    # Parameter models (public — downstream callers type against these)
-    "TiingoCryptoPricesParams",
-    "TiingoCryptoTopParams",
-    "TiingoDefinitionsParams",
-    "TiingoEnumerateParams",
-    "TiingoEodParams",
-    "TiingoFundamentalsMetaParams",
-    "TiingoFxPricesParams",
-    "TiingoFxTopParams",
-    "TiingoIexHistParams",
-    "TiingoIexParams",
-    "TiingoMetaParams",
-    "TiingoNewsParams",
-    "TiingoSearchParams",
-    # Connector functions
-    "enumerate_tiingo",
-    "tiingo_crypto_prices",
-    "tiingo_crypto_top",
-    "tiingo_eod",
-    "tiingo_fundamentals_definitions",
-    "tiingo_fundamentals_meta",
-    "tiingo_fx_prices",
-    "tiingo_fx_top",
-    "tiingo_iex",
-    "tiingo_iex_historical",
-    "tiingo_meta",
-    "tiingo_news",
-    "tiingo_search",
-]
+__all__ = ["CONNECTORS"]

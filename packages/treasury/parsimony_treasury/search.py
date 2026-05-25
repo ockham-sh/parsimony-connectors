@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
 from parsimony.result import Column, ColumnRole, OutputConfig
-from parsimony.utils.catalog_search import CatalogSearchParams, make_catalog_search_connector
+
+from parsimony_treasury.catalog_build import build_treasury_catalog
 
 TreasurySearchParams = CatalogSearchParams
 
@@ -13,14 +15,15 @@ TREASURY_SEARCH_OUTPUT = OutputConfig(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="treasury"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="score", role=ColumnRole.METADATA),
+        Column(name="score", role=ColumnRole.DATA),
     ]
 )
 
-treasury_search = make_catalog_search_connector(
+treasury_search = make_local_search_connector(
     provider="treasury",
     default_url="hf://parsimony-dev/treasury",
-    env_var=PARSIMONY_TREASURY_CATALOG_URL_ENV,
+    catalog_url_env_var=PARSIMONY_TREASURY_CATALOG_URL_ENV,
+    build_catalog=build_treasury_catalog,
     tags=["macro", "us", "tool"],
     description=(
         "Semantic-search the US Treasury catalog (Fiscal Data + ODM rate feeds). "

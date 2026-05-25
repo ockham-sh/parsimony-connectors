@@ -1,4 +1,4 @@
-"""Build the Deutsche Bundesbank catalog snapshot."""
+"""Build the Banco de Portugal catalog snapshot."""
 
 from __future__ import annotations
 
@@ -6,53 +6,18 @@ import argparse
 import asyncio
 import logging
 
-from parsimony.catalog import BM25Index, Catalog, HybridIndex, VectorIndex
-from parsimony.ranking import ZScoreFusion
-
-from parsimony_bdp import enumerate_bdp
+from parsimony_bdp.catalog_build import build_bdp_catalog
 
 logger = logging.getLogger(__name__)
 
 
-def _catalog() -> Catalog:
-    return Catalog(
-        "bdp",
-        indexes=[
-            BM25Index("code_bm25", field="code"),
-            HybridIndex(
-                "title_hybrid",
-                field="title",
-                indexes=[
-                    BM25Index("title_bm25", field="title"),
-                    VectorIndex("title_vector", field="title"),
-                ],
-                fusion=ZScoreFusion(weights={"title_bm25": 0.5, "title_vector": 0.8}),
-            ),
-            HybridIndex(
-                "description_hybrid",
-                field="description",
-                indexes=[
-                    BM25Index("description_bm25", field="description"),
-                    VectorIndex("description_vector", field="description"),
-                ],
-                fusion=ZScoreFusion(weights={"description_bm25": 0.7, "description_vector": 1.0}),
-            ),
-        ],
-        default_field="title",
-    )
-
-
-async def build(*, save: str | None, push: str | None) -> Catalog:
-    result = await enumerate_bdp()
-    catalog = _catalog()
-    catalog.set_entries(result.data)
-    await catalog.build()
+async def build(*, save: str | None, push: str | None) -> None:
+    catalog = await build_bdp_catalog()
     logger.info("Built %s catalog with %d entries", catalog.name, len(catalog))
     if save is not None:
         await catalog.save(save, builder="packages/bdp/scripts/build_catalog.py")
     if push is not None:
         await catalog.save(push, builder="packages/bdp/scripts/build_catalog.py")
-    return catalog
 
 
 def main() -> None:

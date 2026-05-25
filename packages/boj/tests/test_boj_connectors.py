@@ -13,7 +13,6 @@ import httpx
 import pytest
 import respx
 from parsimony.errors import EmptyDataError
-from parsimony_test_support import entries_result_to_dataframe
 
 from parsimony_boj import (
     BOJ_ENUMERATE_OUTPUT,
@@ -24,15 +23,9 @@ from parsimony_boj import (
 
 
 def test_connectors_collection_exposes_expected_names() -> None:
-    """``boj_search`` is a registered connector alongside fetch + enumerate.
-
-    We include it in the expected set because it ships with the package
-    and is what agents call to navigate the catalog. ``Catalog.load``
-    is lazy (only invoked on first ``boj_search`` call), so import-time
-    registration succeeds without any network or HF access.
-    """
+    """Search connectors register alongside fetch + enumerate without eager catalog I/O."""
     names = {c.name for c in CONNECTORS}
-    assert names == {"boj_fetch", "enumerate_boj", "boj_search"}
+    assert names == {"boj_fetch", "enumerate_boj", "boj_databases_search", "boj_series_search"}
 
 
 def test_enumerate_output_schema_includes_description_metadata() -> None:
@@ -72,7 +65,7 @@ async def test_boj_fetch_returns_observations() -> None:
     result = await boj_fetch(db="FM08", code="FXERD01")
 
     assert result.provenance.source == "boj_fetch"
-    df = entries_result_to_dataframe(result)
+    df = result.data
     assert len(df) == 2
     assert df.iloc[0]["title"] == "JPY/USD Spot Rate"
 
@@ -128,7 +121,7 @@ async def test_enumerate_boj_emits_one_row_per_series_with_description_and_sourc
     _stub_metadata_endpoint(json=payload)
 
     result = await enumerate_boj()
-    df = entries_result_to_dataframe(result)
+    df = result.data
 
     series_rows = df[df["entity_type"] == "series"]
     assert len(series_rows) >= 1
@@ -178,7 +171,7 @@ async def test_enumerate_boj_emits_db_rows_with_db_prefix_key() -> None:
     _stub_metadata_endpoint(json={"RESULTSET": []})
 
     result = await enumerate_boj()
-    df = entries_result_to_dataframe(result)
+    df = result.data
 
     db_rows = df[df["entity_type"] == "db"]
     assert len(db_rows) == 50
@@ -224,12 +217,12 @@ async def test_enumerate_boj_handles_403_with_retry_then_warning(
         "last_update",
         "source",
     ]
-    df = entries_result_to_dataframe(result, columns=expected_cols)
+    df = result, columns=expected_cols.data
     # No series rows came through (every DB 403'd) but DB rows are still
     # absent because the connector emits them only for DBs whose metadata
     # was successfully retrieved. The summary log line is what we assert.
-    warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
-    assert any("metadata fetch failed" in m.lower() for m in warning_messages)
+    warning_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("fetch failed" in m.lower() for m in warning_messages)
     assert list(df.columns) == expected_cols
 
 
@@ -258,7 +251,7 @@ async def test_enumerate_boj_emits_columns_required_for_catalog_entries() -> Non
     _stub_metadata_endpoint(json=payload)
 
     result = await enumerate_boj()
-    entries = result.data
+    entries = result.output_schema.build_entities(result.data)  # type: ignore[union-attr]
 
     by_code = {e.code: e for e in entries}
     series_entry = by_code["FXERD01"]

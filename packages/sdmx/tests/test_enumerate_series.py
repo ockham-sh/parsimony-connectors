@@ -15,6 +15,7 @@ from parsimony_sdmx._isolation import FetchSeriesError
 from parsimony_sdmx.connectors._agencies import AgencyId
 from parsimony_sdmx.connectors.enumerate_series import (
     EnumerateSeriesParams,
+    _series_output_config,
     enumerate_sdmx_series,
     series_namespace,
 )
@@ -64,7 +65,8 @@ def mock_fetch_series(monkeypatch: pytest.MonkeyPatch):
 @pytest.mark.asyncio
 async def test_enumerates_one_dataset(mock_fetch_series) -> None:
     result = await enumerate_sdmx_series(agency=AgencyId.ECB, dataset_id="YC")
-    entries = result.data
+    schema = _series_output_config(AgencyId.ECB, "YC")
+    entries = schema.build_entities(result.data)
     by_code = {entry.code: entry for entry in entries}
     assert set(by_code) == {
         "B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y",

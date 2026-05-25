@@ -8,8 +8,7 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from parsimony.errors import EmptyDataError
-from parsimony_test_support import entries_result_to_dataframe
+from parsimony.errors import InvalidParameterError, EmptyDataError
 
 import parsimony_snb as _snb_module
 from parsimony_snb import (
@@ -47,7 +46,7 @@ async def test_snb_fetch_parses_csv() -> None:
     result = await snb_fetch(cube_id="rendoblim")
 
     assert result.provenance.source == "snb_fetch"
-    df = entries_result_to_dataframe(result)
+    df = result.data
     assert "cube_id" in df.columns
     assert df.iloc[0]["cube_id"] == "rendoblim"
 
@@ -64,7 +63,7 @@ async def test_snb_fetch_raises_empty_data_on_empty_csv() -> None:
 
 
 def test_fetch_rejects_empty_cube_id() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidParameterError):
         SnbFetchParams(cube_id="   ")
 
 
@@ -259,7 +258,7 @@ async def test_enumerate_snb_emits_one_row_per_series_with_compound_code() -> No
     )
 
     result = await enumerate_snb()
-    df = entries_result_to_dataframe(result)
+    df = result.data
 
     # 3 rendoblim series + 4 devkum series; retired cubes skipped.
     assert len(df) == 7
@@ -283,7 +282,7 @@ async def test_enumerate_snb_populates_description_for_embedder() -> None:
         }
     )
 
-    df = entries_result_to_dataframe(await enumerate_snb())
+    df = (await enumerate_snb()).data
     ten_year = df[df["code"] == "rendoblim#10J"].iloc[0]
     assert ten_year["description"]
     assert "10 years" in ten_year["description"]
@@ -309,7 +308,7 @@ async def test_enumerate_snb_emits_source_metadata_for_dispatch() -> None:
         }
     )
 
-    df = entries_result_to_dataframe(await enumerate_snb())
+    df = (await enumerate_snb()).data
     assert set(df["source"]) == {"snb_data_portal"}
 
 
@@ -321,7 +320,7 @@ async def test_enumerate_snb_skips_retired_cubes() -> None:
     at dead endpoints."""
     _mock_all_known_cubes(live={})
 
-    df = entries_result_to_dataframe(await enumerate_snb())
+    df = (await enumerate_snb()).data
     assert df.empty
 
 
@@ -338,7 +337,7 @@ async def test_enumerate_snb_infers_monthly_frequency_from_csv() -> None:
         }
     )
 
-    df = entries_result_to_dataframe(await enumerate_snb())
+    df = (await enumerate_snb()).data
     assert (df["frequency"] == "Monthly").all()
 
 
@@ -355,7 +354,7 @@ async def test_enumerate_snb_carries_dimension_path_metadata() -> None:
             },
         }
     )
-    df = entries_result_to_dataframe(await enumerate_snb())
+    df = (await enumerate_snb()).data
     usd = df[df["code"] == "devkum#M0.USD1"].iloc[0]
     # Both group label ("America") and leaf label ("USD 1") appear.
     assert "USD 1" in usd["dimension_path"]
@@ -377,7 +376,7 @@ async def test_enumerate_snb_emits_complete_column_set() -> None:
             },
         }
     )
-    df = entries_result_to_dataframe(await enumerate_snb())
+    df = (await enumerate_snb()).data
     expected = {
         "code",
         "title",

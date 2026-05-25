@@ -9,16 +9,13 @@ import httpx
 import pandas as pd
 import pytest
 import respx
-from parsimony.errors import EmptyDataError
-from parsimony.result import Result
+from parsimony.errors import EmptyDataError, InvalidParameterError
 
-from parsimony_bde import (
-    BDE_ENUMERATE_OUTPUT,
-    CONNECTORS,
-    BdeFetchParams,
-    bde_fetch,
-    enumerate_bde,
-)
+from parsimony_bde import CONNECTORS
+from parsimony_bde.connectors.enumerate import enumerate_bde
+from parsimony_bde.connectors.fetch import bde_fetch
+from parsimony_bde.outputs import BDE_ENUMERATE_OUTPUT
+from parsimony_bde.params import BdeFetchParams
 
 _ENUMERATE_FRAME_COLUMNS = [
     "key",
@@ -39,8 +36,10 @@ _ENUMERATE_FRAME_COLUMNS = [
 
 
 def _enumerate_frame(result: Result) -> pd.DataFrame:
-    """Project enumerator ``CatalogEntry`` rows into a flat frame for assertions."""
-    entries = result.data
+    """Project enumerator tabular output into a flat frame for assertions."""
+    if result.output_schema is None:
+        return pd.DataFrame(columns=_ENUMERATE_FRAME_COLUMNS)
+    entries = result.output_schema.build_entities(result.data)
     if not entries:
         return pd.DataFrame(columns=_ENUMERATE_FRAME_COLUMNS)
     rows = [{"key": entry.code, "title": entry.title, **entry.metadata} for entry in entries]
@@ -98,12 +97,12 @@ async def test_bde_fetch_raises_empty_data_on_empty_list() -> None:
 
 
 def test_fetch_rejects_invalid_time_range() -> None:
-    with pytest.raises(ValueError, match="time_range"):
+    with pytest.raises(InvalidParameterError, match="time_range"):
         BdeFetchParams(key="X", time_range="3M")
 
 
 def test_fetch_rejects_empty_key() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidParameterError):
         BdeFetchParams(key="  ")
 
 
@@ -614,26 +613,26 @@ def test_enumerate_bde_schema_includes_source_metadata_column() -> None:
 
 
 def test_split_title_path_extracts_leaf_and_dataset() -> None:
-    from parsimony_bde import _split_title_path
+    from parsimony_bde.connectors._catalog import split_title_path
 
-    dataset, leaf = _split_title_path("Monetary policy/Eurosystem operations/Fixed rate auctions")
+    dataset, leaf = split_title_path("Monetary policy/Eurosystem operations/Fixed rate auctions")
     assert leaf == "Fixed rate auctions"
     assert "Monetary policy" in dataset
     assert "Eurosystem operations" in dataset
 
 
 def test_split_title_path_handles_single_segment() -> None:
-    from parsimony_bde import _split_title_path
+    from parsimony_bde.connectors._catalog import split_title_path
 
-    dataset, leaf = _split_title_path("Lone title")
+    dataset, leaf = split_title_path("Lone title")
     assert dataset == ""
     assert leaf == "Lone title"
 
 
 def test_split_title_path_handles_empty() -> None:
-    from parsimony_bde import _split_title_path
+    from parsimony_bde.connectors._catalog import split_title_path
 
-    dataset, leaf = _split_title_path("")
+    dataset, leaf = split_title_path("")
     assert dataset == ""
     assert leaf == ""
 
@@ -643,9 +642,9 @@ def test_split_title_path_treats_faceted_dsd_paths_as_dataset() -> None:
     where the last segment is just another facet, not a name. The leaf in that
     case is meaningless — the caller falls back to the description for the
     catalog title and keeps the whole faceted string as ``dataset``."""
-    from parsimony_bde import _split_title_path
+    from parsimony_bde.connectors._catalog import split_title_path
 
-    dataset, leaf = _split_title_path(
+    dataset, leaf = split_title_path(
         "Metodología: SEC2010/Año Base: 2020/Valoración: Volúmenes encadenados"
     )
     assert leaf == ""

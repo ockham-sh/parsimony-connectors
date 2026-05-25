@@ -2,7 +2,7 @@
 
 BLS uses POST with JSON body and returns its own error codes in the response
 body rather than HTTP 4xx. The api_key is optional; 401/429 error-mapping
-tests from ``docs/testing-template.md`` §4 do not apply (key-bearing is
+tests from ``CONTRIBUTING.md §4`` §4 do not apply (key-bearing is
 defined as a key-required dep, and BLS defaults ``api_key=""``).
 """
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from parsimony.errors import EmptyDataError, ProviderError
+from parsimony.errors import InvalidParameterError, EmptyDataError, ProviderError
 
 from parsimony_bls import (
     CONNECTORS,
@@ -100,10 +100,10 @@ async def test_bls_fetch_raises_empty_data_when_no_series_returned() -> None:
 
 
 def test_fetch_rejects_non_four_digit_year() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidParameterError):
         BlsFetchParams(series_id="X", start_year="26", end_year="2026")
 
 
 def test_fetch_rejects_empty_series_id() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidParameterError):
         BlsFetchParams(series_id="   ", start_year="2026", end_year="2026")

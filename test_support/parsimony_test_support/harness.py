@@ -132,32 +132,13 @@ def assert_provenance_shape(
         )
 
 
-def entries_result_to_dataframe(
-    result: Result,
-    *,
-    key: str = "code",
-    title: str = "title",
-    columns: list[str] | None = None,
-) -> Any:
-    """Project an enumerator ``Result`` carrying ``list[CatalogEntry]`` into a frame.
-
-    Connectors that return ``OutputConfig.build_entries(...)`` wrap a
-    ``list[CatalogEntry]`` in ``result.data``. Legacy tests often asserted
-    against a flat DataFrame; this helper preserves that shape without
-    reintroducing DataFrame return types on enumerators.
-    """
+def entries_result_to_dataframe(result: Result, *, columns: list[str] | None = None) -> Any:
+    """Return tabular enumerator data from a wrapped :class:`Result`."""
     import pandas as pd
 
-    from parsimony.catalog import CatalogEntry
-
     data = result.data
-    if isinstance(data, pd.DataFrame):
+    if not isinstance(data, pd.DataFrame):
+        raise TypeError(f"expected TabularResult data frame, got {type(data)!r}")
+    if columns is None:
         return data
-    entries: list[CatalogEntry] = data
-    if not entries:
-        return pd.DataFrame(columns=columns or [])
-    rows = [{key: entry.code, title: entry.title, **entry.metadata} for entry in entries]
-    frame = pd.DataFrame(rows)
-    if columns is not None:
-        return frame.reindex(columns=columns, fill_value="")
-    return frame
+    return data.reindex(columns=columns, fill_value="")

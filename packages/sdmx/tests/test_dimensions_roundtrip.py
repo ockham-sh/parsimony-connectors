@@ -116,7 +116,7 @@ def test_entries_from_sdmx_result_receives_dimension_metadata() -> None:
             Column(name="dataset_id", role=ColumnRole.METADATA),
         ]
     )
-    entries = schema.build_entries(df)
+    entries = schema.build_entities(df)
 
     by_code = {entry.code: entry for entry in entries}
     assert by_code["A.U2"].metadata["FREQ_code"] == "A"

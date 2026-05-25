@@ -3,21 +3,21 @@
 from __future__ import annotations
 
 import pytest
-from parsimony.catalog import CatalogEntry
+from parsimony.entity import Entity
 
 from parsimony_sdmx.catalog_build import (
-    build_agency_dataset_entries,
+    build_agency_dataset_entities,
     dataset_code,
-    enrich_dataset_entries,
+    enrich_dataset_entities,
     manifest_from_series_entries,
     merge_dataset_entry_lists,
 )
 from parsimony_sdmx.core.models import DatasetRecord
 
 
-def _series_entries() -> list[CatalogEntry]:
+def _series_entries() -> list[Entity]:
     return [
-        CatalogEntry(
+        Entity(
             namespace="sdmx_series_ecb_yc",
             code="M.DE.IF_1Y",
             title="Synthetic title",
@@ -34,7 +34,7 @@ def _series_entries() -> list[CatalogEntry]:
 
 
 @pytest.mark.asyncio
-async def test_build_agency_dataset_entries_only_updates_manifested_flows() -> None:
+async def test_build_agency_dataset_entities_only_updates_manifested_flows() -> None:
     records = [
         DatasetRecord(dataset_id="YC", agency_id="ECB", title="Yield curve"),
         DatasetRecord(dataset_id="MIR", agency_id="ECB", title="Money market"),
@@ -43,37 +43,38 @@ async def test_build_agency_dataset_entries_only_updates_manifested_flows() -> N
         dataset_code("ECB", "YC"): manifest_from_series_entries(_series_entries()),
     }
 
-    entries = await build_agency_dataset_entries(records, manifests)
+    entries = await build_agency_dataset_entities(records, manifests)
 
     assert len(entries) == 1
     assert entries[0].code == "ECB|YC"
+    assert entries[0].namespace == "sdmx_datasets_ecb"
     assert entries[0].metadata["dimensions"][0]["id"] == "FREQ"
 
 
-def test_enrich_dataset_entries_preserves_entries_without_manifest() -> None:
-    base = CatalogEntry(
-        namespace="sdmx_datasets",
+def test_enrich_dataset_entities_preserves_entries_without_manifest() -> None:
+    base = Entity(
+        namespace="sdmx_datasets_ecb",
         code="ECB|MIR",
         title="Money market",
         metadata={"agency": "ECB", "dataset_id": "MIR"},
     )
-    enriched = enrich_dataset_entries([base], {})
+    enriched = enrich_dataset_entities([base], {})
 
     assert enriched[0].metadata == base.metadata
 
 
 def test_merge_dataset_entry_lists_upserts_by_code() -> None:
     existing = [
-        CatalogEntry(
-            namespace="sdmx_datasets",
+        Entity(
+            namespace="sdmx_datasets_ecb",
             code="ECB|MIR",
             title="Old title",
             metadata={"agency": "ECB", "dataset_id": "MIR"},
         )
     ]
     updates = [
-        CatalogEntry(
-            namespace="sdmx_datasets",
+        Entity(
+            namespace="sdmx_datasets_ecb",
             code="ECB|YC",
             title="Yield curve",
             metadata={"agency": "ECB", "dataset_id": "YC", "dimensions": [{"id": "FREQ", "values": []}]},

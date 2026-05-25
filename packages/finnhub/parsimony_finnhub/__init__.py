@@ -32,10 +32,8 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 
 import pandas as pd
-from parsimony.catalog import CatalogEntry
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
-from parsimony.result import Result
 from parsimony.transport import HttpClient
 
 from parsimony_finnhub._http import finnhub_fetch as _fh_fetch
@@ -78,7 +76,7 @@ _BASE_URL = "https://finnhub.io/api/v1"
 
 
 @connector(output=_SEARCH_OUTPUT, tags=["equities", "tool"])
-async def finnhub_search(query: str, *, api_key: str) -> Result:
+async def finnhub_search(query: str, *, api_key: str) -> Any:
     """Search Finnhub for stocks, ETFs, and indices by name or ticker symbol.
     Returns symbol (the stable API identifier), description (company name),
     displaySymbol, and type. Use symbol with finnhub_quote, finnhub_profile,
@@ -108,18 +106,14 @@ async def finnhub_search(query: str, *, api_key: str) -> Result:
         if r.get("symbol")
     ]
     df = pd.DataFrame(rows)
-    return _SEARCH_OUTPUT.build_table_result(
-        df,
-    )
-
-
+    return df
 # ---------------------------------------------------------------------------
 # Market Data — Real-time Quote
 # ---------------------------------------------------------------------------
 
 
 @connector(output=_QUOTE_OUTPUT, tags=["equities"])
-async def finnhub_quote(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_key: str) -> Result:
+async def finnhub_quote(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_key: str) -> Any:
     """Fetch real-time quote for a stock: current price, day high/low/open,
     previous close, and absolute/percent change vs prior close. Timestamp
     is day-granularity (last close time, not a tick timestamp). Use
@@ -147,18 +141,14 @@ async def finnhub_quote(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_key:
         "timestamp": data.get("t"),
     }
     df = pd.DataFrame([row])
-    return _QUOTE_OUTPUT.build_table_result(
-        df,
-    )
-
-
+    return df
 # ---------------------------------------------------------------------------
 # Company — Profile, Peers, Recommendations, Earnings, Fundamentals
 # ---------------------------------------------------------------------------
 
 
 @connector(tags=["equities"])
-async def finnhub_profile(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_key: str) -> Result:
+async def finnhub_profile(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_key: str) -> Any:
     """Fetch company profile for a stock: name, exchange, country, currency,
     IPO date, industry, market cap (in millions USD), shares outstanding (millions),
     website, phone, and logo URL. Use finnhub_search to resolve ticker symbols.
@@ -174,11 +164,11 @@ async def finnhub_profile(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_ke
             message=f"No profile data returned for symbol: {params.symbol}",
         )
 
-    return Result(data=data)
+    return data
 
 
 @connector(output=_PEERS_OUTPUT, tags=["equities"])
-async def finnhub_peers(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_key: str) -> Result:
+async def finnhub_peers(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_key: str) -> Any:
     """Fetch peer/comparable companies for a stock. Returns a list of ticker
     symbols in the same industry and market cap range. Use finnhub_quote or
     finnhub_profile on returned symbols for further analysis.
@@ -194,13 +184,9 @@ async def finnhub_peers(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_key:
         )
 
     df = pd.DataFrame({"symbol": [s for s in data if isinstance(s, str)]})
-    return _PEERS_OUTPUT.build_table_result(
-        df,
-    )
-
-
+    return df
 @connector(output=_RECOMMENDATION_OUTPUT, tags=["equities"])
-async def finnhub_recommendation(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_key: str) -> Result:
+async def finnhub_recommendation(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_key: str) -> Any:
     """Fetch analyst buy/hold/sell recommendation trends for a stock.
     Returns monthly aggregated counts: strongBuy, buy, hold, sell, strongSell.
     Free tier returns approximately the last 4 months of data.
@@ -236,13 +222,9 @@ async def finnhub_recommendation(symbol: Annotated[str, 'ns:finnhub_symbol'], *,
         raise EmptyDataError(provider="finnhub", message=f"Empty recommendation list for: {params.symbol}")
 
     df = pd.DataFrame(rows)
-    return _RECOMMENDATION_OUTPUT.build_table_result(
-        df,
-    )
-
-
+    return df
 @connector(output=_EARNINGS_OUTPUT, tags=["equities"])
-async def finnhub_earnings(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_key: str) -> Result:
+async def finnhub_earnings(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_key: str) -> Any:
     """Fetch historical earnings per share (EPS) for a stock: actual EPS,
     consensus estimate, surprise, and surprise percent for the last ~4 quarters.
     For forward-looking earnings dates use finnhub_earnings_calendar.
@@ -274,13 +256,9 @@ async def finnhub_earnings(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_k
         raise EmptyDataError(provider="finnhub", message=f"Empty earnings list for: {params.symbol}")
 
     df = pd.DataFrame(rows)
-    return _EARNINGS_OUTPUT.build_table_result(
-        df,
-    )
-
-
+    return df
 @connector(tags=["equities"])
-async def finnhub_basic_financials(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_key: str) -> Result:
+async def finnhub_basic_financials(symbol: Annotated[str, 'ns:finnhub_symbol'], *, api_key: str) -> Any:
     """Fetch ~120 fundamental metrics for a stock: PE, EPS, beta, 52-week
     high/low, gross margin, ROE, dividend yield, market cap, and more.
     Also includes annual and quarterly time-series (going back to ~2007 for
@@ -303,7 +281,7 @@ async def finnhub_basic_financials(symbol: Annotated[str, 'ns:finnhub_symbol'], 
             message=f"No fundamental data returned for symbol: {params.symbol}",
         )
 
-    return Result(data=data)
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -318,7 +296,7 @@ async def finnhub_company_news(
     to_date: str,
     *,
     api_key: str
-) -> Result:
+) -> Any:
     """Fetch news articles for a specific company between two dates.
     Returns headline, source, publish datetime (unix timestamp), summary,
     URL, and related ticker. Free tier access is limited to recent months —
@@ -355,17 +333,13 @@ async def finnhub_company_news(
         for item in data
     ]
     df = pd.DataFrame(rows)
-    return _NEWS_OUTPUT.build_table_result(
-        df,
-    )
-
-
+    return df
 @connector(output=_NEWS_OUTPUT, tags=["news"])
 async def finnhub_market_news(
     category: Literal['general', 'forex', 'crypto', 'merger'] = 'general',
     *,
     api_key: str
-) -> Result:
+) -> Any:
     """Fetch latest market-wide news by category. Categories: 'general' (top
     business/market headlines), 'forex', 'crypto', 'merger'. Returns up to
     ~100 articles. The 'related' field is empty for market news (unlike company
@@ -396,18 +370,14 @@ async def finnhub_market_news(
         for item in data
     ]
     df = pd.DataFrame(rows)
-    return _NEWS_OUTPUT.build_table_result(
-        df,
-    )
-
-
+    return df
 # ---------------------------------------------------------------------------
 # Calendars — Earnings and IPO
 # ---------------------------------------------------------------------------
 
 
 @connector(output=_EARNINGS_CAL_OUTPUT, tags=["equities", "calendars"])
-async def finnhub_earnings_calendar(from_date: str, to_date: str, symbol: str | None = None, *, api_key: str) -> Result:
+async def finnhub_earnings_calendar(from_date: str, to_date: str, symbol: str | None = None, *, api_key: str) -> Any:
     """Fetch upcoming or recent earnings release dates for all (or one) stock.
     Returns per-report: date, fiscal year/quarter, release timing (bmo=before
     market open, amc=after market close), EPS estimate/actual, and revenue
@@ -448,13 +418,9 @@ async def finnhub_earnings_calendar(from_date: str, to_date: str, symbol: str | 
         raise EmptyDataError(provider="finnhub", message="Empty earnings calendar after filtering")
 
     df = pd.DataFrame(rows)
-    return _EARNINGS_CAL_OUTPUT.build_table_result(
-        df,
-    )
-
-
+    return df
 @connector(output=_IPO_CAL_OUTPUT, tags=["equities", "calendars"])
-async def finnhub_ipo_calendar(from_date: str, to_date: str, *, api_key: str) -> Result:
+async def finnhub_ipo_calendar(from_date: str, to_date: str, *, api_key: str) -> Any:
     """Fetch IPO calendar for a date range: company name, ticker, exchange,
     status (expected/priced/filed/withdrawn), IPO price, number of shares, and
     gross proceeds. Price is parsed from a string field — may be null when not
@@ -503,18 +469,14 @@ async def finnhub_ipo_calendar(from_date: str, to_date: str, *, api_key: str) ->
         raise EmptyDataError(provider="finnhub", message="Empty IPO calendar after parsing")
 
     df = pd.DataFrame(rows)
-    return _IPO_CAL_OUTPUT.build_table_result(
-        df,
-    )
-
-
+    return df
 # ---------------------------------------------------------------------------
 # Enumerator — full US symbol list for catalog indexing
 # ---------------------------------------------------------------------------
 
 
 @enumerator(output=_ENUMERATE_OUTPUT, tags=["equities"])
-async def enumerate_finnhub(exchange: str = 'US', *, api_key: str) -> list[CatalogEntry]:
+async def enumerate_finnhub(exchange: str = 'US', *, api_key: str) -> pd.DataFrame:
     """Enumerate all symbols from Finnhub for catalog indexing.
 
     Calls /stock/symbol — returns ~30 000 rows for exchange='US' with symbol,
@@ -537,8 +499,7 @@ async def enumerate_finnhub(exchange: str = 'US', *, api_key: str) -> list[Catal
         df = pd.DataFrame(
             columns=["symbol", "description", "display_symbol", "type", "currency", "mic", "exchange", "isin"]
         )
-        return _ENUMERATE_OUTPUT.build_entries(df)
-
+        return df
     rows = [
         {
             "symbol": s.get("symbol", ""),
@@ -554,9 +515,7 @@ async def enumerate_finnhub(exchange: str = 'US', *, api_key: str) -> list[Catal
         if s.get("symbol")
     ]
     df = pd.DataFrame(rows)
-    return _ENUMERATE_OUTPUT.build_entries(df)
-
-
+    return df
 CONNECTORS = Connectors(
     [
         # Discovery
@@ -578,33 +537,4 @@ CONNECTORS = Connectors(
 )
 
 
-__all__ = [
-    "CONNECTORS",
-    # Parameter models (public — downstream callers type against these)
-    "FinnhubBasicFinancialsParams",
-    "FinnhubCompanyNewsParams",
-    "FinnhubEarningsCalendarParams",
-    "FinnhubEarningsParams",
-    "FinnhubEnumerateParams",
-    "FinnhubIpoCalendarParams",
-    "FinnhubMarketNewsParams",
-    "FinnhubPeersParams",
-    "FinnhubProfileParams",
-    "FinnhubQuoteParams",
-    "FinnhubRecommendationParams",
-    "FinnhubSearchParams",
-    # Connector functions
-    "finnhub_basic_financials",
-    "finnhub_company_news",
-    "finnhub_earnings",
-    "finnhub_earnings_calendar",
-    "finnhub_ipo_calendar",
-    "finnhub_market_news",
-    "finnhub_peers",
-    "finnhub_profile",
-    "finnhub_quote",
-    "finnhub_recommendation",
-    "finnhub_search",
-    # Enumerator
-    "enumerate_finnhub",
-]
+__all__ = ["CONNECTORS"]

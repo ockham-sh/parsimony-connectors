@@ -31,7 +31,7 @@ Commodity series (WTI, Brent, natural gas, copper, etc.) are intentionally omitt
 pip install parsimony-alpha-vantage
 ```
 
-Pulls in `parsimony-core>=0.5,<0.6` automatically. Verify discovery:
+Pulls in `parsimony-core>=0.6,<0.7` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"

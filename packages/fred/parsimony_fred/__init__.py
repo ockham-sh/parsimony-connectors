@@ -15,24 +15,16 @@ from typing import Annotated, Any
 import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector
-from parsimony.errors import EmptyDataError, UnauthorizedError
+from parsimony.errors import EmptyDataError, InvalidParameterError, UnauthorizedError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Result,
 )
 from parsimony.transport import HttpClient, map_http_error
 from pydantic import BaseModel, Field, field_validator
 
-__all__ = [
-    "CONNECTORS",
-    "FredSearchParams",
-    "FredFetchParams",
-    "fred_search",
-    "fred_fetch",
-    "load",
-]
+__all__ = ["CONNECTORS", "load"]
 
 # ---------------------------------------------------------------------------
 # Parameter models
@@ -57,7 +49,7 @@ class FredFetchParams(BaseModel):
     def _non_empty(cls, value: str) -> str:
         stripped = str(value).strip()
         if not stripped:
-            raise ValueError("series_id must be non-empty")
+            raise InvalidParameterError("fred", "series_id must be non-empty")
         return stripped
 
 
@@ -162,7 +154,7 @@ async def fred_fetch(
     observation_start: str | None = None,
     observation_end: str | None = None,
     api_key: str = "",
-) -> Result:
+) -> Any:
     """Fetch FRED time series observations by series_id.
 
     Returns date + value columns with rich metadata (title, units, frequency, seasonal adjustment).
@@ -202,31 +194,12 @@ async def fred_fetch(
     df["frequency_short"] = series_data.get("frequency_short")
     df["seasonal_adjustment_short"] = series_data.get("seasonal_adjustment_short")
 
-    meta_keys = [
-        ("id", False),
-        ("title", False),
-        ("units", False),
-        ("units_short", True),
-        ("frequency", False),
-        ("frequency_short", False),
-        ("seasonal_adjustment", False),
-        ("seasonal_adjustment_short", True),
-        ("last_updated", False),
-        ("notes", True),
-    ]
-    metadata_list = [
-        {"name": k, "value": str(series_data[k]), "exclude_from_llm_view": excl}
-        for k, excl in meta_keys
-        if k in series_data
-    ]
-    metadata_list.append(
-        {
-            "name": "series_url",
-            "value": f"https://fred.stlouisfed.org/series/{series_id}",
-        }
-    )
-
-    return FETCH_OUTPUT.build_table_result(df).with_properties(metadata=metadata_list)
+    df["series_url"] = f"https://fred.stlouisfed.org/series/{series_id}"
+    if "units" in series_data:
+        df["units"] = str(series_data["units"])
+    if "notes" in series_data:
+        df["notes"] = str(series_data["notes"])
+    return df
 
 
 CONNECTORS = Connectors([fred_search, fred_fetch])

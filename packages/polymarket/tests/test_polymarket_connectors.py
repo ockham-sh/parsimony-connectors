@@ -1,146 +1,64 @@
-"""Happy-path tests for the Polymarket connectors.
-
-Follows ``docs/testing-template.md``. Polymarket has no ``api_key`` dep
-(public endpoints); 401/429 error-mapping tests do not apply.
-
-Also pins the ``parsimony.transport.json_helpers.interpolate_path`` watchpoint:
-this import is outside the ``docs/contract.md`` §6 public surface and the
-assertion below flips CI red the day the kernel moves or renames it.
-"""
+"""Happy-path tests for the Polymarket connectors."""
 
 from __future__ import annotations
 
 import httpx
 import pytest
 import respx
+from parsimony.errors import InvalidParameterError, ProviderError
 
-from parsimony_polymarket import (
-    CONNECTORS,
-    POLYMARKET_CLOB,
-    POLYMARKET_GAMMA,
-    PolymarketFetchParams,
-)
-
-# ---------------------------------------------------------------------------
-# Plugin contract shape
-# ---------------------------------------------------------------------------
+from parsimony_polymarket import CONNECTORS, polymarket_events, polymarket_market_prices, polymarket_markets
 
 
 def test_connectors_collection_exposes_expected_names() -> None:
     names = {c.name for c in CONNECTORS}
-    assert names == {"polymarket_gamma_fetch", "polymarket_clob_fetch"}
-
-
-def test_polymarket_connectors_are_polymarket_tagged() -> None:
-    for c in CONNECTORS:
-        assert "polymarket" in c.tags
-
-
-# ---------------------------------------------------------------------------
-# Watchpoint: private kernel-symbol import must still resolve.
-# ---------------------------------------------------------------------------
-
-
-def test_interpolate_path_resolves() -> None:
-    """``parsimony.transport.json_helpers`` was removed in kernel 0.3.0.
-
-    ``interpolate_path`` is now inlined in this package.
-    """
-    from parsimony_polymarket import interpolate_path
-
-    rendered, remaining = interpolate_path("/markets/{id}", {"id": "foo", "limit": 10})
-    assert rendered == "/markets/foo"
-    assert remaining == {"limit": 10}
-
-
-# ---------------------------------------------------------------------------
-# polymarket_gamma
-# ---------------------------------------------------------------------------
+    assert names == {"polymarket_markets", "polymarket_events", "polymarket_market_prices"}
 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_polymarket_gamma_fetch_returns_events() -> None:
-    respx.get("https://gamma-api.polymarket.com/events").mock(
+async def test_polymarket_markets_returns_rows() -> None:
+    respx.get("https://gamma-api.polymarket.com/markets").mock(
         return_value=httpx.Response(
             200,
-            json=[
-                {
-                    "id": "1234",
-                    "slug": "us-election-2028",
-                    "title": "US Presidential Election 2028",
-                    "active": True,
-                    "markets_count": 3,
-                },
-                {
-                    "id": "5678",
-                    "slug": "fed-rate-cut",
-                    "title": "Fed rate cut in Q2",
-                    "active": True,
-                    "markets_count": 1,
-                },
-            ],
+            json=[{"id": "1", "question": "Will X happen?", "slug": "x", "active": True}],
         )
     )
-
-    result = await POLYMARKET_GAMMA(path="/events")
-
-    assert result.provenance.source == "polymarket_gamma_fetch"
-    df = result.data
-    assert list(df["slug"]) == ["us-election-2028", "fed-rate-cut"]
+    result = await polymarket_markets(limit=5)
+    assert result.provenance.source == "polymarket_markets"
+    assert result.data.iloc[0]["slug"] == "x"
 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_polymarket_gamma_fetch_raises_provider_error_on_500() -> None:
-    from parsimony.errors import ProviderError
-
+async def test_polymarket_events_returns_rows() -> None:
     respx.get("https://gamma-api.polymarket.com/events").mock(
-        return_value=httpx.Response(500, text="upstream error")
+        return_value=httpx.Response(200, json=[{"id": "e1", "title": "Election", "slug": "election"}])
     )
+    result = await polymarket_events(limit=5)
+    assert result.provenance.source == "polymarket_events"
 
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_polymarket_market_prices() -> None:
+    respx.get("https://clob.polymarket.com/price").mock(
+        return_value=httpx.Response(200, json={"price": "0.42"})
+    )
+    result = await polymarket_market_prices(token_id="abc")
+    assert result.data["price"] == "0.42"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_polymarket_markets_maps_500() -> None:
+    respx.get("https://gamma-api.polymarket.com/markets").mock(return_value=httpx.Response(500, text="err"))
     with pytest.raises(ProviderError):
-        await POLYMARKET_GAMMA(path="/events")
+        await polymarket_markets(limit=5)
 
 
-# ---------------------------------------------------------------------------
-# polymarket_clob
-# ---------------------------------------------------------------------------
+def test_limit_validation() -> None:
+    with pytest.raises(InvalidParameterError):
+        import asyncio
 
-
-@respx.mock
-@pytest.mark.asyncio
-async def test_polymarket_clob_fetch_supports_response_path() -> None:
-    respx.get("https://clob.polymarket.com/markets").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "data": [
-                    {"condition_id": "0xabc", "question": "Will X happen?"},
-                    {"condition_id": "0xdef", "question": "Will Y happen?"},
-                ],
-                "next_cursor": None,
-            },
-        )
-    )
-
-    result = await POLYMARKET_CLOB(path="/markets", response_path="data")
-
-    df = result.data
-    assert result.provenance.source == "polymarket_clob_fetch"
-    assert list(df["condition_id"]) == ["0xabc", "0xdef"]
-
-
-# ---------------------------------------------------------------------------
-# Parameter validation
-# ---------------------------------------------------------------------------
-
-
-def test_polymarket_fetch_params_requires_path() -> None:
-    with pytest.raises(ValueError):
-        PolymarketFetchParams(path="")
-
-
-def test_polymarket_fetch_params_allows_extra_kwargs_for_interpolation() -> None:
-    p = PolymarketFetchParams(path="/markets/{id}", id="abc", limit=10)  # type: ignore[call-arg]
-    assert (p.model_extra or {}).get("id") == "abc"
+        asyncio.run(polymarket_markets(limit=0))

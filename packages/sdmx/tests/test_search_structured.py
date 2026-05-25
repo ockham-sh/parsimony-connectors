@@ -7,15 +7,16 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from parsimony.catalog import Catalog, CatalogEntry
+from parsimony.catalog import Catalog
+from parsimony.entity import Entity
 
 from parsimony_sdmx.catalog_policy import sdmx_series_entries, sdmx_series_indexes
 from parsimony_sdmx.connectors.search import sdmx_series_search
 
 
-def _entries() -> list[CatalogEntry]:
+def _entries() -> list[Entity]:
     return [
-        CatalogEntry(
+        Entity(
             namespace="sdmx_series_ecb_yc",
             code="A.U2.SR_10Y",
             title="ECB source title",
@@ -29,7 +30,7 @@ def _entries() -> list[CatalogEntry]:
                 "source_title": "ECB source title",
             },
         ),
-        CatalogEntry(
+        Entity(
             namespace="sdmx_series_ecb_yc",
             code="M.DE.IF_1Y",
             title="Synthetic title",
@@ -55,7 +56,7 @@ async def test_search_structured_end_to_end() -> None:
 
     cat = Catalog("sdmx_series_ecb_yc")
     cat.set_indexes(sdmx_series_indexes(entries, dims))
-    cat.set_entries(entries)
+    cat.set_entities(entries)
     await cat.build()
 
     with tempfile.TemporaryDirectory() as tmpdir:

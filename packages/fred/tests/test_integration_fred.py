@@ -31,7 +31,7 @@ async def test_fred_search_unemployment_returns_unrate() -> None:
 
     result = await bound(search_text="unemployment rate")
 
-    assert_provenance_shape(result, expected_source="fred", required_param_keys=["search_text"])
+    assert_provenance_shape(result, expected_source="fred_search", required_param_keys=["search_text"])
     df = result.data
     assert not df.empty, "FRED search returned empty DataFrame for 'unemployment rate'"
     # UNRATE is the canonical FRED series for US unemployment — if the search
@@ -50,7 +50,7 @@ async def test_fred_fetch_unrate_returns_observations() -> None:
 
     result = await bound(series_id="UNRATE")
 
-    assert_provenance_shape(result, expected_source="fred", required_param_keys=["series_id"])
+    assert_provenance_shape(result, expected_source="fred_fetch", required_param_keys=["series_id"])
     df = result.data
     assert not df.empty, "FRED fetch returned empty DataFrame for UNRATE"
     # Observations carry a date and a value at minimum.

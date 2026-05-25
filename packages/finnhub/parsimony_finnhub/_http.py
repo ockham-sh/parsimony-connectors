@@ -23,6 +23,7 @@ from parsimony.errors import (
     UnauthorizedError,
 )
 from parsimony.transport import HttpClient, map_timeout_error, parse_retry_after
+from parsimony.transport.helpers import make_http_client
 
 # Per-request timeout. Finnhub's REST endpoints are not streaming; 15s is a
 # conservative ceiling that matches the FMP connector's precedent.
@@ -34,12 +35,9 @@ _PROVIDER: str = "finnhub"
 
 
 def make_http(api_key: str, base_url: str = _DEFAULT_BASE_URL) -> HttpClient:
-    """Construct the standard Finnhub transport.
+    """Construct the standard Finnhub transport."""
 
-    Auth rides as the ``X-Finnhub-Token`` request header (Finnhub's
-    convention). Timeout is 15s — provider is not latency-critical.
-    """
-    return HttpClient(
+    return make_http_client(
         base_url,
         headers={"X-Finnhub-Token": api_key},
         timeout=_DEFAULT_TIMEOUT_SECONDS,

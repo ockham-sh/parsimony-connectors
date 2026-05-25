@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from parsimony.result import Column, ColumnRole, OutputConfig
-from parsimony.utils.catalog_search import CatalogSearchParams, make_catalog_search_connector
+from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
 
 DestatisSearchParams = CatalogSearchParams
 
@@ -13,14 +13,17 @@ DESTATIS_SEARCH_OUTPUT = OutputConfig(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="destatis"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="score", role=ColumnRole.METADATA),
+        Column(name="score", role=ColumnRole.DATA),
     ]
 )
 
-destatis_search = make_catalog_search_connector(
+from parsimony_destatis.catalog_build import build_destatis_catalog
+
+destatis_search = make_local_search_connector(
     provider="destatis",
     default_url="hf://parsimony-dev/destatis",
-    env_var=PARSIMONY_DESTATIS_CATALOG_URL_ENV,
+    catalog_url_env_var=PARSIMONY_DESTATIS_CATALOG_URL_ENV,
+    build_catalog=build_destatis_catalog,
     tags=["macro", "de", "tool"],
     description=(
         "Semantic-search the German Federal Statistical Office (Destatis) GENESIS-Online catalog. "

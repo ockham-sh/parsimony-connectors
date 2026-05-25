@@ -28,7 +28,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 pip install parsimony-coingecko
 ```
 
-Pulls in `parsimony-core>=0.5,<0.6` automatically. Verify discovery:
+Pulls in `parsimony-core>=0.6,<0.7` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"

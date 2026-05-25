@@ -10,9 +10,8 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
-from parsimony.catalog import CatalogEntry
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError, ProviderError
+from parsimony.errors import EmptyDataError, InvalidParameterError, ProviderError
 from parsimony.result import (
     Column,
     ColumnRole,
@@ -41,7 +40,7 @@ class BlsFetchParams(BaseModel):
     def _non_empty(cls, v: str) -> str:
         v = v.strip()
         if not v:
-            raise ValueError("series_id must be non-empty")
+            raise InvalidParameterError("bls", "series_id must be non-empty")
         return v
 
     @field_validator("start_year", "end_year")
@@ -49,7 +48,7 @@ class BlsFetchParams(BaseModel):
     def _validate_year(cls, v: str) -> str:
         v = v.strip()
         if not v.isdigit() or len(v) != 4:
-            raise ValueError("Year must be 4-digit string (YYYY)")
+            raise InvalidParameterError("bls", "Year must be 4-digit string (YYYY)")
         return v
 
 
@@ -190,8 +189,8 @@ async def bls_fetch(
     return pd.DataFrame(rows)
 
 
-@enumerator(tags=["macro", "us"], secrets=('api_key',))
-async def enumerate_bls(*, api_key: str = "") -> list[CatalogEntry]:
+@enumerator(output=BLS_ENUMERATE_OUTPUT, tags=["macro", "us"], secrets=('api_key',))
+async def enumerate_bls(*, api_key: str = "") -> pd.DataFrame:
     """Enumerate popular BLS series across all surveys.
 
     Uses the BLS surveys + popular series endpoints.
@@ -248,7 +247,7 @@ async def enumerate_bls(*, api_key: str = "") -> list[CatalogEntry]:
                 continue
 
     df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["series_id", "title", "survey", "frequency"])
-    return BLS_ENUMERATE_OUTPUT.build_entries(df)
+    return df
 
 
 # ---------------------------------------------------------------------------

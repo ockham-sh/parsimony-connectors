@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from parsimony_test_support import ErrorMappingSuite
 
-from parsimony_bde import bde_fetch
+from parsimony_bde.connectors.fetch import bde_fetch
 
 
 class TestBdeFetchErrorMapping(ErrorMappingSuite):

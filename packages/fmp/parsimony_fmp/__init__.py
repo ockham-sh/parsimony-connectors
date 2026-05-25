@@ -21,7 +21,6 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 
 from parsimony.connector import Connectors, connector
-from parsimony.result import Result
 
 from parsimony_fmp import _screener
 from parsimony_fmp._http import fmp_fetch, make_http
@@ -130,7 +129,7 @@ async def fmp_search(
     *,
     api_key: str,
     base_url: str = _DEFAULT_BASE_URL
-) -> Result:
+) -> Any:
     """[All plans] Search for companies by name fragment or partial ticker.
 
     Returns matches ranked by relevance. Use to resolve a company name
@@ -156,7 +155,7 @@ async def fmp_taxonomy(
     *,
     api_key: str,
     base_url: str = _DEFAULT_BASE_URL
-) -> Result:
+) -> Any:
     """[All plans] Return valid values for a taxonomy type: sectors, industries,
     exchanges, or symbols_with_financials.
 
@@ -179,7 +178,7 @@ async def fmp_taxonomy(
 
 
 @connector(output=STOCK_QUOTE_OUTPUT, tags=["equity"])
-async def fmp_quotes(symbols: str, *, api_key: str, base_url: str = _DEFAULT_BASE_URL) -> Result:
+async def fmp_quotes(symbols: str, *, api_key: str, base_url: str = _DEFAULT_BASE_URL) -> Any:
     """[Starter+] Fetch real-time quotes for one or more symbols in a single
     request.
 
@@ -206,7 +205,7 @@ async def fmp_prices(
     *,
     api_key: str,
     base_url: str = _DEFAULT_BASE_URL
-) -> Result:
+) -> Any:
     """[Starter+] Fetch price history for a symbol.
 
     Supports daily, dividend_adjusted, and intraday frequencies (1min,
@@ -249,7 +248,7 @@ async def fmp_company_profile(
     *,
     api_key: str,
     base_url: str = _DEFAULT_BASE_URL
-) -> Result:
+) -> Any:
     """[Starter+] Fetch company profile: name, sector, industry, market cap,
     CEO, employees, website, ETF/ADR flags.
 
@@ -272,7 +271,7 @@ async def fmp_peers(
     *,
     api_key: str,
     base_url: str = _DEFAULT_BASE_URL
-) -> Result:
+) -> Any:
     """[Starter+] Return the peer group for a company.
 
     Stocks in the same sector with comparable market cap on the same
@@ -297,7 +296,7 @@ async def fmp_income_statements(
     *,
     api_key: str,
     base_url: str = _DEFAULT_BASE_URL
-) -> Result:
+) -> Any:
     """[Starter+] Fetch income statements: revenue, EBITDA, net income, EPS
     for multiple periods.
 
@@ -323,7 +322,7 @@ async def fmp_balance_sheet_statements(
     *,
     api_key: str,
     base_url: str = _DEFAULT_BASE_URL
-) -> Result:
+) -> Any:
     """[Starter+] Fetch balance sheet: assets, liabilities, equity, debt, cash
     for multiple periods.
 
@@ -349,7 +348,7 @@ async def fmp_cash_flow_statements(
     *,
     api_key: str,
     base_url: str = _DEFAULT_BASE_URL
-) -> Result:
+) -> Any:
     """[Starter+] Fetch cash flow statement: operating, investing, financing
     activities, free cash flow for multiple periods.
 
@@ -380,7 +379,7 @@ async def fmp_corporate_history(
     *,
     api_key: str,
     base_url: str = _DEFAULT_BASE_URL
-) -> Result:
+) -> Any:
     """[Starter+] Fetch historical corporate events for a symbol: earnings
     (EPS, revenue actual vs estimated), dividends, or splits.
 
@@ -405,7 +404,7 @@ async def fmp_event_calendar(
     *,
     api_key: str,
     base_url: str = _DEFAULT_BASE_URL
-) -> Result:
+) -> Any:
     """[All plans] Return the market-wide calendar for earnings, dividends,
     or splits within a date window (max 90 days).
     """
@@ -433,7 +432,7 @@ async def fmp_analyst_estimates(
     *,
     api_key: str,
     base_url: str = _DEFAULT_BASE_URL
-) -> Result:
+) -> Any:
     """[Professional+] Fetch forward analyst consensus estimates: revenue,
     EBITDA, net income, EPS low/avg/high plus analyst coverage counts.
 
@@ -466,7 +465,7 @@ async def fmp_news(
     *,
     api_key: str,
     base_url: str = _DEFAULT_BASE_URL
-) -> Result:
+) -> Any:
     """[Starter+] Fetch stock news articles or official press releases for
     one or more symbols.
 
@@ -499,7 +498,7 @@ async def fmp_insider_trades(
     *,
     api_key: str,
     base_url: str = _DEFAULT_BASE_URL
-) -> Result:
+) -> Any:
     """[Professional+] Fetch insider trading activity (executive and director
     trades): transaction type, shares, price, insider name.
     """
@@ -522,7 +521,7 @@ async def fmp_institutional_positions(
     *,
     api_key: str,
     base_url: str = _DEFAULT_BASE_URL
-) -> Result:
+) -> Any:
     """[Professional+] Fetch quarterly institutional (13F) ownership snapshot:
     investor count, share changes, invested value, ownership %.
     """
@@ -545,7 +544,7 @@ async def fmp_earnings_transcript(
     *,
     api_key: str,
     base_url: str = _DEFAULT_BASE_URL
-) -> Result:
+) -> Any:
     """[Professional+] Fetch the full text transcript of an earnings call for a symbol, year, and quarter."""
     params = FmpEarningsTranscriptParams(symbol=symbol, year=year, quarter=quarter)  # type: ignore[call-arg]
     http = make_http(api_key, base_url)
@@ -569,7 +568,7 @@ async def fmp_index_constituents(
     *,
     api_key: str,
     base_url: str = _DEFAULT_BASE_URL
-) -> Result:
+) -> Any:
     """[All plans] Return current constituents of SP500, NASDAQ, or DOW_JONES: symbol, name, sector, headquarters."""
     params = FmpIndexConstituentsParams(index=index)  # type: ignore[call-arg]
     http = make_http(api_key, base_url)
@@ -589,7 +588,7 @@ async def fmp_market_movers(
     *,
     api_key: str,
     base_url: str = _DEFAULT_BASE_URL
-) -> Result:
+) -> Any:
     """[All plans] Return today's biggest market movers: gainers (highest %
     up), losers (biggest % down), or most_actives (highest volume).
     """
@@ -639,7 +638,7 @@ async def fmp_screener(
     *,
     api_key: str,
     base_url: str = _DEFAULT_BASE_URL
-) -> Result:
+) -> Any:
     """[Starter+] Screen the global equity universe by financial metrics.
 
     Use pushdown params (sector, country, market_cap_min, etc.) to narrow the
@@ -710,43 +709,4 @@ CONNECTORS = Connectors(
 )
 
 
-__all__ = [
-    "CONNECTORS",
-    # Parameter models (public — downstream callers type against these)
-    "FmpAnalystEstimatesParams",
-    "FmpCorporateHistoryParams",
-    "FmpEarningsTranscriptParams",
-    "FmpEventCalendarParams",
-    "FmpFinancialStatementParams",
-    "FmpHistoricalPricesParams",
-    "FmpIndexConstituentsParams",
-    "FmpInsiderTradesParams",
-    "FmpInstitutionalPositionsParams",
-    "FmpMarketMoversParams",
-    "FmpNewsParams",
-    "FmpScreenerParams",
-    "FmpSearchParams",
-    "FmpSymbolParams",
-    "FmpSymbolsParams",
-    "FmpTaxonomyParams",
-    # Connector functions
-    "fmp_analyst_estimates",
-    "fmp_balance_sheet_statements",
-    "fmp_cash_flow_statements",
-    "fmp_company_profile",
-    "fmp_corporate_history",
-    "fmp_earnings_transcript",
-    "fmp_event_calendar",
-    "fmp_income_statements",
-    "fmp_index_constituents",
-    "fmp_insider_trades",
-    "fmp_institutional_positions",
-    "fmp_market_movers",
-    "fmp_news",
-    "fmp_peers",
-    "fmp_prices",
-    "fmp_quotes",
-    "fmp_screener",
-    "fmp_search",
-    "fmp_taxonomy",
-]
+__all__ = ["CONNECTORS"]

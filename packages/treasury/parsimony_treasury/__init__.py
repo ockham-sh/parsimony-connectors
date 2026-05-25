@@ -12,7 +12,6 @@ from typing import Annotated, Any, Literal
 
 import httpx
 import pandas as pd
-from parsimony.catalog import CatalogEntry
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError
 from parsimony.result import (
@@ -501,14 +500,14 @@ async def treasury_rates_fetch(
     df["feed"] = params.feed
     df["title"] = params.feed.replace("_", " ").title()
 
-    source_url = (
+    df["source_url"] = (
         f"{_TREASURY_RATES_BASE_URL}?data={params.feed}&field_tdr_date_value={year}"
     )
-    return TREASURY_RATES_FETCH_OUTPUT.build_table_result(df).with_properties(source_url=source_url)
+    return df
 
 
-@enumerator(tags=["macro", "us"])
-async def enumerate_treasury() -> list[CatalogEntry]:
+@enumerator(output=TREASURY_ENUMERATE_OUTPUT, tags=["macro", "us"])
+async def enumerate_treasury() -> pd.DataFrame:
     """Enumerate Treasury Fiscal Data measures and ODM rate-feed benchmarks.
 
     Combines Fiscal Data metadata rows with static Office of Debt Management
@@ -592,7 +591,7 @@ async def enumerate_treasury() -> list[CatalogEntry]:
         "latest_date",
     ]
     df = pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
-    return TREASURY_ENUMERATE_OUTPUT.build_entries(df)
+    return df
 
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from parsimony_test_support import ErrorMappingSuite
 
-from parsimony_alpha_vantage import alpha_vantage_search
+from parsimony_alpha_vantage.connectors.connectors import alpha_vantage_search
 
 
 class TestAlphaVantageSearchErrorMapping(ErrorMappingSuite):

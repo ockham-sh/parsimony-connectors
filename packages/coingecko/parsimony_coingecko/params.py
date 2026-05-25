@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from typing import Annotated, Literal
 
+from parsimony.errors import InvalidParameterError
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 _PATH_SAFE_RE = re.compile(r"^[a-zA-Z0-9._\-]+$")
@@ -98,7 +99,7 @@ class CoinGeckoCoinDetailParams(BaseModel):
     @classmethod
     def _path_safe_coin_id(cls, v: str) -> str:
         if not _PATH_SAFE_RE.match(v):
-            raise ValueError(f"coin_id contains unsafe characters for URL path: {v!r}")
+            raise InvalidParameterError("coingecko", f"coin_id contains unsafe characters for URL path: {v!r}")
         return v
 
 
@@ -126,7 +127,7 @@ class CoinGeckoMarketChartParams(BaseModel):
     @classmethod
     def _path_safe_coin_id(cls, v: str) -> str:
         if not _PATH_SAFE_RE.match(v):
-            raise ValueError(f"coin_id contains unsafe characters for URL path: {v!r}")
+            raise InvalidParameterError("coingecko", f"coin_id contains unsafe characters for URL path: {v!r}")
         return v
 
 
@@ -154,7 +155,7 @@ class CoinGeckoMarketChartRangeParams(BaseModel):
     @classmethod
     def _path_safe_coin_id(cls, v: str) -> str:
         if not _PATH_SAFE_RE.match(v):
-            raise ValueError(f"coin_id contains unsafe characters for URL path: {v!r}")
+            raise InvalidParameterError("coingecko", f"coin_id contains unsafe characters for URL path: {v!r}")
         return v
 
 
@@ -173,7 +174,7 @@ class CoinGeckoOhlcParams(BaseModel):
     @classmethod
     def _path_safe_coin_id(cls, v: str) -> str:
         if not _PATH_SAFE_RE.match(v):
-            raise ValueError(f"coin_id contains unsafe characters for URL path: {v!r}")
+            raise InvalidParameterError("coingecko", f"coin_id contains unsafe characters for URL path: {v!r}")
         return v
 
 
@@ -203,14 +204,16 @@ class CoinGeckoTokenPriceOnchainParams(BaseModel):
     @classmethod
     def _path_safe_network(cls, v: str) -> str:
         if not _NETWORK_RE.match(v):
-            raise ValueError(f"network contains unsafe characters for URL path: {v!r}")
+            raise InvalidParameterError("coingecko", f"network contains unsafe characters for URL path: {v!r}")
         return v
 
     @field_validator("contract_addresses")
     @classmethod
     def _path_safe_addresses(cls, v: str) -> str:
         if not _CONTRACT_ADDR_RE.match(v):
-            raise ValueError(f"contract_addresses contains unsafe characters for URL path: {v!r}")
+            raise InvalidParameterError(
+                "coingecko", f"contract_addresses contains unsafe characters for URL path: {v!r}"
+            )
         return v
 
 

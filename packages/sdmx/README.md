@@ -19,9 +19,22 @@ No separate builder CLI, no intermediate on-disk cache — every call hits the l
 
 | Name | Kind | Description |
 |---|---|---|
-| `enumerate_sdmx_datasets` | enumerator | One row per dataflow across every supported agency. Drives the `sdmx_datasets` catalog. |
-| `enumerate_sdmx_series` | enumerator | One row per series key for a single `(agency, dataset_id)`. Drives one `sdmx_series_<agency>_<dataset_id>` catalog per dataset. |
+| `enumerate_sdmx_datasets` | enumerator | One row per dataflow per agency (`sdmx_datasets_<agency>` namespaces). |
+| `enumerate_sdmx_series` | connector (dynamic schema) | One row per series key for a single `(agency, dataset_id)`. Drives one `sdmx_series_<agency>_<dataset_id>` catalog per dataset. |
 | `sdmx_fetch` | connector | Live observation fetch for a series key against the agency endpoint. |
+| `sdmx_datasets_search` | connector | Structured search over per-agency dataset catalogs. |
+| `sdmx_series_search` | connector | Structured search over per-dataset series catalogs. |
+
+Five registered connectors total (2 enumerators + 1 fetch + 2 search).
+
+### Dynamic schema: `enumerate_sdmx_series`
+
+Per-dataset series enumeration returns a wide DataFrame whose columns depend
+on the SDMX datastructure definition for that flow. The output schema is
+therefore **dynamic per call** — it cannot be declared statically on
+``@enumerator``. The connector stays a plain ``@connector`` that returns raw
+``pd.DataFrame`` rows; catalog builders project entities with
+``entities_from_connector`` after the framework applies the per-call schema.
 
 ## Install
 
@@ -29,7 +42,7 @@ No separate builder CLI, no intermediate on-disk cache — every call hits the l
 pip install parsimony-sdmx
 ```
 
-Pulls in `parsimony-core>=0.7,<0.8` automatically. Local catalog publishing uses the core catalog stack (hybrid BM25+vector or BM25-only per field):
+Pulls in `parsimony-core>=0.6,<0.7` automatically. Local catalog publishing uses the core catalog stack (hybrid BM25+vector or BM25-only per field):
 
 ```bash
 pip install "parsimony-core[standard]"
@@ -67,18 +80,24 @@ connectors = discover.load_all()
 
 ## Catalog building
 
-Catalog building is an operator workflow in `scripts/build_catalog.py`. The user-facing plugin exports connectors for search/fetch; the script owns live enumeration, batching, indexing policy, and optional push. Indexing policy lives in `parsimony_sdmx/catalog_policy.py`: each searchable field gets a hybrid index when its unique text count is below 100k, otherwise BM25-only (`code` on `sdmx_datasets` stays BM25).
+Catalog building is an operator workflow in `scripts/build_catalog.py`. Indexing policy lives in `parsimony_sdmx/catalog_policy.py`: hybrid BM25+vector per field when unique text count is below **1,000**, otherwise BM25-only.
 
-Namespaces are dynamic — one per `(agency, dataset_id)` pair discovered at build time, plus one static cross-agency catalog:
+Namespaces:
 
-- ``sdmx_datasets`` — one cross-agency catalog of every dataflow.
-- ``sdmx_series_<agency>_<dataset_id>`` — one per-dataset catalog of series keys, e.g. ``sdmx_series_ecb_yc``.
+- ``sdmx_datasets_<agency>`` — one dataset catalog per agency (e.g. ``sdmx_datasets_ecb``).
+- ``sdmx_series_<agency>_<dataset_id>`` — per-flow series catalogs for selected macro/finance flows.
 
-### Build and push a single catalog
+### Build and push
 
 ```bash
-uv run python scripts/build_catalog.py --catalog datasets --push hf://parsimony-dev/sdmx/sdmx_datasets
-uv run python scripts/build_catalog.py --catalog series --agency ECB --dataset-id YC --push hf://parsimony-dev/sdmx/sdmx_series_ecb_yc
+# One agency: full dataset index + selected series catalogs
+uv run python scripts/build_catalog.py --catalog agency --agency ECB \
+  --save-root /tmp/parsimony-catalogs/sdmx --push-root hf://parsimony-dev/sdmx
+
+# Full portfolio (all agencies)
+uv run python scripts/build_catalog.py --catalog portfolio \
+  --save-root /tmp/parsimony-catalogs/sdmx --push-root hf://parsimony-dev/sdmx \
+  --parallel 2 --keep-going
 ```
 
 Use `--save-root /tmp/sdmx` to write local snapshots under namespace subdirectories. Use `--push <url>` for one explicit catalog URL or `--push-root <root>` for namespace subdirectories.
@@ -101,6 +120,19 @@ uv run python scripts/build_catalog.py --catalog agency --agency ESTAT --max-cat
 
 An agency that fails listing raises before building; individual `$DV_*` derived views are skipped because they are not fetchable series catalogs.
 
+## Expected search workflow (agents and maintainers)
+
+SDMX catalogs are built for **structured field search first**, not open-ended semantic Q&A.
+
+1. **`sdmx_datasets_search(agency='ECB', query=...)`** on ``sdmx_datasets_ecb`` — structured ``code: ECB|YC`` or title text.
+2. Read the returned **`dimensions`** manifest (present only when a series catalog exists for that flow).
+3. **`sdmx_series_search(flow_id='ECB/YC', ...)`** — structured dimension clauses.
+4. **`sdmx_fetch`** with the series key from search results.
+
+High-cardinality fields (especially `title` on large series catalogs) may be BM25-only when unique value count reaches **1,000** or more. Prefer structured `FIELD: value` clauses over long natural-language probes on those catalogs.
+
+Override the catalog root for local dev: `PARSIMONY_SDMX_CATALOG_URL=file:///tmp/sdmx` (default publish target: `hf://parsimony-dev/sdmx`).
+
 ## Search a published bundle
 
 ```python
@@ -108,17 +140,29 @@ import asyncio
 from parsimony.catalog import Catalog
 
 async def main():
-    cat = await Catalog.load("file:///tmp/parsimony-smoke/sdmx_series_ecb_yc")
+    datasets = await Catalog.load("hf://parsimony-dev/sdmx/sdmx_datasets_ecb")
+    flows, _ = await datasets.search("code: ECB|YC", limit=3)
+    print("datasets", flows[0].code, flows[0].title[:80])
 
-    # 1. Structured search (preferred: explicit dimension filters)
-    print("--- Structured Search ---")
-    for hit in await cat.search("REF_AREA: Spain && FREQ: Monthly", 3):
+    series = await Catalog.load("hf://parsimony-dev/sdmx/sdmx_series_ecb_yc")
+    hits, _ = await series.search("REF_AREA: Spain && FREQ: Monthly", limit=3)
+    for hit in hits:
         print(f"{hit.score:.3f}  {hit.code}  {hit.title[:80]}")
 
 asyncio.run(main())
 ```
 
-The same `Catalog.load(...)` works against `hf://` and `file://` URLs. Structured queries intersect candidates across fields; plain text without field syntax falls back to the title index.
+The same `Catalog.load(...)` works against `hf://` and `file://` URLs. Structured queries intersect candidates across fields; plain text without field syntax falls back to the title index only.
+
+Validate a built or published snapshot:
+
+```bash
+uv run python scripts/validate_catalog.py --catalog-url file:///tmp/parsimony-catalogs/sdmx/sdmx_series_ecb_yc
+uv run python scripts/validate_catalog.py \
+  --catalog-url file:///tmp/parsimony-catalogs/sdmx/sdmx_datasets_ecb \
+  --catalog-root file:///tmp/parsimony-catalogs/sdmx \
+  --queries-file packages/sdmx/catalog_tests/queries.yaml
+```
 
 ## Plugin contract
 
@@ -126,7 +170,7 @@ The package implements the standard parsimony plugin contract, exported at the t
 
 | Export               | Role                                                                          |
 |----------------------|-------------------------------------------------------------------------------|
-| ``CONNECTORS``       | ``Connectors`` collection — two enumerators + the ``sdmx_fetch`` connector.   |
+| ``CONNECTORS``       | ``Connectors`` collection — two enumerators, ``sdmx_fetch``, and two search connectors.   |
 
 SDMX endpoints are public; no environment variables are required.
 

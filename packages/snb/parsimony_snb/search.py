@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from parsimony.result import Column, ColumnRole, OutputConfig
-from parsimony.utils.catalog_search import CatalogSearchParams, make_catalog_search_connector
+from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
 
 SnbSearchParams = CatalogSearchParams
 
@@ -13,14 +13,17 @@ SNB_SEARCH_OUTPUT = OutputConfig(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="snb"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="score", role=ColumnRole.METADATA),
+        Column(name="score", role=ColumnRole.DATA),
     ]
 )
 
-snb_search = make_catalog_search_connector(
+from parsimony_snb.catalog_build import build_snb_catalog
+
+snb_search = make_local_search_connector(
     provider="snb",
     default_url="hf://parsimony-dev/snb",
-    env_var=PARSIMONY_SNB_CATALOG_URL_ENV,
+    catalog_url_env_var=PARSIMONY_SNB_CATALOG_URL_ENV,
+    build_catalog=build_snb_catalog,
     tags=["macro", "ch", "tool"],
     description=(
         "Semantic-search the Swiss National Bank (SNB) data portal catalog. "

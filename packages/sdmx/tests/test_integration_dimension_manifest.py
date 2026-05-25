@@ -20,12 +20,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
-from parsimony.catalog import CatalogEntry
+from parsimony.entity import Entity
 
 from parsimony_sdmx.catalog_build import (
-    build_agency_dataset_entries,
+    build_agency_dataset_entities,
     dataset_code,
-    enrich_dataset_entries,
+    enrich_dataset_entities,
 )
 from parsimony_sdmx.catalog_policy import (
     discover_dim_codes,
@@ -34,6 +34,7 @@ from parsimony_sdmx.catalog_policy import (
     sdmx_series_indexes,
 )
 from parsimony_sdmx.connectors._agencies import AgencyId
+from parsimony_sdmx.connectors.enumerate_datasets import datasets_namespace
 from parsimony_sdmx.connectors.enumerate_series import enumerate_sdmx_series
 from parsimony_sdmx.core.models import DatasetRecord
 
@@ -54,16 +55,18 @@ class LiveManifestResult:
     agency: AgencyId
     dataset_id: str
     row_count: int
-    raw_entries: list[CatalogEntry]
+    raw_entries: list[Entity]
     manifest: list[dict[str, object]]
     dim_codes: list[str]
 
 
-def _catalog_entries_from_enumeration(agency: AgencyId, dataset_id: str, result) -> list[CatalogEntry]:
-    del agency, dataset_id
-    entries: list[CatalogEntry] = result.data
+def _catalog_entries_from_enumeration(agency: AgencyId, dataset_id: str, result) -> list[Entity]:
+    from parsimony_sdmx.connectors.enumerate_series import _series_output_config
+
+    schema = _series_output_config(agency, dataset_id)
+    entries = schema.build_entities(result.data)
     assert entries
-    assert all(isinstance(entry, CatalogEntry) for entry in entries)
+    assert all(isinstance(entry, Entity) for entry in entries)
     return entries
 
 
@@ -79,7 +82,7 @@ async def _live_manifest(agency: AgencyId, dataset_id: str, *, fetch_timeout_s: 
     return LiveManifestResult(
         agency=agency,
         dataset_id=dataset_id,
-        row_count=len(result.data),
+        row_count=len(raw_entries),
         raw_entries=raw_entries,
         manifest=manifest,
         dim_codes=dim_codes,
@@ -133,12 +136,10 @@ async def test_live_manifest_matches_series_catalog_indexes(
 
     live = await _live_manifest(agency, dataset_id, fetch_timeout_s=_DEFAULT_FETCH_TIMEOUT_S)
     entries = sdmx_series_entries(live.raw_entries, live.dim_codes)
-    indexed_fields = {
-        idx.field for idx in sdmx_series_indexes(entries, live.dim_codes) if idx.field != "title"
-    }
+    indexed_dims = {field for field in sdmx_series_indexes(entries, live.dim_codes) if field != "title"}
 
-    assert set(live.dim_codes) == indexed_fields
-    assert {item["id"] for item in live.manifest} == indexed_fields
+    assert set(live.dim_codes) == indexed_dims
+    assert {item["id"] for item in live.manifest} == indexed_dims
 
 
 @pytest.mark.integration
@@ -153,21 +154,22 @@ async def test_live_manifest_surfaces_through_dataset_catalog_enrichment(
     live = await _live_manifest(agency, dataset_id, fetch_timeout_s=_DEFAULT_FETCH_TIMEOUT_S)
     code = dataset_code(agency.value, dataset_id)
     records = [DatasetRecord(dataset_id=dataset_id, agency_id=agency.value, title=f"{agency.value} {dataset_id}")]
-    entries = await build_agency_dataset_entries(records, {code: live.manifest})
+    entries = await build_agency_dataset_entities(records, {code: live.manifest})
 
     assert len(entries) == 1
     assert entries[0].metadata["dimensions"] == live.manifest
+    assert entries[0].namespace == datasets_namespace(agency)
 
     # Merge path used by build_catalog.py must preserve the manifest on upsert.
     existing = [
-        CatalogEntry(
-            namespace="sdmx_datasets",
+        Entity(
+            namespace=datasets_namespace(agency),
             code=code,
             title="placeholder",
             metadata={"agency": agency.value, "dataset_id": dataset_id},
         )
     ]
-    merged = enrich_dataset_entries(existing, {code: live.manifest})
+    merged = enrich_dataset_entities(existing, {code: live.manifest})
     assert merged[0].metadata["dimensions"] == live.manifest
 
 

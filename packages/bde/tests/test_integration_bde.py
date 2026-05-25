@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from parsimony_test_support import assert_provenance_shape
 
-from parsimony_bde import bde_fetch
+from parsimony_bde.connectors.fetch import bde_fetch
 
 pytestmark = pytest.mark.integration
 

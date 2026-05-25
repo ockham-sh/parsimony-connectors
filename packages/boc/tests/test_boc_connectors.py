@@ -11,9 +11,7 @@ import httpx
 import pandas as pd
 import pytest
 import respx
-from parsimony.catalog import CatalogEntry
-from parsimony.errors import EmptyDataError
-from parsimony.result import Result
+from parsimony.errors import InvalidParameterError, EmptyDataError
 
 from parsimony_boc import (
     CONNECTORS,
@@ -24,13 +22,8 @@ from parsimony_boc import (
 
 
 def _enumerate_dataframe(result: Result) -> pd.DataFrame:
-    data = result.data
-    if isinstance(data, pd.DataFrame):
-        return data
-    entries: list[CatalogEntry] = data
-    return pd.DataFrame(
-        [{"series_name": e.code, "title": e.title, **e.metadata} for e in entries]
-    )
+    assert isinstance(result.data, pd.DataFrame)
+    return result.data
 
 
 def test_connectors_collection_exposes_expected_names() -> None:
@@ -118,7 +111,7 @@ async def test_boc_fetch_raises_empty_data_when_no_observations() -> None:
 
 
 def test_fetch_rejects_empty_series_name() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidParameterError):
         BocFetchParams(series_name="   ")
 
 
@@ -461,7 +454,7 @@ async def test_enumerate_boc_emits_columns_required_for_catalog_entries() -> Non
     )
 
     result = await enumerate_boc()
-    entries = result.data
+    entries = result.output_schema.build_entities(result.data)  # type: ignore[union-attr]
     # One series row plus one group row. Groups are catalogued as their
     # own discoverable entities so agents can find them via group-level
     # description text.
