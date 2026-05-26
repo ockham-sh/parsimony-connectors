@@ -32,7 +32,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import httpx
 import pandas as pd
@@ -44,17 +44,15 @@ from parsimony.result import (
     OutputConfig,
 )
 from parsimony.transport import map_http_error
-from pydantic import BaseModel, Field, field_validator
-
-logger = logging.getLogger(__name__)
-
 from parsimony_shared.cb_enumerate import (
     MetadataCrawlConfig,
     ThrottledJsonFetcher,
     enumerate_descriptions,
     truncate_description,
 )
+from pydantic import BaseModel, Field, field_validator
 
+logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://webstat.banque-france.fr/api/explore/v2.1/catalog/datasets"
 
@@ -221,9 +219,9 @@ def _dataset_description(*, description_en: str, description_fr: str) -> str:
     fr = (description_fr or "").strip()
     if en and fr:
         if en.lower() == fr.lower():
-            return truncate_description(en)
-        return truncate_description(f"{en} | {fr}")
-    return truncate_description(en or fr)
+            return cast(str, truncate_description(en))
+        return cast(str, truncate_description(f"{en} | {fr}"))
+    return cast(str, truncate_description(en or fr))
 
 
 def _series_title(
@@ -276,7 +274,7 @@ def _series_description(
         parts.append(f"{ds_ctx}.")
     if source_agency:
         parts.append(f"Source: {source_agency}.")
-    return enumerate_descriptions(*parts, sep=" | ")
+    return cast(str, enumerate_descriptions(*parts, sep=" | "))
 
 
 # ---------------------------------------------------------------------------
@@ -576,12 +574,7 @@ async def enumerate_bdf(*, api_key: str) -> pd.DataFrame:
 # Exports
 # ---------------------------------------------------------------------------
 
-from parsimony_bdf.search import (  # noqa: E402  (after public decorators)
-    BDF_SEARCH_OUTPUT,
-    PARSIMONY_BDF_CATALOG_URL_ENV,
-    BdfSearchParams,
-    bdf_search,
-)
+from parsimony_bdf.search import bdf_search  # noqa: E402  (after public decorators)
 
 CONNECTORS = Connectors([bdf_fetch, enumerate_bdf, bdf_search])
 

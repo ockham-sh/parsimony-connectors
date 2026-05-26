@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from parsimony.result import Column, ColumnRole, OutputConfig
 from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
+from parsimony.result import Column, ColumnRole, OutputConfig
+
+from parsimony_bde.catalog_build import build_bde_catalog
 
 BdeSearchParams = CatalogSearchParams
 
@@ -16,8 +18,6 @@ BDE_SEARCH_OUTPUT = OutputConfig(
         Column(name="score", role=ColumnRole.DATA),
     ]
 )
-
-from parsimony_bde.catalog_build import build_bde_catalog
 
 bde_search = make_local_search_connector(
     provider="bde",

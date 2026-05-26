@@ -53,7 +53,6 @@ from parsimony_eodhd.params import (
     EodhdCalendarParams,
     EodhdDividendsParams,
     EodhdEodParams,
-    EodhdExchangesParams,
     EodhdExchangeSymbolsParams,
     EodhdFundamentalsParams,
     EodhdInsiderParams,

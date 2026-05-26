@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from parsimony.result import Column, ColumnRole, OutputConfig
 from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
+from parsimony.result import Column, ColumnRole, OutputConfig
+
+from parsimony_snb.catalog_build import build_snb_catalog
 
 SnbSearchParams = CatalogSearchParams
 
@@ -16,8 +18,6 @@ SNB_SEARCH_OUTPUT = OutputConfig(
         Column(name="score", role=ColumnRole.DATA),
     ]
 )
-
-from parsimony_snb.catalog_build import build_snb_catalog
 
 snb_search = make_local_search_connector(
     provider="snb",

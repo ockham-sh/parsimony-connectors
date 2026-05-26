@@ -353,7 +353,7 @@ async def test_enumerate_destatis_handles_429_with_retry(
         "variable_names_en",
         "source",
     ]
-    df = result, columns=expected_cols.data
+    df = result.data
     assert list(df.columns) == expected_cols
 
     warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
@@ -383,7 +383,7 @@ async def test_enumerate_destatis_emits_columns_required_for_catalog_entries() -
     )
 
     result = await enumerate_destatis()
-    entries = result.output_schema.build_entities(result.data)  # type: ignore[union-attr]
+    entries = DESTATIS_ENUMERATE_OUTPUT.build_entities(result.data)
 
     by_code = {e.code: e for e in entries}
     assert "61111" in by_code

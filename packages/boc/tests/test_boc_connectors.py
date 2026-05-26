@@ -11,9 +11,11 @@ import httpx
 import pandas as pd
 import pytest
 import respx
-from parsimony.errors import InvalidParameterError, EmptyDataError
+from parsimony.errors import EmptyDataError, InvalidParameterError
+from parsimony.result import Result
 
 from parsimony_boc import (
+    BOC_ENUMERATE_OUTPUT,
     CONNECTORS,
     BocFetchParams,
     boc_fetch,
@@ -454,7 +456,7 @@ async def test_enumerate_boc_emits_columns_required_for_catalog_entries() -> Non
     )
 
     result = await enumerate_boc()
-    entries = result.output_schema.build_entities(result.data)  # type: ignore[union-attr]
+    entries = BOC_ENUMERATE_OUTPUT.build_entities(result.data)
     # One series row plus one group row. Groups are catalogued as their
     # own discoverable entities so agents can find them via group-level
     # description text.

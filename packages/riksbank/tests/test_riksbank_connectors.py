@@ -12,9 +12,9 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from parsimony.errors import InvalidParameterError, EmptyDataError
-from pydantic import ValidationError
+from parsimony.errors import EmptyDataError, InvalidParameterError
 from parsimony.result import ColumnRole
+from pydantic import ValidationError
 
 from parsimony_riksbank import (
     CONNECTORS,
@@ -469,7 +469,7 @@ async def test_riksbank_swestr_fetch_raises_empty_data_when_no_observations() ->
         return_value=httpx.Response(200, json={})
     )
     bound = riksbank_swestr_fetch.bind(api_key="")
-    from parsimony.errors import InvalidParameterError, EmptyDataError as _EmptyDataError
+    from parsimony.errors import EmptyDataError as _EmptyDataError
 
     with pytest.raises(_EmptyDataError):
         await bound(series="SWESTR")

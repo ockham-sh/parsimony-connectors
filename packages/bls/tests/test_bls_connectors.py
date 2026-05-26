@@ -11,7 +11,7 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from parsimony.errors import InvalidParameterError, EmptyDataError, ProviderError
+from parsimony.errors import EmptyDataError, InvalidParameterError, ProviderError
 
 from parsimony_bls import (
     CONNECTORS,

@@ -135,8 +135,9 @@ def test_sdmx_series_indexes_returns_field_keyed_hybrids() -> None:
     assert set(indexes) == {"code", "title", "FREQ", "REF_AREA"}
     assert isinstance(indexes["code"], BM25Index)
     for field in ("title", "FREQ", "REF_AREA"):
-        assert isinstance(indexes[field], HybridIndex)
-        _assert_hybrid_index(indexes[field])
+        index = indexes[field]
+        assert isinstance(index, HybridIndex)
+        _assert_hybrid_index(index)
 
 
 def test_sdmx_datasets_indexes_includes_code_bm25_and_title_hybrid() -> None:

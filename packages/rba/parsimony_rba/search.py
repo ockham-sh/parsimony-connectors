@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from parsimony.result import Column, ColumnRole, OutputConfig
 from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
+from parsimony.result import Column, ColumnRole, OutputConfig
+
+from parsimony_rba.catalog_build import build_rba_catalog
 
 RbaSearchParams = CatalogSearchParams
 
@@ -16,8 +18,6 @@ RBA_SEARCH_OUTPUT = OutputConfig(
         Column(name="score", role=ColumnRole.DATA),
     ]
 )
-
-from parsimony_rba.catalog_build import build_rba_catalog
 
 rba_search = make_local_search_connector(
     provider="rba",

@@ -8,7 +8,7 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from parsimony.errors import InvalidParameterError, EmptyDataError
+from parsimony.errors import EmptyDataError, InvalidParameterError
 
 import parsimony_snb as _snb_module
 from parsimony_snb import (

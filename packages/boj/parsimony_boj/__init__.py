@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import httpx
 import pandas as pd
@@ -21,16 +21,10 @@ from parsimony.result import (
     OutputConfig,
 )
 from parsimony.transport import map_http_error
+from parsimony_shared.cb_enumerate import MetadataCrawlConfig, ThrottledJsonFetcher
 from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
-
-from parsimony_shared.cb_enumerate import (
-    MetadataCrawlConfig,
-    ThrottledJsonFetcher,
-    enumerate_descriptions,
-    truncate_description,
-)
 
 _BASE_URL = "https://www.stat-search.boj.or.jp/api/v1"
 
@@ -42,7 +36,11 @@ _BROWSER_USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
-_METADATA_CRAWL = MetadataCrawlConfig(concurrency=2, inter_request_delay_s=0.5, retry_statuses=frozenset({403, 429, 500, 502, 503, 504}))
+_METADATA_CRAWL = MetadataCrawlConfig(
+    concurrency=2,
+    inter_request_delay_s=0.5,
+    retry_statuses=frozenset({403, 429, 500, 502, 503, 504}),
+)
 
 # Frequency tokens emitted by BoJ metadata. Anything not in the map passes
 # through unchanged so we never silently corrupt an unknown frequency.
@@ -313,10 +311,13 @@ def _normalize_frequency(raw: str) -> str:
 
 async def _fetch_metadata(fetcher: ThrottledJsonFetcher, db: str) -> dict[str, Any] | None:
     """Fetch one DB's metadata via the shared throttled fetcher."""
-    return await fetcher.get_json(
-        f"{_BASE_URL}/getMetadata",
-        params={"db": db, "lang": "en"},
-        label=db,
+    return cast(
+        dict[str, Any] | None,
+        await fetcher.get_json(
+            f"{_BASE_URL}/getMetadata",
+            params={"db": db, "lang": "en"},
+            label=db,
+        ),
     )
 
 def _layers(series_row: dict[str, Any]) -> list[tuple[int, str]]:

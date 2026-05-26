@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Sequence
 
-from parsimony.catalog import BM25Index, Catalog, Entity, CatalogIndex
+from parsimony.catalog import BM25Index, Catalog, CatalogIndex, Entity
+from parsimony.catalog.source import entities_from_raw
 
 from parsimony_boj.catalog_policy import hybrid_field_index, macro_discovery_indexes
 
@@ -97,10 +98,10 @@ async def build_series_catalog(db_code: str, entries: Sequence[Entity]) -> Catal
 
 async def build_boj_databases_catalog_from_enumeration() -> Catalog:
     """Enumerate all BoJ databases and build the databases catalog."""
-    from parsimony_boj import enumerate_boj
+    from parsimony_boj import BOJ_ENUMERATE_OUTPUT, enumerate_boj
 
     result = await enumerate_boj()
-    entries = entities_from_raw(result, result.output_schema)
+    entries = entities_from_raw(result, BOJ_ENUMERATE_OUTPUT)
     databases, _ = split_enumerated_entries(entries)
     return await build_databases_catalog(databases)
 

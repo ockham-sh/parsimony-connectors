@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from parsimony.errors import InvalidParameterError
 import respx
+from parsimony.errors import InvalidParameterError
 
 from parsimony_rba import (
     CONNECTORS,

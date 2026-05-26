@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 import respx
 from parsimony.errors import EmptyDataError, InvalidParameterError
+from parsimony.result import Result
 
 from parsimony_bde import CONNECTORS
 from parsimony_bde.connectors.enumerate import enumerate_bde
@@ -37,9 +38,7 @@ _ENUMERATE_FRAME_COLUMNS = [
 
 def _enumerate_frame(result: Result) -> pd.DataFrame:
     """Project enumerator tabular output into a flat frame for assertions."""
-    if result.output_schema is None:
-        return pd.DataFrame(columns=_ENUMERATE_FRAME_COLUMNS)
-    entries = result.output_schema.build_entities(result.data)
+    entries = BDE_ENUMERATE_OUTPUT.build_entities(result.data)
     if not entries:
         return pd.DataFrame(columns=_ENUMERATE_FRAME_COLUMNS)
     rows = [{"key": entry.code, "title": entry.title, **entry.metadata} for entry in entries]

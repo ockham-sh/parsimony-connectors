@@ -6,11 +6,11 @@ import logging
 import os
 
 import pandas as pd
-from parsimony.connector import connector
-from parsimony.errors import ConnectorError, EmptyDataError
-from parsimony.result import Column, ColumnRole, OutputConfig
 from parsimony.catalog.search import CatalogLRU, resolved_catalog_url
 from parsimony.catalog.source import lazy_catalog_dir
+from parsimony.connector import connector
+from parsimony.errors import EmptyDataError
+from parsimony.result import Column, ColumnRole, OutputConfig
 from pydantic import BaseModel, Field
 
 from parsimony_boj.catalog_build import (

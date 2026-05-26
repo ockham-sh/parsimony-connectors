@@ -5,11 +5,11 @@ from __future__ import annotations
 import os
 
 from parsimony.catalog import Catalog
-from parsimony.catalog.source import entities_from_raw
 from parsimony.catalog.policy import discovery_indexes
+from parsimony.catalog.source import entities_from_raw
 from parsimony.errors import ConnectorError
 
-from parsimony_bdf import enumerate_bdf
+from parsimony_bdf import BDF_ENUMERATE_OUTPUT, enumerate_bdf
 
 CATALOG_NAMESPACE = "bdf"
 _BDF_API_KEY_ENV = "BDF_API_KEY"
@@ -23,7 +23,7 @@ async def build_bdf_catalog(*, api_key: str | None = None) -> Catalog:
             provider="bdf",
         )
     result = await enumerate_bdf(api_key=key)
-    entries = entities_from_raw(result, result.output_schema)
+    entries = entities_from_raw(result, BDF_ENUMERATE_OUTPUT)
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     await catalog.build()

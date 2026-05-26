@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pandas as pd
@@ -121,7 +121,12 @@ async def sec_edgar_submissions(cik: str, limit: int = 20) -> pd.DataFrame:
 async def sec_edgar_company_facts(cik: str) -> dict[str, Any]:
     """Return raw XBRL company facts for a CIK."""
     cik_norm = _normalize_cik(cik)
-    return await _get_json(_data_http(), f"/api/xbrl/companyfacts/CIK{cik_norm}.json", op_name="company_facts")
+    payload = await _get_json(
+        _data_http(),
+        f"/api/xbrl/companyfacts/CIK{cik_norm}.json",
+        op_name="company_facts",
+    )
+    return cast(dict[str, Any], payload)
 
 
 @connector(tags=["sec_edgar", "tool"])

@@ -112,7 +112,7 @@ def _hf_bundle_exists(push_root: str, namespace: str) -> bool:
         info = HfApi().get_paths_info(repo_id, paths=[path], repo_type="dataset")
     except Exception:
         return False
-    return bool(info) and info[0].size is not None
+    return bool(info) and getattr(info[0], "size", None) is not None
 
 
 async def _publish(catalog: Catalog, *, save_root: str | None, push: str | None, push_root: str | None) -> None:

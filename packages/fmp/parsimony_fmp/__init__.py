@@ -55,7 +55,6 @@ from parsimony_fmp.params import (
     FmpMarketMoversParams,
     FmpNewsParams,
     FmpScreenerParams,
-    FmpSearchParams,
     FmpSymbolParams,
     FmpSymbolsParams,
     FmpTaxonomyParams,
@@ -135,6 +134,8 @@ async def fmp_search(
     Returns matches ranked by relevance. Use to resolve a company name
     to its ticker symbol.
     """
+    from parsimony_fmp.params import FmpSearchParams
+
     params = FmpSearchParams(query=query, limit=limit, exchange=exchange)  # type: ignore[call-arg]
     http = make_http(api_key, base_url)
     p: dict[str, Any] = {"query": params.query, "limit": params.limit}

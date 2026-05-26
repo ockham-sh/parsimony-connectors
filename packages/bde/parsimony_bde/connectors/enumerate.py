@@ -10,7 +10,7 @@ import pandas as pd
 from parsimony.connector import enumerator
 from parsimony_shared.cb_enumerate import MetadataCrawlConfig, ThrottledJsonFetcher
 
-from parsimony_bde._http import CATALOG_CSV_BASE_URL, CATALOG_CHAPTERS, CSV_ENCODING
+from parsimony_bde._http import CATALOG_CHAPTERS, CATALOG_CSV_BASE_URL, CSV_ENCODING
 from parsimony_bde.connectors._catalog import parse_catalog_csv
 from parsimony_bde.outputs import BDE_ENUMERATE_OUTPUT, ENUMERATE_COLUMNS
 from parsimony_bde.params import BdeEnumerateParams

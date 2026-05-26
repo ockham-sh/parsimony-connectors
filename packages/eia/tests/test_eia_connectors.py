@@ -11,7 +11,7 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from parsimony.errors import InvalidParameterError, EmptyDataError, RateLimitError, UnauthorizedError
+from parsimony.errors import EmptyDataError, InvalidParameterError, RateLimitError, UnauthorizedError
 
 from parsimony_eia import (
     CONNECTORS,

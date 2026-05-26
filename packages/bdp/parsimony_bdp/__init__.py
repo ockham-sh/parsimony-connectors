@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -45,16 +45,10 @@ from parsimony.result import (
     OutputConfig,
 )
 from parsimony.transport import map_http_error
+from parsimony_shared.cb_enumerate import MetadataCrawlConfig, ThrottledJsonFetcher, truncate_description
 from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
-
-from parsimony_shared.cb_enumerate import (
-    MetadataCrawlConfig,
-    ThrottledJsonFetcher,
-    enumerate_descriptions,
-    truncate_description,
-)
 
 _BASE_URL = "https://bpstat.bportugal.pt/data/v1"
 
@@ -71,7 +65,11 @@ _HEADERS = {
     "Origin": "https://bpstat.bportugal.pt",
     "Referer": "https://bpstat.bportugal.pt/",
 }
-_METADATA_CRAWL = MetadataCrawlConfig(concurrency=4, inter_request_delay_s=0.25, retry_statuses=frozenset({403, 429, 500, 502, 503, 504}))
+_METADATA_CRAWL = MetadataCrawlConfig(
+    concurrency=4,
+    inter_request_delay_s=0.25,
+    retry_statuses=frozenset({403, 429, 500, 502, 503, 504}),
+)
 
 # Cap descriptions before they reach the embedder. BdP labels run up to a
 # few hundred chars and rarely warrant truncation, but a hard cap keeps the
@@ -186,17 +184,6 @@ _ENUMERATE_COLUMNS: tuple[str, ...] = (
 # ---------------------------------------------------------------------------
 
 
-
-
-def truncate_description(text: str, cap: int = DESCRIPTION_CHAR_CAP) -> str:
-    """Cap a string at ``cap`` chars; return as-is if shorter."""
-    if not text:
-        return ""
-    if len(text) <= cap:
-        return text
-    return text[:cap].rstrip()
-
-
 def _series_description(
     *,
     title: str,
@@ -228,7 +215,7 @@ def _series_description(
     chunks.append(f"Banco de Portugal BPstat (domain={domain_id}, dataset={dataset_id}).")
     if title_pt and title_pt.strip() and title_pt.strip().lower() != (title or "").strip().lower():
         chunks.append(f"PT: {title_pt}.")
-    return truncate_description(" ".join(c for c in chunks if c).strip())
+    return cast(str, truncate_description(" ".join(c for c in chunks if c).strip()))
 
 
 def _dataset_description(
@@ -246,7 +233,7 @@ def _dataset_description(
         f"Holds {num_series} series." if num_series else "",
         f"Fetch via bdp_fetch(domain_id={domain_id}, dataset_id='{dataset_id}', series_ids=...).",
     ]
-    return truncate_description(" ".join(p for p in parts if p).strip())
+    return cast(str, truncate_description(" ".join(p for p in parts if p).strip()))
 
 
 def _domain_description(*, name: str, description: str, num_series: int, num_datasets: int) -> str:
@@ -258,7 +245,7 @@ def _domain_description(*, name: str, description: str, num_series: int, num_dat
         body,
         f"Holds {num_datasets} datasets and {num_series} series." if (num_datasets or num_series) else "",
     ]
-    return truncate_description(" ".join(p for p in parts if p).strip())
+    return cast(str, truncate_description(" ".join(p for p in parts if p).strip()))
 
 
 def _frequency_from_dimension(dataset_payload: dict[str, Any]) -> str:
@@ -851,12 +838,7 @@ async def enumerate_bdp() -> pd.DataFrame:
 # Exports
 # ---------------------------------------------------------------------------
 
-from parsimony_bdp.search import (  # noqa: E402  (after public decorators)
-    BDP_SEARCH_OUTPUT,
-    PARSIMONY_BDP_CATALOG_URL_ENV,
-    BdpSearchParams,
-    bdp_search,
-)
+from parsimony_bdp.search import bdp_search  # noqa: E402  (after public decorators)
 
 CONNECTORS = Connectors([bdp_fetch, enumerate_bdp, bdp_search])
 

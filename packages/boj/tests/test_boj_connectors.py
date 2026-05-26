@@ -217,7 +217,7 @@ async def test_enumerate_boj_handles_403_with_retry_then_warning(
         "last_update",
         "source",
     ]
-    df = result, columns=expected_cols.data
+    df = result.data
     # No series rows came through (every DB 403'd) but DB rows are still
     # absent because the connector emits them only for DBs whose metadata
     # was successfully retrieved. The summary log line is what we assert.
@@ -251,7 +251,10 @@ async def test_enumerate_boj_emits_columns_required_for_catalog_entries() -> Non
     _stub_metadata_endpoint(json=payload)
 
     result = await enumerate_boj()
-    entries = result.output_schema.build_entities(result.data)  # type: ignore[union-attr]
+    # enumerate_boj fans out across every DB; the respx stub returns the same
+    # payload for each, so dedupe before projecting entities for schema checks.
+    frame = result.data.drop_duplicates(subset=["code"], keep="first")
+    entries = BOJ_ENUMERATE_OUTPUT.build_entities(frame)
 
     by_code = {e.code: e for e in entries}
     series_entry = by_code["FXERD01"]
