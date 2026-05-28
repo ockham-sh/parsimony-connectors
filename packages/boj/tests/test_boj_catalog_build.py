@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import pandas as pd
 import pytest
 from parsimony.catalog import BM25Index, Entity, HybridIndex
 
+from parsimony_boj import catalog_build
 from parsimony_boj.catalog_build import (
     DATABASES_NAMESPACE,
     series_indexes,
@@ -77,13 +80,18 @@ def test_series_indexes_are_field_keyed_hybrids() -> None:
 
 @pytest.mark.asyncio
 async def test_build_series_catalog_for_db_does_not_call_full_enumerate() -> None:
-    from parsimony_boj.catalog_build import build_boj_series_catalog_for_db
-
+    # ``build_series_catalog`` is mocked: this test pins the per-db fetch
+    # path, not catalog construction itself (which would pull a real
+    # sentence-transformers embedder via the hybrid title/description
+    # indexes). Catalog assembly is exercised by the other tests in this
+    # module via the pure helpers, and end-to-end via ``catalog_tests/``.
+    fake_catalog = SimpleNamespace(name="boj_series_fm08")
     with (
         patch("parsimony_boj.fetch_boj_enumeration_rows_for_db", new_callable=AsyncMock) as fetch_one,
         patch("parsimony_boj.enumerate_boj", new_callable=AsyncMock) as enumerate_all,
+        patch.object(catalog_build, "build_series_catalog", new_callable=AsyncMock) as build_inner,
     ):
-        fetch_one.return_value = __import__("pandas").DataFrame(
+        fetch_one.return_value = pd.DataFrame(
             [
                 {
                     "code": "FXERD01",
@@ -103,8 +111,15 @@ async def test_build_series_catalog_for_db_does_not_call_full_enumerate() -> Non
                 }
             ]
         )
-        catalog = await build_boj_series_catalog_for_db("FM08")
+        build_inner.return_value = fake_catalog
+
+        catalog = await catalog_build.build_boj_series_catalog_for_db("FM08")
 
     enumerate_all.assert_not_called()
     fetch_one.assert_awaited_once_with("FM08")
-    assert catalog.name == "boj_series_fm08"
+    build_inner.assert_awaited_once()
+    assert build_inner.await_args is not None
+    db_arg, rows_arg = build_inner.await_args.args
+    assert db_arg == "FM08"
+    assert [row.code for row in rows_arg] == ["FXERD01"]
+    assert catalog is fake_catalog
