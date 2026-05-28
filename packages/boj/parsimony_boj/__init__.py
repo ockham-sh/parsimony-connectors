@@ -9,23 +9,22 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError
+from parsimony.errors import EmptyDataError, InvalidParameterError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Result,
 )
 from parsimony.transport import map_http_error
+from parsimony_shared.cb_enumerate import MetadataCrawlConfig, ThrottledJsonFetcher
 from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
-
 
 _BASE_URL = "https://www.stat-search.boj.or.jp/api/v1"
 
@@ -33,14 +32,15 @@ _BASE_URL = "https://www.stat-search.boj.or.jp/api/v1"
 # default httpx User-Agent and high-concurrency fan-outs. Empirically a
 # concurrency cap of 2, a small inter-request delay, and a browser UA
 # are enough to keep enumeration stable; higher concurrency triggers 403s.
-_METADATA_CONCURRENCY = 2
-_INTER_REQUEST_DELAY_S = 0.5
 _BROWSER_USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
-_RETRY_STATUSES = frozenset({403, 429, 500, 502, 503, 504})
-_RETRY_BACKOFFS_S: tuple[float, ...] = (1.0, 2.0, 4.0)
+_METADATA_CRAWL = MetadataCrawlConfig(
+    concurrency=2,
+    inter_request_delay_s=0.5,
+    retry_statuses=frozenset({403, 429, 500, 502, 503, 504}),
+)
 
 # Frequency tokens emitted by BoJ metadata. Anything not in the map passes
 # through unchanged so we never silently corrupt an unknown frequency.
@@ -185,7 +185,7 @@ class BojFetchParams(BaseModel):
     def _non_empty_db(cls, v: str) -> str:
         v = v.strip().upper()
         if not v:
-            raise ValueError("db must be non-empty")
+            raise InvalidParameterError("boj", "db must be non-empty")
         return v
 
     @field_validator("code")
@@ -193,9 +193,9 @@ class BojFetchParams(BaseModel):
     def _validate_codes(cls, v: str) -> str:
         codes = [s.strip() for s in v.split(",") if s.strip()]
         if not codes:
-            raise ValueError("At least one series code required")
+            raise InvalidParameterError("boj", "At least one series code required")
         if len(codes) > 250:
-            raise ValueError("Maximum 250 codes per request")
+            raise InvalidParameterError("boj", "Maximum 250 codes per request")
         return ",".join(codes)
 
 
@@ -220,10 +220,10 @@ BOJ_ENUMERATE_OUTPUT = OutputConfig(
         # TITLE: ``NAME_OF_TIME_SERIES`` for series rows; canonical DB title
         # for DB rows.
         Column(name="title", role=ColumnRole.TITLE),
-        # DESCRIPTION feeds the embedder via ``semantic_text()`` — concat of
-        # breadcrumb + category + unit + frequency + parent DB title (and
-        # NOTES if present) for series; a short summary for DB rows.
-        Column(name="description", role=ColumnRole.DESCRIPTION),
+        # ``description`` carries searchable prose: breadcrumb + category +
+        # unit + frequency + parent DB title (and NOTES if present) for
+        # series; a short summary for DB rows.
+        Column(name="description", role=ColumnRole.METADATA),
         # METADATA columns (filtering / dispatch / UI hints):
         Column(name="db", role=ColumnRole.METADATA),
         Column(name="db_title", role=ColumnRole.METADATA),
@@ -305,80 +305,20 @@ def _normalize_frequency(raw: str) -> str:
     return _FREQ_MAP.get(raw.strip().upper(), raw)
 
 
-def _retry_after_seconds(response: httpx.Response) -> float | None:
-    """Parse the ``Retry-After`` header; return ``None`` if absent/malformed.
-
-    Only seconds-format values are honored (HTTP-date format is rare in
-    Akamai responses and not worth the complexity).
-    """
-    raw = response.headers.get("Retry-After")
-    if not raw:
-        return None
-    try:
-        return float(raw)
-    except ValueError:
-        return None
 
 
-async def _fetch_metadata(
-    client: httpx.AsyncClient,
-    db: str,
-    semaphore: asyncio.Semaphore,
-) -> dict[str, Any] | None:
-    """Fetch one DB's metadata, retrying transient Akamai blocks.
 
-    Returns the parsed JSON body on success, ``None`` after exhausting
-    retries. Failures emit a WARNING — the orchestrator wants visibility,
-    not silent skips.
-    """
-    url = f"{_BASE_URL}/getMetadata"
-    params = {"db": db, "lang": "en"}
 
-    async with semaphore:
-        await asyncio.sleep(_INTER_REQUEST_DELAY_S)
-        last_status: int | None = None
-        last_error: str | None = None
-        for attempt, backoff in enumerate((*_RETRY_BACKOFFS_S, None)):
-            try:
-                response = await client.get(url, params=params)
-            except httpx.HTTPError as exc:
-                last_error = f"{type(exc).__name__}: {exc}"
-                if backoff is None:
-                    break
-                await asyncio.sleep(backoff)
-                continue
-
-            if response.status_code == 200:
-                try:
-                    payload: dict[str, Any] = response.json()
-                except ValueError as exc:
-                    logger.warning("BoJ metadata for %s returned non-JSON body: %s", db, exc)
-                    return None
-                return payload
-
-            last_status = response.status_code
-            if response.status_code in _RETRY_STATUSES and backoff is not None:
-                wait = _retry_after_seconds(response) or backoff
-                logger.info(
-                    "BoJ metadata %s returned %s (attempt %d); retrying in %.1fs",
-                    db,
-                    response.status_code,
-                    attempt + 1,
-                    wait,
-                )
-                await asyncio.sleep(wait)
-                continue
-            # Non-retriable status (e.g. 404) — give up immediately.
-            break
-
-        logger.warning(
-            "BoJ metadata fetch failed for db=%s after retries (last_status=%s, last_error=%s)",
-            db,
-            last_status,
-            last_error,
-        )
-        return None
-
+async def _fetch_metadata(fetcher: ThrottledJsonFetcher, db: str) -> dict[str, Any] | None:
+    """Fetch one DB's metadata via the shared throttled fetcher."""
+    return cast(
+        dict[str, Any] | None,
+        await fetcher.get_json(
+            f"{_BASE_URL}/getMetadata",
+            params={"db": db, "lang": "en"},
+            label=db,
+        ),
+    )
 
 def _layers(series_row: dict[str, Any]) -> list[tuple[int, str]]:
     """Extract non-empty layer entries as ``(layer_number, title)`` tuples.
@@ -585,11 +525,18 @@ def _emit_rows_for_db(
 
 
 @connector(output=BOJ_FETCH_OUTPUT, tags=["macro", "jp"])
-async def boj_fetch(params: BojFetchParams) -> Result:
+async def boj_fetch(
+    db: str,
+    code: Annotated[str, "ns:boj"],
+    start_date: str | None = None,
+    end_date: str | None = None,
+    lang: str = "en",
+) -> pd.DataFrame:
     """Fetch Bank of Japan time series by database and series code(s).
 
     Returns date + value with series metadata. Max 250 codes per request.
     """
+    params = BojFetchParams(db=db, code=code, start_date=start_date, end_date=end_date, lang=lang)
     url = f"{_BASE_URL}/getDataCode"
     req_params: dict[str, str] = {
         "db": params.db,
@@ -645,45 +592,52 @@ async def boj_fetch(params: BojFetchParams) -> Result:
     if not rows:
         raise EmptyDataError(provider="boj", message=f"No observations parsed for db={params.db}, code={params.code}")
 
-    return Result.from_dataframe(pd.DataFrame(rows)).with_properties(
-        source_url="https://www.stat-search.boj.or.jp",
+    return pd.DataFrame(rows)
+
+
+def _resolve_boj_database(db_code: str) -> tuple[str, str, str]:
+    normalized = db_code.strip().upper()
+    for code, category, title in _BOJ_DATABASES:
+        if code == normalized:
+            return code, category, title
+    raise ValueError(f"Unknown BoJ database {db_code!r}")
+
+
+async def fetch_boj_enumeration_rows_for_db(db_code: str) -> pd.DataFrame:
+    """Fetch catalog discovery rows for one BoJ database (no full 50-DB sweep)."""
+    db_code, db_category, db_title = _resolve_boj_database(db_code)
+    async with httpx.AsyncClient(timeout=60.0, headers={"User-Agent": _BROWSER_USER_AGENT}) as client:
+        fetcher = ThrottledJsonFetcher(client, provider="boj", config=_METADATA_CRAWL, logger=logger)
+        payload = await _fetch_metadata(fetcher, db_code)
+    if payload is None:
+        logger.warning("BoJ enumerate: metadata fetch failed for db=%s", db_code)
+        return pd.DataFrame(columns=list(_ENUMERATE_COLUMNS))
+    rows = _emit_rows_for_db(
+        db_code=db_code,
+        db_title=db_title,
+        db_category=db_category,
+        metadata=payload,
     )
+    return pd.DataFrame(rows, columns=list(_ENUMERATE_COLUMNS))
 
 
 @enumerator(output=BOJ_ENUMERATE_OUTPUT, tags=["macro", "jp"])
-async def enumerate_boj(params: BojEnumerateParams) -> pd.DataFrame:
-    """Enumerate BoJ statistics by querying metadata for each canonical DB.
+async def enumerate_boj() -> pd.DataFrame:
+    """Enumerate BoJ series by fetching metadata for each canonical database.
 
-    Pipeline:
-
-    1. Iterate ``_BOJ_DATABASES`` (49 entries from the official API
-       manual).
-    2. For each DB, ``GET /getMetadata?db={code}&lang=en`` with a
-       browser User-Agent (Akamai blocks the default httpx UA).
-    3. Concurrency is capped at 2 with a 0.5s inter-request delay; 403/
-       429/5xx responses retry up to 3 times with exponential backoff and
-       honor ``Retry-After``. After exhausting retries we WARN and emit
-       no rows for that DB.
-    4. Emit one row per series (``code=SERIES_CODE``,
-       ``entity_type='series'``) and one DB-level row
-       (``code='db:{code}'``, ``entity_type='db'``).
-
-    Layer header rows in BoJ metadata (``SERIES_CODE`` empty) are not
-    emitted as catalog rows; they're consumed to build a breadcrumb path
-    that's stamped onto every subsequent series row in the same DB.
+    Emits series and database rows with breadcrumb context. Retries on
+    429/5xx with bounded concurrency.
     """
-    semaphore = asyncio.Semaphore(_METADATA_CONCURRENCY)
-    headers = {"User-Agent": _BROWSER_USER_AGENT}
-
     rows: list[dict[str, str]] = []
     failed_dbs: list[str] = []
 
-    async with httpx.AsyncClient(timeout=60.0, headers=headers) as client:
+    async with httpx.AsyncClient(timeout=60.0, headers={"User-Agent": _BROWSER_USER_AGENT}) as client:
+        fetcher = ThrottledJsonFetcher(client, provider="boj", config=_METADATA_CRAWL, logger=logger)
         # asyncio.gather preserves order, so the published catalog is
         # deterministic across runs even when individual DBs interleave
         # under the concurrency cap.
         tasks = [
-            _fetch_metadata(client, db_code, semaphore)
+            _fetch_metadata(fetcher, db_code)
             for db_code, _category, _title in _BOJ_DATABASES
         ]
         payloads = await asyncio.gather(*tasks)
@@ -712,7 +666,8 @@ async def enumerate_boj(params: BojEnumerateParams) -> pd.DataFrame:
         logger.info("BoJ enumerate: all %d DBs fetched successfully", len(_BOJ_DATABASES))
 
     columns = list(_ENUMERATE_COLUMNS)
-    return pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    df = pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -720,12 +675,9 @@ async def enumerate_boj(params: BojEnumerateParams) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 from parsimony_boj.search import (  # noqa: E402, F401  (after public decorators; re-exported)
-    BOJ_SEARCH_OUTPUT,
     PARSIMONY_BOJ_CATALOG_URL_ENV,
-    BojSearchParams,
-    boj_search,
+    boj_databases_search,
+    boj_series_search,
 )
 
-CATALOGS: list[tuple[str, object]] = [("boj", enumerate_boj)]
-
-CONNECTORS = Connectors([boj_fetch, enumerate_boj, boj_search])
+CONNECTORS = Connectors([boj_fetch, enumerate_boj, boj_databases_search, boj_series_search])

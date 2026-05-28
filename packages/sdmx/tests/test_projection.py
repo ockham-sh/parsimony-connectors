@@ -3,7 +3,7 @@ from collections.abc import Iterator
 import pytest
 
 from parsimony_sdmx.core.errors import TitleBuildError
-from parsimony_sdmx.core.models import SeriesRecord
+from parsimony_sdmx.core.models import DimensionValue, SeriesRecord
 from parsimony_sdmx.core.projection import project_series
 
 
@@ -29,14 +29,20 @@ class TestProjectSeries:
             SeriesRecord(
                 id="A.U2",
                 dataset_id="YC",
-                title="A: Annual - U2: Euro area",
-                fragments=("Annual", "Euro area"),
+                title="Annual - Euro area",
+                dimensions=(
+                    DimensionValue(id="FREQ", code="A", label="Annual"),
+                    DimensionValue(id="REF_AREA", code="U2", label="Euro area"),
+                ),
             ),
             SeriesRecord(
                 id="M.U2",
                 dataset_id="YC",
-                title="M: Monthly - U2: Euro area",
-                fragments=("Monthly", "Euro area"),
+                title="Monthly - Euro area",
+                dimensions=(
+                    DimensionValue(id="FREQ", code="M", label="Monthly"),
+                    DimensionValue(id="REF_AREA", code="U2", label="Euro area"),
+                ),
             ),
         ]
 
@@ -86,8 +92,7 @@ class TestProjectSeries:
         )
         assert out[0].title == "x"
 
-    def test_fragments_fall_back_to_code_when_label_missing(self) -> None:
-        """Dims with no codelist still contribute a fragment (the raw code)."""
+    def test_dimension_label_is_none_when_label_missing(self) -> None:
         out = list(
             project_series(
                 dataset_id="D",
@@ -96,16 +101,12 @@ class TestProjectSeries:
                 labels={"A": {"x": "X-label"}},  # B has no labels
             )
         )
-        assert out[0].fragments == ("X-label", "y")
+        assert out[0].dimensions == (
+            DimensionValue(id="A", code="x", label="X-label"),
+            DimensionValue(id="B", code="y", label=None),
+        )
 
-    def test_fragments_dedup_candidates_at_flow_scale(self) -> None:
-        """Common dims ("Monthly", "Euro area") repeat verbatim across rows.
-
-        This is exactly the dedup window that FragmentEmbeddingCache
-        exploits: two series share the same "Monthly" + "Euro area"
-        fragment strings even when their other dims differ. Asserting
-        string equality here is the contract the cache relies on.
-        """
+    def test_dimensions_preserve_dsd_order(self) -> None:
         labels = {
             "FREQ": {"M": "Monthly"},
             "REF_AREA": {"U2": "Euro area"},
@@ -123,16 +124,17 @@ class TestProjectSeries:
                 labels=labels,
             )
         )
-        assert out[0].fragments[0] == out[1].fragments[0] == "Monthly"
-        assert out[0].fragments[1] == out[1].fragments[1] == "Euro area"
-        assert out[0].fragments[2] != out[1].fragments[2]
+        assert [dim.id for dim in out[0].dimensions] == ["FREQ", "REF_AREA", "INDICATOR"]
+        assert out[0].dimensions[0] == out[1].dimensions[0]
+        assert out[0].dimensions[1] == out[1].dimensions[1]
+        assert out[0].dimensions[2] != out[1].dimensions[2]
 
-    def test_augment_hook_called_with_series_id(self) -> None:
-        seen: list[tuple[str, str]] = []
+    def test_source_title_hook_called_with_series_id(self) -> None:
+        seen: list[str] = []
 
-        def augment(base: str, sid: str) -> str:
-            seen.append((base, sid))
-            return f"{base} | AUG"
+        def source_title(sid: str) -> str:
+            seen.append(sid)
+            return f"SOURCE:{sid}"
 
         out = list(
             project_series(
@@ -140,12 +142,24 @@ class TestProjectSeries:
                 series_dim_values=[{"A": "x"}, {"A": "y"}],
                 dsd_order=("A",),
                 labels={"A": {"x": "X", "y": "Y"}},
-                augment=augment,
+                source_title=source_title,
             )
         )
-        assert seen == [("x: X", "x"), ("y: Y", "y")]
-        assert out[0].title == "x: X | AUG"
-        assert out[1].title == "y: Y | AUG"
+        assert seen == ["x", "y"]
+        assert out[0].title == "SOURCE:x"
+        assert out[1].title == "SOURCE:y"
+
+    def test_empty_source_title_falls_back_to_label_title(self) -> None:
+        out = list(
+            project_series(
+                dataset_id="D",
+                series_dim_values=[{"A": "x"}],
+                dsd_order=("A",),
+                labels={"A": {"x": "X"}},
+                source_title=lambda sid: " ",
+            )
+        )
+        assert out[0].title == "X"
 
     def test_missing_dim_value_raises_title_build_error(self) -> None:
         with pytest.raises(TitleBuildError, match="missing value"):

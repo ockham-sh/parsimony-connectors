@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pyarrow.parquet as pq
 import pytest
 
-from parsimony_sdmx.core.models import DatasetRecord, SeriesRecord
+from parsimony_sdmx.core.models import DatasetRecord, DimensionValue, SeriesRecord
 from parsimony_sdmx.io.parquet import (
     DATASETS_SCHEMA,
     SERIES_SCHEMA,
@@ -82,11 +82,37 @@ class TestWriteSeries:
         assert table.num_rows == 2
         assert set(table.column("id").to_pylist()) == {"A.B.C", "D.E.F"}
 
-    def test_batching_splits_across_row_groups(self, tmp_path: Path) -> None:
+    def test_dimensions_round_trip(self, tmp_path: Path) -> None:
         rows = [
-            SeriesRecord(id=f"S{i}", dataset_id="YC", title=f"title {i}")
-            for i in range(2500)
+            SeriesRecord(
+                id="A.U2",
+                dataset_id="YC",
+                title="Annual - Euro area",
+                dimensions=(
+                    DimensionValue(id="FREQ", code="A", label="Annual"),
+                    DimensionValue(id="REF_AREA", code="U2", label="Euro area"),
+                ),
+            ),
+            SeriesRecord(
+                id="X.Y",
+                dataset_id="YC",
+                title="raw code fallback",
+                dimensions=(DimensionValue(id="UNKNOWN_DIM", code="Y"),),
+            ),
         ]
+        path = write_series(rows, tmp_path, "ECB", "YC")
+        table = pq.read_table(path)
+
+        assert table.column("dimensions").to_pylist() == [
+            [
+                {"id": "FREQ", "code": "A", "label": "Annual"},
+                {"id": "REF_AREA", "code": "U2", "label": "Euro area"},
+            ],
+            [{"id": "UNKNOWN_DIM", "code": "Y", "label": None}],
+        ]
+
+    def test_batching_splits_across_row_groups(self, tmp_path: Path) -> None:
+        rows = [SeriesRecord(id=f"S{i}", dataset_id="YC", title=f"title {i}") for i in range(2500)]
         path = write_series(rows, tmp_path, "ECB", "YC", batch_size=1000)
         table = pq.read_table(path)
         assert table.num_rows == 2500

@@ -18,6 +18,7 @@ from typing import Any
 import httpx
 from parsimony.result import OutputConfig
 from parsimony.transport import HttpClient, map_http_error, map_timeout_error
+from parsimony.transport.helpers import make_http_client
 
 # Per-request timeout. 15s matches the long-standing Tiingo connector
 # default; endpoints are REST, not streaming.
@@ -28,13 +29,9 @@ _PROVIDER: str = "tiingo"
 
 
 def make_http(api_key: str, base_url: str = _DEFAULT_BASE_URL) -> HttpClient:
-    """Construct the standard Tiingo transport.
+    """Construct the standard Tiingo transport."""
 
-    All Tiingo connectors use this constructor so that auth, timeouts, and
-    header handling are consistent. The API key rides as an
-    ``Authorization: Token <key>`` header (Tiingo's auth convention).
-    """
-    return HttpClient(
+    return make_http_client(
         base_url,
         headers={"Authorization": f"Token {api_key}"},
         timeout=_DEFAULT_TIMEOUT_SECONDS,
@@ -54,8 +51,8 @@ async def tiingo_fetch(
     ``output_config`` is accepted for signature parity with the other
     connector packages but unused: Tiingo's response shapes are
     heterogenous (lists of dicts, dicts with nested arrays, singletons),
-    so each connector does its own row-projection and calls
-    ``OutputConfig.build_table_result`` directly.
+    so each connector normalizes rows into a ``pd.DataFrame`` and returns
+    raw data; the framework applies ``output=OutputConfig(...)``.
     """
     del output_config  # reserved for future symmetry; see docstring
     try:

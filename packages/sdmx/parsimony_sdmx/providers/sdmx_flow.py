@@ -7,8 +7,8 @@ ESTAT, IMF_DATA, and ECB all follow the same two-call shape:
    the dataset.
 2. ``client.series_keys(DATASET)`` returns a ``SeriesKey`` stream.
 
-ECB additionally augments each series with TITLE / TITLE_COMPL via an
-XML endpoint — passed here as the ``augment`` hook from T8.
+ECB additionally exposes per-series TITLE / TITLE_COMPL via an XML
+endpoint; TITLE is passed here as the optional source-title hook.
 
 WB diverges entirely and lives in its own module (T9).
 """
@@ -22,8 +22,7 @@ from parsimony_sdmx.core.codelists import resolve_codelists
 from parsimony_sdmx.core.errors import SdmxFetchError
 from parsimony_sdmx.core.models import DatasetRecord, SeriesRecord
 from parsimony_sdmx.core.projection import (
-    SeriesFragmentsAugment,
-    SeriesIdAugment,
+    SeriesTitleProvider,
     project_series,
 )
 from parsimony_sdmx.providers.sdmx_extract import (
@@ -52,9 +51,7 @@ def list_datasets_flow(
     try:
         msg = client.dataflow(force=True)
     except Exception as exc:
-        raise SdmxFetchError(
-            f"Failed to list dataflows for {agency_id}: {exc}"
-        ) from exc
+        raise SdmxFetchError(f"Failed to list dataflows for {agency_id}: {exc}") from exc
 
     dataflows = getattr(msg, "dataflow", {}) or {}
     for flow_id, flow in dataflows.items():
@@ -73,8 +70,7 @@ def list_series_flow(
     agency_id: str,
     dataset_id: str,
     language_prefs: Sequence[str] = ("en",),
-    augment: SeriesIdAugment | None = None,
-    augment_fragments: SeriesFragmentsAugment | None = None,
+    source_title: SeriesTitleProvider | None = None,
 ) -> Iterator[SeriesRecord]:
     """Fetch DSD + codelists + series keys, yield ``SeriesRecord`` per series."""
     msg = fetch_dataflow_with_structure(client, dataset_id)
@@ -82,9 +78,7 @@ def list_series_flow(
     try:
         dataflow = msg.dataflow[dataset_id]
     except (KeyError, AttributeError, TypeError) as exc:
-        raise SdmxFetchError(
-            f"Dataflow {dataset_id!r} missing from response for {agency_id}"
-        ) from exc
+        raise SdmxFetchError(f"Dataflow {dataset_id!r} missing from response for {agency_id}") from exc
 
     dsd = resolve_dsd(client, msg, dataflow, dataset_id)
     dsd_order = extract_dsd_dim_order(dsd, exclude_time=True)
@@ -94,17 +88,14 @@ def list_series_flow(
     try:
         series_keys = client.series_keys(dataset_id)
     except Exception as exc:
-        raise SdmxFetchError(
-            f"Failed to fetch series keys for {dataset_id}: {exc}"
-        ) from exc
+        raise SdmxFetchError(f"Failed to fetch series keys for {dataset_id}: {exc}") from exc
 
     yield from project_series(
         dataset_id=dataset_id,
         series_dim_values=extract_series_dim_values(series_keys),
         dsd_order=dsd_order,
         labels=labels,
-        augment=augment,
-        augment_fragments=augment_fragments,
+        source_title=source_title,
     )
 
 
@@ -122,13 +113,9 @@ def fetch_dataflow_with_structure(client: Any, dataset_id: str) -> Any:
         try:
             return client.dataflow(resource_id=dataset_id, force=True)
         except Exception as exc:
-            raise SdmxFetchError(
-                f"Failed to fetch dataflow {dataset_id}: {exc}"
-            ) from exc
+            raise SdmxFetchError(f"Failed to fetch dataflow {dataset_id}: {exc}") from exc
     except Exception as exc:
-        raise SdmxFetchError(
-            f"Failed to fetch dataflow {dataset_id}: {exc}"
-        ) from exc
+        raise SdmxFetchError(f"Failed to fetch dataflow {dataset_id}: {exc}") from exc
 
 
 def resolve_dsd(client: Any, msg: Any, dataflow: Any, dataset_id: str) -> Any:
@@ -136,9 +123,7 @@ def resolve_dsd(client: Any, msg: Any, dataflow: Any, dataset_id: str) -> Any:
     structure = getattr(dataflow, "structure", None)
     structure_id = getattr(structure, "id", None) if structure is not None else None
     if not structure_id:
-        raise SdmxFetchError(
-            f"Dataflow {dataset_id!r} has no DSD reference"
-        )
+        raise SdmxFetchError(f"Dataflow {dataset_id!r} has no DSD reference")
 
     structures = getattr(msg, "structure", {}) or {}
     if structure_id in structures:
@@ -147,12 +132,8 @@ def resolve_dsd(client: Any, msg: Any, dataflow: Any, dataset_id: str) -> Any:
     try:
         struct_msg = client.datastructure(resource_id=structure_id, force=True)
     except Exception as exc:
-        raise SdmxFetchError(
-            f"Failed to fetch DSD {structure_id} for {dataset_id}: {exc}"
-        ) from exc
+        raise SdmxFetchError(f"Failed to fetch DSD {structure_id} for {dataset_id}: {exc}") from exc
     try:
         return struct_msg.structure[structure_id]
     except (KeyError, AttributeError, TypeError) as exc:
-        raise SdmxFetchError(
-            f"DSD {structure_id} missing from follow-up fetch for {dataset_id}"
-        ) from exc
+        raise SdmxFetchError(f"DSD {structure_id} missing from follow-up fetch for {dataset_id}") from exc

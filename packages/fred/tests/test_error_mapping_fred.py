@@ -8,18 +8,18 @@ from __future__ import annotations
 
 from parsimony_test_support import ErrorMappingSuite
 
-from parsimony_fred import FredFetchParams, FredSearchParams, fred_fetch, fred_search
+from parsimony_fred import fred_fetch, fred_search
 
 
 class TestFredSearchErrorMapping(ErrorMappingSuite):
     connector = fred_search
-    params = FredSearchParams(search_text="unemployment")
+    call_kwargs = {"search_text": "unemployment"}
     route_url = "https://api.stlouisfed.org/fred/series/search"
     provider = "fred"
 
 
 class TestFredFetchErrorMapping(ErrorMappingSuite):
     connector = fred_fetch
-    params = FredFetchParams(series_id="UNRATE")
+    call_kwargs = {"series_id": "UNRATE"}
     route_url = "https://api.stlouisfed.org/fred/series/observations"
     provider = "fred"

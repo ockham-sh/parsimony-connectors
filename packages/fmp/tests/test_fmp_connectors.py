@@ -17,8 +17,6 @@ import pytest
 import respx
 
 from parsimony_fmp import (
-    FmpHistoricalPricesParams,
-    FmpSearchParams,
     fmp_prices,
     fmp_search,
 )
@@ -45,7 +43,7 @@ async def test_fmp_search_returns_matches() -> None:
     )
 
     bound = fmp_search.bind(api_key=_KEY)
-    result = await bound(FmpSearchParams(query="apple"))
+    result = await bound(query="apple")
 
     assert result.provenance.source.startswith("fmp")
     assert result.data.iloc[0]["symbol"] == "AAPL"
@@ -82,7 +80,7 @@ async def test_fmp_prices_intraday_preserves_time_component() -> None:
     )
 
     bound = fmp_prices.bind(api_key=_KEY)
-    result = await bound(FmpHistoricalPricesParams(symbol="AAPL", frequency="1min"))
+    result = await bound(symbol="AAPL", frequency="1min")
 
     times = result.data["date"].dt.time.astype(str).tolist()
     assert "00:00:00" not in times, f"intraday timestamps were normalized to midnight: {times}"

@@ -13,7 +13,7 @@ import pytest
 import respx
 from parsimony.errors import PaymentRequiredError, UnauthorizedError
 
-from parsimony_fmp import FmpScreenerParams, fmp_screener
+from parsimony_fmp import fmp_screener
 
 _KEY = "live-looking-fmp-screener-key"
 
@@ -47,7 +47,7 @@ async def test_fmp_screener_joins_screener_and_enrichment() -> None:
     )
 
     bound = fmp_screener.bind(api_key=_KEY)
-    result = await bound(FmpScreenerParams(sector="Technology"))
+    result = await bound(sector="Technology")
 
     assert result.provenance.source.startswith("fmp")
     df = result.data
@@ -64,7 +64,7 @@ async def test_fmp_screener_maps_401_without_leaking_key() -> None:
 
     bound = fmp_screener.bind(api_key=_KEY)
     with pytest.raises(UnauthorizedError) as exc_info:
-        await bound(FmpScreenerParams(sector="Technology"))
+        await bound(sector="Technology")
     assert _KEY not in str(exc_info.value)
 
 
@@ -78,7 +78,7 @@ async def test_fmp_screener_maps_402_to_payment_required() -> None:
 
     bound = fmp_screener.bind(api_key=_KEY)
     with pytest.raises(PaymentRequiredError) as exc_info:
-        await bound(FmpScreenerParams(sector="Technology"))
+        await bound(sector="Technology")
     assert _KEY not in str(exc_info.value)
 
 
@@ -105,10 +105,8 @@ async def test_fmp_screener_skips_enrichment_when_fields_are_native_only() -> No
 
     bound = fmp_screener.bind(api_key=_KEY)
     result = await bound(
-        FmpScreenerParams(
-            sector="Technology",
-            fields=["symbol", "companyName", "marketCap"],
-        )
+        sector="Technology",
+        fields=["symbol", "companyName", "marketCap"],
     )
 
     assert screener_route.call_count == 1

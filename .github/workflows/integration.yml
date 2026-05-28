@@ -65,14 +65,13 @@ jobs:
           DESTATIS_PASSWORD: ${{ secrets.DESTATIS_PASSWORD }}
           EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
           EODHD_API_KEY: ${{ secrets.EODHD_API_KEY }}
-          FINANCIAL_REPORTS_API_KEY: ${{ secrets.FINANCIAL_REPORTS_API_KEY }}
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           RIKSBANK_API_KEY: ${{ secrets.RIKSBANK_API_KEY }}
           TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
-          # SEC EDGAR requires a User-Agent — edgartools handles it.
-          EDGAR_IDENTITY: ${{ secrets.EDGAR_IDENTITY }}
+          # SEC EDGAR requires a User-Agent identifying the client.
+          SEC_EDGAR_USER_AGENT: ${{ secrets.SEC_EDGAR_USER_AGENT }}
         run: |
           set -euo pipefail
           targets="${{ github.event.inputs.packages }}"

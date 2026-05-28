@@ -6,18 +6,43 @@ BdE BIEST is public (no api_key); template 401/429 contract does not apply.
 from __future__ import annotations
 
 import httpx
+import pandas as pd
 import pytest
 import respx
-from parsimony.errors import EmptyDataError
+from parsimony.errors import EmptyDataError, InvalidParameterError
+from parsimony.result import Result
 
-from parsimony_bde import (
-    BDE_ENUMERATE_OUTPUT,
-    CONNECTORS,
-    BdeEnumerateParams,
-    BdeFetchParams,
-    bde_fetch,
-    enumerate_bde,
-)
+from parsimony_bde import CONNECTORS
+from parsimony_bde.connectors.enumerate import enumerate_bde
+from parsimony_bde.connectors.fetch import bde_fetch
+from parsimony_bde.outputs import BDE_ENUMERATE_OUTPUT
+from parsimony_bde.params import BdeFetchParams
+
+_ENUMERATE_FRAME_COLUMNS = [
+    "key",
+    "title",
+    "description",
+    "source",
+    "alias",
+    "dataset",
+    "category",
+    "frequency",
+    "unit",
+    "decimals",
+    "start_date",
+    "end_date",
+    "n_obs",
+    "source_org",
+]
+
+
+def _enumerate_frame(result: Result) -> pd.DataFrame:
+    """Project enumerator tabular output into a flat frame for assertions."""
+    entries = BDE_ENUMERATE_OUTPUT.build_entities(result.data)
+    if not entries:
+        return pd.DataFrame(columns=_ENUMERATE_FRAME_COLUMNS)
+    rows = [{"key": entry.code, "title": entry.title, **entry.metadata} for entry in entries]
+    return pd.DataFrame(rows)
 
 # ---------------------------------------------------------------------------
 # Plugin contract shape
@@ -52,7 +77,7 @@ async def test_bde_fetch_merges_single_series_response() -> None:
         )
     )
 
-    result = await bde_fetch(BdeFetchParams(key="D_1NBAF472"))
+    result = await bde_fetch(key="D_1NBAF472")
 
     assert result.provenance.source == "bde_fetch"
     df = result.data
@@ -67,16 +92,16 @@ async def test_bde_fetch_raises_empty_data_on_empty_list() -> None:
     )
 
     with pytest.raises(EmptyDataError):
-        await bde_fetch(BdeFetchParams(key="XX"))
+        await bde_fetch(key="XX")
 
 
 def test_fetch_rejects_invalid_time_range() -> None:
-    with pytest.raises(ValueError, match="time_range"):
+    with pytest.raises(InvalidParameterError, match="time_range"):
         BdeFetchParams(key="X", time_range="3M")
 
 
 def test_fetch_rejects_empty_key() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidParameterError):
         BdeFetchParams(key="  ")
 
 
@@ -326,8 +351,8 @@ def _mock_csv_chapters() -> None:
 @pytest.mark.asyncio
 async def test_enumerate_bde_pulls_all_seven_catalog_chapters() -> None:
     _mock_csv_chapters()
-    result = await enumerate_bde(BdeEnumerateParams())
-    df = result.data
+    result = await enumerate_bde()
+    df = _enumerate_frame(result)
 
     # One row per chapter mock — seven total — wired to BDE_ENUMERATE_OUTPUT.
     # CF (Financial Accounts of the Spanish Economy) and IE (International
@@ -354,7 +379,7 @@ async def test_enumerate_bde_includes_cf_financial_accounts_rows() -> None:
     and nowhere else. Regression guard: if someone removes ``cf`` from
     ``_CATALOG_CHAPTERS`` we lose those series silently."""
     _mock_csv_chapters()
-    df = (await enumerate_bde(BdeEnumerateParams())).data
+    df = _enumerate_frame(await enumerate_bde())
 
     cf_rows = df[df["category"] == "Financial Accounts"]
     assert len(cf_rows) >= 1
@@ -373,7 +398,7 @@ async def test_enumerate_bde_includes_ie_international_economy_rows() -> None:
     commodity-index series. Most IE codes overlap with BE under a
     different taxonomy, but the category-filtered view still matters."""
     _mock_csv_chapters()
-    df = (await enumerate_bde(BdeEnumerateParams())).data
+    df = _enumerate_frame(await enumerate_bde())
 
     ie_rows = df[df["category"] == "International Economy"]
     assert len(ie_rows) >= 1
@@ -383,10 +408,9 @@ async def test_enumerate_bde_includes_ie_international_economy_rows() -> None:
 @respx.mock
 @pytest.mark.asyncio
 async def test_enumerate_bde_populates_description_column() -> None:
-    """The DESCRIPTION column carries upstream long-form prose so the embedder
-    sees full sentences at index time, not just the leaf title."""
+    """The description metadata carries upstream long-form prose for search."""
     _mock_csv_chapters()
-    df = (await enumerate_bde(BdeEnumerateParams())).data
+    df = _enumerate_frame(await enumerate_bde())
 
     ti_row = df[df["key"] == "D_DTFK09A0"].iloc[0]
     # Spanish character round-trips through CP1252 → str unscathed.
@@ -401,7 +425,7 @@ async def test_enumerate_bde_carries_source_metadata_for_dispatch() -> None:
     """Every catalog row carries ``source`` so an agent dispatching off a
     search hit knows which fetch connector to call without parsing the key."""
     _mock_csv_chapters()
-    df = (await enumerate_bde(BdeEnumerateParams())).data
+    df = _enumerate_frame(await enumerate_bde())
 
     assert "source" in df.columns
     assert (df["source"] == "bde_biest").all()
@@ -413,7 +437,7 @@ async def test_enumerate_bde_normalises_frequency_to_english() -> None:
     """BdE encodes frequency in Spanish (``MENSUAL``, ``TRIMESTRAL``); the
     enumerator translates so an agent searching ``monthly`` hits Spanish series."""
     _mock_csv_chapters()
-    df = (await enumerate_bde(BdeEnumerateParams())).data
+    df = _enumerate_frame(await enumerate_bde())
 
     freqs = set(df["frequency"])
     assert "Monthly" in freqs
@@ -428,7 +452,7 @@ async def test_enumerate_bde_splits_dataset_from_leaf_title() -> None:
     the leaf becomes ``title`` (TITLE) — agents can filter by topic without
     coupling to the exact leaf phrasing."""
     _mock_csv_chapters()
-    df = (await enumerate_bde(BdeEnumerateParams())).data
+    df = _enumerate_frame(await enumerate_bde())
 
     ti_row = df[df["key"] == "D_DTFK09A0"].iloc[0]
     # Title is the leaf segment after the last "/" in the upstream title path.
@@ -443,7 +467,7 @@ async def test_enumerate_bde_splits_dataset_from_leaf_title() -> None:
 @pytest.mark.asyncio
 async def test_enumerate_bde_captures_dates_and_units_metadata() -> None:
     _mock_csv_chapters()
-    df = (await enumerate_bde(BdeEnumerateParams())).data
+    df = _enumerate_frame(await enumerate_bde())
 
     tc_row = df[df["key"] == "DTCCBCEUSDEUR.B"].iloc[0]
     assert tc_row["unit"].startswith("Dolares")
@@ -477,7 +501,7 @@ async def test_enumerate_bde_degrades_gracefully_on_chapter_outage() -> None:
         return_value=httpx.Response(200, content=_CSV_TI.encode("cp1252"))
     )
 
-    df = (await enumerate_bde(BdeEnumerateParams())).data
+    df = _enumerate_frame(await enumerate_bde())
     assert len(df) == 4
     assert set(df["category"]) == {
         "General Statistics",
@@ -540,7 +564,7 @@ async def test_enumerate_bde_skips_rows_missing_serie() -> None:
         return_value=httpx.Response(200, content=bogus.encode("cp1252"))
     )
 
-    df = (await enumerate_bde(BdeEnumerateParams())).data
+    df = _enumerate_frame(await enumerate_bde())
     assert list(df["key"]) == ["D_DTFK09A0"]
 
 
@@ -553,7 +577,7 @@ async def test_enumerate_bde_returns_empty_when_all_chapters_fail() -> None:
     for chapter in ("be", "cf", "ie", "pb", "si", "tc", "ti"):
         respx.get(f"{base}/catalogo_{chapter}.csv").mock(return_value=httpx.Response(503))
 
-    df = (await enumerate_bde(BdeEnumerateParams())).data
+    df = _enumerate_frame(await enumerate_bde())
     assert len(df) == 0
     # Schema columns are still present so downstream OutputConfig.apply works.
     assert "key" in df.columns
@@ -563,14 +587,13 @@ async def test_enumerate_bde_returns_empty_when_all_chapters_fail() -> None:
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_enumerate_bde_emits_schema_with_description_role() -> None:
-    """The OutputConfig declares a DESCRIPTION column so SeriesEntry.description
-    is populated — and thus reaches the embedder via semantic_text()."""
+async def test_enumerate_bde_emits_description_as_metadata() -> None:
+    """Descriptions are ordinary metadata in the clean catalog contract."""
     from parsimony.result import ColumnRole
 
-    desc_cols = [c for c in BDE_ENUMERATE_OUTPUT.columns if c.role == ColumnRole.DESCRIPTION]
+    desc_cols = [c for c in BDE_ENUMERATE_OUTPUT.columns if c.name == "description"]
     assert len(desc_cols) == 1
-    assert desc_cols[0].name == "description"
+    assert desc_cols[0].role == ColumnRole.METADATA
 
 
 def test_enumerate_bde_schema_includes_source_metadata_column() -> None:
@@ -589,26 +612,26 @@ def test_enumerate_bde_schema_includes_source_metadata_column() -> None:
 
 
 def test_split_title_path_extracts_leaf_and_dataset() -> None:
-    from parsimony_bde import _split_title_path
+    from parsimony_bde.connectors._catalog import split_title_path
 
-    dataset, leaf = _split_title_path("Monetary policy/Eurosystem operations/Fixed rate auctions")
+    dataset, leaf = split_title_path("Monetary policy/Eurosystem operations/Fixed rate auctions")
     assert leaf == "Fixed rate auctions"
     assert "Monetary policy" in dataset
     assert "Eurosystem operations" in dataset
 
 
 def test_split_title_path_handles_single_segment() -> None:
-    from parsimony_bde import _split_title_path
+    from parsimony_bde.connectors._catalog import split_title_path
 
-    dataset, leaf = _split_title_path("Lone title")
+    dataset, leaf = split_title_path("Lone title")
     assert dataset == ""
     assert leaf == "Lone title"
 
 
 def test_split_title_path_handles_empty() -> None:
-    from parsimony_bde import _split_title_path
+    from parsimony_bde.connectors._catalog import split_title_path
 
-    dataset, leaf = _split_title_path("")
+    dataset, leaf = split_title_path("")
     assert dataset == ""
     assert leaf == ""
 
@@ -618,9 +641,9 @@ def test_split_title_path_treats_faceted_dsd_paths_as_dataset() -> None:
     where the last segment is just another facet, not a name. The leaf in that
     case is meaningless — the caller falls back to the description for the
     catalog title and keeps the whole faceted string as ``dataset``."""
-    from parsimony_bde import _split_title_path
+    from parsimony_bde.connectors._catalog import split_title_path
 
-    dataset, leaf = _split_title_path(
+    dataset, leaf = split_title_path(
         "Metodología: SEC2010/Año Base: 2020/Valoración: Volúmenes encadenados"
     )
     assert leaf == ""

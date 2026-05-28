@@ -17,7 +17,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 pip install parsimony-rba
 ```
 
-Pulls in `parsimony-core>=0.4,<0.5` automatically. Verify discovery:
+Pulls in a compatible `parsimony-core` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
@@ -34,7 +34,7 @@ import asyncio
 from parsimony_rba import CONNECTORS
 
 async def main():
-    connectors = CONNECTORS.bind_env()
+    connectors = CONNECTORS
     result = await connectors["rba_fetch"](table_id="f1-data")
     print(result.data.head())
 
@@ -45,16 +45,12 @@ For multi-plugin composition:
 
 ```python
 from parsimony import discover
-connectors = discover.load_all().bind_env()
+connectors = discover.load_all()
 ```
 
-## Catalog publishing
+## Catalogs
 
-This plugin publishes a catalog under the `rba` namespace, backed by `enumerate_rba`.
-
-```bash
-parsimony publish --provider rba --target "hf://<your-org>/parsimony-rba"
-```
+This plugin currently exposes connectors only. If a catalog is added, it should be a lazy `Catalog` declaration that maintainers build and push directly.
 
 ## Provider
 

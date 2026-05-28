@@ -51,54 +51,34 @@ def _make_request(url: str) -> Any:
 
 
 class TestWbUrlRewrite:
-    def test_rewrites_bad_wb_host_when_enabled(
-        self, fake_session_state: dict[str, Any]
-    ) -> None:
+    def test_rewrites_bad_wb_host_when_enabled(self, fake_session_state: dict[str, Any]) -> None:
         from parsimony_sdmx.providers.sdmx_client import sdmx_client
 
         with sdmx_client("WB_WDI", wb_url_rewrite=True) as client:
             client.session.send(_make_request("https://dataapi.worldbank.org/sdmx/data/WDI"))
 
-        assert fake_session_state["send_calls"] == [
-            "https://api.worldbank.org/sdmx/data/WDI"
-        ]
+        assert fake_session_state["send_calls"] == ["https://api.worldbank.org/sdmx/data/WDI"]
 
-    def test_default_does_not_rewrite(
-        self, fake_session_state: dict[str, Any]
-    ) -> None:
+    def test_default_does_not_rewrite(self, fake_session_state: dict[str, Any]) -> None:
         from parsimony_sdmx.providers.sdmx_client import sdmx_client
 
         with sdmx_client("WB_WDI") as client:
             client.session.send(_make_request("https://dataapi.worldbank.org/sdmx/data/WDI"))
 
-        assert fake_session_state["send_calls"] == [
-            "https://dataapi.worldbank.org/sdmx/data/WDI"
-        ]
+        assert fake_session_state["send_calls"] == ["https://dataapi.worldbank.org/sdmx/data/WDI"]
 
-    def test_other_hosts_are_left_alone(
-        self, fake_session_state: dict[str, Any]
-    ) -> None:
+    def test_other_hosts_are_left_alone(self, fake_session_state: dict[str, Any]) -> None:
         from parsimony_sdmx.providers.sdmx_client import sdmx_client
 
         with sdmx_client("ECB", wb_url_rewrite=True) as client:
-            client.session.send(
-                _make_request("https://data-api.ecb.europa.eu/service/data/YC")
-            )
+            client.session.send(_make_request("https://data-api.ecb.europa.eu/service/data/YC"))
 
-        assert fake_session_state["send_calls"] == [
-            "https://data-api.ecb.europa.eu/service/data/YC"
-        ]
+        assert fake_session_state["send_calls"] == ["https://data-api.ecb.europa.eu/service/data/YC"]
 
-    def test_substring_match_does_not_trigger_rewrite(
-        self, fake_session_state: dict[str, Any]
-    ) -> None:
+    def test_substring_match_does_not_trigger_rewrite(self, fake_session_state: dict[str, Any]) -> None:
         from parsimony_sdmx.providers.sdmx_client import sdmx_client
 
         with sdmx_client("WB_WDI", wb_url_rewrite=True) as client:
-            client.session.send(
-                _make_request("https://api.example.com/?u=dataapi.worldbank.org")
-            )
+            client.session.send(_make_request("https://api.example.com/?u=dataapi.worldbank.org"))
 
-        assert fake_session_state["send_calls"] == [
-            "https://api.example.com/?u=dataapi.worldbank.org"
-        ]
+        assert fake_session_state["send_calls"] == ["https://api.example.com/?u=dataapi.worldbank.org"]

@@ -1,95 +1,34 @@
-"""Semantic search over the published Sveriges Riksbank catalog.
-
-Wraps the parquet+FAISS catalog at ``hf://parsimony-dev/riksbank`` (override
-with ``PARSIMONY_RIKSBANK_CATALOG_URL`` for local testing) as an MCP tool.
-
-Codes returned are SWEA ``series_id`` (e.g. ``SECBREPOEFF``) or SWESTR
-identifiers (e.g. ``SWESTR``, ``SWESTRAVG1M``, ``SWESTRINDEX``). Dispatch:
-
-* SWEA → :func:`riksbank_fetch` via ``series_id``
-* SWESTR → :func:`riksbank_swestr_fetch` via ``series``
-
-The dispatch hint lives in the catalog row's ``source`` metadata
-(``"swea"`` vs ``"swestr"``); only ``code``+``title``+``similarity`` are
-returned by this tool to keep the discovery surface compact.
-"""
+"""Semantic search over the published Sveriges Riksbank catalog."""
 
 from __future__ import annotations
 
-import logging
-import os
-from typing import Annotated
-
-import pandas as pd
-from parsimony.catalog import Catalog, CatalogCache
-from parsimony.connector import connector
+from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
 from parsimony.result import Column, ColumnRole, OutputConfig
-from pydantic import BaseModel, Field
 
-logger = logging.getLogger(__name__)
+from parsimony_riksbank.catalog_build import build_riksbank_catalog
+
+RiksbankSearchParams = CatalogSearchParams
 
 PARSIMONY_RIKSBANK_CATALOG_URL_ENV = "PARSIMONY_RIKSBANK_CATALOG_URL"
-_DEFAULT_CATALOG_URL = "hf://parsimony-dev/riksbank"
-
-_CATALOG_CACHE = CatalogCache(max_size=1)
-
-
-async def _get_catalog() -> Catalog:
-    url = os.environ.get(PARSIMONY_RIKSBANK_CATALOG_URL_ENV, _DEFAULT_CATALOG_URL)
-    return await _CATALOG_CACHE.get(url)
-
 
 RIKSBANK_SEARCH_OUTPUT = OutputConfig(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="riksbank"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="similarity", role=ColumnRole.METADATA),
+        Column(name="score", role=ColumnRole.DATA),
     ]
 )
 
-
-class RiksbankSearchParams(BaseModel):
-    """Parameters for :func:`riksbank_search`."""
-
-    query: Annotated[
-        str,
-        Field(
-            min_length=1,
-            max_length=512,
-            description=(
-                "Natural-language description of the Riksbank series you "
-                "want (e.g. 'Swedish policy rate', 'SEK USD exchange rate', "
-                "'SWESTR overnight rate', 'SWESTR 1-month average')."
-            ),
-        ),
-    ]
-    limit: int = Field(default=10, ge=1, le=50, description="Top-N results.")
-
-
-@connector(
-    output=RIKSBANK_SEARCH_OUTPUT,
+riksbank_search = make_local_search_connector(
+    provider="riksbank",
+    default_url="hf://parsimony-dev/riksbank",
+    catalog_url_env_var=PARSIMONY_RIKSBANK_CATALOG_URL_ENV,
+    build_catalog=build_riksbank_catalog,
     tags=["macro", "se", "tool"],
+    description=(
+        "Semantic-search the Sveriges Riksbank catalog. "
+        "SWESTR identifiers → riksbank_swestr_fetch(series=...); "
+        "SWEA series → riksbank_fetch(series_id=...)."
+    ),
+    output_columns=RIKSBANK_SEARCH_OUTPUT.columns,
 )
-async def riksbank_search(params: RiksbankSearchParams) -> pd.DataFrame:
-    """Semantic-search the Sveriges Riksbank catalog.
-
-    Covers SWEA (interest rates and exchange rates, ~117 series) plus
-    SWESTR (the Swedish Krona Short-Term Rate, its compounded averages
-    1W/1M/2M/3M/6M, and the SWESTR index).
-
-    Dispatch by code: SWESTR identifiers (``SWESTR``, ``SWESTRAVG*``,
-    ``SWESTRINDEX``) → ``riksbank_swestr_fetch(series=...)``; everything
-    else (SWEA) → ``riksbank_fetch(series_id=...)``.
-    """
-    catalog = await _get_catalog()
-    matches = await catalog.search(params.query, limit=params.limit)
-    return pd.DataFrame(
-        [
-            {
-                "code": m.code,
-                "title": m.title,
-                "similarity": round(m.similarity, 6),
-            }
-            for m in matches
-        ]
-    )

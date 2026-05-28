@@ -32,41 +32,35 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError
+from parsimony.errors import EmptyDataError, InvalidParameterError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Result,
 )
 from parsimony.transport import map_http_error
+from parsimony_shared.cb_enumerate import (
+    MetadataCrawlConfig,
+    ThrottledJsonFetcher,
+    enumerate_descriptions,
+    truncate_description,
+)
 from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
-
 _BASE_URL = "https://webstat.banque-france.fr/api/explore/v2.1/catalog/datasets"
-
-_ENV: dict[str, str] = {"api_key": "BANQUEDEFRANCE_KEY"}
 
 # Conservative throttling. The Opendatasoft endpoint is rate-limited
 # globally at 10K requests/day and per-IP at a modest QPS; concurrency=4
 # with a 0.25s inter-request delay keeps enumeration smooth without
 # tripping the WAF.
-_METADATA_CONCURRENCY = 4
-_INTER_REQUEST_DELAY_S = 0.25
-_RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
-_RETRY_BACKOFFS_S: tuple[float, ...] = (1.0, 2.0, 4.0)
-
-# Cap descriptions before they reach the embedder. BdF titles are short,
-# but bilingual concatenation can expand the description meaningfully —
-# a hard cap keeps the embedder context-window-safe.
-_DESCRIPTION_CHAR_CAP = 1500
+_METADATA_CRAWL = MetadataCrawlConfig(concurrency=4, inter_request_delay_s=0.25)
 
 # Series payloads can be 1.6MB+ (the full series listing for big
 # datasets); allow long reads.
@@ -103,7 +97,7 @@ class BdfFetchParams(BaseModel):
     def _non_empty(cls, v: str) -> str:
         v = v.strip()
         if not v:
-            raise ValueError("key must be non-empty")
+            raise InvalidParameterError("bdf", "key must be non-empty")
         return v
 
 
@@ -128,7 +122,7 @@ BDF_ENUMERATE_OUTPUT = OutputConfig(
         # KEY alone (or by the ``entity_type`` METADATA column).
         Column(name="code", role=ColumnRole.KEY, namespace="bdf"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="description", role=ColumnRole.DESCRIPTION),
+        Column(name="description", role=ColumnRole.METADATA),
         Column(name="entity_type", role=ColumnRole.METADATA),  # "dataset" | "series"
         Column(name="dataset_id", role=ColumnRole.METADATA),
         Column(name="dataset_description", role=ColumnRole.METADATA),
@@ -180,26 +174,6 @@ _ENUMERATE_COLUMNS: tuple[str, ...] = (
 # ---------------------------------------------------------------------------
 
 
-def _truncate(text: str, cap: int = _DESCRIPTION_CHAR_CAP) -> str:
-    """Cap a string at ``cap`` chars; return as-is if shorter."""
-    if not text:
-        return ""
-    if len(text) <= cap:
-        return text
-    return text[:cap].rstrip()
-
-
-def _retry_after_seconds(response: httpx.Response) -> float | None:
-    """Parse the ``Retry-After`` header; ``None`` if absent/malformed."""
-    raw = response.headers.get("Retry-After")
-    if not raw:
-        return None
-    try:
-        return float(raw)
-    except ValueError:
-        return None
-
-
 def _auth_headers(api_key: str) -> dict[str, str]:
     """Build the BdF Webstat Opendatasoft auth + transport headers.
 
@@ -211,64 +185,6 @@ def _auth_headers(api_key: str) -> dict[str, str]:
         "Accept": "application/json",
         "User-Agent": "parsimony-bdf/0.1",
     }
-
-
-async def _get_json(
-    client: httpx.AsyncClient,
-    url: str,
-    *,
-    semaphore: asyncio.Semaphore,
-    params: dict[str, str] | None = None,
-) -> Any | None:
-    """GET ``url`` and return the parsed JSON body.
-
-    Retries 429/5xx with exponential backoff and honors ``Retry-After``.
-    On exhausted retries / network errors / non-JSON bodies, logs a
-    WARNING and returns ``None`` so the caller can decide whether to
-    skip.
-    """
-    async with semaphore:
-        await asyncio.sleep(_INTER_REQUEST_DELAY_S)
-        last_status: int | None = None
-        last_error: str | None = None
-        for attempt, backoff in enumerate((*_RETRY_BACKOFFS_S, None)):
-            try:
-                response = await client.get(url, params=params)
-            except httpx.HTTPError as exc:
-                last_error = f"{type(exc).__name__}: {exc}"
-                if backoff is None:
-                    break
-                await asyncio.sleep(backoff)
-                continue
-
-            if response.status_code == 200:
-                try:
-                    return response.json()
-                except ValueError as exc:
-                    logger.warning("BdF %s returned non-JSON body: %s", url, exc)
-                    return None
-
-            last_status = response.status_code
-            if response.status_code in _RETRY_STATUSES and backoff is not None:
-                wait = _retry_after_seconds(response) or backoff
-                logger.info(
-                    "BdF %s returned %s (attempt %d); retrying in %.1fs",
-                    url,
-                    response.status_code,
-                    attempt + 1,
-                    wait,
-                )
-                await asyncio.sleep(wait)
-                continue
-            break
-
-        logger.warning(
-            "BdF fetch failed for %s after retries (last_status=%s, last_error=%s)",
-            url,
-            last_status,
-            last_error,
-        )
-        return None
 
 
 def _parse_dimensions(raw: str | None) -> dict[str, Any]:
@@ -303,9 +219,9 @@ def _dataset_description(*, description_en: str, description_fr: str) -> str:
     fr = (description_fr or "").strip()
     if en and fr:
         if en.lower() == fr.lower():
-            return _truncate(en)
-        return _truncate(f"{en} | {fr}")
-    return _truncate(en or fr)
+            return cast(str, truncate_description(en))
+        return cast(str, truncate_description(f"{en} | {fr}"))
+    return cast(str, truncate_description(en or fr))
 
 
 def _series_title(
@@ -343,24 +259,22 @@ def _series_description(
     en_part = (title_long_en or title_en or "").strip()
     fr_part = (title_long_fr or title_fr or "").strip()
 
-    bilingual: str
     if en_part and fr_part:
         bilingual = en_part if en_part.lower() == fr_part.lower() else f"{en_part} | {fr_part}"
     else:
         bilingual = en_part or fr_part
 
-    chunks: list[str] = []
+    parts: list[str] = []
     if bilingual:
-        chunks.append(bilingual)
+        parts.append(bilingual)
     if dataset_id:
         ds_ctx = f"Dataset: {dataset_id}"
         if dataset_description:
             ds_ctx += f" ({dataset_description})"
-        ds_ctx += "."
-        chunks.append(ds_ctx)
+        parts.append(f"{ds_ctx}.")
     if source_agency:
-        chunks.append(f"Source: {source_agency}.")
-    return _truncate(" | ".join(c for c in chunks if c).strip())
+        parts.append(f"Source: {source_agency}.")
+    return cast(str, enumerate_descriptions(*parts, sep=" | "))
 
 
 # ---------------------------------------------------------------------------
@@ -368,14 +282,21 @@ def _series_description(
 # ---------------------------------------------------------------------------
 
 
-@connector(env=_ENV, output=BDF_FETCH_OUTPUT, tags=["macro", "fr"])
-async def bdf_fetch(params: BdfFetchParams, *, api_key: str) -> Result:
+@connector(output=BDF_FETCH_OUTPUT, tags=["macro", "fr"], secrets=('api_key',))
+async def bdf_fetch(
+    key: Annotated[str, "ns:bdf"],
+    start_period: str | None = None,
+    end_period: str | None = None,
+    *,
+    api_key: str,
+) -> pd.DataFrame:
     """Fetch Banque de France time series via the Webstat Opendatasoft API.
 
     Pulls observation rows for a single series key and returns
     ``(key, title, date, value)`` rows. Optional ``start_period`` /
     ``end_period`` filter on ``time_period_start``.
     """
+    params = BdfFetchParams(key=key, start_period=start_period, end_period=end_period)
     headers = _auth_headers(api_key)
     where = f'series_key="{params.key}"'
     if params.start_period:
@@ -444,9 +365,7 @@ async def bdf_fetch(params: BdfFetchParams, *, api_key: str) -> Result:
             message=f"No observations parsed for key: {params.key}",
         )
 
-    return Result.from_dataframe(pd.DataFrame(rows)).with_properties(
-        source_url="https://webstat.banque-france.fr"
-    )
+    return pd.DataFrame(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -455,8 +374,7 @@ async def bdf_fetch(params: BdfFetchParams, *, api_key: str) -> Result:
 
 
 async def _list_datasets(
-    client: httpx.AsyncClient,
-    semaphore: asyncio.Semaphore,
+    fetcher: ThrottledJsonFetcher,
 ) -> list[dict[str, Any]]:
     """Return every BdF dataset (45 entries) in a single request."""
     url = f"{_BASE_URL}/webstat-datasets/exports/json"
@@ -467,16 +385,15 @@ async def _list_datasets(
         ),
         "order_by": "dataset_id",
     }
-    payload = await _get_json(client, url, params=params, semaphore=semaphore)
+    payload = await fetcher.get_json(url, params=params)
     if not isinstance(payload, list):
         return []
     return [d for d in payload if isinstance(d, dict)]
 
 
 async def _list_series(
-    client: httpx.AsyncClient,
+    fetcher: ThrottledJsonFetcher,
     dataset_id: str,
-    semaphore: asyncio.Semaphore,
 ) -> list[dict[str, Any]] | None:
     """Return every series row for ``dataset_id``.
 
@@ -495,7 +412,7 @@ async def _list_series(
         ),
         "refine": f"dataset_id:{dataset_id}",
     }
-    payload = await _get_json(client, url, params=params, semaphore=semaphore)
+    payload = await fetcher.get_json(url, params=params, label=dataset_id)
     if payload is None:
         return None
     if not isinstance(payload, list):
@@ -599,31 +516,15 @@ def _emit_rows_for_dataset(
     return rows
 
 
-@enumerator(env=_ENV, output=BDF_ENUMERATE_OUTPUT, tags=["macro", "fr"])
-async def enumerate_bdf(params: BdfEnumerateParams, *, api_key: str) -> pd.DataFrame:
+@enumerator(output=BDF_ENUMERATE_OUTPUT, tags=["macro", "fr"], secrets=('api_key',))
+async def enumerate_bdf(*, api_key: str) -> pd.DataFrame:
     """Enumerate every BdF series with parent dataset context.
 
-    Pipeline:
-
-    1. ``GET /webstat-datasets/exports/json`` — pull all 45 datasets in
-       a single request.
-    2. For each dataset, ``GET /series/exports/json?refine=dataset_id:{ID}``
-       — pull all series for that dataset (full listing in one
-       response).
-    3. Emit one ``entity_type='dataset'`` stub per dataset (~45) and one
-       ``entity_type='series'`` row per discovered series (~41,607).
-
-    Concurrency is capped at 4 with a 0.25 s inter-request delay; 429/
-    5xx responses retry up to 3 times with exponential backoff and
-    honor ``Retry-After``. After exhausting retries the affected
-    dataset's series rows are skipped (the dataset stub is still
-    emitted) with a WARNING.
-
-    Cost: ~46 requests total (well under the 10K/day quota).
+    Pull dataset list, then per-dataset series exports; emit dataset stubs
+    and series rows. Concurrency capped at 4 with backoff on 429/5xx; failed
+    datasets log WARNING and skip series rows. About 46 requests total.
     """
-    del params
 
-    semaphore = asyncio.Semaphore(_METADATA_CONCURRENCY)
     rows: list[dict[str, str]] = []
     failed_datasets: list[str] = []
 
@@ -632,7 +533,8 @@ async def enumerate_bdf(params: BdfEnumerateParams, *, api_key: str) -> pd.DataF
         headers=_auth_headers(api_key),
         follow_redirects=True,
     ) as client:
-        datasets = await _list_datasets(client, semaphore)
+        fetcher = ThrottledJsonFetcher(client, provider="bdf", config=_METADATA_CRAWL, logger=logger)
+        datasets = await _list_datasets(fetcher)
         if not datasets:
             logger.warning("BdF enumerate: dataset list fetch failed; emitting empty catalog")
             return pd.DataFrame(columns=list(_ENUMERATE_COLUMNS))
@@ -643,7 +545,7 @@ async def enumerate_bdf(params: BdfEnumerateParams, *, api_key: str) -> pd.DataF
             dataset_id = str(dataset.get("dataset_id") or "").strip()
             if not dataset_id:
                 return []
-            series_rows = await _list_series(client, dataset_id, semaphore)
+            series_rows = await _list_series(fetcher, dataset_id)
             if series_rows is None:
                 # Transport failure — emit dataset stub only, log warning.
                 failed_datasets.append(dataset_id)
@@ -664,35 +566,16 @@ async def enumerate_bdf(params: BdfEnumerateParams, *, api_key: str) -> pd.DataF
         logger.info("BdF enumerate: emitted %d rows", len(rows))
 
     columns = list(_ENUMERATE_COLUMNS)
-    return pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    df = pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    return df
 
 
 # ---------------------------------------------------------------------------
 # Exports
 # ---------------------------------------------------------------------------
 
-from parsimony_bdf.search import (  # noqa: E402  (after public decorators)
-    BDF_SEARCH_OUTPUT,
-    PARSIMONY_BDF_CATALOG_URL_ENV,
-    BdfSearchParams,
-    bdf_search,
-)
-
-CATALOGS: list[tuple[str, object]] = [("bdf", enumerate_bdf)]
+from parsimony_bdf.search import bdf_search  # noqa: E402  (after public decorators)
 
 CONNECTORS = Connectors([bdf_fetch, enumerate_bdf, bdf_search])
 
-__all__ = [
-    "BDF_ENUMERATE_OUTPUT",
-    "BDF_FETCH_OUTPUT",
-    "BDF_SEARCH_OUTPUT",
-    "CATALOGS",
-    "CONNECTORS",
-    "BdfEnumerateParams",
-    "BdfFetchParams",
-    "BdfSearchParams",
-    "PARSIMONY_BDF_CATALOG_URL_ENV",
-    "bdf_fetch",
-    "bdf_search",
-    "enumerate_bdf",
-]
+__all__ = ["CONNECTORS"]

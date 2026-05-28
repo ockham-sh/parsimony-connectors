@@ -17,9 +17,7 @@ class TestRunDataset:
         mock_provider = MagicMock()
         mock_provider.list_series.return_value = _series_stream()
 
-        with patch(
-            "parsimony_sdmx.providers.registry.get_provider", return_value=mock_provider
-        ):
+        with patch("parsimony_sdmx.providers.registry.get_provider", return_value=mock_provider):
             outcome = run_dataset("ECB", "YC", str(tmp_path))
 
         assert outcome.status == OutcomeStatus.OK
@@ -35,9 +33,7 @@ class TestRunDataset:
         mock_provider = MagicMock()
         mock_provider.list_series.return_value = iter([])
 
-        with patch(
-            "parsimony_sdmx.providers.registry.get_provider", return_value=mock_provider
-        ):
+        with patch("parsimony_sdmx.providers.registry.get_provider", return_value=mock_provider):
             outcome = run_dataset("ECB", "YC", str(tmp_path))
 
         assert outcome.status == OutcomeStatus.EMPTY
@@ -49,9 +45,7 @@ class TestRunDataset:
         mock_provider = MagicMock()
         mock_provider.list_series.side_effect = ValueError("boom")
 
-        with patch(
-            "parsimony_sdmx.providers.registry.get_provider", return_value=mock_provider
-        ):
+        with patch("parsimony_sdmx.providers.registry.get_provider", return_value=mock_provider):
             outcome = run_dataset("ECB", "YC", str(tmp_path))
 
         assert outcome.status == OutcomeStatus.FAILED
@@ -70,9 +64,7 @@ class TestRunDataset:
         mock_provider = MagicMock()
         mock_provider.list_series.side_effect = TitleBuildError("bad codelist")
 
-        with patch(
-            "parsimony_sdmx.providers.registry.get_provider", return_value=mock_provider
-        ):
+        with patch("parsimony_sdmx.providers.registry.get_provider", return_value=mock_provider):
             outcome = run_dataset("ECB", "YC", str(tmp_path))
 
         assert outcome.status == OutcomeStatus.FAILED

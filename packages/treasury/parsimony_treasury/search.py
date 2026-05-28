@@ -1,94 +1,34 @@
-"""Semantic search over the published US Treasury catalog.
-
-Wraps the parquet+FAISS catalog at ``hf://parsimony-dev/treasury`` (override
-with ``PARSIMONY_TREASURY_CATALOG_URL`` for local testing) as an MCP tool.
-
-Codes returned dispatch to one of two fetch connectors:
-
-* ``v<n>/<endpoint>#<field>`` (Fiscal Data) → :func:`treasury_fetch` via
-  ``endpoint`` (use the part before ``#``); the field name guides which
-  measure to read.
-* ``home/<feed>`` (Treasury rate XML feeds) → :func:`treasury_rates_fetch`
-  via ``feed`` (use the part after ``home/``).
-"""
+"""Semantic search over the published US Treasury catalog."""
 
 from __future__ import annotations
 
-import logging
-import os
-from typing import Annotated
-
-import pandas as pd
-from parsimony.catalog import Catalog, CatalogCache
-from parsimony.connector import connector
+from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
 from parsimony.result import Column, ColumnRole, OutputConfig
-from pydantic import BaseModel, Field
 
-logger = logging.getLogger(__name__)
+from parsimony_treasury.catalog_build import build_treasury_catalog
+
+TreasurySearchParams = CatalogSearchParams
 
 PARSIMONY_TREASURY_CATALOG_URL_ENV = "PARSIMONY_TREASURY_CATALOG_URL"
-_DEFAULT_CATALOG_URL = "hf://parsimony-dev/treasury"
-
-_CATALOG_CACHE = CatalogCache(max_size=1)
-
-
-async def _get_catalog() -> Catalog:
-    url = os.environ.get(PARSIMONY_TREASURY_CATALOG_URL_ENV, _DEFAULT_CATALOG_URL)
-    return await _CATALOG_CACHE.get(url)
-
 
 TREASURY_SEARCH_OUTPUT = OutputConfig(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="treasury"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="similarity", role=ColumnRole.METADATA),
+        Column(name="score", role=ColumnRole.DATA),
     ]
 )
 
-
-class TreasurySearchParams(BaseModel):
-    """Parameters for :func:`treasury_search`."""
-
-    query: Annotated[
-        str,
-        Field(
-            min_length=1,
-            max_length=512,
-            description=(
-                "Natural-language description of the Treasury series you "
-                "want (e.g. 'US public debt to the penny', 'daily Treasury "
-                "yield curve 10-year', 'monthly Treasury statement receipts')."
-            ),
-        ),
-    ]
-    limit: int = Field(default=10, ge=1, le=50, description="Top-N results.")
-
-
-@connector(
-    output=TREASURY_SEARCH_OUTPUT,
+treasury_search = make_local_search_connector(
+    provider="treasury",
+    default_url="hf://parsimony-dev/treasury",
+    catalog_url_env_var=PARSIMONY_TREASURY_CATALOG_URL_ENV,
+    build_catalog=build_treasury_catalog,
     tags=["macro", "us", "tool"],
+    description=(
+        "Semantic-search the US Treasury catalog (Fiscal Data + ODM rate feeds). "
+        "Dispatch: home/<feed> → treasury_rates_fetch(feed=...); "
+        "v<n>/<endpoint>#<field> → treasury_fetch(endpoint=...)."
+    ),
+    output_columns=TREASURY_SEARCH_OUTPUT.columns,
 )
-async def treasury_search(params: TreasurySearchParams) -> pd.DataFrame:
-    """Semantic-search the US Treasury catalog (Fiscal Data + ODM rate feeds).
-
-    Covers ~884 Fiscal Data measure fields across debt, federal accounts,
-    monthly Treasury statements, etc., plus ~35 entries from the 5
-    daily Treasury rate feeds (yield curve, real yield curve, bill rates,
-    long-term rate, real long-term rate).
-
-    Dispatch by code prefix: ``home/<feed>`` →
-    ``treasury_rates_fetch(feed=...)``; ``v<n>/<endpoint>#<field>`` →
-    ``treasury_fetch(endpoint=...)``.
-    """
-    catalog = await _get_catalog()
-    matches = await catalog.search(params.query, limit=params.limit)
-    return pd.DataFrame(
-        [
-            {
-                "code": m.code,
-                "title": m.title,
-                "similarity": round(m.similarity, 6),
-            }
-            for m in matches
-        ]
-    )

@@ -17,7 +17,7 @@ from parsimony_test_support import (
     require_env,
 )
 
-from parsimony_fmp import FmpSearchParams, fmp_search
+from parsimony_fmp import fmp_search
 
 pytestmark = pytest.mark.integration
 
@@ -27,7 +27,7 @@ async def test_fmp_search_apple_returns_ticker() -> None:
     creds = require_env("FMP_API_KEY")
     bound = fmp_search.bind(api_key=creds["FMP_API_KEY"])
 
-    result = await bound(FmpSearchParams(query="Apple"))
+    result = await bound(query="Apple")
 
     # FMP's Provenance.source is the connector name ("fmp_search"), not the
     # provider. Just assert well-formed provenance — don't pin the source.

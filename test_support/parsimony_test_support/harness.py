@@ -130,3 +130,15 @@ def assert_provenance_shape(
             f"Provenance.params missing required keys: {missing}. "
             f"Got: {list(prov.params.keys())}"
         )
+
+
+def entries_result_to_dataframe(result: Result, *, columns: list[str] | None = None) -> Any:
+    """Return tabular enumerator data from a wrapped :class:`Result`."""
+    import pandas as pd
+
+    data = result.data
+    if not isinstance(data, pd.DataFrame):
+        raise TypeError(f"expected TabularResult data frame, got {type(data)!r}")
+    if columns is None:
+        return data
+    return data.reindex(columns=columns, fill_value="")

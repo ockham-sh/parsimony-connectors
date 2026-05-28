@@ -24,6 +24,7 @@ from parsimony.errors import (
 )
 from parsimony.result import OutputConfig
 from parsimony.transport import HttpClient, map_timeout_error, parse_retry_after
+from parsimony.transport.helpers import make_http_client
 
 _DEFAULT_BASE_URL: str = "https://api.coingecko.com/api/v3"
 _DEFAULT_TIMEOUT_SECONDS: float = 15.0
@@ -36,13 +37,9 @@ _PLAN_RESTRICTION_CODES: frozenset[int] = frozenset({10005, 10006, 10012})
 
 
 def make_http(api_key: str, base_url: str = _DEFAULT_BASE_URL) -> HttpClient:
-    """Construct the standard CoinGecko transport.
+    """Construct the standard CoinGecko transport."""
 
-    The Demo API key rides as the ``x-cg-demo-api-key`` header (CoinGecko's
-    auth convention for the Demo plan). Timeout is 15s — matches the FMP
-    precedent and is comfortable for CoinGecko's non-streaming JSON routes.
-    """
-    return HttpClient(
+    return make_http_client(
         base_url,
         headers={"x-cg-demo-api-key": api_key},
         timeout=_DEFAULT_TIMEOUT_SECONDS,

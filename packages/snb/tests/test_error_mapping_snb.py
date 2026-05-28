@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from parsimony_test_support import ErrorMappingSuite
 
-from parsimony_snb import SnbFetchParams, snb_fetch
+from parsimony_snb import snb_fetch
 
 
 class TestSnbFetchErrorMapping(ErrorMappingSuite):
     connector = snb_fetch
-    params = SnbFetchParams(cube_id="rendoblim")
+    call_kwargs = {"cube_id": "rendoblim"}
     route_url = "https://data.snb.ch/api/cube/rendoblim/data/csv/en"
     env_key = None

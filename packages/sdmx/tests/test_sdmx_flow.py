@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from parsimony_sdmx.core.errors import SdmxFetchError
-from parsimony_sdmx.core.models import DatasetRecord, SeriesRecord
+from parsimony_sdmx.core.models import DatasetRecord, DimensionValue, SeriesRecord
 from parsimony_sdmx.providers.sdmx_flow import list_datasets_flow, list_series_flow
 
 
@@ -27,9 +27,7 @@ def _code(cid: str, label: str) -> SimpleNamespace:
 
 def _dim(dim_id: str, codelist_id: str | None = None) -> SimpleNamespace:
     local = SimpleNamespace(enumerated=SimpleNamespace(id=codelist_id)) if codelist_id else None
-    return SimpleNamespace(
-        id=dim_id, local_representation=local, concept_identity=None
-    )
+    return SimpleNamespace(id=dim_id, local_representation=local, concept_identity=None)
 
 
 def _sk(values: dict[str, str]) -> SimpleNamespace:
@@ -62,14 +60,8 @@ class TestListDatasetsFlow:
 
     def test_decorate_title_hook(self) -> None:
         client = MagicMock()
-        client.dataflow.return_value = SimpleNamespace(
-            dataflow={"WDI": _flow("WDI", "World Development Indicators")}
-        )
-        out = list(
-            list_datasets_flow(
-                client, "WB_WDI", decorate_title=lambda fid, t: f"World Bank - {t}"
-            )
-        )
+        client.dataflow.return_value = SimpleNamespace(dataflow={"WDI": _flow("WDI", "World Development Indicators")})
+        out = list(list_datasets_flow(client, "WB_WDI", decorate_title=lambda fid, t: f"World Bank - {t}"))
         assert out[0].title == "World Bank - World Development Indicators"
 
     def test_client_exception_wrapped(self) -> None:
@@ -125,18 +117,24 @@ class TestListSeriesFlow:
             SeriesRecord(
                 id="A.U2",
                 dataset_id="YC",
-                title="A: Annual - U2: Euro area",
-                fragments=("Annual", "Euro area"),
+                title="Annual - Euro area",
+                dimensions=(
+                    DimensionValue(id="FREQ", code="A", label="Annual"),
+                    DimensionValue(id="REF_AREA", code="U2", label="Euro area"),
+                ),
             ),
             SeriesRecord(
                 id="M.U2",
                 dataset_id="YC",
-                title="M: Monthly - U2: Euro area",
-                fragments=("Monthly", "Euro area"),
+                title="Monthly - Euro area",
+                dimensions=(
+                    DimensionValue(id="FREQ", code="M", label="Monthly"),
+                    DimensionValue(id="REF_AREA", code="U2", label="Euro area"),
+                ),
             ),
         ]
 
-    def test_augment_hook_applied(self) -> None:
+    def test_source_title_hook_applied(self) -> None:
         client = MagicMock()
         client.dataflow.return_value = self._build_msg("YC")
         client.series_keys.return_value = [_sk({"FREQ": "A", "REF_AREA": "U2"})]
@@ -145,10 +143,10 @@ class TestListSeriesFlow:
                 client,
                 "ECB",
                 "YC",
-                augment=lambda base, sid: f"{base} | ECB:{sid}",
+                source_title=lambda sid: f"ECB:{sid}",
             )
         )
-        assert out[0].title == "A: Annual - U2: Euro area | ECB:A.U2"
+        assert out[0].title == "ECB:A.U2"
 
     def test_dsd_fetched_separately_if_not_in_msg(self) -> None:
         client = MagicMock()

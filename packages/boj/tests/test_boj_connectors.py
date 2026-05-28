@@ -17,34 +17,23 @@ from parsimony.errors import EmptyDataError
 from parsimony_boj import (
     BOJ_ENUMERATE_OUTPUT,
     CONNECTORS,
-    BojEnumerateParams,
-    BojFetchParams,
     boj_fetch,
     enumerate_boj,
 )
 
 
 def test_connectors_collection_exposes_expected_names() -> None:
-    """``boj_search`` is a registered connector alongside fetch + enumerate.
-
-    We include it in the expected set because it ships with the package
-    and is what agents call to navigate the catalog. ``Catalog.from_url``
-    is lazy (only invoked on first ``boj_search`` call), so import-time
-    registration succeeds without any network or HF access.
-    """
+    """Search connectors register alongside fetch + enumerate without eager catalog I/O."""
     names = {c.name for c in CONNECTORS}
-    assert names == {"boj_fetch", "enumerate_boj", "boj_search"}
+    assert names == {"boj_fetch", "enumerate_boj", "boj_databases_search", "boj_series_search"}
 
 
-def test_enumerate_output_schema_includes_description_role() -> None:
-    """``description`` must be routed via DESCRIPTION (semantic_text) not
-    METADATA (BM25 only) so the embedder lifts it into the search index.
-    Mirrors BoC and Treasury.
-    """
+def test_enumerate_output_schema_includes_description_metadata() -> None:
+    """``description`` is ordinary metadata in the clean catalog contract."""
     from parsimony.result import ColumnRole
 
     by_name = {c.name: c for c in BOJ_ENUMERATE_OUTPUT.columns}
-    assert by_name["description"].role == ColumnRole.DESCRIPTION
+    assert by_name["description"].role == ColumnRole.METADATA
     assert by_name["source"].role == ColumnRole.METADATA
     assert by_name["entity_type"].role == ColumnRole.METADATA
     assert by_name["db"].role == ColumnRole.METADATA
@@ -73,7 +62,7 @@ async def test_boj_fetch_returns_observations() -> None:
         )
     )
 
-    result = await boj_fetch(BojFetchParams(db="FM08", code="FXERD01"))
+    result = await boj_fetch(db="FM08", code="FXERD01")
 
     assert result.provenance.source == "boj_fetch"
     df = result.data
@@ -89,7 +78,7 @@ async def test_boj_fetch_raises_empty_data_on_empty_resultset() -> None:
     )
 
     with pytest.raises(EmptyDataError):
-        await boj_fetch(BojFetchParams(db="FM08", code="XX"))
+        await boj_fetch(db="FM08", code="XX")
 
 
 # ---------------------------------------------------------------------------
@@ -111,9 +100,7 @@ def _stub_metadata_endpoint(*, status: int = 200, json: dict | None = None) -> r
 @respx.mock
 @pytest.mark.asyncio
 async def test_enumerate_boj_emits_one_row_per_series_with_description_and_source() -> None:
-    """Every series row must have all 13 columns populated, a non-empty
-    DESCRIPTION (the embedder input), and ``source='stat_search'``.
-    """
+    """Every series row must have all 13 columns populated and source metadata."""
     payload = {
         "RESULTSET": [
             # Layer header for breadcrumb context.
@@ -133,7 +120,7 @@ async def test_enumerate_boj_emits_one_row_per_series_with_description_and_sourc
     }
     _stub_metadata_endpoint(json=payload)
 
-    result = await enumerate_boj(BojEnumerateParams())
+    result = await enumerate_boj()
     df = result.data
 
     series_rows = df[df["entity_type"] == "series"]
@@ -183,7 +170,7 @@ async def test_enumerate_boj_emits_db_rows_with_db_prefix_key() -> None:
     """
     _stub_metadata_endpoint(json={"RESULTSET": []})
 
-    result = await enumerate_boj(BojEnumerateParams())
+    result = await enumerate_boj()
     df = result.data
 
     db_rows = df[df["entity_type"] == "db"]
@@ -211,14 +198,8 @@ async def test_enumerate_boj_handles_403_with_retry_then_warning(
     )
 
     with caplog.at_level(logging.WARNING, logger="parsimony_boj"):
-        result = await enumerate_boj(BojEnumerateParams())
+        result = await enumerate_boj()
 
-    df = result.data
-    # No series rows came through (every DB 403'd) but DB rows are still
-    # absent because the connector emits them only for DBs whose metadata
-    # was successfully retrieved. The summary log line is what we assert.
-    warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
-    assert any("metadata fetch failed" in m.lower() for m in warning_messages)
     # The DataFrame remains rectangular even when every DB fails.
     expected_cols = [
         "code",
@@ -236,19 +217,22 @@ async def test_enumerate_boj_handles_403_with_retry_then_warning(
         "last_update",
         "source",
     ]
+    df = result.data
+    # No series rows came through (every DB 403'd) but DB rows are still
+    # absent because the connector emits them only for DBs whose metadata
+    # was successfully retrieved. The summary log line is what we assert.
+    warning_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("fetch failed" in m.lower() for m in warning_messages)
     assert list(df.columns) == expected_cols
 
 
 @respx.mock
 @pytest.mark.asyncio
 async def test_enumerate_boj_emits_columns_required_for_catalog_entries() -> None:
-    """The Result returned by the enumerator must carry an output schema
-    that ``entries_from_result`` accepts: exactly one KEY (code), one
-    TITLE (title), one DESCRIPTION (description), and METADATA columns
+    """The Result returned by the enumerator must carry catalog entries
+    with exactly one KEY (code), one TITLE (title), and METADATA columns
     for the BoJ-specific dispatch hints.
     """
-    from parsimony.catalog import entries_from_result
-
     payload = {
         "RESULTSET": [
             {"SERIES_CODE": "", "LAYER1": "Spot Rates"},
@@ -266,15 +250,17 @@ async def test_enumerate_boj_emits_columns_required_for_catalog_entries() -> Non
     }
     _stub_metadata_endpoint(json=payload)
 
-    result = await enumerate_boj(BojEnumerateParams())
-    entries = entries_from_result(result)
+    result = await enumerate_boj()
+    # enumerate_boj fans out across every DB; the respx stub returns the same
+    # payload for each, so dedupe before projecting entities for schema checks.
+    frame = result.data.drop_duplicates(subset=["code"], keep="first")
+    entries = BOJ_ENUMERATE_OUTPUT.build_entities(frame)
 
     by_code = {e.code: e for e in entries}
     series_entry = by_code["FXERD01"]
     assert series_entry.namespace == "boj"
     assert series_entry.title == "JPY/USD Spot Rate"
-    assert series_entry.description  # non-empty — feeds semantic_text()
-    # METADATA flows into SeriesEntry.metadata.
+    assert series_entry.metadata.get("description")
     assert series_entry.metadata.get("source") == "stat_search"
     assert series_entry.metadata.get("entity_type") == "series"
     assert series_entry.metadata.get("frequency") == "Daily"

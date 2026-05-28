@@ -1,8 +1,9 @@
 """Happy-path tests for the EIA connectors.
 
-Follows ``docs/testing-template.md``. EIA auth is ``?api_key=<key>`` via
-``HttpClient(query_params=...)``; error-mapping added in this sweep
-(previously ``response.raise_for_status()`` leaked raw ``httpx`` errors).
+Follows ``CONTRIBUTING.md §4``. EIA auth is ``?api_key=<key>`` via
+``HttpClient(query_params=...)``; HTTP errors are mapped to
+``parsimony.errors`` (``UnauthorizedError`` / ``RateLimitError`` /
+``EmptyDataError``) at the transport boundary.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from parsimony.errors import EmptyDataError, RateLimitError, UnauthorizedError
+from parsimony.errors import EmptyDataError, InvalidParameterError, RateLimitError, UnauthorizedError
 
 from parsimony_eia import (
     CONNECTORS,
@@ -23,10 +24,6 @@ _KEY = "live-looking-eia-xyz"
 # ---------------------------------------------------------------------------
 # Plugin contract shape
 # ---------------------------------------------------------------------------
-
-
-def test_env_vars_maps_api_key() -> None:
-    assert CONNECTORS["eia_fetch"].env_map == {"api_key": "EIA_API_KEY"}
 
 
 def test_connectors_collection_exposes_expected_names() -> None:
@@ -58,7 +55,7 @@ async def test_eia_fetch_returns_rows() -> None:
     )
 
     bound = eia_fetch.bind(api_key=_KEY)
-    result = await bound(EiaFetchParams(route="petroleum/pri/spt"))
+    result = await bound(route="petroleum/pri/spt")
 
     assert result.provenance.source == "eia_fetch"
     assert len(result.data) == 2
@@ -74,7 +71,7 @@ async def test_eia_fetch_maps_401_without_leaking_key() -> None:
 
     bound = eia_fetch.bind(api_key=_KEY)
     with pytest.raises(UnauthorizedError) as exc_info:
-        await bound(EiaFetchParams(route="petroleum/pri/spt"))
+        await bound(route="petroleum/pri/spt")
     assert _KEY not in str(exc_info.value)
 
 
@@ -87,7 +84,7 @@ async def test_eia_fetch_maps_429_without_leaking_key() -> None:
 
     bound = eia_fetch.bind(api_key=_KEY)
     with pytest.raises(RateLimitError) as exc_info:
-        await bound(EiaFetchParams(route="petroleum/pri/spt"))
+        await bound(route="petroleum/pri/spt")
     assert _KEY not in str(exc_info.value)
 
 
@@ -100,7 +97,7 @@ async def test_eia_fetch_raises_empty_data_when_no_records() -> None:
 
     bound = eia_fetch.bind(api_key=_KEY)
     with pytest.raises(EmptyDataError):
-        await bound(EiaFetchParams(route="petroleum/pri/spt"))
+        await bound(route="petroleum/pri/spt")
 
 
 # ---------------------------------------------------------------------------
@@ -109,5 +106,5 @@ async def test_eia_fetch_raises_empty_data_when_no_records() -> None:
 
 
 def test_fetch_rejects_empty_route() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidParameterError):
         EiaFetchParams(route="   ")

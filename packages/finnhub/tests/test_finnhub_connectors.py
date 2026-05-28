@@ -13,8 +13,6 @@ from parsimony.errors import RateLimitError, UnauthorizedError
 
 from parsimony_finnhub import (
     CONNECTORS,
-    FinnhubQuoteParams,
-    FinnhubSearchParams,
     finnhub_quote,
     finnhub_search,
 )
@@ -54,7 +52,7 @@ async def test_finnhub_search_returns_matches() -> None:
     )
 
     bound = finnhub_search.bind(api_key=_KEY)
-    result = await bound(FinnhubSearchParams(query="apple"))
+    result = await bound(query="apple")
 
     assert result.provenance.source.startswith("finnhub")
     assert result.data.iloc[0]["symbol"] == "AAPL"
@@ -69,7 +67,7 @@ async def test_finnhub_search_maps_401_without_leaking_key() -> None:
 
     bound = finnhub_search.bind(api_key=_KEY)
     with pytest.raises(UnauthorizedError) as exc_info:
-        await bound(FinnhubSearchParams(query="x"))
+        await bound(query="x")
     assert _KEY not in str(exc_info.value)
 
 
@@ -82,7 +80,7 @@ async def test_finnhub_search_maps_429_without_leaking_key() -> None:
 
     bound = finnhub_search.bind(api_key=_KEY)
     with pytest.raises(RateLimitError) as exc_info:
-        await bound(FinnhubSearchParams(query="x"))
+        await bound(query="x")
     assert _KEY not in str(exc_info.value)
 
 
@@ -97,7 +95,7 @@ async def test_finnhub_quote_returns_single_row() -> None:
     )
 
     bound = finnhub_quote.bind(api_key=_KEY)
-    result = await bound(FinnhubQuoteParams(symbol="AAPL"))
+    result = await bound(symbol="AAPL")
 
     df = result.data
     assert len(df) == 1

@@ -24,8 +24,9 @@ from parsimony.errors import (
     EmptyDataError,
     ParseError,
 )
-from parsimony.result import OutputConfig, Result
+from parsimony.result import OutputConfig
 from parsimony.transport import HttpClient, map_http_error, map_timeout_error, pooled_client
+from parsimony.transport.helpers import make_http_client
 
 # Per-request timeout. 15s matches the Tiingo connector's precedent and is
 # defensible for FMP's equity REST endpoints, which are not streaming.
@@ -41,7 +42,7 @@ def make_http(api_key: str, base_url: str = _DEFAULT_BASE_URL) -> HttpClient:
     query-param handling are consistent. The API key rides as a default
     query parameter (FMP's auth convention).
     """
-    return HttpClient(
+    return make_http_client(
         base_url,
         query_params={"apikey": api_key},
         timeout=_DEFAULT_TIMEOUT_SECONDS,
@@ -80,7 +81,7 @@ async def fmp_fetch(
     params: dict[str, Any],
     op_name: str,
     output_config: OutputConfig | None = None,
-) -> Result:
+) -> Any:
     """Simple-connector helper: fetch, build DataFrame, wrap in :class:`Result`.
 
     Handles FMP's response shapes: lists become DataFrames directly; dicts
@@ -119,8 +120,8 @@ async def fmp_fetch(
         raise EmptyDataError(provider="fmp", message=f"No data returned from FMP endpoint '{op_name}'")
 
     if output_config is not None:
-        return output_config.build_table_result(df)
-    return Result.from_dataframe(df)
+        return df
+    return df
 
 
 __all__ = [

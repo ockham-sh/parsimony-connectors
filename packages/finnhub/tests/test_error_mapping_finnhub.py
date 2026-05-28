@@ -19,14 +19,14 @@ from parsimony.errors import (
 )
 from parsimony_test_support import CANARY_KEY, ErrorMappingSuite, assert_no_secret_leak
 
-from parsimony_finnhub import FinnhubSearchParams, finnhub_search
+from parsimony_finnhub import finnhub_search
 
 _ROUTE = "https://finnhub.io/api/v1/search"
 
 
 class TestFinnhubSearchErrorMapping(ErrorMappingSuite):
     connector = finnhub_search
-    params = FinnhubSearchParams(query="apple")
+    call_kwargs = {"query": "apple"}
     route_url = _ROUTE
     provider = "finnhub"
     # Drop 402 from the canonical table — finnhub maps 403 → PaymentRequired.
@@ -46,7 +46,7 @@ async def test_finnhub_403_maps_to_payment_required() -> None:
 
     bound = finnhub_search.bind(api_key=CANARY_KEY)
     with pytest.raises(PaymentRequiredError) as exc_info:
-        await bound(FinnhubSearchParams(query="apple"))
+        await bound(query="apple")
 
     assert_no_secret_leak(exc_info.value)
     assert exc_info.value.provider == "finnhub"

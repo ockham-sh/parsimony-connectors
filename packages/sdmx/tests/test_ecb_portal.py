@@ -98,9 +98,7 @@ class TestCache:
             )
             assert mock_get.call_count == 2
 
-    def test_default_cache_dir_uses_xdg(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_default_cache_dir_uses_xdg(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
         expected = tmp_path / "parsimony-sdmx" / "ecb-portal"
         assert default_cache_dir() == expected

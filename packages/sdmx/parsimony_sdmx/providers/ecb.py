@@ -10,7 +10,7 @@ from pathlib import Path
 
 from parsimony_sdmx.core.errors import SdmxFetchError
 from parsimony_sdmx.core.models import DatasetRecord, SeriesRecord
-from parsimony_sdmx.core.titles import augment_with_ecb_attributes
+from parsimony_sdmx.core.titles import choose_series_title
 from parsimony_sdmx.io.http import HttpConfig, bounded_get, build_session
 from parsimony_sdmx.providers.ecb_portal import scrape_ecb_portal
 from parsimony_sdmx.providers.ecb_series_attrs import parse_ecb_series_attributes
@@ -52,9 +52,7 @@ class EcbProvider:
             return base_title
 
         with sdmx_client(self.agency_id, self.http_config) as client:
-            yield from list_datasets_flow(
-                client, self.agency_id, decorate_title=decorate
-            )
+            yield from list_datasets_flow(client, self.agency_id, decorate_title=decorate)
 
     def list_series(self, dataset_id: str) -> Iterator[SeriesRecord]:
         with sdmx_client(self.agency_id, self.http_config) as client:
@@ -65,9 +63,7 @@ class EcbProvider:
             try:
                 dataflow = msg.dataflow[dataset_id]
             except (KeyError, AttributeError, TypeError) as exc:
-                raise SdmxFetchError(
-                    f"Dataflow {dataset_id!r} missing from response"
-                ) from exc
+                raise SdmxFetchError(f"Dataflow {dataset_id!r} missing from response") from exc
             dsd = resolve_dsd(client, msg, dataflow, dataset_id)
             dsd_order = extract_dsd_dim_order(dsd, exclude_time=True)
 
@@ -76,15 +72,13 @@ class EcbProvider:
                 dsd_order,
                 self.http_config,
             )
-            augment = _build_augment(attrs_map)
-            augment_fragments = _build_augment_fragments(attrs_map)
+            source_title = _build_source_title(attrs_map)
 
             yield from list_series_flow(
                 client,
                 self.agency_id,
                 dataset_id,
-                augment=augment,
-                augment_fragments=augment_fragments,
+                source_title=source_title,
             )
 
 
@@ -112,8 +106,7 @@ def _fetch_series_attributes(
         )
     except SdmxFetchError as exc:
         logger.warning(
-            "ECB series attributes fetch failed for %s: %s — "
-            "proceeding without TITLE/TITLE_COMPL",
+            "ECB series attributes fetch failed for %s: %s — proceeding without TITLE/TITLE_COMPL",
             dataset_id,
             exc,
         )
@@ -132,38 +125,13 @@ def _fetch_series_attributes(
         return {}
 
 
-def _build_augment(
+def _build_source_title(
     attrs_map: dict[str, tuple[str | None, str | None]],
-) -> Callable[[str, str], str]:
-    """Build the ``(base, series_id) -> str`` hook for ``project_series``."""
+) -> Callable[[str], str | None]:
+    """Build the ``series_id -> source title`` hook for ``project_series``."""
 
-    def augment(base: str, series_id: str) -> str:
+    def source_title(series_id: str) -> str | None:
         title, title_compl = attrs_map.get(series_id, (None, None))
-        return augment_with_ecb_attributes(base, title, title_compl)
+        return choose_series_title("", title, title_compl) or None
 
-    return augment
-
-
-def _build_augment_fragments(
-    attrs_map: dict[str, tuple[str | None, str | None]],
-) -> Callable[[str], tuple[str, ...]]:
-    """Emit per-series ECB ``TITLE`` as an additional embedding fragment.
-
-    Phase 3 escalation path #1 (see ``PLAN-sdmx-catalog-search.md`` §3):
-    codelist labels alone don't bridge colloquial-vocabulary queries
-    ("yen daily exchange rate") to the rich natural-language overlay
-    that the ECB ``TITLE`` carries ("Japanese yen/Euro ECB reference
-    exchange rate"). The full title is in the display string for BM25
-    but the bag-of-fragments compose path only sees codelist labels —
-    so the embedder loses access to the bridging vocabulary.
-
-    Adding TITLE as one fragment per series restores parity with the
-    pre-Phase-2 full-title embedding without resurrecting TITLE_COMPL
-    (the user-rejected text that lived on under earlier variants).
-    """
-
-    def augment_fragments(series_id: str) -> tuple[str, ...]:
-        title, _title_compl = attrs_map.get(series_id, (None, None))
-        return (title,) if title else ()
-
-    return augment_fragments
+    return source_title

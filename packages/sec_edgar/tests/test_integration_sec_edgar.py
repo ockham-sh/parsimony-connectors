@@ -1,8 +1,8 @@
 """Live integration tests for parsimony-sec-edgar.
 
 SEC EDGAR is public but requires a ``User-Agent`` header identifying
-the client (SEC's fair-use policy). The ``edgartools`` library handles
-that for us. No API key required.
+the client (SEC's fair-use policy). The connector reads it from the
+mandatory ``SEC_EDGAR_USER_AGENT`` env var. No API key required.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from parsimony_test_support import assert_provenance_shape
 
-from parsimony_sec_edgar import SecEdgarFindCompanyParams, sec_edgar_find_company
+from parsimony_sec_edgar import sec_edgar_find_company
 
 pytestmark = pytest.mark.integration
 
@@ -18,7 +18,7 @@ pytestmark = pytest.mark.integration
 @pytest.mark.asyncio
 async def test_sec_edgar_find_apple() -> None:
     # "AAPL" is the canonical test case — Apple is CIK 0000320193.
-    result = await sec_edgar_find_company(SecEdgarFindCompanyParams(identifier="AAPL"))
+    result = await sec_edgar_find_company(identifier="AAPL")
 
     assert_provenance_shape(result)
     df = result.data

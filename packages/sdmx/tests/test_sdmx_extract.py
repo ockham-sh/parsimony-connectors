@@ -57,20 +57,14 @@ def _dim(
     via_concept: bool = False,
 ) -> SimpleNamespace:
     if codelist_id is None:
-        return SimpleNamespace(
-            id=dim_id, local_representation=None, concept_identity=None
-        )
+        return SimpleNamespace(id=dim_id, local_representation=None, concept_identity=None)
     enumerated = SimpleNamespace(id=codelist_id)
     if via_concept:
         core = SimpleNamespace(enumerated=enumerated)
         concept = SimpleNamespace(core_representation=core)
-        return SimpleNamespace(
-            id=dim_id, local_representation=None, concept_identity=concept
-        )
+        return SimpleNamespace(id=dim_id, local_representation=None, concept_identity=concept)
     local = SimpleNamespace(enumerated=enumerated)
-    return SimpleNamespace(
-        id=dim_id, local_representation=local, concept_identity=None
-    )
+    return SimpleNamespace(id=dim_id, local_representation=local, concept_identity=None)
 
 
 class TestExtractFlowTitle:
@@ -86,9 +80,7 @@ class TestExtractFlowTitle:
         flow = SimpleNamespace(
             id="HICP",
             name=_named({"en": "HICP - monthly data"}),
-            description=_named(
-                {"en": "<p>The HICP measures <em>consumer</em> prices</p>"}
-            ),
+            description=_named({"en": "<p>The HICP measures <em>consumer</em> prices</p>"}),
         )
         out = extract_flow_title(flow)
         assert out == "HICP - monthly data - The HICP measures consumer prices"
@@ -130,9 +122,7 @@ class TestExtractDsdDimOrder:
         assert extract_dsd_dim_order(dsd) == ["FREQ", "REF_AREA"]
 
     def test_preserves_order(self) -> None:
-        dsd = SimpleNamespace(
-            dimensions=[_dim("A"), _dim("B"), _dim("C")]
-        )
+        dsd = SimpleNamespace(dimensions=[_dim("A"), _dim("B"), _dim("C")])
         assert extract_dsd_dim_order(dsd) == ["A", "B", "C"]
 
     def test_can_keep_time_when_requested(self) -> None:
@@ -162,18 +152,14 @@ class TestExtractRawCodelists:
         }
 
     def test_dim_without_codelist_is_skipped(self) -> None:
-        dsd = SimpleNamespace(
-            dimensions=[_dim("FREQ"), _dim("REF_AREA", codelist_id="CL_AREA")]
-        )
+        dsd = SimpleNamespace(dimensions=[_dim("FREQ"), _dim("REF_AREA", codelist_id="CL_AREA")])
         msg = SimpleNamespace(codelist={"CL_AREA": _codelist({"U2": {"en": "E"}})})
         raw = extract_raw_codelists(dsd, msg)
         assert "FREQ" not in raw
         assert "REF_AREA" in raw
 
     def test_codelist_resolved_via_concept_identity(self) -> None:
-        dsd = SimpleNamespace(
-            dimensions=[_dim("FREQ", codelist_id="CL_FREQ", via_concept=True)]
-        )
+        dsd = SimpleNamespace(dimensions=[_dim("FREQ", codelist_id="CL_FREQ", via_concept=True)])
         msg = SimpleNamespace(codelist={"CL_FREQ": _codelist({"A": {"en": "Annual"}})})
         raw = extract_raw_codelists(dsd, msg)
         assert raw == {"FREQ": {"A": {"en": "Annual"}}}
@@ -186,10 +172,7 @@ class TestExtractRawCodelists:
 
 class TestExtractSeriesDimValues:
     def _sk(self, values: dict[str, str]) -> SimpleNamespace:
-        kvs = {
-            dim: SimpleNamespace(id=dim, value=code)
-            for dim, code in values.items()
-        }
+        kvs = {dim: SimpleNamespace(id=dim, value=code) for dim, code in values.items()}
         return SimpleNamespace(values=kvs)
 
     def test_dict_input(self) -> None:

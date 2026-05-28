@@ -31,12 +31,10 @@ _PROVIDER: str = "alpha_vantage"
 
 
 def make_http(api_key: str, base_url: str = _DEFAULT_BASE_URL) -> HttpClient:
-    """Construct the standard Alpha Vantage transport.
+    """Construct the standard Alpha Vantage transport."""
+    from parsimony.transport.helpers import make_http_client
 
-    The API key rides as a default query parameter (Alpha Vantage's auth
-    convention). Timeout is 20s — provider is not latency-critical.
-    """
-    return HttpClient(
+    return make_http_client(
         base_url,
         query_params={"apikey": api_key},
         timeout=_DEFAULT_TIMEOUT_SECONDS,

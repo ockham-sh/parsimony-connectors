@@ -127,9 +127,7 @@ def bounded_get(
                 continue
             buf.extend(chunk)
             if len(buf) > cfg.max_response_bytes:
-                raise SdmxFetchError(
-                    f"Response from {url} exceeded {cfg.max_response_bytes} bytes"
-                )
+                raise SdmxFetchError(f"Response from {url} exceeded {cfg.max_response_bytes} bytes")
         return bytes(buf)
     finally:
         response.close()

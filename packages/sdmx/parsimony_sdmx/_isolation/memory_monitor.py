@@ -1,13 +1,17 @@
 """Background thread that kills the largest child when system memory is high.
 
-Preserved from the legacy module because per-dataset ``sdmx1 +
-pandas`` spikes are real and the Pool's ``maxtasksperchild=1`` alone
-doesn't save the box from OOM on concurrent heavy datasets.
+Per-dataset ``sdmx1 + pandas`` RSS spikes are real and the Pool's
+``maxtasksperchild=1`` alone doesn't save the box from OOM on
+concurrent heavy datasets — once the kernel's OOM killer fires, the
+victim is opaque (``exit 137``) and the parent driver has no way to
+attribute the kill to a specific dataset. This monitor pre-empts that
+by polling system memory and SIGKILL'ing the heaviest child as soon
+as the threshold is crossed.
 
-Before issuing ``SIGKILL`` the monitor writes an OOM marker JSON into
+Before issuing ``SIGKILL`` it writes an OOM marker JSON into
 ``{agency_dir}/.oom/{pid}.json`` so the parent driver can classify the
-victim as ``FailureKind.OOM_KILLED`` with the real peak RSS instead of
-an opaque ``exit 137``.
+victim as ``FailureKind.OOM_KILLED`` with the real peak RSS and the
+dataset_id at the time of death.
 """
 
 from __future__ import annotations
@@ -16,7 +20,6 @@ import json
 import logging
 import signal
 import threading
-import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -218,8 +221,3 @@ def memory_monitor(
     finally:
         stop.set()
         thread.join(timeout=cfg.poll_seconds + 1.0)
-
-
-def slow_sleep(seconds: float) -> None:  # pragma: no cover - legacy parity helper
-    """Sleep — used by tests that need a pacing beat without pulling time."""
-    time.sleep(seconds)

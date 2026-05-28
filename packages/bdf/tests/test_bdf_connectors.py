@@ -11,7 +11,7 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from parsimony.errors import EmptyDataError
+from parsimony.errors import EmptyDataError, InvalidParameterError
 
 from parsimony_bdf import (
     CONNECTORS,
@@ -50,10 +50,6 @@ _BDF_OBS_JSON = [
 ]
 
 
-def test_env_vars_maps_api_key() -> None:
-    assert CONNECTORS["bdf_fetch"].env_map == {"api_key": "BANQUEDEFRANCE_KEY"}
-
-
 def test_connectors_collection_exposes_expected_names() -> None:
     names = {c.name for c in CONNECTORS}
     assert names == {"bdf_fetch", "enumerate_bdf", "bdf_search"}
@@ -67,7 +63,7 @@ async def test_bdf_fetch_parses_json_response() -> None:
     )
 
     bound = bdf_fetch.bind(api_key=_KEY)
-    result = await bound(BdfFetchParams(key="EXR.M.USD.EUR.SP00.E"))
+    result = await bound(key="EXR.M.USD.EUR.SP00.E")
 
     assert result.provenance.source == "bdf_fetch"
     # api_key never propagates into provenance (it's passed as a request header)
@@ -84,9 +80,9 @@ async def test_bdf_fetch_raises_empty_data_on_no_observations() -> None:
 
     bound = bdf_fetch.bind(api_key=_KEY)
     with pytest.raises(EmptyDataError):
-        await bound(BdfFetchParams(key="XX"))
+        await bound(key="XX")
 
 
 def test_fetch_rejects_empty_key() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidParameterError):
         BdfFetchParams(key="   ")

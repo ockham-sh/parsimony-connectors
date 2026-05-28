@@ -1,0 +1,52 @@
+# Curated probes for SDMX multi-bundle catalogs (structured search first).
+#
+# Workflow:
+#   sdmx_datasets_search(agency=ECB, ...)
+#   -> sdmx_series_search(flow_id=ECB/YC, ...)
+#   -> sdmx_fetch
+
+catalog_root: hf://parsimony-dev/sdmx
+
+queries:
+  - id: dataset_code_ecb_yc
+    query: "code: ECB|YC"
+    namespace: sdmx_datasets_ecb
+    expected_code: ECB|YC
+    mode: structured_field
+    required: true
+    why: "Per-agency datasets catalog; structured code lookup"
+
+  - id: dataset_title_ecb_yield
+    query: "yield curve"
+    namespace: sdmx_datasets_ecb
+    expected_code: ECB|YC
+    mode: title_bm25
+    optional: true
+    why: "Title probe on ECB agency dataset catalog"
+
+  - id: series_ecb_yc_spot
+    query: "SR_10Y"
+    namespace: sdmx_series_ecb_yc
+    expected_code: B.U2.EUR.4F.G_N_C.SV_C_YM.SR_10Y
+    mode: title_bm25
+    required: true
+    why: "Title-index lookup on ECB/YC series catalog"
+
+  - id: series_ecb_exr_ron_eur
+    query: "CURRENCY: Romanian leu"
+    namespace: sdmx_series_ecb_exr
+    expected_code: Q.RON.EUR.SP00.E
+    mode: structured_field
+    required: true
+    why: "Structured dimension probe on ECB/EXR series catalog"
+
+  - id: series_estat_hicp_france
+    query: "geo: France"
+    namespace: sdmx_series_estat_prc_hicp_manr
+    expected_code: M.RCH_A.CP00.FR
+    mode: structured_field
+    optional: true
+    why: "Per-flow dimension label search when ESTAT/HICP bundle is built"
+
+thresholds:
+  min_required_recall: 1.0

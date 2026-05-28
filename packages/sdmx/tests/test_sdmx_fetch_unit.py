@@ -7,6 +7,7 @@ Live-endpoint tests live under the ``e2e`` marker and run with
 from __future__ import annotations
 
 import pytest
+from parsimony.errors import InvalidParameterError
 from pydantic import ValidationError
 
 from parsimony_sdmx.connectors.fetch import SdmxFetchParams
@@ -27,15 +28,15 @@ class TestParamValidation:
         assert p.dataset_key == "ECB-YC"
 
     def test_rejects_missing_agency_prefix(self) -> None:
-        with pytest.raises(ValidationError, match="must include agency prefix"):
+        with pytest.raises(InvalidParameterError, match="must include agency prefix"):
             SdmxFetchParams(dataset_key="FOO123", series_key="B.U2.EUR")
 
     def test_rejects_unknown_agency(self) -> None:
-        with pytest.raises(ValidationError, match="Unknown agency"):
+        with pytest.raises(InvalidParameterError, match="Unknown agency"):
             SdmxFetchParams(dataset_key="OECD-MEI", series_key="B.U2.EUR")
 
     def test_rejects_path_traversal_in_dataset_id(self) -> None:
-        with pytest.raises(ValidationError, match="disallowed characters"):
+        with pytest.raises(InvalidParameterError, match="disallowed characters"):
             SdmxFetchParams(dataset_key="ECB-../secret", series_key="B.U2.EUR")
 
     def test_rejects_whitespace_in_series_key(self) -> None:

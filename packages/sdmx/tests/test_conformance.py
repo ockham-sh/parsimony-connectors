@@ -1,8 +1,7 @@
 """Release-blocking conformance test for parsimony-sdmx.
 
 If this fails, the plugin violates the parsimony plugin contract and must
-not be published. Contract: ``parsimony.testing.assert_plugin_valid``
-(connectors_exported + descriptions_non_empty + env_vars_map_to_deps).
+not be published. Contract: ``parsimony.testing.assert_plugin_valid``.
 """
 
 from __future__ import annotations

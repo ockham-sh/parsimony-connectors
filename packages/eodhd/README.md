@@ -36,7 +36,7 @@ Several endpoints require paid EODHD plans (EOD+Intraday, Fundamentals); per-con
 pip install parsimony-eodhd
 ```
 
-Pulls in `parsimony-core>=0.4,<0.5` automatically. Verify discovery:
+Pulls in `parsimony-core>=0.6,<0.7` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
@@ -59,7 +59,7 @@ import asyncio
 from parsimony_eodhd import CONNECTORS
 
 async def main():
-    connectors = CONNECTORS.bind_env()
+    connectors = CONNECTORS
     result = await connectors["eodhd_eod"](ticker="AAPL.US")
     print(result.data.head())
 
@@ -70,7 +70,7 @@ For multi-plugin composition:
 
 ```python
 from parsimony import discover
-connectors = discover.load_all().bind_env()
+connectors = discover.load_all()
 ```
 
 ## Provider

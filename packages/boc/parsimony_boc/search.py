@@ -1,90 +1,35 @@
-"""Semantic search over the published Bank of Canada (BoC) catalog.
-
-Wraps the parquet+FAISS catalog at ``hf://parsimony-dev/boc`` (override with
-``PARSIMONY_BOC_CATALOG_URL`` for local testing) as an MCP tool.
-
-Codes returned by this tool are series names (e.g. ``FXUSDCAD``) or group
-identifiers prefixed with ``group:`` (e.g. ``group:FX_RATES_DAILY``). Pass
-the returned ``code`` to :func:`boc_fetch` via its ``series_name`` parameter.
-"""
+"""Semantic search over the published Bank of Canada (BoC) catalog."""
 
 from __future__ import annotations
 
-import logging
-import os
-from typing import Annotated
-
-import pandas as pd
-from parsimony.catalog import Catalog, CatalogCache
-from parsimony.connector import connector
+from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
 from parsimony.result import Column, ColumnRole, OutputConfig
-from pydantic import BaseModel, Field
 
-logger = logging.getLogger(__name__)
+from parsimony_boc.catalog_build import build_boc_catalog
 
 PARSIMONY_BOC_CATALOG_URL_ENV = "PARSIMONY_BOC_CATALOG_URL"
-_DEFAULT_CATALOG_URL = "hf://parsimony-dev/boc"
 
-_CATALOG_CACHE = CatalogCache(max_size=1)
-
-
-async def _get_catalog() -> Catalog:
-    url = os.environ.get(PARSIMONY_BOC_CATALOG_URL_ENV, _DEFAULT_CATALOG_URL)
-    return await _CATALOG_CACHE.get(url)
-
+BocSearchParams = CatalogSearchParams
 
 BOC_SEARCH_OUTPUT = OutputConfig(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="boc"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="similarity", role=ColumnRole.METADATA),
+        Column(name="score", role=ColumnRole.DATA),
     ]
 )
 
 
-class BocSearchParams(BaseModel):
-    """Parameters for :func:`boc_search`."""
-
-    query: Annotated[
-        str,
-        Field(
-            min_length=1,
-            max_length=512,
-            description=(
-                "Natural-language description of the BoC series or group "
-                "you want (e.g. 'CAD USD daily exchange rate', 'Canadian "
-                "10-year bond yield', 'overnight rate'). Bilingual EN/FR "
-                "queries both work."
-            ),
-        ),
-    ]
-    limit: int = Field(default=10, ge=1, le=50, description="Top-N results.")
-
-
-@connector(
-    output=BOC_SEARCH_OUTPUT,
+boc_search = make_local_search_connector(
+    provider="boc",
+    default_url="hf://parsimony-dev/boc",
+    catalog_url_env_var=PARSIMONY_BOC_CATALOG_URL_ENV,
+    build_catalog=build_boc_catalog,
     tags=["macro", "ca", "tool"],
+    description=(
+        "Search the Bank of Canada (BoC) Valet catalog. "
+        "Preferred: structured queries such as 'code: FXUSDCAD'. "
+        "Pass returned codes to boc_fetch(series_name=...)."
+    ),
+    output_columns=BOC_SEARCH_OUTPUT.columns,
 )
-async def boc_search(params: BocSearchParams) -> pd.DataFrame:
-    """Semantic-search the Bank of Canada (BoC) Valet catalog.
-
-    Returns the top matching series/group codes from BoC's Valet API
-    (~15.4k series + 2.4k groups across exchange rates, interest rates,
-    monetary aggregates, balance sheets, FMI surveys, and more).
-
-    Pass the returned ``code`` to ``boc_fetch(series_name=...)``. Codes
-    prefixed ``group:`` resolve to the full group panel; bare codes
-    resolve to a single series.
-    """
-    catalog = await _get_catalog()
-    matches = await catalog.search(params.query, limit=params.limit)
-    return pd.DataFrame(
-        [
-            {
-                "code": m.code,
-                "title": m.title,
-                "similarity": round(m.similarity, 6),
-            }
-            for m in matches
-        ]
-    )

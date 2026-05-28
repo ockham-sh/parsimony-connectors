@@ -19,9 +19,7 @@ class TestLayout:
         assert datasets_parquet(Path("/out"), "ECB") == Path("/out/ECB/datasets.parquet")
 
     def test_series_parquet(self) -> None:
-        assert series_parquet(Path("/out"), "ECB", "YC") == Path(
-            "/out/ECB/series/YC.parquet"
-        )
+        assert series_parquet(Path("/out"), "ECB", "YC") == Path("/out/ECB/series/YC.parquet")
 
     def test_tmp_and_oom(self) -> None:
         base = Path("/out")

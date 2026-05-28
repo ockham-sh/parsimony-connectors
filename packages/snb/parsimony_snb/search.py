@@ -1,88 +1,33 @@
-"""Semantic search over the published Swiss National Bank (SNB) catalog.
-
-Wraps the parquet+FAISS catalog at ``hf://parsimony-dev/snb`` (override with
-``PARSIMONY_SNB_CATALOG_URL`` for local testing) as an MCP tool.
-
-Codes returned by this tool are compound ``{cube_id}#{series_key}`` keys.
-Pass the ``cube_id`` portion (everything before ``#``) to :func:`snb_fetch`
-via its ``cube_id`` parameter — SNB fetches an entire cube at once.
-"""
+"""Semantic search over the published Swiss National Bank (SNB) catalog."""
 
 from __future__ import annotations
 
-import logging
-import os
-from typing import Annotated
-
-import pandas as pd
-from parsimony.catalog import Catalog, CatalogCache
-from parsimony.connector import connector
+from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
 from parsimony.result import Column, ColumnRole, OutputConfig
-from pydantic import BaseModel, Field
 
-logger = logging.getLogger(__name__)
+from parsimony_snb.catalog_build import build_snb_catalog
+
+SnbSearchParams = CatalogSearchParams
 
 PARSIMONY_SNB_CATALOG_URL_ENV = "PARSIMONY_SNB_CATALOG_URL"
-_DEFAULT_CATALOG_URL = "hf://parsimony-dev/snb"
-
-_CATALOG_CACHE = CatalogCache(max_size=1)
-
-
-async def _get_catalog() -> Catalog:
-    url = os.environ.get(PARSIMONY_SNB_CATALOG_URL_ENV, _DEFAULT_CATALOG_URL)
-    return await _CATALOG_CACHE.get(url)
-
 
 SNB_SEARCH_OUTPUT = OutputConfig(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="snb"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="similarity", role=ColumnRole.METADATA),
+        Column(name="score", role=ColumnRole.DATA),
     ]
 )
 
-
-class SnbSearchParams(BaseModel):
-    """Parameters for :func:`snb_search`."""
-
-    query: Annotated[
-        str,
-        Field(
-            min_length=1,
-            max_length=512,
-            description=(
-                "Natural-language description of the SNB cube/series you "
-                "want (e.g. 'CHF EUR exchange rate', 'Swiss policy rate', "
-                "'SNB monetary aggregates M3'). EN/DE/FR/IT all work."
-            ),
-        ),
-    ]
-    limit: int = Field(default=10, ge=1, le=50, description="Top-N results.")
-
-
-@connector(
-    output=SNB_SEARCH_OUTPUT,
+snb_search = make_local_search_connector(
+    provider="snb",
+    default_url="hf://parsimony-dev/snb",
+    catalog_url_env_var=PARSIMONY_SNB_CATALOG_URL_ENV,
+    build_catalog=build_snb_catalog,
     tags=["macro", "ch", "tool"],
+    description=(
+        "Semantic-search the Swiss National Bank (SNB) data portal catalog. "
+        "Pass the cube_id portion (everything before #) to snb_fetch(cube_id=...)."
+    ),
+    output_columns=SNB_SEARCH_OUTPUT.columns,
 )
-async def snb_search(params: SnbSearchParams) -> pd.DataFrame:
-    """Semantic-search the Swiss National Bank (SNB) data portal catalog.
-
-    Covers ~237 SNB cubes across labour market, foreign trade, exchange
-    rates, monetary aggregates, banking statistics, financial accounts,
-    and more (~4.9k addressable series).
-
-    Pass the ``cube_id`` portion (everything before ``#``) to
-    ``snb_fetch(cube_id=...)`` — SNB fetches one whole cube at a time.
-    """
-    catalog = await _get_catalog()
-    matches = await catalog.search(params.query, limit=params.limit)
-    return pd.DataFrame(
-        [
-            {
-                "code": m.code,
-                "title": m.title,
-                "similarity": round(m.similarity, 6),
-            }
-            for m in matches
-        ]
-    )

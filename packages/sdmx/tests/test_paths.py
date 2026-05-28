@@ -36,7 +36,7 @@ class TestSafeFilename:
             "foo*bar",
             "foo;bar",
             "foo'bar",
-            "foo\"bar",
+            'foo"bar',
             "<script>",
             "a" * 201,
         ],

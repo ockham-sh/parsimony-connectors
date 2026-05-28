@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from parsimony_test_support import assert_provenance_shape
 
-from parsimony_boc import BocFetchParams, boc_fetch
+from parsimony_boc import boc_fetch
 
 pytestmark = pytest.mark.integration
 
@@ -13,7 +13,7 @@ pytestmark = pytest.mark.integration
 @pytest.mark.asyncio
 async def test_boc_fetch_usd_cad_fx() -> None:
     # FXUSDCAD — USD/CAD closing rate — is one of BoC's oldest stable series.
-    result = await boc_fetch(BocFetchParams(series_name="FXUSDCAD"))
+    result = await boc_fetch(series_name="FXUSDCAD")
 
     assert_provenance_shape(result)
     df = result.data

@@ -4,12 +4,20 @@ version = "0.0.0"
 description = "Workspace root for the parsimony connectors monorepo. Not published."
 requires-python = ">=3.11"
 dependencies = [
+    "pyyaml>=6.0",
+    "rank-bm25>=0.2",
+    # Pull parsimony-core's `standard` extra (faiss-cpu + sentence-transformers
+    # + huggingface_hub) into the workspace so catalog tests can build, save,
+    # and search real Catalog instances. End-to-end catalog tests (e.g.
+    # sdmx/test_search_structured) exercise the full hybrid-index stack and
+    # cannot be served by stubs.
+    "parsimony-core[standard]",
     # Anchor for the CPU-only torch source pin below. sentence-transformers
-    # (transitive via `parsimony-core[standard-onnx]` in any connector's
-    # `[publish]` extra) declares plain `torch`, which otherwise resolves
-    # to the +cu130 wheel (~2 GB + triton). We embed via ONNX Runtime,
-    # never via torch, so CPU torch is plenty. Direct dep here exists only
-    # so `[tool.uv.sources]` has something to bind against.
+    # (transitive via `parsimony-core[standard]`) declares plain `torch`,
+    # which otherwise resolves to the +cu* wheel (~2 GB + triton). We never
+    # train/run torch directly — it's just the embedding backend — so CPU
+    # torch is plenty. Direct dep here exists only so `[tool.uv.sources]`
+    # has something to bind against.
     "torch>=2.0",
 ]
 
@@ -17,7 +25,7 @@ dependencies = [
 members = ["packages/*", "test_support"]
 
 [tool.uv.sources]
-# The kernel pin is `parsimony-core>=0.5,<0.6` on PyPI. The editable
+# The kernel pin is `parsimony-core>=0.6,<0.7` on PyPI. The editable
 # override below keeps local dev + CI wired against the sibling
 # `ockham-sh/parsimony` checkout at `../parsimony`, so the monorepo
 # can test against unreleased kernel changes. CI achieves this by
@@ -26,6 +34,7 @@ members = ["packages/*", "test_support"]
 # PyPI, breaking the ability to verify a kernel+connectors change in
 # a single PR.
 parsimony-core = { path = "../parsimony", editable = true }
+parsimony-shared = { workspace = true }
 torch = { index = "pytorch-cpu" }
 
 [[tool.uv.index]]
@@ -51,17 +60,15 @@ ignore_missing_imports = true
 # mypy doesn't nag about stubs the connectors don't need.
 disable_error_code = ["import-untyped", "unused-ignore"]
 
-# The financial_reports SDK (financial_reports_generated_client) ships a
-# module with a syntax error we stub out at runtime. Skip-follow imports
-# into the SDK so mypy doesn't parse the broken file.
-[[tool.mypy.overrides]]
-module = "financial_reports_generated_client.*"
-follow_imports = "skip"
+# The financial_reports package was removed in 0.6.0.
 
 [tool.pytest.ini_options]
-addopts = "--import-mode=importlib -m 'not integration and not slow'"
+addopts = "--import-mode=importlib -m 'not integration and not slow and not eval'"
 asyncio_mode = "auto"
+pythonpath = ["tooling"]
 markers = [
     "integration: hits live APIs (may be slow, requires env vars)",
+    "remote_catalog: loads published HF/file catalog snapshots (opt-in via PARSIMONY_RUN_REMOTE_CATALOGS=1)",
     "slow: long-running test (subprocess / heavy I/O)",
+    "eval: offline retrieval/catalog evaluation harness (opt-in)",
 ]

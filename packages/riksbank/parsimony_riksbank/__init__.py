@@ -43,12 +43,11 @@ from typing import Annotated, Any, Literal
 import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError
+from parsimony.errors import EmptyDataError, InvalidParameterError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Result,
 )
 from parsimony.transport import HttpClient, map_http_error
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -82,7 +81,7 @@ class RiksbankFetchParams(BaseModel):
     def _non_empty(cls, v: str) -> str:
         v = v.strip()
         if not v:
-            raise ValueError("series_id must be non-empty")
+            raise InvalidParameterError("riksbank", "series_id must be non-empty")
         return v
 
     @field_validator("to_date")
@@ -90,7 +89,7 @@ class RiksbankFetchParams(BaseModel):
     def _both_dates_or_neither(cls, v: str | None, info: Any) -> str | None:
         from_date = info.data.get("from_date")
         if (from_date is None) != (v is None):
-            raise ValueError("Provide both from_date and to_date, or neither")
+            raise InvalidParameterError("riksbank", "Provide both from_date and to_date, or neither")
         return v
 
 
@@ -150,7 +149,7 @@ class RiksbankSwestrFetchParams(BaseModel):
         # unlike a ``field_validator`` which silently skips when the
         # field takes its None default.
         if (self.from_date is None) != (self.to_date is None):
-            raise ValueError("Provide both from_date and to_date, or neither")
+            raise InvalidParameterError("riksbank", "Provide both from_date and to_date, or neither")
         return self
 
 
@@ -162,11 +161,9 @@ RIKSBANK_ENUMERATE_OUTPUT = OutputConfig(
     columns=[
         Column(name="series_id", role=ColumnRole.KEY, namespace="riksbank"),
         Column(name="title", role=ColumnRole.TITLE),
-        # ``description`` is the upstream long-form text. Routing it
-        # through DESCRIPTION (not METADATA) lifts it into
-        # ``semantic_text()`` so the embedder indexes the phrase itself,
-        # in addition to BM25.
-        Column(name="description", role=ColumnRole.DESCRIPTION),
+        # ``description`` is upstream long-form text surfaced as metadata
+        # for catalog indexing and search.
+        Column(name="description", role=ColumnRole.METADATA),
         # ``source`` tells the agent which fetch connector to call. Every
         # row currently emits ``"swea"``; a future CBA fetcher would emit
         # ``"cba"``. Without this, agents would have to sniff the
@@ -557,14 +554,20 @@ def _normalize_observation_date(value: Any) -> str:
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "RIKSBANK_API_KEY"}, output=RIKSBANK_FETCH_OUTPUT, tags=["macro", "se"])
-async def riksbank_fetch(params: RiksbankFetchParams, *, api_key: str = "") -> Result:
+@connector(output=RIKSBANK_FETCH_OUTPUT, tags=["macro", "se"], secrets=('api_key',))
+async def riksbank_fetch(
+    series_id: Annotated[str, "ns:riksbank"],
+    from_date: str | None = None,
+    to_date: str | None = None,
+    api_key: str = "",
+) -> pd.DataFrame:
     """Fetch a single Riksbank SWEA time series by series_id.
 
     Returns date + value with the upstream series name as title. Use
     ``from_date``/``to_date`` together to fetch a window; omit both to
     receive the latest observation.
     """
+    params = RiksbankFetchParams(series_id=series_id, from_date=from_date, to_date=to_date)
     http = _make_http(api_key)
 
     if params.from_date and params.to_date:
@@ -618,17 +621,16 @@ async def riksbank_fetch(params: RiksbankFetchParams, *, api_key: str = "") -> R
     if not rows:
         raise EmptyDataError(provider="riksbank", message=f"No observations returned for: {params.series_id}")
 
-    return Result.from_dataframe(pd.DataFrame(rows)).with_properties(
-        source_url="https://www.riksbank.se/en-gb/statistics/"
-    )
+    return pd.DataFrame(rows)
 
 
-@connector(
-    env={"api_key": "RIKSBANK_API_KEY"},
-    output=RIKSBANK_SWESTR_FETCH_OUTPUT,
-    tags=["macro", "se"],
-)
-async def riksbank_swestr_fetch(params: RiksbankSwestrFetchParams, *, api_key: str = "") -> Result:
+@connector(output=RIKSBANK_SWESTR_FETCH_OUTPUT, tags=["macro", "se"], secrets=('api_key',))
+async def riksbank_swestr_fetch(
+    series: Annotated[SwestrSeries, "ns:riksbank"],
+    from_date: str | None = None,
+    to_date: str | None = None,
+    api_key: str = "",
+) -> pd.DataFrame:
     """Fetch a SWESTR fixing / compounded average / index series.
 
     Dispatches on :func:`_swestr_kind` across three URL families:
@@ -642,6 +644,7 @@ async def riksbank_swestr_fetch(params: RiksbankSwestrFetchParams, *, api_key: s
     plus SWESTR's native metadata (publication time, percentiles,
     transaction volumes) on additional columns.
     """
+    params = RiksbankSwestrFetchParams(series=series, from_date=from_date, to_date=to_date)
     http = _make_swestr_http(api_key)
     kind = _swestr_kind(params.series)
 
@@ -688,51 +691,17 @@ async def riksbank_swestr_fetch(params: RiksbankSwestrFetchParams, *, api_key: s
     df = pd.DataFrame(rows)
     df["title"] = title
 
-    return Result.from_dataframe(df).with_properties(
-        source_url="https://www.riksbank.se/en-gb/statistics/swestr/"
-    )
+    return df
 
 
-@enumerator(
-    env={"api_key": "RIKSBANK_API_KEY"},
-    output=RIKSBANK_ENUMERATE_OUTPUT,
-    tags=["macro", "se"],
-)
-async def enumerate_riksbank(params: RiksbankEnumerateParams, *, api_key: str = "") -> pd.DataFrame:
-    """Enumerate every Riksbank time series available over the SWEA API.
+@enumerator(output=RIKSBANK_ENUMERATE_OUTPUT, tags=["macro", "se"], secrets=('api_key',))
+async def enumerate_riksbank(api_key: str = "") -> pd.DataFrame:
+    """Enumerate Riksbank SWEA series plus static SWESTR registry rows.
 
-    Two upstream calls — ``/Groups`` (a hierarchy of categorisation
-    buckets) and ``/Series`` (one entry per series with descriptions and
-    observation date span). Each output row is one (series_id, group)
-    pair with rich description, frequency, and date-range metadata.
-
-    SWEA rows carry ``source="swea"``. SWESTR rows (the overnight
-    fixing, five compounded averages, one index) are appended from a
-    static registry and carry ``source="swestr"`` — the registry is
-    the right surface for that family because the series set is small
-    (seven), stable, and the live SWESTR endpoints return observations
-    rather than metadata (there is no ``/Series`` equivalent). Agents
-    route SWESTR hits to :func:`riksbank_swestr_fetch`.
-
-    A third family — forecasts/outcomes at
-    ``api.riksbank.se/forecasts/v1`` — is documented by Riksbank but
-    every probed path returns ``404 Resource not found`` as of the
-    catalog freeze date (third-party clients that target the same URL
-    scheme carry in-code comments warning the API "may be temporarily
-    unavailable"). Forecasts are therefore *not* catalogued: emitting
-    rows for 404-ing endpoints would mislead dispatching agents. When
-    Riksbank re-opens the forecasts endpoint, this enumerator extends
-    to emit additional rows with ``source="forecasts"`` and a sibling
-    ``riksbank_forecasts_fetch`` connector lands here — the
-    ``source`` dispatch contract is already in place.
-
-    A fourth family was investigated under the working name **CBA**
-    (Central Bank Asset), but no corresponding endpoint exists on
-    ``api.riksbank.se``: probes against ``/cba``, ``/cba/v1/...``,
-    ``/cba/Series``, ``/cba/CrossRates`` etc. all return
-    ``404 Resource not found``, and the developer portal SPA does not
-    expose a machine-readable product index. CBA is not implemented.
+    Calls /Groups and /Series for live metadata; appends SWESTR codes from
+    the static registry. Optional api_key raises upstream rate limits.
     """
+    RiksbankEnumerateParams()
     http = _make_http(api_key)
 
     # ``/Groups`` returns a single root node (not a list). We tolerate both
@@ -816,7 +785,8 @@ async def enumerate_riksbank(params: RiksbankEnumerateParams, *, api_key: str = 
         "observation_max",
         "series_closed",
     ]
-    return pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    df = pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -829,7 +799,5 @@ from parsimony_riksbank.search import (  # noqa: E402, F401  (after public decor
     RiksbankSearchParams,
     riksbank_search,
 )
-
-CATALOGS: list[tuple[str, object]] = [("riksbank", enumerate_riksbank)]
 
 CONNECTORS = Connectors([riksbank_fetch, riksbank_swestr_fetch, enumerate_riksbank, riksbank_search])

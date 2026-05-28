@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from parsimony_test_support import ErrorMappingSuite
 
-from parsimony_eia import EiaFetchParams, eia_fetch
+from parsimony_eia import eia_fetch
 
 
 class TestEiaFetchErrorMapping(ErrorMappingSuite):
     connector = eia_fetch
-    params = EiaFetchParams(route="petroleum/pri/spt")
+    call_kwargs = {"route": "petroleum/pri/spt"}
     route_url = "https://api.eia.gov/v2/petroleum/pri/spt/data"
     provider = "eia"

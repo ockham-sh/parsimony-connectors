@@ -14,12 +14,11 @@ from typing import Annotated, Any
 import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError
+from parsimony.errors import EmptyDataError, InvalidParameterError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Result,
 )
 from parsimony.transport import map_http_error
 from pydantic import BaseModel, Field, field_validator
@@ -60,7 +59,7 @@ class BocFetchParams(BaseModel):
     def _non_empty(cls, v: str) -> str:
         v = v.strip()
         if not v:
-            raise ValueError("series_name must be non-empty")
+            raise InvalidParameterError("boc", "series_name must be non-empty")
         return v
 
 
@@ -86,14 +85,12 @@ BOC_ENUMERATE_OUTPUT = OutputConfig(
         # ``boc_fetch`` already expects.
         Column(name="series_name", role=ColumnRole.KEY, namespace="boc"),
         Column(name="title", role=ColumnRole.TITLE),
-        # ``description`` is the upstream Valet ``description`` text — the
-        # most useful semantic signal for retrieval. Routed via DESCRIPTION
-        # (not METADATA) so it lifts into ``semantic_text()`` for the
-        # embedder, mirroring how Treasury surfaces ``definition``. For
-        # group rows this carries the group's ``description`` text from
+        # ``description`` is the upstream Valet ``description`` text. It is
+        # ordinary metadata; catalogs decide explicitly whether to index it.
+        # For group rows this carries the group's ``description`` text from
         # ``/lists/groups/json`` (e.g. units and frequency hints like
         # "Month-end, Millions of dollars").
-        Column(name="description", role=ColumnRole.DESCRIPTION),
+        Column(name="description", role=ColumnRole.METADATA),
         # ``source`` tells the agent which fetch connector to call. BOC has
         # a single Valet source today; the column is future-proofing for a
         # parallel source so dispatch is already wired (matches Treasury's
@@ -241,12 +238,17 @@ async def _build_series_to_group_map(
 
 
 @connector(output=BOC_FETCH_OUTPUT, tags=["macro", "ca"])
-async def boc_fetch(params: BocFetchParams) -> Result:
+async def boc_fetch(
+    series_name: Annotated[str, "ns:boc"],
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> pd.DataFrame:
     """Fetch Bank of Canada time series by series name(s) or group name.
 
     Use 'group:GROUP_NAME' syntax for group queries (e.g. group:FX_RATES_DAILY).
     Otherwise, pass comma-separated series names (e.g. FXUSDCAD,FXEURCAD).
     """
+    params = BocFetchParams(series_name=series_name, start_date=start_date, end_date=end_date)
     async with httpx.AsyncClient(base_url=_BASE_URL, timeout=60.0) as client:
         req_params: dict[str, str] = {}
         if params.start_date:
@@ -272,32 +274,18 @@ async def boc_fetch(params: BocFetchParams) -> Result:
     if df.empty:
         raise EmptyDataError(provider="boc", message=f"No observations returned for: {params.series_name}")
 
-    return Result.from_dataframe(df).with_properties(
-        source_url="https://www.bankofcanada.ca/valet/docs"
-    )
+    return df
 
 
-@enumerator(
-    output=BOC_ENUMERATE_OUTPUT,
-    tags=["macro", "ca"],
-)
-async def enumerate_boc(params: BocEnumerateParams) -> pd.DataFrame:
+@enumerator(output=BOC_ENUMERATE_OUTPUT, tags=["macro", "ca"])
+async def enumerate_boc() -> pd.DataFrame:
     """Enumerate every Bank of Canada series via Valet's three list endpoints.
 
     Granularity is one row per series — Valet addresses observations per
     series, so series-level keys are the right unit (~15k rows).
 
-    Pipeline:
-
-    1. ``/lists/series/json`` — single call returning all ~15k series with
-       upstream ``label`` and ``description``. ``description`` lands in a
-       ColumnRole.DESCRIPTION column so the embedder indexes it.
-    2. ``/lists/groups/json`` — single call returning all ~2.3k groups
-       with their labels.
-    3. ``/groups/{name}/json`` — fanned out concurrently for every group
-       to discover series membership; a series→group map is built and
-       attached to every row. Groups exist purely for discovery; missing
-       membership leaves the ``group`` field empty.
+    Pipeline: /lists/series/json and /lists/groups/json, then concurrent
+    /groups/{name}/json fan-out for series membership.
     """
     async with httpx.AsyncClient(base_url=_BASE_URL, timeout=60.0) as client:
         series_resp = await client.get("/lists/series/json")
@@ -383,7 +371,8 @@ async def enumerate_boc(params: BocEnumerateParams) -> pd.DataFrame:
         "group",
         "group_label",
     ]
-    return pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    df = pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -397,6 +386,11 @@ from parsimony_boc.search import (  # noqa: E402, F401  (after public decorators
     boc_search,
 )
 
-CATALOGS: list[tuple[str, object]] = [("boc", enumerate_boc)]
-
 CONNECTORS = Connectors([boc_fetch, enumerate_boc, boc_search])
+
+
+def load(*, catalog_url: str | None = None) -> Connectors:
+    """Return :data:`CONNECTORS` with optional catalog search defaults bound."""
+    if catalog_url is None:
+        return CONNECTORS
+    return CONNECTORS.bind(catalog_url=catalog_url)

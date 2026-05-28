@@ -9,13 +9,13 @@ These mixins encode the two most-repeated test patterns in the monorepo:
 
 Usage (connectors with an API key)::
 
-    from parsimony_fred import fred_search, FredSearchParams
+    from parsimony_fred import fred_search
     from parsimony_test_support import CANARY_KEY
     from parsimony_test_support.suites import ErrorMappingSuite
 
     class TestFredErrorMapping(ErrorMappingSuite):
         connector = fred_search
-        params = FredSearchParams(search_text="x")
+        call_kwargs = {"search_text": "x"}
         route_url = "https://api.stlouisfed.org/fred/series/search"
         method = "GET"
         env_key = "api_key"
@@ -26,7 +26,7 @@ Usage (public connectors, no key)::
 
     class TestPolymarketErrorMapping(ErrorMappingSuite):
         connector = POLYMARKET_GAMMA
-        params = PolymarketFetchParams(path="/events")
+        call_kwargs = {"path": "/events"}
         route_url = "https://gamma-api.polymarket.com/events"
         method = "GET"
         env_key = None
@@ -60,14 +60,14 @@ class ErrorMappingSuite:
     ``@pytest.mark.asyncio`` decorator — inherited methods already carry
     it via pytest-asyncio auto-mode.
 
-    Override :attr:`connector`, :attr:`params`, :attr:`route_url`,
+    Override :attr:`connector`, :attr:`call_kwargs`, :attr:`route_url`,
     :attr:`method`. Override :attr:`env_key` to ``None`` for public
     connectors.
     """
 
     # --- Required overrides ---------------------------------------------
     connector: ClassVar[Any] = None
-    params: ClassVar[Any] = None
+    call_kwargs: ClassVar[dict[str, Any]] = {}
     route_url: ClassVar[str] = ""
     method: ClassVar[str] = "GET"
 
@@ -81,6 +81,9 @@ class ErrorMappingSuite:
     #: instead of 402). Drop the entry and add a one-off assertion in the
     #: per-connector test file.
     status_map: ClassVar[list[tuple[int, type[ConnectorError]]]] = STATUS_TO_EXC
+
+    async def _call(self, connector: Any) -> Any:
+        return await connector(**self.call_kwargs)
 
     # --- Tests ----------------------------------------------------------
 
@@ -106,7 +109,7 @@ class ErrorMappingSuite:
             else self.connector
         )
         with pytest.raises(exc_type) as exc_info:
-            await bound(self.params)
+            await self._call(bound)
 
         assert_no_secret_leak(exc_info.value, secret=self.env_value)
         if self.env_key is not None and self.provider is not None:
@@ -126,7 +129,7 @@ class ErrorMappingSuite:
             else self.connector
         )
         with pytest.raises(RateLimitError) as exc_info:
-            await bound(self.params)
+            await self._call(bound)
         assert exc_info.value.retry_after == 17.0
 
     @respx.mock
@@ -141,5 +144,5 @@ class ErrorMappingSuite:
             else self.connector
         )
         with pytest.raises(ProviderError) as exc_info:
-            await bound(self.params)
+            await self._call(bound)
         assert exc_info.value.status_code == 503

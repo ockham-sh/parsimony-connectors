@@ -8,17 +8,24 @@ respx still hooks into the transport.
 from __future__ import annotations
 
 import httpx
+import pandas as pd
 import pytest
 import respx
-from parsimony.errors import EmptyDataError
+from parsimony.errors import EmptyDataError, InvalidParameterError
+from parsimony.result import Result
 
 from parsimony_boc import (
+    BOC_ENUMERATE_OUTPUT,
     CONNECTORS,
-    BocEnumerateParams,
     BocFetchParams,
     boc_fetch,
     enumerate_boc,
 )
+
+
+def _enumerate_dataframe(result: Result) -> pd.DataFrame:
+    assert isinstance(result.data, pd.DataFrame)
+    return result.data
 
 
 def test_connectors_collection_exposes_expected_names() -> None:
@@ -26,16 +33,14 @@ def test_connectors_collection_exposes_expected_names() -> None:
     assert names == {"boc_fetch", "enumerate_boc", "boc_search"}
 
 
-def test_enumerate_output_schema_routes_description_via_description_role() -> None:
-    """Upstream ``description`` text must reach DESCRIPTION (semantic_text),
-    not METADATA (BM25 only). Mirrors Treasury's ``definition`` column.
-    """
+def test_enumerate_output_schema_routes_description_as_metadata() -> None:
+    """Upstream ``description`` text is ordinary catalog metadata."""
     from parsimony.result import ColumnRole
 
     from parsimony_boc import BOC_ENUMERATE_OUTPUT
 
     by_name = {c.name: c for c in BOC_ENUMERATE_OUTPUT.columns}
-    assert by_name["description"].role == ColumnRole.DESCRIPTION
+    assert by_name["description"].role == ColumnRole.METADATA
     assert by_name["source"].role == ColumnRole.METADATA
     assert by_name["entity_type"].role == ColumnRole.METADATA
     assert by_name["group"].role == ColumnRole.METADATA
@@ -59,7 +64,7 @@ async def test_boc_fetch_single_series_returns_observations() -> None:
         )
     )
 
-    result = await boc_fetch(BocFetchParams(series_name="FXUSDCAD"))
+    result = await boc_fetch(series_name="FXUSDCAD")
 
     assert result.provenance.source == "boc_fetch"
     df = result.data
@@ -88,7 +93,7 @@ async def test_boc_fetch_group_syntax_uses_group_endpoint() -> None:
         )
     )
 
-    result = await boc_fetch(BocFetchParams(series_name="group:FX_RATES_DAILY"))
+    result = await boc_fetch(series_name="group:FX_RATES_DAILY")
 
     assert result.provenance.source == "boc_fetch"
     assert len(result.data) >= 1
@@ -104,11 +109,11 @@ async def test_boc_fetch_raises_empty_data_when_no_observations() -> None:
     )
 
     with pytest.raises(EmptyDataError):
-        await boc_fetch(BocFetchParams(series_name="XX"))
+        await boc_fetch(series_name="XX")
 
 
 def test_fetch_rejects_empty_series_name() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidParameterError):
         BocFetchParams(series_name="   ")
 
 
@@ -148,8 +153,7 @@ def _mock_enumerate_endpoints(
 @respx.mock
 @pytest.mark.asyncio
 async def test_enumerate_boc_emits_one_row_per_series_with_description_and_source() -> None:
-    """The upstream ``description`` field must populate the DESCRIPTION
-    column (not the legacy ``group`` METADATA column), and every row must
+    """The upstream ``description`` field must populate metadata, and every row must
     carry ``source='valet'`` for dispatch."""
     _mock_enumerate_endpoints(
         series_payload={
@@ -188,8 +192,8 @@ async def test_enumerate_boc_emits_one_row_per_series_with_description_and_sourc
         },
     )
 
-    result = await enumerate_boc(BocEnumerateParams())
-    df = result.data
+    result = await enumerate_boc()
+    df = _enumerate_dataframe(result)
 
     # Per-series rows are emitted alongside group rows (groups are
     # discoverable as their own catalog entries via the ``group:`` prefix).
@@ -198,8 +202,8 @@ async def test_enumerate_boc_emits_one_row_per_series_with_description_and_sourc
 
     fxusdcad = df[df["series_name"] == "FXUSDCAD"].iloc[0]
     assert fxusdcad["title"] == "USD/CAD"
-    # ``description`` carries the upstream description text — the bug
-    # being fixed was that it was previously stuffed into ``group``.
+    # ``description`` carries the upstream description text; ``group``
+    # carries the upstream group identifier (asserted separately below).
     assert fxusdcad["description"] == "US dollar to Canadian dollar daily exchange rate"
     assert fxusdcad["source"] == "valet"
     assert fxusdcad["entity_type"] == "series"
@@ -213,9 +217,8 @@ async def test_enumerate_boc_emits_one_row_per_series_with_description_and_sourc
 @pytest.mark.asyncio
 async def test_enumerate_boc_group_metadata_is_group_id_not_description() -> None:
     """The ``group`` column carries the upstream group identifier (e.g.
-    ``FX_RATES_DAILY``), not the upstream description text. This is the
-    regression target — the previous implementation stored the
-    description in ``group``."""
+    ``FX_RATES_DAILY``), not the upstream description text. The
+    description goes in the ``description`` column."""
     _mock_enumerate_endpoints(
         series_payload={
             "series": {
@@ -238,7 +241,7 @@ async def test_enumerate_boc_group_metadata_is_group_id_not_description() -> Non
         },
     )
 
-    df = (await enumerate_boc(BocEnumerateParams())).data
+    df = _enumerate_dataframe(await enumerate_boc())
     row = df[df["series_name"] == "FXUSDCAD"].iloc[0]
 
     assert row["group"] == "FX_RATES_DAILY"
@@ -275,11 +278,11 @@ async def test_enumerate_boc_series_with_no_group_membership_has_empty_group() -
         },
     )
 
-    df = (await enumerate_boc(BocEnumerateParams())).data
+    df = _enumerate_dataframe(await enumerate_boc())
     row = df[df["series_name"] == "ORPHAN_SERIES"].iloc[0]
     assert row["group"] == ""
     assert row["group_label"] == ""
-    # DESCRIPTION column is still populated even when group membership is missing.
+    # Description metadata is still populated even when group membership is missing.
     assert row["description"] == "A series in no group at all"
 
 
@@ -317,7 +320,7 @@ async def test_enumerate_boc_keeps_first_group_when_series_in_multiple_groups() 
         },
     )
 
-    df = (await enumerate_boc(BocEnumerateParams())).data
+    df = _enumerate_dataframe(await enumerate_boc())
     row = df[df["series_name"] == "FXUSDCAD"].iloc[0]
     assert row["group"] == "FX_RATES_DAILY"
     assert row["group_label"] == "Daily exchange rates"
@@ -353,7 +356,7 @@ async def test_enumerate_boc_tolerates_failing_group_endpoint() -> None:
         return_value=httpx.Response(503)
     )
 
-    df = (await enumerate_boc(BocEnumerateParams())).data
+    df = _enumerate_dataframe(await enumerate_boc())
     # Series rows: one (FXUSDCAD). Plus a group row for DEAD_GROUP — the
     # group enumeration is independent of the per-group membership
     # fan-out, so a 503 on /groups/{name}/json strips membership info
@@ -401,7 +404,7 @@ async def test_enumerate_boc_emits_one_row_per_group_with_group_prefix_key() -> 
         },
     )
 
-    df = (await enumerate_boc(BocEnumerateParams())).data
+    df = _enumerate_dataframe(await enumerate_boc())
 
     group_rows = df[df["entity_type"] == "group"]
     assert set(group_rows["series_name"]) == {
@@ -411,8 +414,7 @@ async def test_enumerate_boc_emits_one_row_per_group_with_group_prefix_key() -> 
     fx_group = df[df["series_name"] == "group:FX_RATES_DAILY"].iloc[0]
     assert fx_group["title"] == "Daily exchange rates"
     # Group description text is the most useful retrieval signal at the
-    # group level — units, frequency, methodology hints. Must reach the
-    # DESCRIPTION column so the embedder indexes it.
+    # group level — units, frequency, methodology hints.
     assert "Daily average exchange rates" in fx_group["description"]
     assert fx_group["source"] == "valet"
     assert fx_group["group"] == "FX_RATES_DAILY"
@@ -427,13 +429,10 @@ async def test_enumerate_boc_emits_one_row_per_group_with_group_prefix_key() -> 
 @respx.mock
 @pytest.mark.asyncio
 async def test_enumerate_boc_emits_columns_required_for_catalog_entries() -> None:
-    """The Result returned by the enumerator must carry an output schema
-    that ``entries_from_result`` accepts: exactly one KEY (series_name),
-    one TITLE (title), one DESCRIPTION (description), and METADATA
+    """The Result returned by the enumerator must carry catalog entries
+    with exactly one KEY (series_name), one TITLE (title), and METADATA
     columns for source/group/group_label.
     """
-    from parsimony.catalog import entries_from_result
-
     _mock_enumerate_endpoints(
         series_payload={
             "series": {
@@ -456,8 +455,8 @@ async def test_enumerate_boc_emits_columns_required_for_catalog_entries() -> Non
         },
     )
 
-    result = await enumerate_boc(BocEnumerateParams())
-    entries = entries_from_result(result)
+    result = await enumerate_boc()
+    entries = BOC_ENUMERATE_OUTPUT.build_entities(result.data)
     # One series row plus one group row. Groups are catalogued as their
     # own discoverable entities so agents can find them via group-level
     # description text.
@@ -466,10 +465,7 @@ async def test_enumerate_boc_emits_columns_required_for_catalog_entries() -> Non
     series_entry = by_code["FXUSDCAD"]
     assert series_entry.namespace == "boc"
     assert series_entry.title == "USD/CAD"
-    # DESCRIPTION column flows into SeriesEntry.description (and thus
-    # into semantic_text() at indexing time).
-    assert series_entry.description == "US dollar to Canadian dollar daily exchange rate"
-    # METADATA columns flow into SeriesEntry.metadata.
+    assert series_entry.metadata.get("description") == "US dollar to Canadian dollar daily exchange rate"
     assert series_entry.metadata.get("source") == "valet"
     assert series_entry.metadata.get("entity_type") == "series"
     assert series_entry.metadata.get("group") == "FX_RATES_DAILY"

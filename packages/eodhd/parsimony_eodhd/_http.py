@@ -23,8 +23,9 @@ from parsimony.errors import (
     ParseError,
     ProviderError,
 )
-from parsimony.result import OutputConfig, Result
+from parsimony.result import OutputConfig
 from parsimony.transport import HttpClient, map_http_error, map_timeout_error
+from parsimony.transport.helpers import make_http_client
 
 # Per-request timeout. 15s is defensible for EODHD's REST endpoints, which
 # are not streaming. Bulk endpoints (fundamentals, macro_bulk, bulk_eod,
@@ -47,7 +48,8 @@ def make_http(
     alongside EODHD's ``fmt=json`` convention. Timeout defaults to 15s;
     bulk endpoints pass a larger value explicitly.
     """
-    return HttpClient(
+
+    return make_http_client(
         base_url,
         query_params={"api_token": api_key, "fmt": "json"},
         timeout=timeout,
@@ -80,8 +82,8 @@ async def eodhd_fetch(
     op_name: str,
     output_config: OutputConfig | None = None,
     raw: bool = False,
-) -> Result:
-    """Shared EODHD fetch: path interpolation, bracket params, JSON extraction, Result building.
+) -> Any:
+    """Shared EODHD fetch: path interpolation, bracket params, JSON extraction building.
 
     Error mapping is delegated to :func:`~parsimony.transport.map_http_error`:
       401/403 → UnauthorizedError
@@ -135,7 +137,7 @@ async def eodhd_fetch(
 
     # Raw return path (fundamentals): bypass DataFrame pipeline entirely
     if raw:
-        return Result(data=data)
+        return data
 
     # DataFrame construction
     if isinstance(data, list):
@@ -161,8 +163,8 @@ async def eodhd_fetch(
         )
 
     if output_config is not None:
-        return output_config.build_table_result(df)
-    return Result.from_dataframe(df)
+        return df
+    return df
 
 
 __all__ = [

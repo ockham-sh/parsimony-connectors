@@ -41,7 +41,5 @@ def ensure_within(base: Path, target: Path) -> Path:
     try:
         target_resolved.relative_to(base_resolved)
     except ValueError as exc:
-        raise ValueError(
-            f"Path escapes base: target={target_resolved} base={base_resolved}"
-        ) from exc
+        raise ValueError(f"Path escapes base: target={target_resolved} base={base_resolved}") from exc
     return target_resolved

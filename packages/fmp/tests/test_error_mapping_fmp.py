@@ -26,7 +26,7 @@ from parsimony.errors import (
     UnauthorizedError,
 )
 
-from parsimony_fmp import FmpScreenerParams, FmpSearchParams, fmp_screener, fmp_search
+from parsimony_fmp import fmp_screener, fmp_search
 
 _KEY = "live-looking-fmp-key-do-not-leak"
 
@@ -52,7 +52,7 @@ async def test_simple_connector_maps_status_and_does_not_leak_key(
 
     bound = fmp_search.bind(api_key=_KEY)
     with pytest.raises(exc_type) as exc_info:
-        await bound(FmpSearchParams(query="x"))
+        await bound(query="x")
 
     assert _KEY not in str(exc_info.value), f"api_key leaked via {exc_type.__name__} on {status}"
     assert exc_info.value.provider == "fmp"
@@ -71,7 +71,7 @@ async def test_screener_initial_fetch_maps_status_and_does_not_leak_key(
 
     bound = fmp_screener.bind(api_key=_KEY)
     with pytest.raises(exc_type) as exc_info:
-        await bound(FmpScreenerParams(sector="Technology"))
+        await bound(sector="Technology")
 
     assert _KEY not in str(exc_info.value), f"api_key leaked via {exc_type.__name__} on {status}"
     assert exc_info.value.provider == "fmp"
@@ -86,7 +86,7 @@ async def test_rate_limit_error_carries_retry_after() -> None:
     )
     bound = fmp_search.bind(api_key=_KEY)
     with pytest.raises(RateLimitError) as exc_info:
-        await bound(FmpSearchParams(query="x"))
+        await bound(query="x")
     assert exc_info.value.retry_after == 42.0
 
 
@@ -98,5 +98,5 @@ async def test_provider_error_carries_status_code() -> None:
     )
     bound = fmp_search.bind(api_key=_KEY)
     with pytest.raises(ProviderError) as exc_info:
-        await bound(FmpSearchParams(query="x"))
+        await bound(query="x")
     assert exc_info.value.status_code == 503

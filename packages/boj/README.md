@@ -9,7 +9,14 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 | Name | Kind | Description |
 |---|---|---|
 | `boj_fetch` | fetch | Fetch BoJ time series by database (`db`) and series `code`. Max 250 codes per request. |
-| `enumerate_boj` | enumerator | Enumerate BoJ series across the 45 known databases (catalog indexing). |
+| `enumerate_boj` | enumerator | Enumerate BoJ series across the 50 canonical databases (catalog indexing). |
+| `boj_databases_search` | search | Step 1: search statistics databases (`db` codes). |
+| `boj_series_search` | search | Step 2: search series within one database; returns `code` + `db` for `boj_fetch`. |
+
+Catalog discovery chain: `boj_databases_search` → `boj_series_search(db=...)` → `boj_fetch`.
+Published snapshots use a multi-bundle layout under `hf://parsimony-dev/boj/` (see
+connectors-repo [catalog-operations.md](../../docs/catalog-operations.md) — internal
+maintainer standard, not part of `parsimony-core`).
 
 ## Install
 
@@ -17,7 +24,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 pip install parsimony-boj
 ```
 
-Pulls in `parsimony-core>=0.4,<0.5` automatically. Verify discovery:
+Pulls in a compatible `parsimony-core` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
@@ -34,7 +41,7 @@ import asyncio
 from parsimony_boj import CONNECTORS
 
 async def main():
-    connectors = CONNECTORS.bind_env()
+    connectors = CONNECTORS
     result = await connectors["boj_fetch"](db="FM08", code="FXERD01")
     print(result.data.head())
 
@@ -45,7 +52,7 @@ For multi-plugin composition:
 
 ```python
 from parsimony import discover
-connectors = discover.load_all().bind_env()
+connectors = discover.load_all()
 ```
 
 ## Provider

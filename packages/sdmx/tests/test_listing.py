@@ -18,12 +18,10 @@ from parsimony_sdmx._isolation.listing import (
 )
 
 
-def _emit_large_payload_child(
-    result_q: mp.Queue[Any], n_records: int
-) -> None:
+def _emit_large_payload_child(result_q: mp.Queue[Any], n_records: int) -> None:
     """Module-level child that emits ``n_records`` tuples via the queue.
 
-    Used to stress the parent-side pipe-buffer handling. Must be module
+    Stresses the parent-side pipe-buffer handling. Must be module
     level so ``multiprocessing.spawn`` can pickle the reference.
     """
     payload = [(f"DS_{i:06d}", "TEST", f"title {i}") for i in range(n_records)]
@@ -59,9 +57,8 @@ class TestParentStaysSdmxFree:
 
             leaked = sorted(m for m in sys.modules if m == "sdmx" or m.startswith("sdmx."))
             if leaked:
-                print(f"LEAKED: {leaked}")
                 sys.exit(1)
-            print("CLEAN")
+            sys.exit(0)
             """
         )
         result = subprocess.run(  # noqa: S603
@@ -70,17 +67,11 @@ class TestParentStaysSdmxFree:
             text=True,
             timeout=30,
         )
-        assert result.returncode == 0, (
-            f"parent leaked sdmx imports — stdout={result.stdout!r} "
-            f"stderr={result.stderr!r}"
-        )
-        assert "CLEAN" in result.stdout
+        assert result.returncode == 0, f"parent leaked sdmx imports — stdout={result.stdout!r} stderr={result.stderr!r}"
 
     def test_plugin_surface_import_does_not_pull_sdmx(self) -> None:
-        # ``parsimony publish`` imports ``parsimony_sdmx`` to read
-        # ``CATALOGS`` / ``RESOLVE_CATALOG`` / ``CONNECTORS``. That
-        # import must stay sdmx-free — sdmx1 only gets loaded inside
-        # spawned children.
+        # Agent/runtime imports of ``parsimony_sdmx`` must stay sdmx-free —
+        # sdmx1 only gets loaded inside spawned children.
         script = textwrap.dedent(
             """
             import sys
@@ -88,9 +79,8 @@ class TestParentStaysSdmxFree:
 
             leaked = sorted(m for m in sys.modules if m == "sdmx" or m.startswith("sdmx."))
             if leaked:
-                print(f"LEAKED: {leaked}")
                 sys.exit(1)
-            print("CLEAN")
+            sys.exit(0)
             """
         )
         result = subprocess.run(  # noqa: S603
@@ -99,24 +89,22 @@ class TestParentStaysSdmxFree:
             text=True,
             timeout=30,
         )
-        assert result.returncode == 0, (
-            f"plugin surface leaked sdmx — stdout={result.stdout!r} "
-            f"stderr={result.stderr!r}"
-        )
+        assert result.returncode == 0, f"plugin surface leaked sdmx — stdout={result.stdout!r} stderr={result.stderr!r}"
 
 
 @pytest.mark.slow
 class TestRunInChildLargePayload:
     """Regression guard for the pipe-buffer deadlock.
 
-    The ESTAT listing (8k+ dataflows, ~800 KB pickled) used to hang
-    because the parent joined the child before reading the queue. The
-    child's feeder thread couldn't flush through the 64 KB OS pipe
-    buffer until the parent read — classic mp.Queue deadlock.
+    The ESTAT listing (8k+ dataflows, ~800 KB pickled) saturates the
+    parent-side pipe buffer; this test pins the drain order. If a
+    caller joins the child before reading the queue, the child's
+    feeder thread blocks on the 64 KB OS pipe buffer and the parent
+    deadlocks on ``proc.join()``.
 
     This test emits 100k synthetic records (~8 MB pickled), well past
-    the pipe buffer size. If anyone restores the old join-before-read
-    order, this test hangs until timeout.
+    the pipe buffer size. If anyone reorders to join-before-read,
+    this test hangs until timeout.
     """
 
     def test_large_payload_does_not_deadlock(self) -> None:
@@ -132,8 +120,7 @@ class TestRunInChildLargePayload:
         assert status == "ok"
         assert len(records) == 100_000
         assert elapsed < 15.0, (
-            f"run_in_child took {elapsed:.1f}s for 100k records — "
-            "likely a pipe-buffer deadlock regression"
+            f"run_in_child took {elapsed:.1f}s for 100k records — likely a pipe-buffer deadlock regression"
         )
 
 

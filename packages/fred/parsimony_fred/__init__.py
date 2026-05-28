@@ -9,28 +9,22 @@ Exports:
 
 from __future__ import annotations
 
+import os
 from typing import Annotated, Any
 
 import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector
-from parsimony.errors import EmptyDataError
+from parsimony.errors import EmptyDataError, InvalidParameterError, UnauthorizedError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Result,
 )
 from parsimony.transport import HttpClient, map_http_error
 from pydantic import BaseModel, Field, field_validator
 
-__all__ = [
-    "CONNECTORS",
-    "FredSearchParams",
-    "FredFetchParams",
-    "fred_search",
-    "fred_fetch",
-]
+__all__ = ["CONNECTORS", "load"]
 
 # ---------------------------------------------------------------------------
 # Parameter models
@@ -55,7 +49,7 @@ class FredFetchParams(BaseModel):
     def _non_empty(cls, value: str) -> str:
         stripped = str(value).strip()
         if not stripped:
-            raise ValueError("series_id must be non-empty")
+            raise InvalidParameterError("fred", "series_id must be non-empty")
         return stripped
 
 
@@ -95,6 +89,19 @@ SEARCH_COLUMNS = [
     "last_updated",
 ]
 
+SEARCH_OUTPUT = OutputConfig(
+    columns=[
+        Column(name="id", role=ColumnRole.KEY, namespace="fred"),
+        Column(name="title", role=ColumnRole.TITLE),
+        Column(name="units", role=ColumnRole.METADATA),
+        Column(name="frequency_short", role=ColumnRole.METADATA),
+        Column(name="seasonal_adjustment_short", role=ColumnRole.METADATA),
+        Column(name="observation_start", role=ColumnRole.METADATA),
+        Column(name="observation_end", role=ColumnRole.METADATA),
+        Column(name="last_updated", role=ColumnRole.METADATA),
+    ]
+)
+
 
 def _make_http(api_key: str) -> HttpClient:
     return HttpClient(
@@ -103,19 +110,27 @@ def _make_http(api_key: str) -> HttpClient:
     )
 
 
+def _resolve_api_key(api_key: str) -> str:
+    key = api_key or os.environ.get("FRED_API_KEY", "")
+    if not key:
+        raise UnauthorizedError("fred", env_var="FRED_API_KEY")
+    return key
+
+
 # ---------------------------------------------------------------------------
 # Connectors
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "FRED_API_KEY"}, tags=["macro", "tool"])
-async def fred_search(params: FredSearchParams, *, api_key: str) -> Result:
+@connector(output=SEARCH_OUTPUT, tags=["macro", "tool"], secrets=('api_key',))
+async def fred_search(search_text: str, api_key: str = "") -> pd.DataFrame:
     """Keyword search for FRED economic time series.
 
     Returns series metadata (id, title, units, frequency).
     Use short, specific queries like 'US unemployment rate' or 'GDPC1'.
     """
-    http = _make_http(api_key)
+    params = FredSearchParams(search_text=search_text)
+    http = _make_http(_resolve_api_key(api_key))
     response = await http.request(
         "GET",
         "/series/search",
@@ -130,17 +145,26 @@ async def fred_search(params: FredSearchParams, *, api_key: str) -> Result:
         raise EmptyDataError(provider="fred", message=f"No series found for: {params.search_text}")
     df = pd.DataFrame(seriess)
     cols = [c for c in SEARCH_COLUMNS if c in df.columns]
-    df = df[cols]
-    return Result.from_dataframe(df)
+    return df[cols]
 
 
-@connector(env={"api_key": "FRED_API_KEY"}, output=FETCH_OUTPUT, tags=["macro"])
-async def fred_fetch(params: FredFetchParams, *, api_key: str) -> Result:
+@connector(output=FETCH_OUTPUT, tags=["macro"], secrets=('api_key',))
+async def fred_fetch(
+    series_id: Annotated[str, "ns:fred"],
+    observation_start: str | None = None,
+    observation_end: str | None = None,
+    api_key: str = "",
+) -> Any:
     """Fetch FRED time series observations by series_id.
 
     Returns date + value columns with rich metadata (title, units, frequency, seasonal adjustment).
     """
-    http = _make_http(api_key)
+    params = FredFetchParams(
+        series_id=series_id,
+        observation_start=observation_start,
+        observation_end=observation_end,
+    )
+    http = _make_http(_resolve_api_key(api_key))
     series_id = params.series_id
 
     req_params: dict[str, Any] = {"series_id": series_id}
@@ -170,31 +194,17 @@ async def fred_fetch(params: FredFetchParams, *, api_key: str) -> Result:
     df["frequency_short"] = series_data.get("frequency_short")
     df["seasonal_adjustment_short"] = series_data.get("seasonal_adjustment_short")
 
-    meta_keys = [
-        ("id", False),
-        ("title", False),
-        ("units", False),
-        ("units_short", True),
-        ("frequency", False),
-        ("frequency_short", False),
-        ("seasonal_adjustment", False),
-        ("seasonal_adjustment_short", True),
-        ("last_updated", False),
-        ("notes", True),
-    ]
-    metadata_list = [
-        {"name": k, "value": str(series_data[k]), "exclude_from_llm_view": excl}
-        for k, excl in meta_keys
-        if k in series_data
-    ]
-    metadata_list.append(
-        {
-            "name": "series_url",
-            "value": f"https://fred.stlouisfed.org/series/{series_id}",
-        }
-    )
-
-    return FETCH_OUTPUT.build_table_result(df).with_properties(metadata=metadata_list)
+    df["series_url"] = f"https://fred.stlouisfed.org/series/{series_id}"
+    if "units" in series_data:
+        df["units"] = str(series_data["units"])
+    if "notes" in series_data:
+        df["notes"] = str(series_data["notes"])
+    return df
 
 
 CONNECTORS = Connectors([fred_search, fred_fetch])
+
+
+def load(*, api_key: str) -> Connectors:
+    """Return :data:`CONNECTORS` with ``api_key`` bound on every connector that accepts it."""
+    return CONNECTORS.bind(api_key=api_key)

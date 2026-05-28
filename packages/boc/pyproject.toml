@@ -1,6 +1,6 @@
 [project]
 name = "parsimony-boc"
-version = "0.5.0"
+version = "0.6.0"
 description = "Bank of Canada connector for the parsimony framework"
 authors = [{ name = "Ockham.sh", email = "team@ockham.sh" }]
 license = "Apache-2.0"
@@ -21,19 +21,12 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "parsimony-core>=0.5.0,<0.6",
+    "parsimony-core>=0.7,<0.8",
     "pydantic>=2.11.1,<3",
     "pandas>=2.3.0,<3",
 ]
 
 [project.optional-dependencies]
-# Heavy deps for running the HF catalog publisher under scripts/. Kept
-# behind an extra so `pip install parsimony-boc` stays lean — only catalog
-# maintainers ever need parsimony-core[standard-onnx] (faiss + onnxruntime
-# + sentence-transformers).
-publish = [
-    "parsimony-core[standard-onnx]>=0.5.0,<0.6",
-]
 dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",

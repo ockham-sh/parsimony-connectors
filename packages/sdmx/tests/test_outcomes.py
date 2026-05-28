@@ -49,10 +49,7 @@ class TestClassifyException:
         assert classify_exception(requests.exceptions.Timeout()) == FailureKind.TIMEOUT
 
     def test_connection_error(self) -> None:
-        assert (
-            classify_exception(requests.exceptions.ConnectionError())
-            == FailureKind.HTTP_ERROR
-        )
+        assert classify_exception(requests.exceptions.ConnectionError()) == FailureKind.HTTP_ERROR
 
     def test_http_error(self) -> None:
         resp = requests.Response()

@@ -1,4 +1,4 @@
-"""Tests for the ECB provider glue: dsd_order → attrs fetch → augment → flow."""
+"""Tests for the ECB provider glue: dsd_order -> attrs fetch -> titles -> flow."""
 
 from __future__ import annotations
 
@@ -10,53 +10,44 @@ import pytest
 
 from parsimony_sdmx.core.errors import SdmxFetchError
 from parsimony_sdmx.core.models import SeriesRecord
-from parsimony_sdmx.providers.ecb import EcbProvider, _build_augment, _fetch_series_attributes
+from parsimony_sdmx.providers.ecb import EcbProvider, _build_source_title, _fetch_series_attributes
 from parsimony_sdmx.providers.ecb_series_attrs import GENERIC_NS
 
 SERIES_ATTRS_XML = (
     f'<message xmlns:generic="{GENERIC_NS}">'
-    f'<generic:Series>'
-    f'<generic:SeriesKey>'
+    f"<generic:Series>"
+    f"<generic:SeriesKey>"
     f'<generic:Value id="FREQ" value="A"/>'
     f'<generic:Value id="REF_AREA" value="U2"/>'
-    f'</generic:SeriesKey>'
-    f'<generic:Attributes>'
+    f"</generic:SeriesKey>"
+    f"<generic:Attributes>"
     f'<generic:Value id="TITLE" value="Annual EU"/>'
     f'<generic:Value id="TITLE_COMPL" value="Annual growth rate, Euro area"/>'
-    f'</generic:Attributes>'
-    f'</generic:Series>'
-    f'</message>'
+    f"</generic:Attributes>"
+    f"</generic:Series>"
+    f"</message>"
 ).encode()
 
 
-class TestBuildAugment:
-    def test_applies_title_prefix_and_drops_title_compl(self) -> None:
-        """TITLE is prefixed to the codelist base; TITLE_COMPL is discarded.
-
-        TITLE_COMPL's content is covered by dim labels + metadata
-        (see ``augment_with_ecb_attributes``); including it inflated
-        tokens without retrieval benefit.
-        """
+class TestBuildSourceTitle:
+    def test_uses_title_and_drops_title_compl(self) -> None:
         attrs_map: dict[str, tuple[str | None, str | None]] = {
             "A.U2": ("Annual EU", "Annual growth rate, Euro area"),
         }
-        augment = _build_augment(attrs_map)
-        result = augment("FREQ: Annual - REF_AREA: Euro area", "A.U2")
-        assert result.startswith("Annual EU")
-        assert "FREQ: Annual - REF_AREA: Euro area" in result
+        source_title = _build_source_title(attrs_map)
+        result = source_title("A.U2")
+        assert result == "Annual EU"
         assert "Annual growth rate" not in result
 
-    def test_unknown_series_returns_base(self) -> None:
-        augment = _build_augment({})
-        # Missing series → base unchanged (no augmentation suffix).
-        result = augment("base title", "not.in.map")
-        assert result == "base title"
+    def test_unknown_series_returns_none(self) -> None:
+        source_title = _build_source_title({})
+        assert source_title("not.in.map") is None
 
 
 class TestFetchSeriesAttributes:
     def test_fetch_failure_returns_empty_map(self) -> None:
-        # A failed ECB attrs fetch must not abort the run — the provider
-        # falls back to un-augmented titles.
+        # A failed ECB attrs fetch must not abort the run; the provider
+        # falls back to synthetic label titles.
         from parsimony_sdmx.io.http import HttpConfig
 
         with patch(
@@ -73,9 +64,7 @@ class TestFetchSeriesAttributes:
             "parsimony_sdmx.providers.ecb.bounded_get",
             return_value=SERIES_ATTRS_XML,
         ):
-            attrs = _fetch_series_attributes(
-                "YC", ["FREQ", "REF_AREA"], HttpConfig()
-            )
+            attrs = _fetch_series_attributes("YC", ["FREQ", "REF_AREA"], HttpConfig())
         assert attrs == {
             "A.U2": ("Annual EU", "Annual growth rate, Euro area"),
         }
@@ -87,9 +76,7 @@ class TestFetchSeriesAttributes:
             "parsimony_sdmx.providers.ecb.bounded_get",
             return_value=b"<not><closed>",
         ):
-            attrs = _fetch_series_attributes(
-                "YC", ["FREQ", "REF_AREA"], HttpConfig()
-            )
+            attrs = _fetch_series_attributes("YC", ["FREQ", "REF_AREA"], HttpConfig())
         assert attrs == {}
 
     def test_http_config_read_timeout_halved(self) -> None:
@@ -99,9 +86,7 @@ class TestFetchSeriesAttributes:
 
         captured: list[HttpConfig] = []
 
-        def _fake_get(
-            session: object, url: str, config: HttpConfig, extra_headers: dict[str, str]
-        ) -> bytes:
+        def _fake_get(session: object, url: str, config: HttpConfig, extra_headers: dict[str, str]) -> bytes:
             captured.append(config)
             return SERIES_ATTRS_XML
 
@@ -118,9 +103,7 @@ class TestFetchSeriesAttributes:
 
         captured: list[HttpConfig] = []
 
-        def _fake_get(
-            session: object, url: str, config: HttpConfig, extra_headers: dict[str, str]
-        ) -> bytes:
+        def _fake_get(session: object, url: str, config: HttpConfig, extra_headers: dict[str, str]) -> bytes:
             captured.append(config)
             return SERIES_ATTRS_XML
 
@@ -158,7 +141,7 @@ class TestEcbProviderListSeries:
         client.dataflow.return_value = msg
         return client
 
-    def test_emits_augmented_series_records(self) -> None:
+    def test_emits_source_title_series_records(self) -> None:
         msg = self._build_msg()
         client = self._client(msg)
 
@@ -195,9 +178,9 @@ class TestEcbProviderListSeries:
         rec = records[0]
         assert isinstance(rec, SeriesRecord)
         assert rec.dataset_id == "YC"
-        # Augmented title prepends the fetched TITLE to the codelist
-        # base; TITLE_COMPL is intentionally omitted.
-        assert "Annual EU" in rec.title
+        # Source TITLE wins over the synthetic label title; TITLE_COMPL is
+        # intentionally omitted.
+        assert rec.title == "Annual EU"
         assert "Annual growth rate" not in rec.title
 
     def test_falls_back_when_attrs_fetch_fails(self) -> None:
@@ -234,7 +217,7 @@ class TestEcbProviderListSeries:
             records = list(provider.list_series("YC"))
 
         assert len(records) == 1
-        # Un-augmented: only the base codelist title, no TITLE/TITLE_COMPL suffix.
+        # No source title: only the synthetic title, no TITLE/TITLE_COMPL suffix.
         assert "Annual EU" not in records[0].title
         assert "Annual growth rate" not in records[0].title
 

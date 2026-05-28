@@ -12,12 +12,11 @@ from typing import Annotated, Any
 import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError
+from parsimony.errors import EmptyDataError, InvalidParameterError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Result,
 )
 from parsimony.transport import HttpClient, map_http_error
 from pydantic import BaseModel, Field, field_validator
@@ -43,7 +42,7 @@ class EiaFetchParams(BaseModel):
     def _non_empty(cls, v: str) -> str:
         v = v.strip()
         if not v:
-            raise ValueError("route must be non-empty")
+            raise InvalidParameterError("eia", "route must be non-empty")
         return v
 
 
@@ -80,13 +79,21 @@ EIA_FETCH_OUTPUT = OutputConfig(
 # ---------------------------------------------------------------------------
 
 
-@connector(env={"api_key": "EIA_API_KEY"}, output=EIA_FETCH_OUTPUT, tags=["macro", "energy", "us"])
-async def eia_fetch(params: EiaFetchParams, *, api_key: str) -> Result:
+@connector(output=EIA_FETCH_OUTPUT, tags=["macro", "energy", "us"], secrets=('api_key',))
+async def eia_fetch(
+    route: Annotated[str, "ns:eia"],
+    frequency: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    *,
+    api_key: str,
+) -> pd.DataFrame:
     """Fetch EIA energy data by API route.
 
     Returns the dataset with period parsed and numeric columns converted.
     Columns retain their original names from the EIA API.
     """
+    params = EiaFetchParams(route=route, frequency=frequency, start=start, end=end)
     http = HttpClient(_BASE_URL, query_params={"api_key": api_key})
 
     req_params: dict[str, Any] = {}
@@ -127,13 +134,11 @@ async def eia_fetch(params: EiaFetchParams, *, api_key: str) -> Result:
     df["route"] = params.route
     df["title"] = description
 
-    return Result.from_dataframe(df).with_properties(
-        source_url="https://www.eia.gov/opendata/"
-    )
+    return df
 
 
-@enumerator(env={"api_key": "EIA_API_KEY"}, output=EIA_ENUMERATE_OUTPUT, tags=["macro", "energy", "us"])
-async def enumerate_eia(params: EiaEnumerateParams, *, api_key: str) -> pd.DataFrame:
+@enumerator(output=EIA_ENUMERATE_OUTPUT, tags=["macro", "energy", "us"], secrets=('api_key',))
+async def enumerate_eia(*, api_key: str) -> pd.DataFrame:
     """Enumerate top-level EIA API routes for catalog indexing."""
     http = HttpClient(_BASE_URL, query_params={"api_key": api_key})
 
@@ -156,7 +161,8 @@ async def enumerate_eia(params: EiaEnumerateParams, *, api_key: str) -> pd.DataF
             }
         )
 
-    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["route", "title", "category", "frequency"])
+    df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["route", "title", "category", "frequency"])
+    return df
 
 
 # ---------------------------------------------------------------------------

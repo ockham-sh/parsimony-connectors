@@ -10,10 +10,10 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
+from parsimony.errors import InvalidParameterError
 
 from parsimony_rba import (
     CONNECTORS,
-    RbaEnumerateParams,
     RbaFetchParams,
     enumerate_rba,
     rba_fetch,
@@ -89,7 +89,7 @@ async def test_rba_fetch_resolves_then_parses_csv() -> None:
         return_value=httpx.Response(200, text=_F1_CSV)
     )
 
-    result = await rba_fetch(RbaFetchParams(table_id="f1-data"))
+    result = await rba_fetch(table_id="f1-data")
 
     assert result.provenance.source == "rba_fetch"
     df = result.data
@@ -104,8 +104,8 @@ async def test_rba_fetch_raises_value_error_for_unknown_table() -> None:
         return_value=httpx.Response(200, text=_TABLES_HTML)
     )
 
-    with pytest.raises(ValueError, match="not found"):
-        await rba_fetch(RbaFetchParams(table_id="nonexistent-table"))
+    with pytest.raises(InvalidParameterError, match="not found"):
+        await rba_fetch(table_id="nonexistent-table")
 
 
 def test_fetch_normalises_trailing_csv_suffix() -> None:
@@ -140,7 +140,7 @@ async def test_enumerate_rba_emits_description_table_id_unit_and_source() -> Non
         return_value=httpx.Response(404, text="missing")
     )
 
-    df = (await enumerate_rba(RbaEnumerateParams())).data
+    df = (await enumerate_rba()).data
 
     # Schema completeness — every Treasury-grade column must be present.
     assert {
@@ -174,8 +174,8 @@ async def test_enumerate_rba_emits_description_table_id_unit_and_source() -> Non
 async def test_enumerate_rba_compound_code_keeps_cross_table_series_id_collisions() -> None:
     """Series ids reused across tables (B13.1.x vs B13.2.x in the wild) must
     emit two distinct catalog rows, distinguished by ``table_id`` in the
-    compound ``code``. Previously a bare ``series_id`` KEY silently dropped
-    the second occurrence."""
+    compound ``code``. A bare ``series_id`` KEY would silently drop the
+    second occurrence — the compound code is what keeps both reachable."""
     respx.get("https://www.rba.gov.au/statistics/tables/").mock(
         return_value=httpx.Response(200, text=_TABLES_HTML_COLLISION)
     )
@@ -186,7 +186,7 @@ async def test_enumerate_rba_compound_code_keeps_cross_table_series_id_collision
         return_value=httpx.Response(200, text=_B13_2_1_CSV)
     )
 
-    df = (await enumerate_rba(RbaEnumerateParams())).data
+    df = (await enumerate_rba()).data
 
     same_sid = df[df["series_id"] == "BFC5WDZ"]
     assert len(same_sid) == 2, "shared series_id must produce two distinct entries"
@@ -216,7 +216,7 @@ async def test_enumerate_rba_source_metadata_uniform() -> None:
         return_value=httpx.Response(200, text=_B13_2_1_CSV)
     )
 
-    df = (await enumerate_rba(RbaEnumerateParams())).data
+    df = (await enumerate_rba()).data
     assert set(df["source"]) == {"rba_csv"}
 
 
@@ -345,7 +345,7 @@ async def test_enumerate_rba_pulls_xlsx_exclusive_sub_sheet() -> None:
         return_value=httpx.Response(200, text="<html></html>")
     )
 
-    df = (await enumerate_rba(RbaEnumerateParams())).data
+    df = (await enumerate_rba()).data
 
     # Bond Purchase Program sheet's single series must be present and
     # tagged rba_xlsx; the allow-listed skip must keep the CSV-duplicate
@@ -426,11 +426,11 @@ async def test_enumerate_rba_pulls_xls_hist_discontinued_series() -> None:
     # don't need a mock for that URL.
 
     orig = pkg._parse_xls_hist
-    pkg._parse_xls_hist = fake_parse  # type: ignore[assignment]
+    pkg._parse_xls_hist = fake_parse
     try:
-        df = (await enumerate_rba(RbaEnumerateParams())).data
+        df = (await enumerate_rba()).data
     finally:
-        pkg._parse_xls_hist = orig  # type: ignore[assignment]
+        pkg._parse_xls_hist = orig
 
     hist_rows = df[df["source"] == "rba_xlsx_hist"]
     assert len(hist_rows) == 1

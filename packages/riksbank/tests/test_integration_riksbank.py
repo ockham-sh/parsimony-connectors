@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 from parsimony_test_support import assert_provenance_shape, require_env
 
-from parsimony_riksbank import RiksbankFetchParams, riksbank_fetch
+from parsimony_riksbank import riksbank_fetch
 
 pytestmark = pytest.mark.integration
 
@@ -21,7 +21,7 @@ async def test_riksbank_fetch_sekeur() -> None:
     creds = require_env("RIKSBANK_API_KEY")
     bound = riksbank_fetch.bind(api_key=creds["RIKSBANK_API_KEY"])
 
-    result = await bound(RiksbankFetchParams(series_id="SEKEURPMI"))
+    result = await bound(series_id="SEKEURPMI")
 
     assert_provenance_shape(result)
     df = result.data

@@ -1,6 +1,6 @@
 """Parquet writers with explicit typed schemas, uniqueness checks, and atomic writes.
 
-Layout contract (public API to the downstream FAISS indexer):
+Layout contract for SDMX catalog builders:
 
     outputs/{AGENCY}/datasets.parquet
     outputs/{AGENCY}/series/{DATASET}.parquet
@@ -39,11 +39,19 @@ SERIES_SCHEMA = pa.schema(
         pa.field("id", pa.string(), nullable=False),
         pa.field("dataset_id", pa.string(), nullable=False),
         pa.field("title", pa.string(), nullable=False),
-        # Per-row list of atomic embedding fragments (codelist labels).
-        # Consumed by ``parsimony.FragmentEmbeddingCache`` when wired at
-        # publish time. Empty list for providers that don't emit
-        # structural fragments (nothing downstream to compose).
-        pa.field("fragments", pa.list_(pa.string()), nullable=False),
+        pa.field(
+            "dimensions",
+            pa.list_(
+                pa.struct(
+                    [
+                        pa.field("id", pa.string(), nullable=False),
+                        pa.field("code", pa.string(), nullable=False),
+                        pa.field("label", pa.string(), nullable=True),
+                    ]
+                )
+            ),
+            nullable=False,
+        ),
     ]
 )
 
@@ -160,29 +168,26 @@ def _write_series_batched(
             ids: list[str] = []
             dsids: list[str] = []
             titles: list[str] = []
-            fragments: list[list[str]] = []
+            dimensions: list[list[dict[str, str | None]]] = []
             for rec in batch_rows:
                 if rec.dataset_id != dataset_id:
                     raise ValueError(
-                        f"SeriesRecord.dataset_id={rec.dataset_id!r} "
-                        f"does not match expected {dataset_id!r}"
+                        f"SeriesRecord.dataset_id={rec.dataset_id!r} does not match expected {dataset_id!r}"
                     )
                 if rec.id in seen_ids:
-                    raise ValueError(
-                        f"Duplicate series id in dataset {dataset_id!r}: {rec.id!r}"
-                    )
+                    raise ValueError(f"Duplicate series id in dataset {dataset_id!r}: {rec.id!r}")
                 seen_ids.add(rec.id)
                 ids.append(rec.id)
                 dsids.append(rec.dataset_id)
                 titles.append(rec.title)
-                fragments.append(list(rec.fragments))
+                dimensions.append([{"id": dim.id, "code": dim.code, "label": dim.label} for dim in rec.dimensions])
             if ids:
                 batch = pa.RecordBatch.from_pydict(
                     {
                         "id": ids,
                         "dataset_id": dsids,
                         "title": titles,
-                        "fragments": fragments,
+                        "dimensions": dimensions,
                     },
                     schema=SERIES_SCHEMA,
                 )

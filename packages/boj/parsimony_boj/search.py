@@ -1,93 +1,190 @@
-"""Semantic search over the published Bank of Japan (BoJ) catalog.
-
-Wraps the parquet+FAISS catalog at ``hf://parsimony-dev/boj`` (override with
-``PARSIMONY_BOJ_CATALOG_URL`` for local testing) as an MCP tool.
-
-Codes returned by this tool are series codes (e.g. ``STRDCLUCON``) or
-database identifiers prefixed with ``db:`` (e.g. ``db:FM01``). Pass the
-returned ``code`` to :func:`boj_fetch` via its ``code`` parameter (and
-``db`` parameter — the ``db`` METADATA column on the catalog row tells you
-which DB the code lives in).
-"""
+"""BoJ catalog search connectors (multi-bundle)."""
 
 from __future__ import annotations
 
 import logging
 import os
-from typing import Annotated
 
 import pandas as pd
-from parsimony.catalog import Catalog, CatalogCache
+from parsimony.catalog.search import CatalogLRU, resolved_catalog_url
+from parsimony.catalog.source import lazy_catalog_dir
 from parsimony.connector import connector
+from parsimony.errors import EmptyDataError
 from parsimony.result import Column, ColumnRole, OutputConfig
 from pydantic import BaseModel, Field
+
+from parsimony_boj.catalog_build import (
+    DATABASES_NAMESPACE,
+    DEFAULT_CATALOG_ROOT,
+    build_boj_databases_catalog_from_enumeration,
+    build_boj_series_catalog_for_db,
+    series_namespace,
+)
 
 logger = logging.getLogger(__name__)
 
 PARSIMONY_BOJ_CATALOG_URL_ENV = "PARSIMONY_BOJ_CATALOG_URL"
-_DEFAULT_CATALOG_URL = "hf://parsimony-dev/boj"
-
-_CATALOG_CACHE = CatalogCache(max_size=1)
+DEFAULT_LRU_SIZE = 4
 
 
-async def _get_catalog() -> Catalog:
-    url = os.environ.get(PARSIMONY_BOJ_CATALOG_URL_ENV, _DEFAULT_CATALOG_URL)
-    return await _CATALOG_CACHE.get(url)
+def _lru_size_from_env() -> int:
+    raw = os.environ.get("PARSIMONY_BOJ_CATALOG_LRU_SIZE", "")
+    try:
+        n = int(raw) if raw else DEFAULT_LRU_SIZE
+    except ValueError:
+        return DEFAULT_LRU_SIZE
+    return max(1, n)
 
 
-BOJ_SEARCH_OUTPUT = OutputConfig(
+_lru = CatalogLRU(_lru_size_from_env())
+
+
+def _clear_catalog_lru() -> None:
+    """Test helper: drop cached catalog bundles."""
+
+    _lru.clear()
+
+
+async def _get_or_load_catalog(namespace: str, *, catalog_root: str | None = None, build=None):
+    root = resolved_catalog_url(
+        PARSIMONY_BOJ_CATALOG_URL_ENV,
+        DEFAULT_CATALOG_ROOT,
+        override=catalog_root,
+    )
+    url = f"{root}/{namespace}"
+    cache_path = lazy_catalog_dir("boj", namespace)
+    return await _lru.get_or_load(url, cache_path=cache_path, build=build)
+
+
+def _normalize_db(db: str) -> str:
+    return db.strip().upper()
+
+
+DATABASES_SEARCH_OUTPUT = OutputConfig(
+    columns=[
+        Column(name="db", role=ColumnRole.KEY),
+        Column(name="title", role=ColumnRole.TITLE),
+        Column(name="score", role=ColumnRole.DATA),
+        Column(name="category", role=ColumnRole.METADATA),
+        Column(
+            name="series_namespace",
+            role=ColumnRole.METADATA,
+            description="Namespace for boj_series_search, e.g. boj_series_fm08.",
+        ),
+    ]
+)
+
+
+class DatabasesSearchParams(BaseModel):
+    query: str = Field(min_length=1, max_length=512)
+    limit: int = Field(default=10, ge=1, le=50)
+    catalog_root: str | None = None
+
+
+@connector(output=DATABASES_SEARCH_OUTPUT, tags=["macro", "jp", "tool"])
+async def boj_databases_search(
+    query: str,
+    limit: int = 10,
+    catalog_root: str | None = None,
+) -> pd.DataFrame:
+    """Search BoJ statistics databases (step 1 of catalog discovery).
+
+    Returns ``db`` codes for ``boj_series_search`` and ``series_namespace`` hints.
+    Chain: ``boj_databases_search`` → ``boj_series_search(db=...)`` → ``boj_fetch``.
+    """
+    params = DatabasesSearchParams(query=query, limit=limit, catalog_root=catalog_root)
+    catalog = await _get_or_load_catalog(
+        DATABASES_NAMESPACE,
+        catalog_root=params.catalog_root,
+        build=build_boj_databases_catalog_from_enumeration,
+    )
+    matches, _ = await catalog.search(params.query, limit=params.limit)
+    if not matches:
+        raise EmptyDataError(
+            provider="boj",
+            message=f"No database matches for query={params.query!r}.",
+        )
+    rows = []
+    for m in matches:
+        db_code = m.code
+        category = str(m.metadata.get("category") or "") if m.metadata else ""
+        rows.append(
+            {
+                "db": db_code,
+                "title": m.title,
+                "score": round(m.score, 6),
+                "category": category,
+                "series_namespace": series_namespace(db_code),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+SERIES_SEARCH_OUTPUT = OutputConfig(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="boj"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="similarity", role=ColumnRole.METADATA),
+        Column(name="score", role=ColumnRole.DATA),
+        Column(name="db", role=ColumnRole.METADATA),
     ]
 )
 
 
-class BojSearchParams(BaseModel):
-    """Parameters for :func:`boj_search`."""
-
-    query: Annotated[
-        str,
-        Field(
-            min_length=1,
-            max_length=512,
-            description=(
-                "Natural-language description of the BoJ series or database "
-                "you want (e.g. 'JPY USD daily exchange rate', 'Japanese "
-                "10-year bond yield', 'monetary base'). Bilingual EN/JP "
-                "queries both work."
-            ),
-        ),
-    ]
-    limit: int = Field(default=10, ge=1, le=50, description="Top-N results.")
+class SeriesSearchParams(BaseModel):
+    query: str = Field(min_length=1, max_length=512)
+    db: str = Field(min_length=1, max_length=16, description="Statistics database code, e.g. FM08.")
+    limit: int = Field(default=10, ge=1, le=50)
+    catalog_root: str | None = None
 
 
-@connector(
-    output=BOJ_SEARCH_OUTPUT,
-    tags=["macro", "jp", "tool"],
-)
-async def boj_search(params: BojSearchParams) -> pd.DataFrame:
-    """Semantic-search the Bank of Japan (BoJ) stat_search catalog.
+@connector(output=SERIES_SEARCH_OUTPUT, tags=["macro", "jp", "tool"])
+async def boj_series_search(
+    query: str,
+    db: str,
+    limit: int = 10,
+    catalog_root: str | None = None,
+) -> pd.DataFrame:
+    """Search series within one BoJ statistics database.
 
-    Returns the top matching series/DB codes from BoJ's stat_search API
-    (49 statistics databases spanning interest rates, financial markets,
-    monetary aggregates, balance sheets, prices, public finance, balance
-    of payments, BIS, derivatives, TANKAN, flow of funds, and more).
-
-    Pass the returned ``code`` to ``boj_fetch(db=..., code=...)``. Codes
-    prefixed ``db:`` identify a whole database (use the suffix as the
-    ``db`` parameter); bare codes identify a single series.
+    Requires ``db`` from ``boj_databases_search``. Returns ``code`` and ``db`` for ``boj_fetch``.
     """
-    catalog = await _get_catalog()
-    matches = await catalog.search(params.query, limit=params.limit)
+    params = SeriesSearchParams(query=query, db=db, limit=limit, catalog_root=catalog_root)
+    db_code = _normalize_db(params.db)
+    namespace = series_namespace(db_code)
+    async def _build():
+        return await build_boj_series_catalog_for_db(db_code)
+
+    catalog = await _get_or_load_catalog(namespace, catalog_root=params.catalog_root, build=_build)
+    matches, _ = await catalog.search(params.query, limit=params.limit)
+    if not matches:
+        raise EmptyDataError(
+            provider="boj",
+            message=(
+                f"No series matches for query={params.query!r} in db={db_code!r}. "
+                "Try a broader query or pick another database from boj_databases_search."
+            ),
+        )
     return pd.DataFrame(
         [
             {
                 "code": m.code,
                 "title": m.title,
-                "similarity": round(m.similarity, 6),
+                "score": round(m.score, 6),
+                "db": db_code,
             }
             for m in matches
         ]
     )
+
+
+__all__ = [
+    "DATABASES_SEARCH_OUTPUT",
+    "DEFAULT_CATALOG_ROOT",
+    "PARSIMONY_BOJ_CATALOG_URL_ENV",
+    "SERIES_SEARCH_OUTPUT",
+    "DatabasesSearchParams",
+    "SeriesSearchParams",
+    "_clear_catalog_lru",
+    "boj_databases_search",
+    "boj_series_search",
+]

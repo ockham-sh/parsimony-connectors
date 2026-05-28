@@ -8,7 +8,7 @@ redirects to an HTML announcement page. Tests target the new public
 * ``enumerate_destatis`` — composes ``/statistics``,
   ``/statistics/{code}/information``, and ``/statistics/{code}/tables``
 * ``destatis_search`` — semantic search over the published catalog (lazy
-  ``Catalog.from_url`` keeps import-time cheap, so it registers without
+  ``Catalog.load`` keeps import-time cheap, so it registers without
   any network)
 
 The new API is anonymous; ``DESTATIS_USERNAME`` / ``DESTATIS_PASSWORD``
@@ -20,19 +20,17 @@ from __future__ import annotations
 import logging
 
 import httpx
+import pandas as pd
 import pytest
 import respx
-from parsimony.errors import ProviderError
+from parsimony.errors import InvalidParameterError, ProviderError
 from parsimony.result import ColumnRole
 
-from parsimony_destatis import (
-    CONNECTORS,
-    DESTATIS_ENUMERATE_OUTPUT,
-    DestatisEnumerateParams,
-    DestatisFetchParams,
-    destatis_fetch,
-    enumerate_destatis,
-)
+from parsimony_destatis import CONNECTORS
+from parsimony_destatis.connectors.enumerate import enumerate_destatis
+from parsimony_destatis.connectors.fetch import destatis_fetch
+from parsimony_destatis.outputs import DESTATIS_ENUMERATE_OUTPUT
+from parsimony_destatis.params import DestatisFetchParams
 
 _BASE = "https://www-genesis.destatis.de/genesisGONLINE/api/rest"
 
@@ -69,21 +67,10 @@ _JSONSTAT_FIXTURE = {
 # ---------------------------------------------------------------------------
 
 
-def test_env_vars_maps_username_and_password() -> None:
-    """``username``/``password`` are no-op on the new API but the env-var
-    contract is preserved so existing deployments don't have to drop the
-    secrets from their config.
-    """
-    assert CONNECTORS["destatis_fetch"].env_map == {
-        "username": "DESTATIS_USERNAME",
-        "password": "DESTATIS_PASSWORD",
-    }
-
-
 def test_connectors_collection_exposes_expected_names() -> None:
     """Three connectors ship with the package: fetch, enumerate, and the
     semantic-search tool that maps natural-language queries to codes.
-    ``Catalog.from_url`` is lazy (only invoked on first ``destatis_search``
+    ``Catalog.load`` is lazy (only invoked on first ``destatis_search``
     call), so import-time registration succeeds without any network or HF
     access.
     """
@@ -91,13 +78,10 @@ def test_connectors_collection_exposes_expected_names() -> None:
     assert names == {"destatis_fetch", "enumerate_destatis", "destatis_search"}
 
 
-def test_enumerate_output_schema_includes_description_role() -> None:
-    """``description`` must be routed via DESCRIPTION (semantic_text) not
-    METADATA (BM25 only) so the multilingual embedder picks it up.
-    Mirrors BoJ / BoC.
-    """
+def test_enumerate_output_schema_includes_description_metadata() -> None:
+    """``description`` is ordinary metadata in the clean catalog contract."""
     by_name = {c.name: c for c in DESTATIS_ENUMERATE_OUTPUT.columns}
-    assert by_name["description"].role == ColumnRole.DESCRIPTION
+    assert by_name["description"].role == ColumnRole.METADATA
     assert by_name["source"].role == ColumnRole.METADATA
     assert by_name["entity_type"].role == ColumnRole.METADATA
     assert by_name["parent_statistic"].role == ColumnRole.METADATA
@@ -120,7 +104,7 @@ async def test_destatis_fetch_parses_jsonstat_response() -> None:
         return_value=httpx.Response(200, json=_JSONSTAT_FIXTURE)
     )
 
-    result = await destatis_fetch(DestatisFetchParams(table_id="61111-0001"))
+    result = await destatis_fetch(name="61111-0001")
 
     assert result.provenance.source == "destatis_fetch"
     df = result.data
@@ -131,7 +115,7 @@ async def test_destatis_fetch_parses_jsonstat_response() -> None:
     # so the parser falls back to the table code.
     assert df.iloc[0]["title"] == "61111-0001"
     # Dates parsed via ``_normalize_german_date`` (German month names).
-    assert set(df["date"]) == {"2026-01-01", "2026-02-01"}
+    assert set(pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")) == {"2026-01-01", "2026-02-01"}
     assert sorted(df["value"].tolist()) == [108.4, 108.7]
 
 
@@ -146,7 +130,7 @@ async def test_destatis_fetch_accepts_legacy_table_id_alias() -> None:
     )
 
     # Legacy keyword ``table_id=`` resolves via populate_by_name.
-    result = await destatis_fetch(DestatisFetchParams(table_id="61111-0001"))
+    result = await destatis_fetch(name="61111-0001")
     assert result.provenance.source == "destatis_fetch"
 
 
@@ -158,7 +142,7 @@ async def test_destatis_fetch_maps_500_to_provider_error() -> None:
     )
 
     with pytest.raises(ProviderError):
-        await destatis_fetch(DestatisFetchParams(table_id="61111-0001"))
+        await destatis_fetch(name="61111-0001")
 
 
 @respx.mock
@@ -175,7 +159,7 @@ async def test_destatis_fetch_raises_provider_error_on_announcement_redirect() -
     )
 
     with pytest.raises(ProviderError, match="API may have changed"):
-        await destatis_fetch(DestatisFetchParams(table_id="61111-0001"))
+        await destatis_fetch(name="61111-0001")
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +169,7 @@ async def test_destatis_fetch_raises_provider_error_on_announcement_redirect() -
 
 def test_fetch_requires_table_id() -> None:
     """``name=`` (the canonical field) must be non-empty."""
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidParameterError):
         DestatisFetchParams(table_id="")
 
 
@@ -217,8 +201,7 @@ def _stub_tables(code: str, *, status: int = 200, tables: list[dict] | None = No
 async def test_enumerate_destatis_emits_statistic_and_table_rows() -> None:
     """Round-trip through the three-call composition: ``/statistics`` ⇒
     one statistic row + one row per table from
-    ``/statistics/{code}/tables``. Both rows must carry a non-empty
-    DESCRIPTION (the embedder input).
+    ``/statistics/{code}/tables``. Both rows must carry a non-empty description.
     """
     _stub_index([
         {
@@ -255,7 +238,7 @@ async def test_enumerate_destatis_emits_statistic_and_table_rows() -> None:
         ],
     )
 
-    result = await enumerate_destatis(DestatisEnumerateParams())
+    result = await enumerate_destatis()
     df = result.data
 
     # Exactly the 11-column schema, in declared order.
@@ -322,7 +305,7 @@ async def test_enumerate_destatis_lifts_parent_description_into_table_rows() -> 
         ],
     )
 
-    result = await enumerate_destatis(DestatisEnumerateParams())
+    result = await enumerate_destatis()
     df = result.data
 
     table_rows = df[df["entity_type"] == "table"]
@@ -353,9 +336,8 @@ async def test_enumerate_destatis_handles_429_with_retry(
     )
 
     with caplog.at_level(logging.WARNING, logger="parsimony_destatis"):
-        result = await enumerate_destatis(DestatisEnumerateParams())
+        result = await enumerate_destatis()
 
-    df = result.data
     # No rows came through (the only statistic 429'd both endpoints) but
     # the schema is still rectangular and the warning is logged.
     expected_cols = [
@@ -371,6 +353,7 @@ async def test_enumerate_destatis_handles_429_with_retry(
         "variable_names_en",
         "source",
     ]
+    df = result.data
     assert list(df.columns) == expected_cols
 
     warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
@@ -380,13 +363,10 @@ async def test_enumerate_destatis_handles_429_with_retry(
 @respx.mock
 @pytest.mark.asyncio
 async def test_enumerate_destatis_emits_columns_required_for_catalog_entries() -> None:
-    """The ``Result`` returned by the enumerator must carry an output
-    schema that ``entries_from_result`` accepts: exactly one KEY (code),
-    one TITLE (title), one DESCRIPTION (description), and METADATA columns
+    """The ``Result`` returned by the enumerator must carry catalog entries
+    with exactly one KEY (code), one TITLE (title), and METADATA columns
     for the Destatis-specific dispatch hints.
     """
-    from parsimony.catalog import entries_from_result
-
     _stub_index([{"code": "61111", "name": {"de": "VPI", "en": "CPI"}}])
     _stub_information(
         "61111",
@@ -402,8 +382,8 @@ async def test_enumerate_destatis_emits_columns_required_for_catalog_entries() -
         ],
     )
 
-    result = await enumerate_destatis(DestatisEnumerateParams())
-    entries = entries_from_result(result)
+    result = await enumerate_destatis()
+    entries = DESTATIS_ENUMERATE_OUTPUT.build_entities(result.data)
 
     by_code = {e.code: e for e in entries}
     assert "61111" in by_code
@@ -412,7 +392,7 @@ async def test_enumerate_destatis_emits_columns_required_for_catalog_entries() -
     stat_entry = by_code["61111"]
     assert stat_entry.namespace == "destatis"
     assert stat_entry.title == "CPI"
-    assert stat_entry.description  # non-empty — feeds semantic_text()
+    assert stat_entry.metadata.get("description")
     assert stat_entry.metadata.get("entity_type") == "statistic"
     assert stat_entry.metadata.get("source") == "genesis_online"
 

@@ -11,19 +11,16 @@ from typing import Annotated, Any
 import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError, ProviderError
+from parsimony.errors import EmptyDataError, InvalidParameterError, ProviderError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Result,
 )
 from parsimony.transport import HttpClient, map_http_error
 from pydantic import BaseModel, Field, field_validator
 
 _BASE_URL = "https://api.bls.gov/publicAPI/v2"
-
-_ENV: dict[str, str] = {"api_key": "BLS_API_KEY"}
 
 
 # ---------------------------------------------------------------------------
@@ -43,7 +40,7 @@ class BlsFetchParams(BaseModel):
     def _non_empty(cls, v: str) -> str:
         v = v.strip()
         if not v:
-            raise ValueError("series_id must be non-empty")
+            raise InvalidParameterError("bls", "series_id must be non-empty")
         return v
 
     @field_validator("start_year", "end_year")
@@ -51,7 +48,7 @@ class BlsFetchParams(BaseModel):
     def _validate_year(cls, v: str) -> str:
         v = v.strip()
         if not v.isdigit() or len(v) != 4:
-            raise ValueError("Year must be 4-digit string (YYYY)")
+            raise InvalidParameterError("bls", "Year must be 4-digit string (YYYY)")
         return v
 
 
@@ -120,13 +117,20 @@ def _infer_frequency(period: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-@connector(env=_ENV, output=BLS_FETCH_OUTPUT, tags=["macro", "us"])
-async def bls_fetch(params: BlsFetchParams, *, api_key: str = "") -> Result:
+@connector(output=BLS_FETCH_OUTPUT, tags=["macro", "us"], secrets=('api_key',))
+async def bls_fetch(
+    series_id: Annotated[str, "ns:bls"],
+    start_year: str,
+    end_year: str,
+    *,
+    api_key: str = "",
+) -> pd.DataFrame:
     """Fetch a single BLS time series by series_id.
 
     Returns date + value with series metadata (title, frequency).
     API key is optional but recommended for higher rate limits.
     """
+    params = BlsFetchParams(series_id=series_id, start_year=start_year, end_year=end_year)
     payload: dict[str, Any] = {
         "seriesid": [params.series_id],
         "startyear": params.start_year,
@@ -182,16 +186,11 @@ async def bls_fetch(params: BlsFetchParams, *, api_key: str = "") -> Result:
     if not rows:
         raise EmptyDataError(provider="bls", message=f"No observations for series: {params.series_id}")
 
-    metadata_list = [{"name": k, "value": str(v)} for k, v in catalog.items() if v and k != "series_title"]
-
-    return Result.from_dataframe(pd.DataFrame(rows)).with_properties(
-        metadata=metadata_list,
-        source_url=f"https://data.bls.gov/timeseries/{params.series_id}",
-    )
+    return pd.DataFrame(rows)
 
 
-@enumerator(env=_ENV, output=BLS_ENUMERATE_OUTPUT, tags=["macro", "us"])
-async def enumerate_bls(params: BlsEnumerateParams, *, api_key: str = "") -> pd.DataFrame:
+@enumerator(output=BLS_ENUMERATE_OUTPUT, tags=["macro", "us"], secrets=('api_key',))
+async def enumerate_bls(*, api_key: str = "") -> pd.DataFrame:
     """Enumerate popular BLS series across all surveys.
 
     Uses the BLS surveys + popular series endpoints.
@@ -247,7 +246,8 @@ async def enumerate_bls(params: BlsEnumerateParams, *, api_key: str = "") -> pd.
             except (httpx.HTTPError, KeyError):
                 continue
 
-    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["series_id", "title", "survey", "frequency"])
+    df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["series_id", "title", "survey", "frequency"])
+    return df
 
 
 # ---------------------------------------------------------------------------

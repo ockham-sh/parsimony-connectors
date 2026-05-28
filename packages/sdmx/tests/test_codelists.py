@@ -52,8 +52,8 @@ class TestResolveCodelists:
     def test_language_fallback_applied_per_code(self) -> None:
         raw = {
             "FREQ": {
-                "A": {"en": "Annual"},      # English present
-                "M": {"fr": "Mensuel"},     # Only French
+                "A": {"en": "Annual"},  # English present
+                "M": {"fr": "Mensuel"},  # Only French
             },
         }
         out = resolve_codelists(raw, ("en", "fr"))

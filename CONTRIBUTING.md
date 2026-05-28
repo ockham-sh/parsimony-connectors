@@ -66,7 +66,7 @@ entry at the workspace root pointing at your local parsimony checkout:
 
 ```toml
 [tool.uv.sources]
-parsimony = { path = "../parsimony", editable = true }
+parsimony-core = { path = "../parsimony", editable = true }
 ```
 
 Don't commit this — it's developer-local.
@@ -75,38 +75,37 @@ Don't commit this — it's developer-local.
 
 ## 3. Adding a new connector
 
-Scaffold `packages/foo/` by copying the smallest existing plugin (e.g.
-`packages/polymarket/`) and adapting it. Each plugin must contain:
+Scaffold `packages/foo/` by copying an existing small plugin (e.g.
+`packages/treasury/`) and adapting it. Each plugin must contain:
 
-- `pyproject.toml` — pin `parsimony-core>=0.4,<0.5`, declare a
+- `pyproject.toml` — pin `parsimony-core>=0.6,<0.7`, declare a
   `[project.entry-points."parsimony.providers"]` line, and set
   `[project.urls] Homepage`. See the kernel's
   [`docs/guide-new-plugin.md`](https://github.com/ockham-sh/parsimony/blob/main/docs/guide-new-plugin.md)
   for the canonical template.
 - `parsimony_foo/__init__.py` — the connector module. Must export
-  `CONNECTORS` (and `CATALOGS` if the plugin publishes a catalog).
-  Declare env vars on each `@connector(env={...})`. See the kernel's
+  `CONNECTORS`. Catalog build workflows belong in provider-owned scripts,
+  not in the user-facing module.
+  Define plain async connector functions and keep any auth/env fallback
+  inside the connector implementation. Use `.bind(...)` in operator code
+  when a credential or other fixed value should be hidden from the public
+  call surface. Providers may optionally expose a side-effect-light
+  `load(...)` / `configure(...)` helper that returns bound connectors or
+  sets provider-local runtime defaults — this is a convention, not a kernel
+  requirement. Do not download catalogs, enumerate upstream entities, or
+  build indexes at import time. See the kernel's
   [`docs/contract.md`](https://github.com/ockham-sh/parsimony/blob/main/docs/contract.md)
   for the full spec.
 - `tests/` — a conformance test (`test_conformance.py`) plus a
-  happy-path / error-mapping test file (`test_<name>_connectors.py`)
-  following [`docs/testing-template.md`](docs/testing-template.md).
+  happy-path / error-mapping test file (`test_<name>_connectors.py`).
+  See [§4 Testing](#4-testing) below.
 - `README.md` — see any existing plugin for the standard shape.
-- `scripts/publish_<name>.py` *(only if your connector publishes a HF
-  catalog)* — driver that delegates to
-  `parsimony.publish.publish_provider` and stages output via
-  `parsimony.cache.catalogs_dir("<name>")` (XDG-compliant: defaults to
-  `~/.cache/parsimony/catalogs/<name>/<namespace>/`). Pair it with a
-  `[publish]` extra in `pyproject.toml`:
-  ```toml
-  publish = ["parsimony-core[standard-onnx]>=0.4.0,<0.5"]
-  ```
-  Heavy deps (faiss, onnxruntime, sentence-transformers) stay behind
-  the extra so `pip install parsimony-<name>` remains lean. See
-  `packages/sdmx/scripts/publish_ecb.py` or
-  `packages/bde/scripts/publish_bde.py` for the canonical shape — both
-  use `from parsimony.cache import catalogs_dir; TARGET_ROOT =
-  catalogs_dir("<name>")` and let the kernel own path resolution.
+- `scripts/build_catalog.py` *(only if maintainers build a hosted
+  catalog)* — operator driver that calls the enumerator, converts with
+  `entries_from_result`, configures one top-level index per field (use
+  `HybridIndex` to fuse BM25 + vector within a field), sets
+  `default_field`, calls `await catalog.build()`, then
+  `await catalog.save(...)` for local paths or `hf://...` uploads.
 
 Before opening a PR:
 
@@ -118,12 +117,40 @@ uv run parsimony list --strict   # conformance for every installed provider
 ```
 
 All four must pass. `parsimony list --strict` imports every plugin and
-runs the kernel-side conformance check (`@connector(env=…)` keys map to
-declared deps; `CONNECTORS` is well-formed; etc.).
+runs the kernel-side conformance check (`CONNECTORS` is well-formed,
+connector descriptions are present, etc.).
 
 ---
 
-## 4. PR checklist
+## 4. Testing
+
+Every `parsimony-<name>` package must satisfy two gates: the kernel conformance
+suite (`parsimony.testing.assert_plugin_valid`) and a per-connector happy-path
+test. Reference: `packages/fred/tests/test_fred_connectors.py`.
+
+Each `packages/<name>/tests/` directory contains:
+
+- `test_conformance.py` — calls `parsimony.testing.assert_plugin_valid`.
+- `test_<name>_connectors.py` — happy-path + error-mapping tests.
+
+For every connector in `CONNECTORS`, write one async happy-path test that mocks
+upstream HTTP with `respx`, binds deps via `connector.bind(...)`, and asserts on
+the public `Result` surface (`isinstance(result, Result)`, expected columns,
+`result.provenance.source`). For `@enumerator`, assert a non-empty
+``pd.DataFrame`` with expected columns and schema roles.
+
+Key-bearing connectors also need 401 → `UnauthorizedError` and 429 →
+`RateLimitError` tests; the api-key value must not appear in
+`str(raised_exception)`.
+
+Do not assert on httpx internals, full DataFrame equality, or timing. No real
+network I/O in happy-path tests. Mark live-API tests `@pytest.mark.integration`.
+Mark offline retrieval harnesses `@pytest.mark.eval` (excluded by default via
+workspace `addopts`).
+
+---
+
+## 5. PR checklist
 
 The conformance suite is the merge gate — not founder judgement. A PR is
 mergeable when every item below is satisfied:
@@ -134,7 +161,7 @@ mergeable when every item below is satisfied:
 - [ ] `uv run parsimony list --strict` passes (kernel-side conformance).
 - [ ] `uv run pytest packages/<name>` passes locally and in CI.
 - [ ] A conformance test exists under `packages/<name>/tests/` and passes.
-- [ ] The connector declares an active maintainer in `CODEOWNERS`.
+- [ ] The connector declares an active maintainer (see [GOVERNANCE.md §2](GOVERNANCE.md#2-stewardship)).
 - [ ] The PR description names the data provider, its pricing model, any ToS caveats, and links to the provider's API documentation.
 - [ ] No secrets, no API keys, no `.env` files committed.
 - [ ] All respx mocks are hand-authored from upstream API documentation — no live-session recordings. `packages/*/tests/fixtures/**` is gitignored; override per-file if you need a hand-authored fixture checked in.
@@ -142,7 +169,19 @@ mergeable when every item below is satisfied:
 
 ---
 
-## 5. Reporting bugs
+## 6. MCP host
+
+The MCP (Model Context Protocol) host adapter now lives in its own
+repository at [`ockham-sh/parsimony-mcp`](https://github.com/ockham-sh/parsimony-mcp).
+It is a CONSUMER of the kernel contract — it receives a `Connectors`
+collection from whichever plugins the user has installed and serves
+them as MCP tools to coding agents — not a `parsimony.providers`
+plugin, so it belongs outside this monorepo. Contributions to the MCP
+host should be sent to that repository, not here.
+
+---
+
+## 7. Reporting bugs
 
 Open a GitHub issue with:
 
@@ -157,17 +196,18 @@ issue.
 
 ---
 
-## 6. Code style
+## 8. Code style
 
 - **Formatter:** `ruff format` (120-char lines, the workspace root `pyproject.toml` configures this)
 - **Linter:** `ruff check` with the rules selected in the workspace root
-- **Types:** `mypy` clean. Connectors MUST type the `params` argument with a Pydantic model; return types are `Result` or a subclass.
+- **Types:** `mypy` clean. Public connector signatures are flat top-level parameters; Pydantic models are optional internal validators. Return types are `Result` or a subclass.
+- **Catalogs:** build/push scripts under `packages/*/scripts/` are maintainer tooling only (not part of the plugin contract or `parsimony-core`). Operator workflow: [docs/catalog-operations.md](docs/catalog-operations.md).
 - **Imports:** absolute imports only; no `from parsimony.*` star imports.
 - **Docstrings:** every `@connector`-decorated function needs a one-line summary (tool-tagged connectors need ≥40 chars — the first sentence becomes the MCP tool description).
 
 ---
 
-## 7. Taking over an abandoned connector
+## 9. Taking over an abandoned connector
 
 If a connector steward has been unresponsive to issues and PRs for 90 days,
 anyone may open a takeover PR. See [GOVERNANCE.md §2](GOVERNANCE.md#2-stewardship)

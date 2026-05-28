@@ -40,12 +40,11 @@ import openpyxl
 import pandas as pd
 import xlrd
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError
+from parsimony.errors import EmptyDataError, InvalidParameterError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
-    Result,
 )
 from parsimony.transport import map_http_error
 from pydantic import BaseModel, Field, field_validator
@@ -110,7 +109,7 @@ class RbaFetchParams(BaseModel):
         if v.endswith(".csv"):
             v = v[:-4]
         if not v:
-            raise ValueError("table_id must be non-empty")
+            raise InvalidParameterError("rba", "table_id must be non-empty")
         return v
 
 
@@ -137,9 +136,7 @@ RBA_ENUMERATE_OUTPUT = OutputConfig(
         Column(name="title", role=ColumnRole.TITLE),
         # ``description`` is the CSV header's own per-series descriptive text
         # — the most useful semantic signal for retrieval. Routing it through
-        # DESCRIPTION (not METADATA) lifts it into ``semantic_text()`` so the
-        # embedder indexes it, in addition to BM25.
-        Column(name="description", role=ColumnRole.DESCRIPTION),
+        Column(name="description", role=ColumnRole.METADATA),
         # ``source`` tells the agent which fetch connector to call —
         # currently a single source (``"rba_csv"`` → :func:`rba_fetch`),
         # declared explicitly so dispatch stays consistent if/when more
@@ -242,7 +239,10 @@ async def _resolve_csv_url(table_id: str) -> str:
             return f"{_BASE_URL}{path}"
 
     available = sorted(stem_to_path.keys())[:20]
-    raise ValueError(f"RBA table '{table_id}' not found. Available tables include: {', '.join(available)}...")
+    raise InvalidParameterError(
+        "rba",
+        f"RBA table '{table_id}' not found. Available tables include: {', '.join(available)}...",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -286,9 +286,15 @@ def _parse_rba_csv(text: str, table_id: str) -> pd.DataFrame:
         return pd.DataFrame(columns=["table_id", "title", "date", "value", "series_key"])
 
     header = rows_list[0]
+    data_start = 1
+    for i, row in enumerate(rows_list):
+        if row and row[0].strip().lower().startswith("series id"):
+            data_start = i + 1
+            break
+
     all_rows: list[dict[str, Any]] = []
 
-    for row in rows_list[1:]:
+    for row in rows_list[data_start:]:
         if not row or not row[0].strip():
             continue
         date = _normalize_date(row[0].strip())
@@ -639,12 +645,13 @@ def _parse_csv_metadata(text: str, csv_url: str) -> list[dict[str, str]]:
 
 
 @connector(output=RBA_FETCH_OUTPUT, tags=["macro", "au"])
-async def rba_fetch(params: RbaFetchParams) -> Result:
+async def rba_fetch(table_id: Annotated[str, "ns:rba"]) -> pd.DataFrame:
     """Fetch RBA statistical table data by table ID.
 
     Resolves the table_id against the live RBA tables page to find the
     correct CSV URL, then downloads and parses the data.
     """
+    params = RbaFetchParams(table_id=table_id)
     url = await _resolve_csv_url(params.table_id)
     text = await _http_get(url)
 
@@ -652,7 +659,7 @@ async def rba_fetch(params: RbaFetchParams) -> Result:
     if df.empty:
         raise EmptyDataError(provider="rba", message=f"No data returned for table: {params.table_id}")
 
-    return Result.from_dataframe(df).with_properties(source_url=_TABLES_URL)
+    return df
 
 
 _ENUMERATE_COLUMNS: tuple[str, ...] = (
@@ -668,31 +675,12 @@ _ENUMERATE_COLUMNS: tuple[str, ...] = (
 )
 
 
-@enumerator(
-    output=RBA_ENUMERATE_OUTPUT,
-    tags=["macro", "au"],
-)
-async def enumerate_rba(params: RbaEnumerateParams) -> pd.DataFrame:
-    """Discover RBA series across three publication formats.
+@enumerator(output=RBA_ENUMERATE_OUTPUT, tags=["macro", "au"])
+async def enumerate_rba() -> pd.DataFrame:
+    """Discover RBA series from CSV index, XLSX sheets, and xls-hist files.
 
-    1. **CSV index** — primary source (~3,957 active series).
-    2. **XLSX sub-sheets** listed in :data:`_XLSX_EXCLUSIVE_SHEETS` —
-       content the CSVs do not republish (Bond Purchase Program adds 7).
-    3. **xls-hist legacy binaries** — discontinued/historical series
-       still addressable by ID but long dropped from the CSVs (~186).
-
-    The catalog KEY is the compound ``{table_id}#{series_id}``; ~228
-    series ids appear in more than one RBA CSV table (B13.x regional
-    breakdowns are the main offenders), and the xls-hist pass can
-    reintroduce a current series id with a different description, so
-    dedup is keyed on the compound code. Per-row ``table_id``,
-    ``series_id`` and ``source`` let callers route without reparsing.
-
-    Within an xls-hist pass, if a series id is already present from the
-    live CSV (same ``series_id`` value, different table), the hist row
-    is still emitted only when the table_id differs — so we never drop
-    information, just never duplicate an exact ``(table_id, series_id)``
-    pair.
+    Compound catalog keys use ``table_id#series_id`` so duplicate series ids
+    across tables remain addressable without losing descriptions.
     """
     # Step 1: scrape tables index for CSV + XLSX links
     html = await _http_get(_TABLES_URL)
@@ -767,11 +755,12 @@ async def enumerate_rba(params: RbaEnumerateParams) -> pd.DataFrame:
             pass
         await asyncio.sleep(_REQUEST_DELAY)
 
-    return (
+    df = (
         pd.DataFrame(all_rows, columns=list(_ENUMERATE_COLUMNS))
         if all_rows
         else pd.DataFrame(columns=list(_ENUMERATE_COLUMNS))
     )
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -784,7 +773,5 @@ from parsimony_rba.search import (  # noqa: E402, F401  (after public decorators
     RbaSearchParams,
     rba_search,
 )
-
-CATALOGS: list[tuple[str, object]] = [("rba", enumerate_rba)]
 
 CONNECTORS = Connectors([rba_fetch, enumerate_rba, rba_search])

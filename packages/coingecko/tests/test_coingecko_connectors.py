@@ -1,6 +1,6 @@
 """Happy-path tests for the CoinGecko connectors.
 
-Follows ``docs/testing-template.md``. CoinGecko connectors take an ``api_key``
+Follows ``CONTRIBUTING.md §4``. CoinGecko connectors take an ``api_key``
 keyword dep → we exercise the template's 401/429 error-mapping contract and
 assert the api-key value never appears in raised-exception strings.
 """
@@ -10,14 +10,12 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from parsimony.errors import RateLimitError, UnauthorizedError
+from parsimony.errors import InvalidParameterError, RateLimitError, UnauthorizedError
+from pydantic import ValidationError
 
 from parsimony_coingecko import (
     CONNECTORS,
-    CoinGeckoEnumerateParams,
     CoinGeckoMarketChartParams,
-    CoinGeckoMarketsParams,
-    CoinGeckoPriceParams,
     CoinGeckoSearchParams,
     coingecko_market_chart,
     coingecko_markets,
@@ -31,10 +29,6 @@ _KEY = "live-looking-key-abc123"
 # ---------------------------------------------------------------------------
 # Plugin contract shape
 # ---------------------------------------------------------------------------
-
-
-def test_env_vars_maps_api_key() -> None:
-    assert CONNECTORS["coingecko_search"].env_map == {"api_key": "COINGECKO_API_KEY"}
 
 
 def test_connectors_count_matches_docstring() -> None:
@@ -69,7 +63,7 @@ async def test_coingecko_search_returns_coin_rows() -> None:
     )
 
     bound = coingecko_search.bind(api_key=_KEY)
-    result = await bound(CoinGeckoSearchParams(query="btc"))
+    result = await bound(query="btc")
 
     assert result.provenance.source == "coingecko_search"
     assert list(result.data["id"]) == ["bitcoin", "ethereum"]
@@ -84,7 +78,7 @@ async def test_coingecko_search_maps_401_to_unauthorized_without_leaking_key() -
 
     bound = coingecko_search.bind(api_key=_KEY)
     with pytest.raises(UnauthorizedError) as exc_info:
-        await bound(CoinGeckoSearchParams(query="x"))
+        await bound(query="x")
     assert _KEY not in str(exc_info.value)
 
 
@@ -97,7 +91,7 @@ async def test_coingecko_search_maps_429_to_rate_limit_without_leaking_key() -> 
 
     bound = coingecko_search.bind(api_key=_KEY)
     with pytest.raises(RateLimitError) as exc_info:
-        await bound(CoinGeckoSearchParams(query="x"))
+        await bound(query="x")
     assert _KEY not in str(exc_info.value)
 
 
@@ -119,7 +113,7 @@ async def test_coingecko_price_returns_rows_per_coin() -> None:
     )
 
     bound = coingecko_price.bind(api_key=_KEY)
-    result = await bound(CoinGeckoPriceParams(ids="bitcoin"))
+    result = await bound(ids="bitcoin")
 
     df = result.data
     assert list(df["id"]) == ["bitcoin"]
@@ -160,7 +154,7 @@ async def test_coingecko_markets_returns_ranked_rows() -> None:
     )
 
     bound = coingecko_markets.bind(api_key=_KEY)
-    result = await bound(CoinGeckoMarketsParams())
+    result = await bound()
 
     df = result.data
     assert df.iloc[0]["id"] == "bitcoin"
@@ -186,7 +180,7 @@ async def test_coingecko_market_chart_merges_price_cap_volume() -> None:
     )
 
     bound = coingecko_market_chart.bind(api_key=_KEY)
-    result = await bound(CoinGeckoMarketChartParams(coin_id="bitcoin", days="1"))
+    result = await bound(coin_id="bitcoin", days="1")
 
     df = result.data
     assert len(df) == 2
@@ -212,7 +206,7 @@ async def test_enumerate_coingecko_emits_catalog_rows() -> None:
     )
 
     bound = enumerate_coingecko.bind(api_key=_KEY)
-    result = await bound(CoinGeckoEnumerateParams())
+    result = await bound()
 
     df = result.data
     assert len(df) == 2
@@ -225,10 +219,10 @@ async def test_enumerate_coingecko_emits_catalog_rows() -> None:
 
 
 def test_search_params_requires_non_empty_query() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValidationError):
         CoinGeckoSearchParams(query="")
 
 
 def test_coin_id_namespace_rejects_path_traversal() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidParameterError):
         CoinGeckoMarketChartParams(coin_id="../etc/passwd", days="1")

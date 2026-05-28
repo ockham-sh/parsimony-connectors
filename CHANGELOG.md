@@ -39,14 +39,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   publishing instructions with the generic placeholder
   `<path-to-parsimony-connectors>`.
 
+## [0.6.0]
+
 ### Removed
 
-- `docs/licence-audit.md` — the audit-tracker placeholder was dropped in
-  favour of the structural rules in GOVERNANCE.md §6.
+- **`parsimony-financial-reports`**: dropped SDK wrapper with broken upstream client.
 
-## [0.4.0] — 2026-04-24
+### Changed
 
-First coordinated multi-connector release tracking `parsimony-core==0.4`.
-Every `packages/<name>/` package publishes at this version under the new
-kernel discovery surface (`parsimony.discover`, `@connector(env=...)`).
-Per-package highlights live in each connector's own `CHANGELOG.md`.
+- **Unified on `parsimony-core>=0.6,<0.7`** across all connector packages.
+- **`sec_edgar`**: rewritten as direct SEC HTTP (no `edgartools`); three focused connectors.
+- **`polymarket`**: typed Gamma/CLOB connectors replace generic HTTP passthroughs.
+- **Catalog search imports**: `parsimony.utils.catalog_search` → `parsimony.catalog.search`.
+- **Eval tooling** moved under top-level `tooling/` (not shipped in connector sdists).
+- **CI**: `pip-audit` failures are no longer swallowed.
