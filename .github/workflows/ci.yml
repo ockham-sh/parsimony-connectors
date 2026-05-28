@@ -177,8 +177,19 @@ jobs:
       - name: pip-audit
         run: |
           set -euo pipefail
-          # Newer pip-audit restricts --disable-pip to -r requirements.txt mode;
-          # for project-path audits we let pip-audit resolve via pip.
-          uv run --with pip-audit pip-audit --strict \
+          # Newer pip-audit restricts --disable-pip to -r requirements.txt
+          # mode, so we synthesize one from the package's pyproject.toml.
+          # `parsimony-shared` is a workspace-local helper (intentionally
+          # unpublished) — exclude it so pip-audit doesn't try to resolve
+          # it on PyPI and fail.
+          python -c "
+          import sys, tomllib
+          deps = tomllib.load(open('packages/$PKG/pyproject.toml','rb'))['project']['dependencies']
+          for d in deps:
+              if d.split()[0].startswith('parsimony-shared'):
+                  continue
+              sys.stdout.write(d + '\n')
+          " > /tmp/audit-reqs.txt
+          uv run --with pip-audit pip-audit --strict --disable-pip \
             --ignore-vuln GHSA-4xh5-x5gv-qwph \
-            "packages/$PKG"
+            -r /tmp/audit-reqs.txt
