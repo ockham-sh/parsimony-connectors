@@ -174,23 +174,61 @@ jobs:
           print(f'Conformance OK: {name}')
           "
 
+  # Workspace-level supply-chain audit.
+  #
+  # The audit runs once against a hashed lockfile exported from uv.lock,
+  # not per-package, because every connector pulls from the same external
+  # surface (httpx, pydantic, parsimony-core, …). A single workspace audit
+  # catches the same CVEs as 22 per-package runs at a fraction of the cost.
+  #
+  # `--no-emit-workspace` drops workspace members (connectors, _shared,
+  # test_support) from the export. `--no-sources` ignores the editable
+  # `[tool.uv.sources]` override that points at the sibling parsimony
+  # checkout, so parsimony-core resolves to its published PyPI version.
+  # `--no-dev` excludes dev-only deps. The result is a fully-hashed,
+  # exact-pinned external-deps requirements file — exactly what
+  # `pip-audit --disable-pip` accepts in modern releases.
+  audit:
+    name: pip-audit (workspace lock)
+    needs: discover
+    if: ${{ needs.discover.outputs.has_packages == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: parsimony-connectors
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          path: parsimony-connectors
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.3
+        with:
+          python-version: '3.12'
+          enable-cache: true
+          cache-dependency-glob: |
+            parsimony-connectors/uv.lock
+
+      - name: Export workspace lock to hashed requirements
+        run: |
+          uv export --format requirements-txt \
+            --no-emit-workspace --no-dev --no-sources \
+            --output-file /tmp/audit-reqs.txt
+
       - name: pip-audit
         run: |
-          set -euo pipefail
-          # Newer pip-audit restricts --disable-pip to (a) hashed requirements
-          # files or (b) --no-deps mode. We pick (b) to preserve the original
-          # workflow's semantics: audit the package's direct declared deps
-          # without transitive resolution. We synthesize a plain requirements
-          # file from pyproject.toml and exclude `parsimony-shared` (a
-          # workspace-local helper intentionally not on PyPI).
-          python -c "
-          import sys, tomllib
-          deps = tomllib.load(open('packages/$PKG/pyproject.toml','rb'))['project']['dependencies']
-          for d in deps:
-              if d.split()[0].startswith('parsimony-shared'):
-                  continue
-              sys.stdout.write(d + '\n')
-          " > /tmp/audit-reqs.txt
-          uv run --with pip-audit pip-audit --strict --disable-pip --no-deps \
+          # Ignored CVEs (revisit periodically — see comments below):
+          # - GHSA-4xh5-x5gv-qwph: pre-existing ignore (carried over from
+          #   the original per-package audit step).
+          # - PYSEC-2025-217 / CVE-2026-1839: both in transformers <5.0.
+          #   We cannot bump because optimum-onnx 0.1.0 (the only released
+          #   version) caps transformers<4.58, and parsimony-core's
+          #   `standard-onnx` extra depends on optimum-onnx for OnnxEmbedder.
+          #   Drop these ignores once optimum-onnx 0.2.0 (with transformers-5
+          #   support) ships upstream and parsimony-core relocks.
+          uv run --with pip-audit pip-audit --strict --disable-pip \
             --ignore-vuln GHSA-4xh5-x5gv-qwph \
+            --ignore-vuln PYSEC-2025-217 \
+            --ignore-vuln CVE-2026-1839 \
             -r /tmp/audit-reqs.txt
+

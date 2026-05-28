@@ -4,7 +4,7 @@ version = "0.6.0"
 description = "Internal shared test harness for parsimony-connectors. Not published."
 requires-python = ">=3.11"
 dependencies = [
-    "parsimony-core>=0.6.0,<0.7",
+    "parsimony-core>=0.7,<0.8",
     "httpx>=0.27,<1",
     "respx>=0.22",
     "pytest>=8.0",
