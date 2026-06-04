@@ -1,19 +1,31 @@
-"""Destatis table fetch connector."""
+"""Destatis table fetch connector.
+
+GENESIS-Online is a **keyless** public JSON-stat API — no api_key, no
+``secrets=``/``bind()``/``load()``, no ``UnauthorizedError``. The
+``/tables/{code}/data`` endpoint returns a JSON-stat 2.0 dataset (or a
+``{"data": [...]}`` envelope of datasets) which we reshape into one row per
+(series, observation).
+"""
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Annotated, Any
 
 import httpx
 import pandas as pd
 from parsimony.connector import connector
-from parsimony.errors import EmptyDataError, ParseError, ProviderError
-from parsimony.transport import map_http_error
+from parsimony.errors import (
+    EmptyDataError,
+    InvalidParameterError,
+    ParseError,
+    RateLimitError,
+)
+from parsimony.transport import map_http_error, map_timeout_error
 
-from parsimony_destatis._http import BASE_URL, HEADERS, looks_like_html
+from parsimony_destatis._http import looks_like_html, make_client
 from parsimony_destatis.outputs import DESTATIS_FETCH_OUTPUT
-from parsimony_destatis.params import DestatisFetchParams
 
 _GERMAN_MONTHS = {
     "Januar": "01",
@@ -29,6 +41,18 @@ _GERMAN_MONTHS = {
     "November": "11",
     "Dezember": "12",
 }
+
+# Markers GENESIS uses in a 200-with-error body to signal anonymous-access
+# throttling (the daily/per-window request budget). String-sniffing here is the
+# §5.8 carve-out: GENESIS exposes no machine-readable code in the 200 body, so a
+# quota/throttle phrase → RateLimitError, every other non-data 200 → ParseError.
+_RATE_LIMIT_MARKERS = (
+    "zu viele",  # "too many requests" (DE)
+    "too many",
+    "request limit",
+    "kontingent",  # quota (DE)
+    "ausgeschöpft",  # exhausted (DE)
+)
 
 
 def _normalize_german_date(s: str) -> str:
@@ -61,15 +85,9 @@ def _parse_jsonstat(payload: dict[str, Any], table_code: str) -> pd.DataFrame:
     raw_values = payload.get("value")
 
     if not isinstance(dim_ids, list) or not isinstance(sizes, list):
-        raise ParseError(
-            provider="destatis",
-            message=f"JSON-stat payload for {table_code} missing id/size arrays",
-        )
+        raise ParseError("destatis", f"JSON-stat payload for {table_code} missing id/size arrays")
     if len(dim_ids) != len(sizes):
-        raise ParseError(
-            provider="destatis",
-            message=f"JSON-stat id/size length mismatch for {table_code}",
-        )
+        raise ParseError("destatis", f"JSON-stat id/size length mismatch for {table_code}")
 
     total = 1
     for s in sizes:
@@ -165,8 +183,9 @@ def _parse_jsonstat(payload: dict[str, Any], table_code: str) -> pd.DataFrame:
 
     if not rows:
         raise EmptyDataError(
-            provider="destatis",
+            "destatis",
             message=f"No observations parsed from JSON-stat for table {table_code}",
+            query_params={"name": table_code},
         )
 
     df = pd.DataFrame(rows)
@@ -180,67 +199,78 @@ def _parse_jsonstat(payload: dict[str, Any], table_code: str) -> pd.DataFrame:
     return df
 
 
+async def _get_text(path: str, *, params: dict[str, str] | None = None, op_name: str) -> str:
+    """GET ``path`` and return the raw text, mapping HTTP/timeout errors typed.
+
+    The single-table data endpoint is JSON-stat, but we read it as text first so
+    we can distinguish a real dataset from a 200-with-error body (HTML
+    maintenance shell or a throttle notice) per §5.8 before handing it to the
+    JSON parser. ``HttpClient.request`` never raises on status, so we call
+    ``raise_for_status()`` ourselves and feed both error families to the kernel
+    mappers.
+    """
+    http = make_client()
+    filtered = {k: v for k, v in (params or {}).items() if v is not None}
+    try:
+        response = await http.request("GET", f"/{path.lstrip('/')}", params=filtered or None)
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="destatis", op_name=op_name)
+    except httpx.TimeoutException as exc:
+        map_timeout_error(exc, provider="destatis", op_name=op_name)
+    return response.text
+
+
 @connector(output=DESTATIS_FETCH_OUTPUT, tags=["macro", "de"])
 async def destatis_fetch(
     name: Annotated[str, "ns:destatis"],
     start_year: str | None = None,
     end_year: str | None = None,
 ) -> pd.DataFrame:
-    """Fetch a Destatis GENESIS table by table code.
+    """Fetch a Destatis GENESIS table by table code (e.g. ``61111-0001``).
 
-    Hits the public ``/genesisGONLINE/api/rest/tables/{code}/data`` endpoint
-    and parses the JSON-stat 2.0 response into a long-format DataFrame.
+    Hits the public ``genesis.destatis.de/genesis/api/rest/tables/{code}/data``
+    endpoint (anonymous, keyless) and parses the JSON-stat 2.0 response into a
+    long-format DataFrame with one row per observation (series_id, title, date,
+    value). ``start_year`` / ``end_year`` are best-effort range filters.
     """
-    params = DestatisFetchParams(table_id=name, start_year=start_year, end_year=end_year)
-    table_code = params.name
-    path = f"/tables/{table_code}/data"
+    table_code = name.strip()
+    if not table_code:
+        raise InvalidParameterError("destatis", "name (table code) must be non-empty")
 
     query: dict[str, str] = {}
-    if params.start_year:
-        query["startyear"] = params.start_year
-    if params.end_year:
-        query["endyear"] = params.end_year
+    if start_year:
+        query["startyear"] = start_year
+    if end_year:
+        query["endyear"] = end_year
 
-    async with httpx.AsyncClient(
-        timeout=60.0,
-        follow_redirects=True,
-        headers=HEADERS,
-    ) as client:
-        response = await client.get(f"{BASE_URL}{path}", params=query or None)
+    text = await _get_text(f"/tables/{table_code}/data", params=query or None, op_name="data")
 
-    try:
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider="destatis", op_name="data")
-
-    text = response.text
-    if (
-        looks_like_html(text)
-        or "announcement" in text.lower()
-        or "datenbank/online" in str(response.url)
-    ):
-        raise ProviderError(
-            provider="destatis",
-            status_code=0,
-            message=(
-                "Destatis returned an HTML announcement page instead of JSON-stat data. "
-                "API may have changed; please file an issue."
-            ),
+    # §5.8 — 200-with-error body. GENESIS can return HTTP 200 with the SPA /
+    # maintenance HTML shell (host swap) or a throttle notice instead of a
+    # JSON-stat dataset. Never fake a status; map by body shape.
+    if looks_like_html(text):
+        lowered = text.lower()
+        if any(marker in lowered for marker in _RATE_LIMIT_MARKERS):
+            raise RateLimitError(
+                "destatis",
+                retry_after=3600.0,
+                quota_exhausted=True,
+                message="GENESIS anonymous-access request budget exhausted",
+            )
+        raise ParseError(
+            "destatis",
+            f"GENESIS returned an HTML page instead of JSON-stat data for {table_code} "
+            "(API host/path may have changed)",
         )
 
     try:
-        payload = response.json()
+        payload = json.loads(text)
     except ValueError as exc:
-        raise ParseError(
-            provider="destatis",
-            message=f"Failed to parse JSON-stat for {table_code}: {exc}",
-        ) from exc
+        raise ParseError("destatis", f"Failed to parse JSON-stat for {table_code}: {exc}") from exc
 
     if not isinstance(payload, dict):
-        raise ParseError(
-            provider="destatis",
-            message=f"JSON-stat response for {table_code} was not an object",
-        )
+        raise ParseError("destatis", f"JSON-stat response for {table_code} was not an object")
 
     datasets: list[dict[str, Any]]
     raw_data = payload.get("data")
@@ -252,8 +282,8 @@ async def destatis_fetch(
         datasets = [payload]
     else:
         raise ParseError(
-            provider="destatis",
-            message=f"Unexpected JSON-stat envelope for {table_code}: keys={list(payload.keys())}",
+            "destatis",
+            f"Unexpected JSON-stat envelope for {table_code}: keys={list(payload.keys())}",
         )
 
     frames = [_parse_jsonstat(d, table_code) for d in datasets]
