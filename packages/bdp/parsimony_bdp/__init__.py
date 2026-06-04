@@ -1,10 +1,11 @@
 """Banco de Portugal (BdP): fetch + catalog enumeration.
 
 API base: ``https://bpstat.bportugal.pt/data/v1`` (BPstat). No authentication
-required. The catalog enumerator is series-grained — every individual time
-series across BdP's 65 leaf domains is published as its own row, alongside
-synthetic ``domain:`` and ``dataset:`` parent rows so agents can navigate the
-hierarchy from search hits.
+required (keyless public API — no ``secrets=``/``bind()``/``load()``/
+``UnauthorizedError``). The catalog enumerator is series-grained — every
+individual time series across BdP's 65 leaf domains is published as its own
+row, alongside synthetic ``domain:`` and ``dataset:`` parent rows so agents can
+navigate the hierarchy from search hits.
 
 Endpoints used:
 
@@ -26,6 +27,16 @@ without dropping the series stubs entirely. We accept the bandwidth cost
 WAF posture: Akamai-fronted; conservative throttling (concurrency=4,
 0.25 s inter-request delay, browser User-Agent, 1/2/4 s backoff on
 429/5xx) keeps enumeration stable.
+
+Transport:
+
+* ``bdp_fetch`` (one per-call request) uses the canonical core helper pair
+  ``make_http_client`` + ``fetch_json`` — GET + ``raise_for_status`` +
+  ``map_http_error`` / ``map_timeout_error`` + ``json()`` + ``None``-param
+  dropping, all in one call (JSON endpoint, so ``fetch_json`` fits).
+* ``enumerate_bdp`` (bulk fan-out crawl) keeps the shared
+  ``ThrottledJsonFetcher`` for throttled/retrying best-effort traffic; the
+  ``_shared`` re-base onto core transport is a separate cross-cutting step.
 """
 
 from __future__ import annotations
@@ -38,15 +49,14 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError, InvalidParameterError
+from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
 )
-from parsimony.transport import map_http_error
+from parsimony.transport.helpers import fetch_json, make_http_client
 from parsimony_shared.cb_enumerate import MetadataCrawlConfig, ThrottledJsonFetcher, truncate_description
-from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +81,8 @@ _METADATA_CRAWL = MetadataCrawlConfig(
     retry_statuses=frozenset({403, 429, 500, 502, 503, 504}),
 )
 
+_VALID_LANGS = frozenset({"en", "pt"})
+
 # Cap descriptions before they reach the embedder. BdP labels run up to a
 # few hundred chars and rarely warrant truncation, but a hard cap keeps the
 # embedder context-window-safe (Destatis pattern).
@@ -83,39 +95,6 @@ DESCRIPTION_CHAR_CAP = 1500
 # of thousands of series; 5,000 pages × 10 series/page = 50 K is well
 # above the largest observed dataset (16,644 series → 1,665 pages).
 _MAX_PAGES_PER_DATASET = 5_000
-
-
-# ---------------------------------------------------------------------------
-# Parameter models
-# ---------------------------------------------------------------------------
-
-
-class BdpFetchParams(BaseModel):
-    """Parameters for fetching Banco de Portugal time series."""
-
-    domain_id: int = Field(..., description="Domain ID (use enumerate to discover)")
-    dataset_id: Annotated[str, "ns:bdp"] = Field(..., description="Dataset ID within the domain")
-    series_ids: str | None = Field(
-        default=None,
-        description="Comma-separated series IDs to filter (optional)",
-    )
-    start_date: str | None = Field(default=None, description="Start date (YYYY-MM-DD)")
-    end_date: str | None = Field(default=None, description="End date (YYYY-MM-DD)")
-    lang: str = Field(default="en", description="Language: en or pt")
-
-    @field_validator("dataset_id")
-    @classmethod
-    def _non_empty(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise InvalidParameterError("bdp", "dataset_id must be non-empty")
-        return v
-
-
-class BdpEnumerateParams(BaseModel):
-    """No parameters needed — enumerates BdP domains, datasets and series."""
-
-    pass
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +129,11 @@ BDP_ENUMERATE_OUTPUT = OutputConfig(
     ]
 )
 
+# ``bdp_fetch`` is a general time-series fetch verb (KEY + TITLE + 2 DATA),
+# decorated ``@connector`` — NOT ``@loader``. A plain ``@connector`` permits
+# mixed roles, so the TITLE column carrying the human-readable series label is
+# legal here (mirrors the bde trailblazer's identical fetch shape). The loader
+# "KEY + DATA only, no TITLE" rule applies only to ``@loader``-decorated verbs.
 BDP_FETCH_OUTPUT = OutputConfig(
     columns=[
         Column(name="series_id", role=ColumnRole.KEY, param_key="dataset_id", namespace="bdp"),
@@ -159,6 +143,8 @@ BDP_FETCH_OUTPUT = OutputConfig(
     ]
 )
 
+
+_FETCH_COLUMNS: tuple[str, ...] = ("series_id", "title", "date", "value")
 
 _ENUMERATE_COLUMNS: tuple[str, ...] = (
     "code",
@@ -344,6 +330,78 @@ def _normalize_page_url(url: str) -> str:
     return parsed.path + "?" + "&".join(sorted(f"{k}={','.join(v)}" for k, v in qs.items()))
 
 
+def _parse_dataset_observations(json_data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Melt a JSON-stat 2.0 dataset-detail payload into long observation rows.
+
+    Returns one row per (series, date) as ``{series_id, title, date, value}``.
+    The ``value`` array is row-major over (series × dates); ``extension.series``
+    supplies the per-series id + label, with a positional-id fallback (logged)
+    when the value array implies more series than the metadata declared.
+    """
+    # Time axis.
+    role = json_data.get("role", {})
+    time_dims = role.get("time", []) if isinstance(role, dict) else []
+    time_dim_key = time_dims[0] if time_dims else None
+
+    dimension = json_data.get("dimension", {})
+    dates: list[str] = []
+    if time_dim_key and isinstance(dimension, dict) and time_dim_key in dimension:
+        cat = dimension[time_dim_key].get("category", {})
+        index = cat.get("index", {})
+        if isinstance(index, dict):
+            dates = list(index.keys())
+        elif isinstance(index, list):
+            dates = [str(d) for d in index]
+
+    # Value axis. JSON-stat ``value`` is a list or a sparse ``{str_idx: val}``.
+    raw_values = json_data.get("value", [])
+    if isinstance(raw_values, dict):
+        values_list: list[Any] = (
+            [raw_values.get(str(i)) for i in range(max(int(k) for k in raw_values) + 1)] if raw_values else []
+        )
+    else:
+        values_list = list(raw_values)
+
+    if not dates or not values_list:
+        return []
+
+    series_info = json_data.get("extension", {}).get("series", [])
+    if not isinstance(series_info, list):
+        series_info = []
+    n_dates = len(dates)
+    n_series = len(values_list) // n_dates if n_dates else 1
+
+    rows: list[dict[str, Any]] = []
+    for s_idx in range(n_series):
+        if s_idx >= len(series_info) or not isinstance(series_info[s_idx], dict):
+            # API drift signal: the value array implies more series than the
+            # metadata block declared. Fall back to a positional synthetic id,
+            # but log so future schema changes surface.
+            logger.warning(
+                "BdP series index %d exceeds extension.series length %d; falling back to positional id",
+                s_idx,
+                len(series_info),
+            )
+            sid = str(s_idx)
+            label = sid
+        else:
+            sid = str(series_info[s_idx].get("id", s_idx))
+            label = str(series_info[s_idx].get("label", sid))
+
+        for d_idx, date_str in enumerate(dates):
+            val_idx = s_idx * n_dates + d_idx
+            if val_idx >= len(values_list):
+                break
+            raw = values_list[val_idx]
+            try:
+                value = float(raw) if raw is not None else None
+            except (ValueError, TypeError):
+                value = None
+            rows.append({"series_id": sid, "title": label, "date": date_str, "value": value})
+
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # Connectors
 # ---------------------------------------------------------------------------
@@ -360,116 +418,52 @@ async def bdp_fetch(
 ) -> pd.DataFrame:
     """Fetch Banco de Portugal time series by domain and dataset ID.
 
-    Uses the BPstat API. Two-step workflow: domain → dataset → observations.
+    Uses the BPstat JSON-stat API. Discover ``domain_id``/``dataset_id`` pairs
+    via ``enumerate_bdp`` (or ``bdp_search``). ``series_ids`` is an optional
+    comma-separated filter; ``start_date``/``end_date`` (YYYY-MM-DD) bound the
+    observation window; ``lang`` selects the label language (``en`` or ``pt``).
+    Returns one row per observation with ``series_id``, ``title``, ``date``,
+    ``value``.
     """
-    params = BdpFetchParams(
-        domain_id=domain_id,
-        dataset_id=dataset_id,
-        series_ids=series_ids,
-        start_date=start_date,
-        end_date=end_date,
-        lang=lang,
+    dataset_id = dataset_id.strip()
+    if not dataset_id:
+        raise InvalidParameterError("bdp", "dataset_id must be non-empty")
+    lang_norm = lang.strip().lower()
+    if lang_norm not in _VALID_LANGS:
+        raise InvalidParameterError("bdp", "lang must be 'en' or 'pt'")
+
+    req_params: dict[str, Any] = {
+        "lang": lang_norm.upper(),
+        "series_ids": series_ids.strip() if series_ids else None,
+        "obs_since": start_date,
+        "obs_to": end_date,
+    }
+    json_data = await fetch_json(
+        make_http_client(_BASE_URL, headers=_HEADERS, timeout=60.0),
+        path=f"domains/{domain_id}/datasets/{dataset_id}/",
+        params=req_params,
+        provider="bdp",
+        op_name="observations",
     )
-    url = f"{_BASE_URL}/domains/{params.domain_id}/datasets/{params.dataset_id}/"
-    req_params: dict[str, str] = {"lang": params.lang.upper()}
 
-    if params.series_ids:
-        req_params["series_ids"] = params.series_ids
-    if params.start_date:
-        req_params["obs_since"] = params.start_date
-    if params.end_date:
-        req_params["obs_to"] = params.end_date
+    if not isinstance(json_data, dict):
+        raise ParseError("bdp", f"unexpected response shape for domain={domain_id}, dataset={dataset_id}")
 
-    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-        response = await client.get(url, params=req_params)
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            map_http_error(exc, provider="bdp", op_name="observations")
-        json_data = response.json()
-
-    # Parse JSON-stat style response
-    time_dim_key = None
-    role = json_data.get("role", {})
-    time_dims = role.get("time", [])
-    if time_dims:
-        time_dim_key = time_dims[0]
-
-    dimension = json_data.get("dimension", {})
-    dates: list[str] = []
-    if time_dim_key and time_dim_key in dimension:
-        cat = dimension[time_dim_key].get("category", {})
-        index = cat.get("index", {})
-        if isinstance(index, dict):
-            dates = list(index.keys())
-        elif isinstance(index, list):
-            dates = index
-
-    raw_values = json_data.get("value", [])
-    # JSON-stat value can be a dict with string keys or a list
-    if isinstance(raw_values, dict):
-        values_list: list[Any] = (
-            [raw_values.get(str(i)) for i in range(max(int(k) for k in raw_values) + 1)] if raw_values else []
-        )
-    else:
-        values_list = list(raw_values)
-
-    if not dates or not values_list:
-        raise EmptyDataError(
-            provider="bdp",
-            message=f"No observations for domain={params.domain_id}, dataset={params.dataset_id}",
-        )
-
-    # Extract series metadata
-    series_info = json_data.get("extension", {}).get("series", [])
-    n_dates = len(dates)
-    n_series = len(values_list) // n_dates if n_dates else 1
-
-    rows: list[dict[str, Any]] = []
-    for s_idx in range(n_series):
-        if s_idx >= len(series_info):
-            # API drift signal: the value array implies more series than
-            # the metadata block declared. We fall back to a positional
-            # synthetic id, but log so future schema changes surface.
-            logger.warning(
-                "BdP series index %d exceeds extension.series length %d for "
-                "domain=%s dataset=%s; falling back to positional id",
-                s_idx,
-                len(series_info),
-                params.domain_id,
-                params.dataset_id,
-            )
-            sid = str(s_idx)
-            label = sid
-        else:
-            sid = str(series_info[s_idx]["id"])
-            label = series_info[s_idx].get("label", sid)
-
-        for d_idx, date_str in enumerate(dates):
-            val_idx = s_idx * n_dates + d_idx
-            if val_idx >= len(values_list):
-                break
-            raw = values_list[val_idx]
-            try:
-                value = float(raw) if raw is not None else None
-            except (ValueError, TypeError):
-                value = None
-            rows.append(
-                {
-                    "series_id": sid,
-                    "title": label,
-                    "date": date_str,
-                    "value": value,
-                }
-            )
-
+    rows = _parse_dataset_observations(json_data)
     if not rows:
         raise EmptyDataError(
-            provider="bdp",
-            message=f"No observations parsed for domain={params.domain_id}, dataset={params.dataset_id}",
+            "bdp",
+            message=f"No observations for domain={domain_id}, dataset={dataset_id}",
+            query_params={
+                "domain_id": domain_id,
+                "dataset_id": dataset_id,
+                "series_ids": series_ids,
+                "start_date": start_date,
+                "end_date": end_date,
+            },
         )
 
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=list(_FETCH_COLUMNS))
 
 
 # ---------------------------------------------------------------------------
@@ -480,7 +474,10 @@ async def bdp_fetch(
 async def _list_domains(fetcher: ThrottledJsonFetcher) -> list[dict[str, Any]]:
     """Return the BdP domain list (77 entries).
 
-    Empty list on failure; the caller logs and emits an empty catalog.
+    Empty list on failure; the caller logs and emits an empty catalog. This is
+    the bounding seam for live tests — monkeypatch this module global to return
+    a 1–2 domain slice so the crawl fires a handful of requests, never the full
+    ~7,200-page fan-out.
     """
     payload = await fetcher.get_json(f"{_BASE_URL}/domains/", params={"lang": "EN"})
     if not isinstance(payload, list):
@@ -695,7 +692,9 @@ async def enumerate_bdp() -> pd.DataFrame:
     """Enumerate Banco de Portugal domains, datasets, and paginated series.
 
     Walks leaf domains and dataset pages with bounded concurrency; retries
-    transient 403/429/5xx responses before skipping a failed dataset.
+    transient 403/429/5xx responses before skipping a failed dataset. Returns
+    the exact ``BDP_ENUMERATE_OUTPUT`` column set (synthetic ``domain:`` /
+    ``dataset:`` parent rows plus ``{domain}:{dataset}:{series}`` series rows).
     """
 
     rows: list[dict[str, str]] = []
@@ -787,9 +786,7 @@ async def enumerate_bdp() -> pd.DataFrame:
             dataset_label = str(stub.get("label") or ext.get("label") or dataset_id).strip()
             last_update = str(ext.get("obs_updated_at") or "")
 
-            series_stubs, first_payload = await _crawl_dataset_series(
-                fetcher, did, dataset_id
-            )
+            series_stubs, first_payload = await _crawl_dataset_series(fetcher, did, dataset_id)
             if first_payload is None:
                 failed_datasets.append(f"{did}/{dataset_id}")
                 return []

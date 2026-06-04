@@ -9,7 +9,8 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 | Name | Kind | Description |
 |---|---|---|
 | `bdp_fetch` | fetch | Fetch a Banco de Portugal time series by domain ID + dataset ID (with optional series filter and date range). |
-| `enumerate_bdp` | enumerator | Enumerate BdP datasets across all leaf domains (~216 datasets across 77 domains). |
+| `enumerate_bdp` | enumerator | Enumerate BdP domains, datasets, and paginated series across all 65 leaf domains. |
+| `bdp_search` | tool | Semantic-search the published BdP BPstat catalog snapshot for series/dataset/domain codes. |
 
 ## Install
 
@@ -17,7 +18,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 pip install parsimony-bdp
 ```
 
-Pulls in `parsimony-core>=0.6,<0.7` automatically. Verify discovery:
+Pulls in `parsimony-core>=0.7,<0.8` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
