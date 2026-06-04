@@ -10,5 +10,6 @@ def test_connectors_count() -> None:
 
 
 def test_minimal_public_surface() -> None:
-    assert parsimony_bdf.__all__ == ["CONNECTORS"]
+    assert parsimony_bdf.__all__ == ["CONNECTORS", "load"]
     assert hasattr(parsimony_bdf, "CONNECTORS")
+    assert hasattr(parsimony_bdf, "load")
