@@ -1,23 +1,98 @@
-"""Happy-path tests for the RBA connectors.
+"""Offline tests for the RBA connectors.
 
-RBA scrapes the tables page for CSV links then fetches each CSV. No api_key;
-the fetch path goes through ``_http_get`` which tries curl_cffi then falls
-back to httpx. Tests mock httpx (the fallback) since curl_cffi is optional.
+RBA is Akamai-protected, so the live transport is **curl_cffi** (browser
+impersonation) — plain httpx is TLS-fingerprint-blocked (403). These offline
+tests therefore mock curl_cffi (not httpx/respx): a fake ``AsyncSession.get``
+serves canned RBA payloads keyed by URL. The ``_FakeSession`` fixture below is
+the shared mock harness.
 """
 
 from __future__ import annotations
 
-import httpx
-import pytest
-import respx
-from parsimony.errors import InvalidParameterError
+from typing import Any
 
+import pytest
+from parsimony.errors import (
+    EmptyDataError,
+    InvalidParameterError,
+    ParseError,
+    ProviderError,
+    RateLimitError,
+)
+
+import parsimony_rba as pkg
 from parsimony_rba import (
     CONNECTORS,
-    RbaFetchParams,
     enumerate_rba,
     rba_fetch,
 )
+
+# ---------------------------------------------------------------------------
+# curl_cffi mock harness
+# ---------------------------------------------------------------------------
+
+
+class _FakeResponse:
+    """Minimal stand-in for a curl_cffi Response.
+
+    Carries ``status_code``, ``text``, ``content`` (bytes), and a ``headers``
+    mapping with a ``.get`` — enough for ``_curl_get`` and ``parse_retry_after``.
+    """
+
+    def __init__(
+        self,
+        status_code: int = 200,
+        *,
+        text: str = "",
+        content: bytes | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self.status_code = status_code
+        self.text = text
+        self.content = content if content is not None else text.encode("utf-8")
+        self.headers = headers or {}
+
+
+class _FakeSession:
+    """A fake curl_cffi ``AsyncSession`` driven by a ``{url: response}`` map.
+
+    A value may also be an Exception instance/class — it is raised on GET to
+    exercise the transport-error mapping path. A missing URL yields a 404.
+    """
+
+    def __init__(self, routes: dict[str, Any]) -> None:
+        self._routes = routes
+        self.calls: list[str] = []
+
+    async def __aenter__(self) -> _FakeSession:
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+    async def get(self, url: str, *, impersonate: str = "chrome", timeout: float = 60.0) -> _FakeResponse:
+        self.calls.append(url)
+        value = self._routes.get(url)
+        if value is None:
+            return _FakeResponse(404, text="not found")
+        if isinstance(value, BaseException):
+            raise value
+        if isinstance(value, type) and issubclass(value, BaseException):
+            raise value("boom")
+        assert isinstance(value, _FakeResponse)
+        return value
+
+
+def _install_session(monkeypatch: pytest.MonkeyPatch, routes: dict[str, Any]) -> _FakeSession:
+    """Patch ``_make_session`` to return a single shared ``_FakeSession``."""
+    session = _FakeSession(routes)
+    monkeypatch.setattr(pkg, "_make_session", lambda: session)
+    return session
+
+
+# ---------------------------------------------------------------------------
+# Fixtures — canned RBA payloads
+# ---------------------------------------------------------------------------
 
 _TABLES_HTML = """
 <html><body>
@@ -73,44 +148,117 @@ _B13_2_1_CSV = (
     "31-Mar-2024,5678\n"
 )
 
+_TABLES_URL = "https://www.rba.gov.au/statistics/tables/"
+_HIST_URL = "https://www.rba.gov.au/statistics/historical-data.html"
+
+
+def _csv_url(stem: str) -> str:
+    return f"https://www.rba.gov.au/statistics/tables/csv/{stem}.csv"
+
+
+# ---------------------------------------------------------------------------
+# Collection shape
+# ---------------------------------------------------------------------------
+
 
 def test_connectors_collection_exposes_expected_names() -> None:
     names = {c.name for c in CONNECTORS}
     assert names == {"rba_fetch", "enumerate_rba", "rba_search"}
 
 
-@respx.mock
+def test_no_dead_params_models_remain() -> None:
+    """The pydantic ``*Params`` models were deleted in the 0.7 sweep — the
+    connector inline-validates instead. Guard against a regression that
+    reintroduces a bundled request object."""
+    assert not hasattr(pkg, "RbaFetchParams")
+    assert not hasattr(pkg, "RbaEnumerateParams")
+
+
+# ---------------------------------------------------------------------------
+# rba_fetch — happy path + validation
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.asyncio
-async def test_rba_fetch_resolves_then_parses_csv() -> None:
-    respx.get("https://www.rba.gov.au/statistics/tables/").mock(
-        return_value=httpx.Response(200, text=_TABLES_HTML)
-    )
-    respx.get("https://www.rba.gov.au/statistics/tables/csv/f1-data.csv").mock(
-        return_value=httpx.Response(200, text=_F1_CSV)
+async def test_rba_fetch_resolves_then_parses_csv(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_session(
+        monkeypatch,
+        {
+            _TABLES_URL: _FakeResponse(200, text=_TABLES_HTML),
+            _csv_url("f1-data"): _FakeResponse(200, text=_F1_CSV),
+        },
     )
 
     result = await rba_fetch(table_id="f1-data")
 
     assert result.provenance.source == "rba_fetch"
+    assert result.provenance.params == {"table_id": "f1-data"}
     df = result.data
     assert "table_id" in df.columns
     assert df.iloc[0]["table_id"] == "f1-data"
+    assert df.iloc[0]["series_key"] == "FIRMMCRTD"
+    assert df["value"].notna().any()
 
 
-@respx.mock
 @pytest.mark.asyncio
-async def test_rba_fetch_raises_value_error_for_unknown_table() -> None:
-    respx.get("https://www.rba.gov.au/statistics/tables/").mock(
-        return_value=httpx.Response(200, text=_TABLES_HTML)
+async def test_rba_fetch_normalises_trailing_csv_suffix_and_case(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Inline validation lowercases and strips a stray ``.csv`` suffix
+    (replaces the deleted RbaFetchParams normaliser)."""
+    _install_session(
+        monkeypatch,
+        {
+            _TABLES_URL: _FakeResponse(200, text=_TABLES_HTML),
+            _csv_url("f1-data"): _FakeResponse(200, text=_F1_CSV),
+        },
     )
+
+    # Mixed case + a stray .csv suffix still resolves to f1-data and parses.
+    # (Provenance records the verbatim call-time arg; the normalisation is
+    # internal and surfaces in the resolved table_id stamped on the data.)
+    result = await rba_fetch(table_id="F1-DATA.csv")
+    df = result.data
+    assert set(df["table_id"]) == {"f1-data"}
+    assert "FIRMMCRTD" in set(df["series_key"])
+
+
+@pytest.mark.asyncio
+async def test_rba_fetch_rejects_blank_table_id() -> None:
+    with pytest.raises(InvalidParameterError):
+        await rba_fetch(table_id="   ")
+
+
+@pytest.mark.asyncio
+async def test_rba_fetch_raises_invalid_parameter_for_unknown_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_session(monkeypatch, {_TABLES_URL: _FakeResponse(200, text=_TABLES_HTML)})
 
     with pytest.raises(InvalidParameterError, match="not found"):
         await rba_fetch(table_id="nonexistent-table")
 
 
-def test_fetch_normalises_trailing_csv_suffix() -> None:
-    p = RbaFetchParams(table_id="F1-DATA.csv")
-    assert p.table_id == "f1-data"
+@pytest.mark.asyncio
+async def test_rba_fetch_raises_empty_data_on_dataless_csv(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 200 CSV whose data section has no rows → EmptyDataError (with the
+    query params that produced it, per §5)."""
+    dataless = (
+        "F1 INTEREST RATES\n"
+        ",Cash Rate Target\n"
+        "Title,Cash Rate Target\n"
+        "Description,Official cash rate target\n"
+        "Frequency,Daily\n"
+        "Units,Per cent\n"
+        "Series ID,FIRMMCRTD\n"
+    )
+    _install_session(
+        monkeypatch,
+        {
+            _TABLES_URL: _FakeResponse(200, text=_TABLES_HTML),
+            _csv_url("f1-data"): _FakeResponse(200, text=dataless),
+        },
+    )
+
+    with pytest.raises(EmptyDataError) as exc_info:
+        await rba_fetch(table_id="f1-data")
+    assert exc_info.value.query_params == {"table_id": "f1-data"}
 
 
 # ---------------------------------------------------------------------------
@@ -118,44 +266,33 @@ def test_fetch_normalises_trailing_csv_suffix() -> None:
 # ---------------------------------------------------------------------------
 
 
-@respx.mock
 @pytest.mark.asyncio
-async def test_enumerate_rba_emits_description_table_id_unit_and_source() -> None:
-    """One row per Series ID with the full Treasury-grade column set:
+async def test_enumerate_rba_emits_description_table_id_unit_and_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One row per Series ID with the full Treasury-grade column set.
 
     * compound ``code`` for KEY,
-    * ``description`` (DESCRIPTION) populated from the CSV's Description row
-      so the embedder sees it,
+    * ``description`` populated from the CSV's Description row,
     * ``table_id`` and ``series_id`` exposed as METADATA,
     * ``unit`` captured from the Units row,
     * ``source`` set to ``"rba_csv"`` for dispatch consistency.
     """
-    respx.get("https://www.rba.gov.au/statistics/tables/").mock(
-        return_value=httpx.Response(200, text=_TABLES_HTML)
-    )
-    respx.get("https://www.rba.gov.au/statistics/tables/csv/f1-data.csv").mock(
-        return_value=httpx.Response(200, text=_F1_CSV)
-    )
-    respx.get("https://www.rba.gov.au/statistics/tables/csv/g1-data.csv").mock(
-        return_value=httpx.Response(404, text="missing")
+    _install_session(
+        monkeypatch,
+        {
+            _TABLES_URL: _FakeResponse(200, text=_TABLES_HTML),
+            _csv_url("f1-data"): _FakeResponse(200, text=_F1_CSV),
+            _csv_url("g1-data"): _FakeResponse(404, text="missing"),
+            _HIST_URL: _FakeResponse(200, text="<html></html>"),
+        },
     )
 
     df = (await enumerate_rba()).data
 
-    # Schema completeness — every Treasury-grade column must be present.
-    assert {
-        "code",
-        "title",
-        "description",
-        "source",
-        "table_id",
-        "series_id",
-        "category",
-        "frequency",
-        "unit",
-    } <= set(df.columns)
+    # @enumerator enforces an EXACT column match against the declared schema.
+    assert list(df.columns) == list(pkg._ENUMERATE_COLUMNS)
 
-    # The single F1 series should have round-tripped end-to-end.
     f1 = df[df["series_id"] == "FIRMMCRTD"]
     assert len(f1) == 1
     row = f1.iloc[0]
@@ -169,21 +306,22 @@ async def test_enumerate_rba_emits_description_table_id_unit_and_source() -> Non
     assert row["frequency"] == "Daily"
 
 
-@respx.mock
 @pytest.mark.asyncio
-async def test_enumerate_rba_compound_code_keeps_cross_table_series_id_collisions() -> None:
+async def test_enumerate_rba_compound_code_keeps_cross_table_series_id_collisions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Series ids reused across tables (B13.1.x vs B13.2.x in the wild) must
     emit two distinct catalog rows, distinguished by ``table_id`` in the
     compound ``code``. A bare ``series_id`` KEY would silently drop the
     second occurrence — the compound code is what keeps both reachable."""
-    respx.get("https://www.rba.gov.au/statistics/tables/").mock(
-        return_value=httpx.Response(200, text=_TABLES_HTML_COLLISION)
-    )
-    respx.get("https://www.rba.gov.au/statistics/tables/csv/b13-1-2-africa.csv").mock(
-        return_value=httpx.Response(200, text=_B13_1_2_CSV)
-    )
-    respx.get("https://www.rba.gov.au/statistics/tables/csv/b13-2-1-africa.csv").mock(
-        return_value=httpx.Response(200, text=_B13_2_1_CSV)
+    _install_session(
+        monkeypatch,
+        {
+            _TABLES_URL: _FakeResponse(200, text=_TABLES_HTML_COLLISION),
+            _csv_url("b13-1-2-africa"): _FakeResponse(200, text=_B13_1_2_CSV),
+            _csv_url("b13-2-1-africa"): _FakeResponse(200, text=_B13_2_1_CSV),
+            _HIST_URL: _FakeResponse(200, text="<html></html>"),
+        },
     )
 
     df = (await enumerate_rba()).data
@@ -200,41 +338,70 @@ async def test_enumerate_rba_compound_code_keeps_cross_table_series_id_collision
     assert len(set(same_sid["description"])) == 2
 
 
-@respx.mock
 @pytest.mark.asyncio
-async def test_enumerate_rba_source_metadata_uniform() -> None:
+async def test_enumerate_rba_source_metadata_uniform(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every emitted row carries ``source='rba_csv'`` so an agent dispatching
     off a search hit knows which fetch connector to call without parsing
-    the code prefix — matches Treasury's ``source`` dispatch column."""
-    respx.get("https://www.rba.gov.au/statistics/tables/").mock(
-        return_value=httpx.Response(200, text=_TABLES_HTML_COLLISION)
-    )
-    respx.get("https://www.rba.gov.au/statistics/tables/csv/b13-1-2-africa.csv").mock(
-        return_value=httpx.Response(200, text=_B13_1_2_CSV)
-    )
-    respx.get("https://www.rba.gov.au/statistics/tables/csv/b13-2-1-africa.csv").mock(
-        return_value=httpx.Response(200, text=_B13_2_1_CSV)
+    the code prefix."""
+    _install_session(
+        monkeypatch,
+        {
+            _TABLES_URL: _FakeResponse(200, text=_TABLES_HTML_COLLISION),
+            _csv_url("b13-1-2-africa"): _FakeResponse(200, text=_B13_1_2_CSV),
+            _csv_url("b13-2-1-africa"): _FakeResponse(200, text=_B13_2_1_CSV),
+            _HIST_URL: _FakeResponse(200, text="<html></html>"),
+        },
     )
 
     df = (await enumerate_rba()).data
     assert set(df["source"]) == {"rba_csv"}
 
 
+@pytest.mark.asyncio
+async def test_enumerate_rba_swallows_per_csv_fetch_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A single bad CSV (500) must not torpedo the whole crawl — the enumerator
+    swallows per-fetch errors and keeps the surviving rows."""
+    _install_session(
+        monkeypatch,
+        {
+            _TABLES_URL: _FakeResponse(200, text=_TABLES_HTML),
+            _csv_url("f1-data"): _FakeResponse(200, text=_F1_CSV),
+            _csv_url("g1-data"): _FakeResponse(500, text="boom"),
+            _HIST_URL: _FakeResponse(200, text="<html></html>"),
+        },
+    )
+
+    df = (await enumerate_rba()).data
+    assert "FIRMMCRTD" in set(df["series_id"])
+
+
+@pytest.mark.asyncio
+async def test_enumerate_rba_bounding_seam_limits_fan_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``_discover_csv_links`` is the bounding seam — monkeypatching it to a
+    single link reduces the CSV fan-out to one request (the live-test bound)."""
+
+    async def _one_link(_session: Any) -> list[str]:
+        return ["/statistics/tables/csv/f1-data.csv"]
+
+    monkeypatch.setattr(pkg, "_discover_csv_links", _one_link)
+    session = _install_session(
+        monkeypatch,
+        {
+            _TABLES_URL: _FakeResponse(200, text=_TABLES_HTML),
+            _csv_url("f1-data"): _FakeResponse(200, text=_F1_CSV),
+            _HIST_URL: _FakeResponse(200, text="<html></html>"),
+        },
+    )
+
+    df = (await enumerate_rba()).data
+    # Only f1-data was fetched (plus the index + historical-data page) — the
+    # g1-data link advertised by the index was never requested.
+    assert _csv_url("g1-data") not in session.calls
+    assert "FIRMMCRTD" in set(df["series_id"])
+
+
 # ---------------------------------------------------------------------------
 # XLSX-exclusive sheet + xls-hist coverage
-#
-# Two secondary sources close gaps the CSV pass misses:
-#
-# * ``xls/a03.xlsx`` carries a ``Bond Purchase Program`` sheet whose 7
-#   series never appear in the a3-* CSVs. The enumerator's
-#   ``_XLSX_EXCLUSIVE_SHEETS`` allow-list keeps this intentional and
-#   prevents re-emitting series already captured from CSVs.
-# * ``xls-hist/*.xls`` legacy binaries hold discontinued series — b3
-#   repo rates pre-2013, c9 cheque/card historicals, f16 retail interest,
-#   etc. ~186 catalog rows that would otherwise be invisible.
-#
-# Both pipes share ``_metadata_from_header_rows``, so the XLSX and XLS
-# tests also exercise the common parser contract.
 # ---------------------------------------------------------------------------
 
 
@@ -245,7 +412,6 @@ def _make_xlsx_fixture(sheets: list[tuple[str, list[list[object]]]]) -> bytes:
     import openpyxl
 
     wb = openpyxl.Workbook()
-    # Remove the default sheet we don't want.
     wb.remove(wb.active)
     for name, rows in sheets:
         ws = wb.create_sheet(title=name)
@@ -265,9 +431,7 @@ def _rba_metadata_rows(
     value: float,
 ) -> list[list[object]]:
     """Construct the RBA-shaped metadata header block (Title / Description /
-    Frequency / Units / Series ID) plus a single data row. Mirrors the
-    layout that both ``_parse_xlsx_exclusive`` and ``_parse_xls_hist`` key on.
-    """
+    Frequency / Units / Series ID) plus a single data row."""
     return [
         ["SAMPLE TABLE HEADING", ""],
         ["Title", title],
@@ -291,22 +455,16 @@ _TABLES_HTML_WITH_XLSX = """
 """
 
 
-@respx.mock
 @pytest.mark.asyncio
-async def test_enumerate_rba_pulls_xlsx_exclusive_sub_sheet() -> None:
-    """``a03.xlsx``'s Bond Purchase Program sheet holds 7 series never
-    republished as a CSV. The enumerator must pick them up and tag them
-    ``source='rba_xlsx'`` so dispatch knows they came from the XLSX path
-    rather than the CSV path. All other sheets are skipped to avoid
-    duplicating content already captured from the CSVs.
-    """
+async def test_enumerate_rba_pulls_xlsx_exclusive_sub_sheet(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``a03.xlsx``'s Bond Purchase Program sheet holds series never
+    republished as a CSV. The enumerator must pick them up tagged
+    ``source='rba_xlsx'``; all other sheets are skipped to avoid duplicating
+    CSV content."""
     xlsx_data = _make_xlsx_fixture(
         [
             (
                 "ES Balances and Repo Agreements",
-                # This sheet's series overlap with CSV content, so the
-                # enumerator's allow-list must SKIP it to prevent
-                # duplication even though it carries valid metadata.
                 _rba_metadata_rows(
                     title="Should Be Skipped",
                     description="CSV-duplicate sheet",
@@ -331,32 +489,26 @@ async def test_enumerate_rba_pulls_xlsx_exclusive_sub_sheet() -> None:
         ]
     )
 
-    respx.get("https://www.rba.gov.au/statistics/tables/").mock(
-        return_value=httpx.Response(200, text=_TABLES_HTML_WITH_XLSX)
-    )
-    respx.get("https://www.rba.gov.au/statistics/tables/csv/a1-data.csv").mock(
-        return_value=httpx.Response(200, text=_F1_CSV.replace("F1 INTEREST RATES", "A1 RESERVE BANK"))
-    )
-    respx.get("https://www.rba.gov.au/statistics/tables/xls/a03.xlsx").mock(
-        return_value=httpx.Response(200, content=xlsx_data)
-    )
-    # Historical-data page is fetched but returns no useful links here.
-    respx.get("https://www.rba.gov.au/statistics/historical-data.html").mock(
-        return_value=httpx.Response(200, text="<html></html>")
+    _install_session(
+        monkeypatch,
+        {
+            _TABLES_URL: _FakeResponse(200, text=_TABLES_HTML_WITH_XLSX),
+            _csv_url("a1-data"): _FakeResponse(
+                200, text=_F1_CSV.replace("F1 INTEREST RATES", "A1 RESERVE BANK")
+            ),
+            "https://www.rba.gov.au/statistics/tables/xls/a03.xlsx": _FakeResponse(200, content=xlsx_data),
+            _HIST_URL: _FakeResponse(200, text="<html></html>"),
+        },
     )
 
     df = (await enumerate_rba()).data
 
-    # Bond Purchase Program sheet's single series must be present and
-    # tagged rba_xlsx; the allow-listed skip must keep the CSV-duplicate
-    # sheet out.
     bpp = df[df["series_id"] == "ALDBPPFVD"]
     assert len(bpp) == 1, "Bond Purchase Program series must be emitted exactly once"
     row = bpp.iloc[0]
     assert row["source"] == "rba_xlsx"
     assert row["title"] == "Face Value"
     assert row["unit"] == "$ million"
-    # Sheet name folded into table_id so rows stay unique across sheets.
     assert row["table_id"] == "a03/Bond Purchase Program"
     assert row["code"] == "a03/Bond Purchase Program#ALDBPPFVD"
 
@@ -364,25 +516,12 @@ async def test_enumerate_rba_pulls_xlsx_exclusive_sub_sheet() -> None:
     assert "CSVDUP1" not in set(df["series_id"])
 
 
-@respx.mock
 @pytest.mark.asyncio
-async def test_enumerate_rba_pulls_xls_hist_discontinued_series() -> None:
-    """``xls-hist/*.xls`` legacy binaries expose ~186 discontinued series
-    (b3 repo rates pre-2013, c9 cheque historicals, etc.) that dropped
-    out of the live CSVs long ago. They're catalogged with
-    ``source='rba_xlsx_hist'`` so search can still surface them and
-    agents know to treat them as archival.
-
-    xls-hist workbooks with multiple data sheets have the sheet name
-    folded into ``table_id`` to keep compound codes unique across
-    sheets (a03hist-2003-2008 has one sheet per bond line).
-    """
-    # An xls file can't be easily fabricated in pure Python, so mock the
-    # inner parse function. What we're testing here is the ENUMERATOR's
-    # orchestration — that it discovers the xls-hist link, fetches, and
-    # merges the resulting rows without colliding with CSV rows.
-    import parsimony_rba as pkg
-
+async def test_enumerate_rba_pulls_xls_hist_discontinued_series(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``xls-hist/*.xls`` legacy binaries expose discontinued series that
+    dropped out of the live CSVs. They're catalogued with
+    ``source='rba_xlsx_hist'``. We mock the inner parse function — the test
+    exercises the ENUMERATOR's orchestration (discover link, fetch, merge)."""
     historical_html = """
     <html><body>
     <a href="/statistics/tables/xls-hist/b03hist.xls">B3 Repo Agreements (historical)</a>
@@ -391,7 +530,6 @@ async def test_enumerate_rba_pulls_xls_hist_discontinued_series() -> None:
     """
 
     def fake_parse(data: bytes, table_id: str) -> list[dict[str, str]]:
-        # One "discontinued" series to stand in for the 28 real ones.
         return [
             {
                 "code": f"{table_id}#REPO1D",
@@ -406,31 +544,21 @@ async def test_enumerate_rba_pulls_xls_hist_discontinued_series() -> None:
             }
         ]
 
-    respx.get("https://www.rba.gov.au/statistics/tables/").mock(
-        return_value=httpx.Response(200, text=_TABLES_HTML)
+    _install_session(
+        monkeypatch,
+        {
+            _TABLES_URL: _FakeResponse(200, text=_TABLES_HTML),
+            _csv_url("f1-data"): _FakeResponse(200, text=_F1_CSV),
+            _csv_url("g1-data"): _FakeResponse(404, text="missing"),
+            _HIST_URL: _FakeResponse(200, text=historical_html),
+            "https://www.rba.gov.au/statistics/tables/xls-hist/b03hist.xls": _FakeResponse(
+                200, content=b"fake-xls-bytes"
+            ),
+        },
     )
-    respx.get("https://www.rba.gov.au/statistics/tables/csv/f1-data.csv").mock(
-        return_value=httpx.Response(200, text=_F1_CSV)
-    )
-    respx.get("https://www.rba.gov.au/statistics/tables/csv/g1-data.csv").mock(
-        return_value=httpx.Response(404, text="missing")
-    )
-    respx.get("https://www.rba.gov.au/statistics/historical-data.html").mock(
-        return_value=httpx.Response(200, text=historical_html)
-    )
-    respx.get("https://www.rba.gov.au/statistics/tables/xls-hist/b03hist.xls").mock(
-        return_value=httpx.Response(200, content=b"fake-xls-bytes")
-    )
-    # ``1983-1986.xls`` starts with a digit — the enumerator should skip it
-    # entirely (period-range archives don't carry Series ID rows), so we
-    # don't need a mock for that URL.
 
-    orig = pkg._parse_xls_hist
-    pkg._parse_xls_hist = fake_parse
-    try:
-        df = (await enumerate_rba()).data
-    finally:
-        pkg._parse_xls_hist = orig
+    monkeypatch.setattr(pkg, "_parse_xls_hist", fake_parse)
+    df = (await enumerate_rba()).data
 
     hist_rows = df[df["source"] == "rba_xlsx_hist"]
     assert len(hist_rows) == 1
@@ -445,9 +573,7 @@ async def test_enumerate_rba_pulls_xls_hist_discontinued_series() -> None:
 def test_metadata_from_header_rows_accepts_mnemonic_label() -> None:
     """The legacy ``xls-hist/zcr-analytical-series-hist.xls`` workbook
     labels its series ``Mnemonic`` instead of ``Series ID``. The shared
-    parser must treat both tokens identically so that discontinued
-    analytical feeds survive the enumerator pass.
-    """
+    parser must treat both tokens identically."""
     from parsimony_rba import _metadata_from_header_rows
 
     sheet_rows: list[list[object]] = [
@@ -475,10 +601,7 @@ def test_metadata_from_header_rows_accepts_mnemonic_label() -> None:
 
 def test_parse_xlsx_exclusive_skips_sheets_outside_allowlist() -> None:
     """``_parse_xlsx_exclusive`` must only emit rows from the explicit
-    allow-list. This guards against accidentally double-counting series
-    already captured via the CSV index when RBA republishes a sheet
-    under both formats.
-    """
+    allow-list (guards against double-counting CSV-republished series)."""
     from parsimony_rba import _parse_xlsx_exclusive
 
     xlsx_bytes = _make_xlsx_fixture(
@@ -501,11 +624,68 @@ def test_parse_xlsx_exclusive_skips_sheets_outside_allowlist() -> None:
 
 
 def test_parse_xlsx_exclusive_returns_empty_on_invalid_bytes() -> None:
-    """Malformed XLSX payloads must not crash the enumerator. The parser
-    returns an empty list so the orchestrator's try/except is belt-and-
-    braces; this keeps a single bad workbook from torpedoing the run.
-    """
+    """Malformed XLSX payloads must not crash the enumerator."""
     from parsimony_rba import _parse_xlsx_exclusive
 
     rows = _parse_xlsx_exclusive(b"not-really-xlsx", table_id="bad", allowed_sheets=("Data",))
     assert rows == []
+
+
+# ---------------------------------------------------------------------------
+# rba_fetch — ParseError on a wrong-shape body
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rba_fetch_raises_parse_error_on_unparseable_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    """If the CSV parser raises on a malformed/garbage 200 body, the connector
+    surfaces it as ParseError (§5.8), never a crash or a fake status."""
+
+    def _boom(text: str, table_id: str) -> Any:
+        raise ValueError("totally unparseable workbook")
+
+    _install_session(
+        monkeypatch,
+        {
+            _TABLES_URL: _FakeResponse(200, text=_TABLES_HTML),
+            _csv_url("f1-data"): _FakeResponse(200, text="<html>garbage</html>"),
+        },
+    )
+    monkeypatch.setattr(pkg, "_parse_rba_csv", _boom)
+
+    with pytest.raises(ParseError):
+        await rba_fetch(table_id="f1-data")
+
+
+# ---------------------------------------------------------------------------
+# Smoke: ProviderError / RateLimitError surface from the fetch path. (Full
+# status-table coverage lives in test_error_mapping_rba.py.)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rba_fetch_maps_csv_500_to_provider_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_session(
+        monkeypatch,
+        {
+            _TABLES_URL: _FakeResponse(200, text=_TABLES_HTML),
+            _csv_url("f1-data"): _FakeResponse(503, text="unavailable"),
+        },
+    )
+    with pytest.raises(ProviderError) as exc_info:
+        await rba_fetch(table_id="f1-data")
+    assert exc_info.value.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_rba_fetch_maps_csv_429_to_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_session(
+        monkeypatch,
+        {
+            _TABLES_URL: _FakeResponse(200, text=_TABLES_HTML),
+            _csv_url("f1-data"): _FakeResponse(429, text="slow", headers={"Retry-After": "17"}),
+        },
+    )
+    with pytest.raises(RateLimitError) as exc_info:
+        await rba_fetch(table_id="f1-data")
+    assert exc_info.value.retry_after == 17.0

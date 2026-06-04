@@ -23,7 +23,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 pip install parsimony-finnhub
 ```
 
-Pulls in `parsimony-core>=0.6,<0.7` automatically. Verify discovery:
+Pulls in `parsimony-core>=0.7,<0.8` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
@@ -41,15 +41,21 @@ Get a key at <https://finnhub.io>. Free tier: 60 calls/min.
 
 ```python
 import asyncio
-from parsimony_finnhub import CONNECTORS
+import os
+from parsimony_finnhub import load
 
 async def main():
-    connectors = CONNECTORS
+    connectors = load(api_key=os.environ["FINNHUB_API_KEY"])
     result = await connectors["finnhub_quote"](symbol="AAPL")
     print(result.data.head())
 
 asyncio.run(main())
 ```
+
+The API key is declared as a secret (stripped from provenance) and bound off
+the call surface via `load(api_key=...)` (or `Connector.bind`). As a dev
+fallback it is read from `FINNHUB_API_KEY`. A missing key raises
+`UnauthorizedError` naming the env var.
 
 For multi-plugin composition:
 

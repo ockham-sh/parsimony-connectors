@@ -10,5 +10,7 @@ def test_connectors_count() -> None:
 
 
 def test_minimal_public_surface() -> None:
-    assert parsimony_finnhub.__all__ == ["CONNECTORS"]
+    # CONNECTORS is the contract; load() is the per-package key-binding idiom.
+    assert parsimony_finnhub.__all__ == ["CONNECTORS", "load"]
     assert hasattr(parsimony_finnhub, "CONNECTORS")
+    assert hasattr(parsimony_finnhub, "load")

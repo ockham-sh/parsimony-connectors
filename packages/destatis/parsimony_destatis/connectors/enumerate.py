@@ -1,4 +1,17 @@
-"""Destatis catalog enumeration connector."""
+"""Destatis catalog enumeration connector.
+
+Discovers GENESIS-Online statistics + tables by composing ``/statistics`` with
+a per-statistic ``/statistics/{code}/information`` + ``/statistics/{code}/tables``
+fan-out (``1 + 2N`` requests). The crawl uses the shared ``ThrottledJsonFetcher``
+(throttled, retrying fan-out over a raw ``httpx.AsyncClient``) — the re-base of
+``_shared`` onto core transport is a separate cross-cutting step, so this code
+keeps using ``_shared`` for now and only owns the Destatis-side parsing/framing.
+
+Best-effort by design: a per-statistic failure is logged and skipped so a
+partial catalog is still produced. The returned frame matches
+``ENUMERATE_COLUMNS`` exactly, as the ``@enumerator`` contract requires (it drops
+unmapped columns then demands an exact match against the declared schema).
+"""
 
 from __future__ import annotations
 
@@ -13,7 +26,6 @@ from parsimony_shared.cb_enumerate import DESCRIPTION_CHAR_CAP, ThrottledJsonFet
 
 from parsimony_destatis._http import HEADERS, METADATA_CRAWL, get_path_json, looks_like_html
 from parsimony_destatis.outputs import DESTATIS_ENUMERATE_OUTPUT, ENUMERATE_COLUMNS
-from parsimony_destatis.params import DestatisEnumerateParams
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +46,14 @@ def _pick_lang(node: Any, key: str = "name") -> tuple[str, str]:
         return de, en
 
     bare = str(node.get(key, "") or "").strip()
+    return bare, bare
+
+
+def _name_de_en(node: Any) -> tuple[str, str]:
+    """Read a GENESIS ``{"de": ..., "en": ...}`` localized-name node."""
+    if isinstance(node, dict):
+        return (str(node.get("de", "") or "").strip(), str(node.get("en", "") or "").strip())
+    bare = str(node).strip() if node is not None else ""
     return bare, bare
 
 
@@ -81,14 +101,34 @@ def _table_description(
     return ". ".join(p for p in parts if p)
 
 
-def _extract_variables(info_payload: dict[str, Any] | None) -> tuple[list[str], list[str]]:
-    if not isinstance(info_payload, dict):
+def _extract_variables(node: dict[str, Any] | None) -> tuple[list[str], list[str]]:
+    """Pull variable codes + English names from a GENESIS statistic/table node.
+
+    The real GENESIS shape carries ``variableCodes`` (list[str]) and a parallel
+    ``variableNames`` (list[{de, en}]). (The older ``variables`` list-of-dicts
+    shape is accepted as a fallback so a future API revision doesn't silently
+    blank the metadata.)
+    """
+    if not isinstance(node, dict):
         return [], []
-    variables = info_payload.get("variables") or info_payload.get("Variables") or []
+
+    codes_raw = node.get("variableCodes")
+    names_raw = node.get("variableNames")
+    if isinstance(codes_raw, list) or isinstance(names_raw, list):
+        codes = [str(c).strip() for c in (codes_raw or []) if str(c).strip()]
+        names_en: list[str] = []
+        for nm in names_raw or []:
+            _, en = _name_de_en(nm)
+            if en:
+                names_en.append(en)
+        return codes, names_en
+
+    # Fallback: legacy list-of-dicts shape.
+    variables = node.get("variables") or node.get("Variables") or []
     if not isinstance(variables, list):
         return [], []
-    codes: list[str] = []
-    names_en: list[str] = []
+    codes = []
+    names_en = []
     for var in variables:
         if not isinstance(var, dict):
             continue
@@ -99,6 +139,24 @@ def _extract_variables(info_payload: dict[str, Any] | None) -> tuple[list[str], 
         if en:
             names_en.append(en)
     return codes, names_en
+
+
+def _subject_area(stat: dict[str, Any]) -> str:
+    """Derive a human subject-area label from a statistic node.
+
+    The live shape is ``statisticalCategoryNames`` (list[{de, en}], coarsest
+    category first). The legacy flat ``subjectArea`` string is accepted as a
+    fallback.
+    """
+    flat = str(stat.get("subjectArea") or stat.get("subject_area") or stat.get("SubjectArea") or "").strip()
+    if flat:
+        return flat
+    cats = stat.get("statisticalCategoryNames")
+    if isinstance(cats, list) and cats:
+        # Most specific category last; prefer its English name.
+        de, en = _name_de_en(cats[-1])
+        return en or de
+    return ""
 
 
 def _extract_statistics_list(index_payload: dict[str, Any] | list[Any]) -> list[dict[str, Any]]:
@@ -129,26 +187,24 @@ def _emit_rows_for_statistic(
     *,
     stat: dict[str, Any],
     info: dict[str, Any],
-    tables_payload: dict[str, Any],
+    tables_payload: dict[str, Any] | list[Any],
 ) -> list[dict[str, str]]:
     stat_code = str(stat.get("code") or stat.get("Code") or "").strip()
     name_de, name_en = _pick_lang(stat, "name")
     if not name_de and not name_en:
         name_de, name_en = _pick_lang(info, "name")
 
-    subject_area = str(
-        stat.get("subjectArea")
-        or stat.get("subject_area")
-        or stat.get("SubjectArea")
-        or info.get("subjectArea")
-        or ""
-    ).strip()
+    subject_area = _subject_area(stat)
 
     description_de = str(
         info.get("description", {}).get("de")
         if isinstance(info.get("description"), dict)
         else (info.get("description_de") or info.get("description") or "")
     ).strip()
+
+    # The statistic node itself carries variableCodes/variableNames covering the
+    # whole statistic — surface them so the statistic row is not metadata-bare.
+    stat_var_codes, stat_var_names_en = _extract_variables(stat)
 
     tables = _extract_tables_list(tables_payload)
     n_tables = len(tables)
@@ -172,8 +228,8 @@ def _emit_rows_for_statistic(
             "subject_area": subject_area,
             "title_de": name_de,
             "title_en": name_en,
-            "variable_codes": "",
-            "variable_names_en": "",
+            "variable_codes": ",".join(stat_var_codes),
+            "variable_names_en": ",".join(stat_var_names_en),
             "source": "genesis_online",
         }
     ]
@@ -212,11 +268,23 @@ def _emit_rows_for_statistic(
     return rows
 
 
+async def _load_statistics_index(fetcher: ThrottledJsonFetcher) -> list[dict[str, Any]]:
+    """Fetch + normalise the ``/statistics`` index into a list of statistic nodes.
+
+    This is the bounding seam: a live test monkeypatches it to return a 1–2
+    statistic slice so the ``1 + 2N`` fan-out stays cheap (the full index is
+    ~331 statistics → ~663 per-statistic requests). The connector reads it as a
+    module attribute at call time so the monkeypatch takes.
+    """
+    index = await get_path_json(fetcher, "/statistics")
+    if index is None:
+        return []
+    return _extract_statistics_list(index)
+
+
 @enumerator(output=DESTATIS_ENUMERATE_OUTPUT, tags=["macro", "de"])
 async def enumerate_destatis() -> pd.DataFrame:
     """Enumerate Destatis statistics and tables from GENESIS-Online."""
-    DestatisEnumerateParams()
-
     rows: list[dict[str, str]] = []
 
     async with httpx.AsyncClient(timeout=60.0, headers=HEADERS) as client:
@@ -227,26 +295,22 @@ async def enumerate_destatis() -> pd.DataFrame:
             logger=logger,
             accept_non_json=lambda r: not looks_like_html(r.text),
         )
-        index = await get_path_json(fetcher, "/statistics")
-        if index is None:
-            logger.warning("Destatis enumerate: /statistics fetch failed; emitting empty catalog")
-            return pd.DataFrame(columns=list(ENUMERATE_COLUMNS))
-
-        statistics = _extract_statistics_list(index)
+        statistics = await _load_statistics_index(fetcher)
         if not statistics:
-            logger.warning("Destatis enumerate: /statistics returned 0 entries")
+            logger.warning("Destatis enumerate: /statistics returned no usable entries")
             return pd.DataFrame(columns=list(ENUMERATE_COLUMNS))
 
         async def _gather_one(
             stat: dict[str, Any],
-        ) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any] | None]:
+        ) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any] | list[Any] | None]:
             code = str(stat.get("code") or stat.get("Code") or "").strip()
             if not code:
                 return stat, None, None
             info_task = get_path_json(fetcher, f"/statistics/{code}/information")
             tables_task = get_path_json(fetcher, f"/statistics/{code}/tables")
             info, tables = await asyncio.gather(info_task, tables_task)
-            return stat, info, tables
+            info_dict = info if isinstance(info, dict) else None
+            return stat, info_dict, tables
 
         results = await asyncio.gather(*[_gather_one(s) for s in statistics])
 
@@ -277,5 +341,4 @@ async def enumerate_destatis() -> pd.DataFrame:
     else:
         logger.info("Destatis enumerate: %d statistics fetched successfully", len(statistics))
 
-    df = pd.DataFrame(rows, columns=list(ENUMERATE_COLUMNS)) if rows else pd.DataFrame(columns=list(ENUMERATE_COLUMNS))
-    return df
+    return pd.DataFrame(rows, columns=list(ENUMERATE_COLUMNS))

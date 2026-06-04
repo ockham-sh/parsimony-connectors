@@ -20,7 +20,10 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 | `coingecko_market_chart_range` | fetch | Historical price/market-cap/volume between two ISO dates. |
 | `coingecko_ohlc` | fetch | OHLC candlesticks for a coin. |
 | `coingecko_token_price_onchain` | fetch | On-chain token price by contract address (GeckoTerminal). |
-| `enumerate_coingecko` | enumerator | Full coin list (~15 000 rows) for catalog indexing. |
+| `enumerate_coingecko` | enumerator | Full coin list (~17 000 rows) for catalog indexing. |
+
+`coingecko_top_gainers_losers` is PRO-only, and `coingecko_market_chart_range` beyond
+365 days is restricted on the Demo plan — both return `PaymentRequiredError` on a Demo key.
 
 ## Install
 
@@ -28,7 +31,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 pip install parsimony-coingecko
 ```
 
-Pulls in `parsimony-core>=0.6,<0.7` automatically. Verify discovery:
+Pulls in `parsimony-core>=0.7,<0.8` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
@@ -48,15 +51,20 @@ Get a Demo key at https://www.coingecko.com/en/api/pricing.
 
 ```python
 import asyncio
-from parsimony_coingecko import CONNECTORS
+import os
+from parsimony_coingecko import load
 
 async def main():
-    connectors = CONNECTORS
+    # Bind the key off the call surface (kept out of provenance and logs).
+    connectors = load(api_key=os.environ["COINGECKO_API_KEY"])
     result = await connectors["coingecko_price"](ids="bitcoin", vs_currencies="usd")
     print(result.data.head())
 
 asyncio.run(main())
 ```
+
+If the key is not bound, each connector falls back to `COINGECKO_API_KEY` from the
+environment, and a missing key fails fast with `UnauthorizedError`.
 
 For multi-plugin composition:
 

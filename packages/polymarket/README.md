@@ -1,6 +1,6 @@
 # parsimony-polymarket
 
-Polymarket source for parsimony: prediction-market quotes via the Gamma and CLOB HTTP APIs.
+Polymarket source for parsimony: prediction-market discovery and prices via the public Gamma and CLOB HTTP APIs.
 
 Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connectors) monorepo. Distributed standalone on PyPI as `parsimony-polymarket`.
 
@@ -8,10 +8,9 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 
 | Name | Kind | Description |
 |---|---|---|
-| `polymarket_gamma_fetch` | connector | Generic fetcher against `https://gamma-api.polymarket.com` (events, markets, series). Supports `expand=markets|outcomes` and `response_path` for nested JSON traversal. |
-| `polymarket_clob_fetch` | connector | Generic fetcher against `https://clob.polymarket.com` (order book, prices, midpoints). Same `expand` / `response_path` surface. |
-
-Both connectors take `path`, `method`, and arbitrary upstream query params — additional fields on `PolymarketFetchParams` are forwarded as query string.
+| `polymarket_markets` | enumerator | Discover Polymarket markets via the Gamma API (`id` + `question`, with `slug`/`active` metadata). Takes `limit` (1-100) and `active`. |
+| `polymarket_events` | enumerator | Discover Polymarket events via the Gamma API (`id` + `title`, with `slug` metadata). Takes `limit` (1-100). |
+| `polymarket_market_prices` | connector | Fetch the current CLOB buy-side price for one outcome token (`token_id`). Returns a raw price dict, e.g. `{"price": "0.5"}`. |
 
 ## Install
 
@@ -27,7 +26,7 @@ python -c "from parsimony import discover; print([p.name for p in discover.iter_
 
 ## Configuration
 
-No environment variables required — Polymarket's Gamma and CLOB read APIs are public.
+No environment variables required — Polymarket's Gamma and CLOB read APIs are public. There is no API key, so this package declares no secrets and no `load(*, api_key=...)` convenience.
 
 ## Quick start
 
@@ -36,14 +35,15 @@ import asyncio
 from parsimony_polymarket import CONNECTORS
 
 async def main():
-    connectors = CONNECTORS
-    result = await connectors["polymarket_gamma_fetch"](
-        path="/events",
-        limit=5,
-        active=True,
-        closed=False,
-    )
-    print(result.data.head())
+    markets = await CONNECTORS["polymarket_markets"](limit=5, active=True)
+    print(markets.data.head())
+
+    events = await CONNECTORS["polymarket_events"](limit=5)
+    print(events.data.head())
+
+    # token_id comes from a market's `clobTokenIds` field on the Gamma API.
+    price = await CONNECTORS["polymarket_market_prices"](token_id="<clob-token-id>")
+    print(price.data)
 
 asyncio.run(main())
 ```

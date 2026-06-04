@@ -1,4 +1,17 @@
-"""BdE catalog enumeration connector."""
+"""BdE catalog enumeration connector.
+
+Discovers BdE statistical series by crawling the seven published catalog CSV
+chapters concurrently. The crawl uses the shared ``ThrottledJsonFetcher``
+(throttled, retrying fan-out over a raw ``httpx.AsyncClient``) — the re-base of
+``_shared`` onto core transport is a separate cross-cutting step, so this code
+keeps using ``_shared`` for now and only owns the BdE-side parsing + framing.
+
+Best-effort by design: a per-chapter failure is logged and skipped so a partial
+catalog is still produced (catalog publish jobs check ``len(df) == 0``
+separately). The returned frame matches ``ENUMERATE_COLUMNS`` exactly, as the
+``@enumerator`` contract requires (it drops unmapped columns then demands an
+exact match against the declared schema).
+"""
 
 from __future__ import annotations
 
@@ -13,7 +26,6 @@ from parsimony_shared.cb_enumerate import MetadataCrawlConfig, ThrottledJsonFetc
 from parsimony_bde._http import CATALOG_CHAPTERS, CATALOG_CSV_BASE_URL, CSV_ENCODING
 from parsimony_bde.connectors._catalog import parse_catalog_csv
 from parsimony_bde.outputs import BDE_ENUMERATE_OUTPUT, ENUMERATE_COLUMNS
-from parsimony_bde.params import BdeEnumerateParams
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +37,7 @@ async def _fetch_catalog_chapter(
     chapter: str,
     category: str,
 ) -> list[dict[str, str]]:
+    """Fetch + decode + parse one ``catalogo_*.csv`` chapter into enumerator rows."""
     url = f"{CATALOG_CSV_BASE_URL}/catalogo_{chapter}.csv"
     raw_bytes = await fetcher.get_content(url, label=f"catalogo_{chapter}")
     if raw_bytes is None:
@@ -39,9 +52,7 @@ async def _fetch_catalog_chapter(
 
 @enumerator(output=BDE_ENUMERATE_OUTPUT, tags=["macro", "es"])
 async def enumerate_bde() -> pd.DataFrame:
-    """Enumerate BdE statistical series from published catalog CSV chapters."""
-    BdeEnumerateParams()
-
+    """Enumerate BdE statistical series from the published catalog CSV chapters."""
     rows: list[dict[str, str]] = []
     async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
         fetcher = ThrottledJsonFetcher(
@@ -60,5 +71,6 @@ async def enumerate_bde() -> pd.DataFrame:
         for chapter_rows in chapter_results:
             rows.extend(chapter_rows)
 
-    df = pd.DataFrame(rows, columns=list(ENUMERATE_COLUMNS)) if rows else pd.DataFrame(columns=list(ENUMERATE_COLUMNS))
-    return df
+    # @enumerator drops unmapped columns then requires an EXACT match — build
+    # the frame with exactly the declared columns (header-only if all failed).
+    return pd.DataFrame(rows, columns=list(ENUMERATE_COLUMNS))

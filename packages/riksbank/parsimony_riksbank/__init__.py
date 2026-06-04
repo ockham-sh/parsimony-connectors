@@ -1,37 +1,37 @@
 """Sveriges Riksbank (Sweden): fetch + catalog enumeration.
 
 API docs: https://developer.api.riksbank.se/
-API key optional but recommended.
 
 Riksbank publishes its statistical catalog over a small family of REST
 APIs. Two are surfaced here:
 
-1. **SWEA** (Swedish External Asset — interest rates and exchange
-   rates) at ``api.riksbank.se/swea/v1``. The core family; ~117 series
-   enumerated from ``/Groups`` + ``/Series``.
+1. **SWEA** (interest rates and exchange rates) at
+   ``api.riksbank.se/swea/v1``. The core family; ~117 series enumerated
+   from ``/Groups`` + ``/Series``.
 2. **SWESTR** (Swedish Krona Short-Term Rate) at
    ``api.riksbank.se/swestr/v1``. The overnight reference rate, its
    compounded averages (1W/1M/2M/3M/6M), and the SWESTR index. Not in
    SWEA — a separate API with its own URL scheme (``/latest/...``,
-   ``/avg/latest/...``, ``/index/latest/...``). Mirrors the Treasury
-   package's dual-source design: catalog rows carry ``source="swestr"``
-   so an agent routes the hit to :func:`riksbank_swestr_fetch`.
+   ``/avg/latest/...``, ``/index/latest/...``). Catalog rows carry
+   ``source="swestr"`` so an agent routes the hit to
+   :func:`riksbank_swestr_fetch`.
+
+Both SWEA and SWESTR are **open / keyless** for fetch and enumeration —
+the ``Ocp-Apim-Subscription-Key`` header is optional and only raises the
+quota. The keyless quota is tight (HTTP 429 after a small burst), so a
+key is recommended for catalog builds.
+
+Transport: every verb uses the canonical core helper pair
+``make_http_client`` + ``fetch_json`` (GET + ``raise_for_status`` +
+``map_http_error`` / ``map_timeout_error`` + ``json()`` + ``None``-param
+dropping). All three Riksbank endpoints return JSON, so ``fetch_json``
+fits and timeouts map to ``ProviderError(408)`` for free.
 
 A third family, **forecasts/outcomes** at ``api.riksbank.se/forecasts/v1``,
-is documented by Riksbank but every probed path (``/forecasts``,
-``/indicators``, case-variants) returns ``404 Resource not found`` as
-of the catalog freeze date. Third-party clients that target the same
-URL scheme carry in-code comments warning it "may be temporarily
-unavailable". Cataloguing 404-ing endpoints would mislead dispatching
-agents, so forecasts is *not implemented* — a future enumerator
-extension emits ``source="forecasts"`` rows once the endpoint returns.
-
-A fourth family was investigated under the working name **CBA**
-(Central Bank Asset) after a reference in internal Riksbank docs, but
-no ``cba`` endpoint exists on ``api.riksbank.se``: every probed path
-(``/cba``, ``/cba/v1/...``, ``/cba/Series``, etc.) returns
-``404 Resource not found`` and the developer portal SPA exposes no
-machine-readable product index. CBA is therefore *not implemented*.
+returns ``404 Resource not found`` on every probed path as of the
+catalog freeze; cataloguing 404-ing endpoints would mislead dispatching
+agents, so forecasts is *not implemented*. A future enumerator extension
+emits ``source="forecasts"`` rows once the endpoint returns.
 """
 
 from __future__ import annotations
@@ -40,17 +40,16 @@ import logging
 from datetime import date
 from typing import Annotated, Any, Literal
 
-import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError, InvalidParameterError
+from parsimony.errors import ConnectorError, EmptyDataError, InvalidParameterError, ParseError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
 )
-from parsimony.transport import HttpClient, map_http_error
-from pydantic import BaseModel, Field, field_validator, model_validator
+from parsimony.transport import HttpClient
+from parsimony.transport.helpers import fetch_json, make_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -59,51 +58,15 @@ _SWESTR_BASE_URL = "https://api.riksbank.se/swestr/v1"
 
 #: Source identifiers for catalog rows. Exposed as constants rather than
 #: scattered string literals so the dispatch contract stays greppable
-#: when forecasts/CBA (or another family) is added later.
+#: when forecasts (or another family) is added later.
 _SWEA_SOURCE = "swea"
 _SWESTR_SOURCE = "swestr"
 
-
-# ---------------------------------------------------------------------------
-# Parameter models
-# ---------------------------------------------------------------------------
-
-
-class RiksbankFetchParams(BaseModel):
-    """Parameters for fetching a Riksbank time series."""
-
-    series_id: Annotated[str, "ns:riksbank"] = Field(..., description="Riksbank series ID (e.g. SEKEURPMI)")
-    from_date: str | None = Field(default=None, description="Start date (YYYY-MM-DD)")
-    to_date: str | None = Field(default=None, description="End date (YYYY-MM-DD)")
-
-    @field_validator("series_id")
-    @classmethod
-    def _non_empty(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise InvalidParameterError("riksbank", "series_id must be non-empty")
-        return v
-
-    @field_validator("to_date")
-    @classmethod
-    def _both_dates_or_neither(cls, v: str | None, info: Any) -> str | None:
-        from_date = info.data.get("from_date")
-        if (from_date is None) != (v is None):
-            raise InvalidParameterError("riksbank", "Provide both from_date and to_date, or neither")
-        return v
-
-
-class RiksbankEnumerateParams(BaseModel):
-    """No parameters needed — enumerates all Riksbank series."""
-
-    pass
-
-
-# SWESTR series identifiers exposed as a closed enum. Riksbank publishes
-# the overnight fixing (``SWESTR``), five compounded averages
-# (``SWESTRAVG1W`` … ``SWESTRAVG6M``) and one index (``SWESTRINDEX``).
-# Making this a Literal lets pydantic catch bad values at param-validation
-# time rather than as a 404 from Riksbank.
+# SWESTR series identifiers exposed as a closed enum on the connector
+# signature. Riksbank publishes the overnight fixing (``SWESTR``), five
+# compounded averages (``SWESTRAVG1W`` … ``SWESTRAVG6M``) and one index
+# (``SWESTRINDEX``). Typing the parameter as a Literal lets the framework
+# reject bad values before any request rather than letting them 404.
 SwestrSeries = Literal[
     "SWESTR",
     "SWESTRAVG1W",
@@ -114,43 +77,17 @@ SwestrSeries = Literal[
     "SWESTRINDEX",
 ]
 
-
-class RiksbankSwestrFetchParams(BaseModel):
-    """Parameters for fetching a SWESTR fixing / compounded average / index.
-
-    ``series`` is a closed enum of the seven SWESTR identifiers that
-    Riksbank publishes today. Routing per identifier type:
-
-    * ``SWESTR``         → ``/all/SWESTR`` (raw daily fixing, rate only)
-    * ``SWESTRAVG*``     → ``/avg/<id>`` (compounded average — rate, start/end)
-    * ``SWESTRINDEX``    → ``/index/<id>`` (published as an index value)
-
-    ``from_date``/``to_date`` together request a window; omit both for
-    the latest observation, which hits ``/latest/<id>``,
-    ``/avg/latest/<id>``, or ``/index/latest/<id>`` respectively.
-    """
-
-    series: Annotated[SwestrSeries, "ns:riksbank"] = Field(
-        ...,
-        description=(
-            "SWESTR identifier (one of: SWESTR, SWESTRAVG1W, SWESTRAVG1M, "
-            "SWESTRAVG2M, SWESTRAVG3M, SWESTRAVG6M, SWESTRINDEX)."
-        ),
-    )
-    from_date: str | None = Field(default=None, description="Start date (YYYY-MM-DD)")
-    to_date: str | None = Field(default=None, description="End date (YYYY-MM-DD)")
-
-    @model_validator(mode="after")
-    def _both_dates_or_neither(self) -> RiksbankSwestrFetchParams:
-        # ``from_date`` alone is ambiguous against /all/<id> which treats
-        # fromDate alone as "everything since". We require both for
-        # deterministic window semantics matching the docs. A model-level
-        # validator fires regardless of whether ``to_date`` was set,
-        # unlike a ``field_validator`` which silently skips when the
-        # field takes its None default.
-        if (self.from_date is None) != (self.to_date is None):
-            raise InvalidParameterError("riksbank", "Provide both from_date and to_date, or neither")
-        return self
+_SWESTR_IDS: frozenset[str] = frozenset(
+    {
+        "SWESTR",
+        "SWESTRAVG1W",
+        "SWESTRAVG1M",
+        "SWESTRAVG2M",
+        "SWESTRAVG3M",
+        "SWESTRAVG6M",
+        "SWESTRINDEX",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -164,10 +101,8 @@ RIKSBANK_ENUMERATE_OUTPUT = OutputConfig(
         # ``description`` is upstream long-form text surfaced as metadata
         # for catalog indexing and search.
         Column(name="description", role=ColumnRole.METADATA),
-        # ``source`` tells the agent which fetch connector to call. Every
-        # row currently emits ``"swea"``; a future CBA fetcher would emit
-        # ``"cba"``. Without this, agents would have to sniff the
-        # ``series_id`` prefix.
+        # ``source`` tells the agent which fetch connector to call:
+        # ``"swea"`` → riksbank_fetch, ``"swestr"`` → riksbank_swestr_fetch.
         Column(name="source", role=ColumnRole.METADATA),
         Column(name="frequency", role=ColumnRole.METADATA),
         Column(name="frequency_source", role=ColumnRole.METADATA),
@@ -191,9 +126,9 @@ RIKSBANK_FETCH_OUTPUT = OutputConfig(
 # SWESTR payloads carry more metadata than a plain rate: a publication
 # time, transaction volume / count / agent count (for the raw fixing),
 # and 12.5/87.5 percentiles of the underlying trades. Only ``date`` and
-# ``value`` are declared as named DATA columns here — the rest ride
-# along as additional columns so agents with SWESTR-specific analyses
-# can read them without a fetch-level schema migration.
+# ``value`` are declared as named DATA columns here — the rest fold in as
+# additional DATA columns so agents with SWESTR-specific analyses can read
+# them without a fetch-level schema migration.
 RIKSBANK_SWESTR_FETCH_OUTPUT = OutputConfig(
     columns=[
         Column(name="series", role=ColumnRole.KEY, param_key="series", namespace="riksbank"),
@@ -203,6 +138,20 @@ RIKSBANK_SWESTR_FETCH_OUTPUT = OutputConfig(
     ]
 )
 
+_ENUMERATE_COLUMNS: tuple[str, ...] = (
+    "series_id",
+    "title",
+    "description",
+    "source",
+    "frequency",
+    "frequency_source",
+    "group",
+    "provider",
+    "observation_min",
+    "observation_max",
+    "series_closed",
+)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -210,17 +159,34 @@ RIKSBANK_SWESTR_FETCH_OUTPUT = OutputConfig(
 
 
 def _make_http(api_key: str = "") -> HttpClient:
+    """Build a SWEA client. The optional key rides in a header (never a
+    query param), so it stays out of request logs without needing the
+    transport sensitive-param set."""
     headers: dict[str, str] = {}
     if api_key:
         headers["Ocp-Apim-Subscription-Key"] = api_key
-    return HttpClient(_BASE_URL, headers=headers)
+    return make_http_client(_BASE_URL, headers=headers, timeout=30.0)
 
 
 def _make_swestr_http(api_key: str = "") -> HttpClient:
     headers: dict[str, str] = {}
     if api_key:
         headers["Ocp-Apim-Subscription-Key"] = api_key
-    return HttpClient(_SWESTR_BASE_URL, headers=headers)
+    return make_http_client(_SWESTR_BASE_URL, headers=headers, timeout=30.0)
+
+
+def _validate_date_pair(from_date: str | None, to_date: str | None) -> None:
+    """Require both ``from_date`` and ``to_date`` together, or neither.
+
+    ``from_date`` alone is ambiguous against the window-vs-latest dispatch
+    (SWEA's ``/Observations/{id}/{from}/{to}`` needs both bounds; SWESTR's
+    ``/all`` treats a lone ``fromDate`` as "everything since"). Exactly one
+    of the pair → :class:`InvalidParameterError`.
+    """
+    if (from_date is None) != (to_date is None):
+        raise InvalidParameterError(
+            "riksbank", "Provide both from_date and to_date, or neither"
+        )
 
 
 def _swestr_kind(series: str) -> str:
@@ -237,6 +203,16 @@ def _swestr_kind(series: str) -> str:
     return "avg"
 
 
+def _to_value(raw_value: Any) -> float | None:
+    """Coerce a raw rate/index field to float, or ``None`` if absent/blank."""
+    if raw_value in (None, "", "NaN"):
+        return None
+    try:
+        return float(raw_value)
+    except (ValueError, TypeError):
+        return None
+
+
 def _swestr_parse_rows(series: str, payload: Any) -> list[dict[str, Any]]:
     """Flatten a SWESTR response into ``{series, date, value, ...}`` rows.
 
@@ -244,8 +220,7 @@ def _swestr_parse_rows(series: str, payload: Any) -> list[dict[str, Any]]:
     endpoints return a JSON list. Raw SWESTR and the averages carry a
     ``rate`` field; the index uses ``value`` instead. We normalise both
     onto a single ``value`` column so downstream code doesn't branch on
-    series kind, while preserving the native field name on each row for
-    visibility into why a value is what it is.
+    series kind, while preserving the native metadata on each row.
     """
     items = payload if isinstance(payload, list) else [payload]
     rows: list[dict[str, Any]] = []
@@ -255,24 +230,20 @@ def _swestr_parse_rows(series: str, payload: Any) -> list[dict[str, Any]]:
         date_val = item.get("date") or item.get("Date")
         if date_val is None:
             continue
-        # Index payloads use ``value`` (an index level); rate payloads
-        # use ``rate``. Defensive lookups tolerate either being missing.
+        # Index payloads use ``value`` (an index level); rate payloads use
+        # ``rate``. Defensive lookups tolerate either being missing.
         raw_value = item.get("rate")
         if raw_value is None:
             raw_value = item.get("value")
-        try:
-            value = float(raw_value) if raw_value not in (None, "", "NaN") else None  # type: ignore[arg-type]
-        except (ValueError, TypeError):
-            value = None
         row: dict[str, Any] = {
             "series": series,
             "date": date_val,
-            "value": value,
+            "value": _to_value(raw_value),
         }
         # Pass through Riksbank's confidence/volume metadata — useful for
         # analysts spotting alternative-calculation days. The ``avg``
-        # endpoint carries ``startDate`` (the window start); the raw
-        # fixing carries ``volume`` / ``numberOfTransactions`` etc.
+        # endpoint carries ``startDate`` (the window start); the raw fixing
+        # carries ``volume`` / ``numberOfTransactions`` etc.
         for extra in (
             "startDate",
             "publicationTime",
@@ -293,10 +264,10 @@ def _swestr_parse_rows(series: str, payload: Any) -> list[dict[str, Any]]:
 
 # Suffix → frequency mapping. Riksbank's series-id convention is
 # undocumented but the suffix letter is stable across the catalog:
-# ``PMI``/``PMD`` for daily fix, ``PMM``/``PMW`` for weekly/monthly,
-# ``PMQ`` quarterly, ``PMA`` annual. We record both the inferred value
-# and how we got it (``frequency_source``) so downstream consumers can
-# decide whether to trust it.
+# ``PMI``/``PMD`` for daily fix, ``PMW``/``PMM`` for weekly/monthly,
+# ``PMQ`` quarterly, ``PMA`` annual. We record both the inferred value and
+# how we got it (``frequency_source``) so downstream consumers can decide
+# whether to trust it.
 _FREQ_BY_SUFFIX: tuple[tuple[str, str], ...] = (
     ("PMI", "Daily"),
     ("PMD", "Daily"),
@@ -306,36 +277,29 @@ _FREQ_BY_SUFFIX: tuple[tuple[str, str], ...] = (
     ("PMA", "Annual"),
 )
 
-# Group-id → frequency mapping for buckets where the SWEA hierarchy
-# pins down the publication cadence. Mapped against the live Groups
-# tree (probed 2026-04 via /swea/v1/Groups). The Riksbank publishes
-# every interest rate and FX series in the daily groups at 16:15 CET;
-# monthly/annual aggregate buckets carry their own group ids (133, 134)
-# whose children inherit the cadence.
+# Group-id → frequency mapping for buckets where the SWEA hierarchy pins
+# down the publication cadence (probed via /swea/v1/Groups). Interest-rate
+# and FX series publish daily at 16:15 CET; monthly/annual aggregate
+# buckets carry their own group ids (133, 134).
 _FREQ_BY_GROUP_ID: dict[int, str] = {
-    # Riksbank policy rates and the historic discount/reference rate.
     2: "Daily",  # Riksbank key interest rates
     3: "Daily",  # Other Riksbank interest rates
-    # Swedish market (based) rates — daily fixings.
     5: "Daily",  # STIBOR
     6: "Daily",  # Swedish Treasury Bills (SE TB)
     7: "Daily",  # Swedish Government Bonds (SE GVB)
     8: "Daily",  # Swedish Fixing Rates (SE STFIX)
     9: "Daily",  # Swedish Mortgage Bonds (SE MB)
     10: "Daily",  # Swedish Commercial Paper (SE CP)
-    # International market rates — daily benchmarks aggregated by Riksbank.
     97: "Daily",  # Euro Market Rates, 3 months
     98: "Daily",  # Euro Market Rates, 6 months
     99: "Daily",  # International Government Bonds, 5 years
     100: "Daily",  # International Government Bonds, 10 years
-    # Exchange-rate buckets (kronor cross rates and indices).
     12: "Daily",  # Swedish TCW index
     130: "Daily",  # Currencies against Swedish kronor
     131: "Daily",  # Cross rates
     138: "Daily",  # Special Drawing Rights (SDR)
     151: "Daily",  # Swedish KIX index
     155: "Daily",  # Forward Premiums
-    # Aggregations — group cadence is the value, not the publication frequency.
     133: "Monthly",  # Monthly aggregate
     134: "Annual",  # Annual aggregate
 }
@@ -344,9 +308,9 @@ _FREQ_BY_GROUP_ID: dict[int, str] = {
 def _infer_frequency(series_id: str, group_id: int | None) -> tuple[str, str]:
     """Best-effort frequency for a SWEA series.
 
-    Returns ``(frequency, source)`` where ``source`` is one of
-    ``"group"``, ``"suffix"``, or ``"unknown"`` so downstream consumers
-    can tell apart a confident value from a heuristic.
+    Returns ``(frequency, source)`` where ``source`` is one of ``"group"``,
+    ``"suffix"``, or ``"unknown"`` so downstream consumers can tell a
+    confident value from a heuristic.
     """
     if group_id is not None and group_id in _FREQ_BY_GROUP_ID:
         return _FREQ_BY_GROUP_ID[group_id], "group"
@@ -360,11 +324,9 @@ def _infer_frequency(series_id: str, group_id: int | None) -> tuple[str, str]:
 def _flatten_groups(root: Any) -> dict[str, str]:
     """Walk the SWEA ``/Groups`` tree into ``{group_id: full_path_name}``.
 
-    The endpoint returns a single root node with ``childGroups``; each
-    node carries ``groupId``, ``name``, ``description``. Earlier code
-    looked for ``groupInfos``/``groupName``/``children`` keys that the
-    API does not emit, so groups always came back empty. We also accept
-    the legacy keys defensively in case the API surface ever changes.
+    The endpoint returns a single root node with ``childGroups``; each node
+    carries ``groupId``, ``name``, ``description``. We also accept legacy
+    keys defensively in case the API surface ever changes.
     """
     lookup: dict[str, str] = {}
 
@@ -391,11 +353,9 @@ def _series_description(series: dict[str, Any]) -> str:
     """Pick the richest description SWEA offers for a series.
 
     Order of preference: ``longDescription`` (full sentences),
-    ``midDescription`` (one-paragraph), ``shortDescription`` (label).
-    SWEA always populates at least one of the three, but we synthesise
-    a fall-back from id + group name + provider so the DESCRIPTION
-    column is never empty (an empty DESCRIPTION still indexes via BM25
-    but contributes nothing to the embedder).
+    ``midDescription`` (one-paragraph), ``shortDescription`` (label). SWEA
+    always populates at least one of the three, but we synthesise a
+    fall-back from id + provider so the DESCRIPTION column is never empty.
     """
     for key in ("longDescription", "midDescription", "shortDescription"):
         v = series.get(key)
@@ -406,24 +366,34 @@ def _series_description(series: dict[str, Any]) -> str:
     return f"{sid} — published by {provider}."
 
 
+def _series_title(series: dict[str, Any], sid: str) -> str:
+    """Resolve a human-readable title from a SWEA ``/Series`` entry.
+
+    SWEA's ``/Series`` rows carry ``shortDescription`` (the UI label) and
+    the longer description fields — there is no ``seriesName``/``name`` key
+    despite older code looking for them. Prefer the short label, then the
+    mid description, finally the id itself.
+    """
+    title = series.get("shortDescription") or series.get("midDescription") or sid
+    return str(title).strip() or sid
+
+
 # ---------------------------------------------------------------------------
 # SWESTR static registry
 #
-# SWESTR is not in SWEA's ``/Series`` — it lives on a separate API with
-# its own URL scheme (``/latest/<id>``, ``/avg/latest/<id>``,
-# ``/index/latest/<id>``). The set of series is small (seven) and
-# stable: the fixing, five compounded averages, and one index. A static
-# registry is the right surface here — it spares the enumerator a
-# second live API dependency for data that doesn't change.
+# SWESTR is not in SWEA's ``/Series`` — it lives on a separate API with its
+# own URL scheme (``/latest/<id>``, ``/avg/latest/<id>``,
+# ``/index/latest/<id>``). The set of series is small (seven) and stable:
+# the fixing, five compounded averages, and one index. A static registry is
+# the right surface here — it spares the enumerator a second live API
+# dependency for data that doesn't change.
 # ---------------------------------------------------------------------------
 
 _SWESTR_PROVIDER = "Sveriges Riksbank"
 _SWESTR_GROUP = "SWESTR > Swedish Krona Short-Term Rate"
 _SWESTR_INCEPTION_DATE = "2021-09-01"  # Official launch of published values.
 
-#: SWESTR series definitions. ``kind`` drives which URL family
-#: :func:`riksbank_swestr_fetch` hits (``rate`` → ``/all`` or
-#: ``/latest``; ``avg`` → ``/avg``; ``index`` → ``/index``).
+#: SWESTR series definitions. ``kind`` mirrors :func:`_swestr_kind`.
 _SWESTR_SERIES: tuple[dict[str, str], ...] = (
     {
         "series_id": "SWESTR",
@@ -503,14 +473,16 @@ _SWESTR_SERIES: tuple[dict[str, str], ...] = (
     },
 )
 
+#: ``series_id`` → human title, for fetch-time title resolution.
+_SWESTR_TITLE_BY_ID: dict[str, str] = {spec["series_id"]: spec["title"] for spec in _SWESTR_SERIES}
+
 
 def _build_swestr_rows() -> list[dict[str, Any]]:
     """One catalog row per :data:`_SWESTR_SERIES` entry.
 
-    Pure function — the registry is static so this involves no I/O.
-    Each row carries ``source="swestr"`` so a dispatching agent routes
-    the hit to :func:`riksbank_swestr_fetch` rather than the SWEA
-    :func:`riksbank_fetch` connector.
+    Pure function — the registry is static so this involves no I/O. Each row
+    carries ``source="swestr"`` so a dispatching agent routes the hit to
+    :func:`riksbank_swestr_fetch` rather than :func:`riksbank_fetch`.
     """
     rows: list[dict[str, Any]] = []
     for spec in _SWESTR_SERIES:
@@ -544,9 +516,34 @@ def _normalize_observation_date(value: Any) -> str:
     if not s:
         return ""
     # SWEA returns ``YYYY-MM-DD`` strings; pass through unchanged. Anything
-    # weirder we leave to the embedder/BM25 as a literal — frequencies of
-    # malformed dates have never been observed in practice.
+    # weirder we leave to the embedder/BM25 as a literal.
     return s[:10]
+
+
+async def _resolve_swea_title(http: HttpClient, series_id: str) -> str:
+    """Best-effort title for a SWEA series from ``/Series`` (``shortDescription``).
+
+    The ``/Observations`` payload carries only ``date``/``value`` — no
+    title — so the label is resolved with a secondary ``/Series`` request.
+    This enrichment is non-essential: a transient operational failure of
+    the secondary request (rate-limit, timeout, 5xx) must NOT fail the whole
+    fetch, so we catch the typed :class:`ConnectorError` family and fall
+    back to the series id. Programmer errors (``TypeError`` etc.) still
+    propagate — we do not blanket-swallow.
+    """
+    try:
+        series_list = await fetch_json(http, path="Series", provider="riksbank", op_name="Series")
+    except ConnectorError as exc:
+        logger.warning("riksbank: title lookup for %s failed (%s); using id", series_id, type(exc).__name__)
+        return series_id
+    if isinstance(series_list, dict):
+        series_list = [series_list]
+    if not isinstance(series_list, list):
+        return series_id
+    for s in series_list:
+        if isinstance(s, dict) and s.get("seriesId") == series_id:
+            return _series_title(s, series_id)
+    return series_id
 
 
 # ---------------------------------------------------------------------------
@@ -554,7 +551,7 @@ def _normalize_observation_date(value: Any) -> str:
 # ---------------------------------------------------------------------------
 
 
-@connector(output=RIKSBANK_FETCH_OUTPUT, tags=["macro", "se"], secrets=('api_key',))
+@connector(output=RIKSBANK_FETCH_OUTPUT, tags=["macro", "se"], secrets=("api_key",))
 async def riksbank_fetch(
     series_id: Annotated[str, "ns:riksbank"],
     from_date: str | None = None,
@@ -565,66 +562,56 @@ async def riksbank_fetch(
 
     Returns date + value with the upstream series name as title. Use
     ``from_date``/``to_date`` together to fetch a window; omit both to
-    receive the latest observation.
+    receive the latest observation. SWEA is keyless — ``api_key`` is
+    optional and only raises the quota.
     """
-    params = RiksbankFetchParams(series_id=series_id, from_date=from_date, to_date=to_date)
+    series_id = series_id.strip()
+    if not series_id:
+        raise InvalidParameterError("riksbank", "series_id must be non-empty")
+    _validate_date_pair(from_date, to_date)
+
     http = _make_http(api_key)
 
-    if params.from_date and params.to_date:
-        path = f"/Observations/{params.series_id}/{params.from_date}/{params.to_date}"
+    if from_date and to_date:
+        path = f"Observations/{series_id}/{from_date}/{to_date}"
     else:
-        path = f"/Observations/Latest/{params.series_id}"
+        path = f"Observations/Latest/{series_id}"
 
-    response = await http.request("GET", path)
-    try:
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider="riksbank", op_name="Observations")
-    data = response.json()
+    data = await fetch_json(http, path=path, provider="riksbank", op_name="Observations")
 
-    # Resolve series title from /Series endpoint
-    title = params.series_id
-    try:
-        series_resp = await http.request("GET", "/Series")
-        if series_resp.status_code == 200:
-            series_list = series_resp.json()
-            if isinstance(series_list, dict):
-                series_list = [series_list]
-            for s in series_list:
-                sid = s.get("seriesId", s.get("id", ""))
-                if sid == params.series_id:
-                    title = s.get("seriesName", s.get("name", s.get("shortDescription", params.series_id)))
-                    break
-    except Exception:
-        logger.debug("Could not resolve title for %s, using series_id", params.series_id)
+    title = await _resolve_swea_title(http, series_id)
 
     items = data if isinstance(data, list) else [data]
     rows: list[dict[str, Any]] = []
     for item in items:
+        if not isinstance(item, dict):
+            continue
         date_val = item.get("date") or item.get("Date")
-        raw_value = item.get("value") or item.get("Value")
         if date_val is None:
             continue
-        try:
-            value = float(raw_value) if raw_value not in (None, "", "NaN") else None
-        except (ValueError, TypeError):
-            value = None
+        raw_value = item.get("value")
+        if raw_value is None:
+            raw_value = item.get("Value")
         rows.append(
             {
-                "series_id": params.series_id,
+                "series_id": series_id,
                 "title": title,
                 "date": date_val,
-                "value": value,
+                "value": _to_value(raw_value),
             }
         )
 
     if not rows:
-        raise EmptyDataError(provider="riksbank", message=f"No observations returned for: {params.series_id}")
+        raise EmptyDataError(
+            "riksbank",
+            message=f"No observations returned for: {series_id}",
+            query_params={"series_id": series_id, "from_date": from_date, "to_date": to_date},
+        )
 
     return pd.DataFrame(rows)
 
 
-@connector(output=RIKSBANK_SWESTR_FETCH_OUTPUT, tags=["macro", "se"], secrets=('api_key',))
+@connector(output=RIKSBANK_SWESTR_FETCH_OUTPUT, tags=["macro", "se"], secrets=("api_key",))
 async def riksbank_swestr_fetch(
     series: Annotated[SwestrSeries, "ns:riksbank"],
     from_date: str | None = None,
@@ -633,104 +620,91 @@ async def riksbank_swestr_fetch(
 ) -> pd.DataFrame:
     """Fetch a SWESTR fixing / compounded average / index series.
 
-    Dispatches on :func:`_swestr_kind` across three URL families:
+    Dispatches across three URL families:
 
-    * ``rate``  → ``/latest/SWESTR`` or ``/all/SWESTR``
-    * ``avg``   → ``/avg/latest/<id>`` or ``/avg/<id>``
-    * ``index`` → ``/index/latest/<id>`` or ``/index/<id>``
+    * ``SWESTR``       → ``/latest/SWESTR`` or ``/all/SWESTR``
+    * ``SWESTRAVG*``   → ``/avg/latest/<id>`` or ``/avg/<id>``
+    * ``SWESTRINDEX``  → ``/index/latest/<id>`` or ``/index/<id>``
 
-    ``from_date``/``to_date`` together request a window; omit both for
-    the latest published value (one-row result). Returns date + value
-    plus SWESTR's native metadata (publication time, percentiles,
-    transaction volumes) on additional columns.
+    ``from_date``/``to_date`` together request a window; omit both for the
+    latest published value (one-row result). Returns date + value plus
+    SWESTR's native metadata (publication time, percentiles, transaction
+    volumes) on additional columns. SWESTR is keyless — ``api_key`` is
+    optional and only raises the quota.
     """
-    params = RiksbankSwestrFetchParams(series=series, from_date=from_date, to_date=to_date)
-    http = _make_swestr_http(api_key)
-    kind = _swestr_kind(params.series)
+    if series not in _SWESTR_IDS:
+        raise InvalidParameterError(
+            "riksbank",
+            f"Unknown SWESTR series {series!r}; expected one of {sorted(_SWESTR_IDS)}",
+        )
+    _validate_date_pair(from_date, to_date)
 
-    if params.from_date and params.to_date:
+    http = _make_swestr_http(api_key)
+    kind = _swestr_kind(series)
+
+    if from_date and to_date:
         # Windowed endpoints use ``fromDate``/``toDate`` query params.
-        query = {"fromDate": params.from_date, "toDate": params.to_date}
+        query: dict[str, Any] | None = {"fromDate": from_date, "toDate": to_date}
         if kind == "rate":
-            path = f"/all/{params.series}"
+            path = f"all/{series}"
         elif kind == "avg":
-            path = f"/avg/{params.series}"
+            path = f"avg/{series}"
         else:  # index
-            path = f"/index/{params.series}"
+            path = f"index/{series}"
     else:
         query = None
         if kind == "rate":
-            path = f"/latest/{params.series}"
+            path = f"latest/{series}"
         elif kind == "avg":
-            path = f"/avg/latest/{params.series}"
+            path = f"avg/latest/{series}"
         else:  # index
-            path = f"/index/latest/{params.series}"
+            path = f"index/latest/{series}"
 
-    op_name = path.lstrip("/")
-    response = await http.request("GET", path, params=query)
-    try:
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider="riksbank", op_name=op_name)
-    payload = response.json()
+    payload = await fetch_json(http, path=path, params=query, provider="riksbank", op_name=path)
 
-    rows = _swestr_parse_rows(params.series, payload)
+    rows = _swestr_parse_rows(series, payload)
     if not rows:
         raise EmptyDataError(
-            provider="riksbank",
-            message=f"No SWESTR observations returned for series={params.series!r}",
+            "riksbank",
+            message=f"No SWESTR observations returned for series={series!r}",
+            query_params={"series": series, "from_date": from_date, "to_date": to_date},
         )
 
-    # Resolve a human-readable title from the static registry so the
-    # agent-facing output matches what the catalog row advertises.
-    title: str = params.series
-    for spec in _SWESTR_SERIES:
-        if spec["series_id"] == params.series:
-            title = spec["title"]
-            break
     df = pd.DataFrame(rows)
-    df["title"] = title
-
+    df["title"] = _SWESTR_TITLE_BY_ID.get(series, series)
     return df
 
 
-@enumerator(output=RIKSBANK_ENUMERATE_OUTPUT, tags=["macro", "se"], secrets=('api_key',))
+@enumerator(output=RIKSBANK_ENUMERATE_OUTPUT, tags=["macro", "se"], secrets=("api_key",))
 async def enumerate_riksbank(api_key: str = "") -> pd.DataFrame:
     """Enumerate Riksbank SWEA series plus static SWESTR registry rows.
 
-    Calls /Groups and /Series for live metadata; appends SWESTR codes from
-    the static registry. Optional api_key raises upstream rate limits.
+    Two cheap requests — ``/Groups`` (group hierarchy) and ``/Series``
+    (~117 series in one shot, no per-series fan-out) — then appends the
+    seven static SWESTR rows. SWEA is keyless; the optional ``api_key``
+    raises the quota.
     """
-    RiksbankEnumerateParams()
     http = _make_http(api_key)
 
-    # ``/Groups`` returns a single root node (not a list). We tolerate both
-    # for safety and walk ``childGroups`` (the actual upstream key — earlier
-    # versions of this enumerator looked for ``groupInfos`` and silently lost
-    # all group context).
-    groups_resp = await http.request("GET", "/Groups")
-    try:
-        groups_resp.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider="riksbank", op_name="Groups")
-    groups_data = groups_resp.json()
+    # ``/Groups`` returns a single root node (not a list); ``_flatten_groups``
+    # tolerates both and walks ``childGroups``.
+    groups_data = await fetch_json(http, path="Groups", provider="riksbank", op_name="Groups")
     group_lookup = _flatten_groups(groups_data)
 
-    series_resp = await http.request("GET", "/Series")
-    try:
-        series_resp.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider="riksbank", op_name="Series")
-    series_data = series_resp.json()
+    series_data = await fetch_json(http, path="Series", provider="riksbank", op_name="Series")
     if isinstance(series_data, dict):
         series_data = [series_data]
+    if not isinstance(series_data, list):
+        raise ParseError("riksbank", "unexpected /Series response shape (expected a list)")
 
     rows: list[dict[str, Any]] = []
     for s in series_data:
-        sid = s.get("seriesId", s.get("id", ""))
+        if not isinstance(s, dict):
+            continue
+        sid = s.get("seriesId", "")
         if not sid:
             continue
-        group_id_raw = s.get("groupId", s.get("group", ""))
+        group_id_raw = s.get("groupId", "")
         group_id_int: int | None
         try:
             group_id_int = int(group_id_raw) if group_id_raw != "" else None
@@ -738,22 +712,10 @@ async def enumerate_riksbank(api_key: str = "") -> pd.DataFrame:
             group_id_int = None
         frequency, frequency_source = _infer_frequency(sid, group_id_int)
 
-        # Title prefers the explicit ``shortDescription`` label (which is
-        # what SWEA shows in its UI) and falls back through the other
-        # description fields, finally to the id itself. The legacy
-        # ``seriesName``/``name`` keys are accepted for forward-compat.
-        title = (
-            s.get("shortDescription")
-            or s.get("seriesName")
-            or s.get("name")
-            or s.get("midDescription")
-            or sid
-        )
-
         rows.append(
             {
                 "series_id": sid,
-                "title": str(title).strip() or sid,
+                "title": _series_title(s, sid),
                 "description": _series_description(s),
                 "source": _SWEA_SOURCE,
                 "frequency": frequency,
@@ -766,25 +728,11 @@ async def enumerate_riksbank(api_key: str = "") -> pd.DataFrame:
             }
         )
 
-    # Append SWESTR rows from the static registry. These series are
-    # published over a separate URL family (/latest, /avg, /index)
-    # rather than SWEA /Series, so a registry — not a second live
-    # upstream call — is the right surface for the catalog.
+    # Append SWESTR rows from the static registry (separate URL family, not
+    # SWEA /Series — a registry, not a second live call, is the right surface).
     rows.extend(_build_swestr_rows())
 
-    columns = [
-        "series_id",
-        "title",
-        "description",
-        "source",
-        "frequency",
-        "frequency_source",
-        "group",
-        "provider",
-        "observation_min",
-        "observation_max",
-        "series_closed",
-    ]
+    columns = list(_ENUMERATE_COLUMNS)
     df = pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
     return df
 

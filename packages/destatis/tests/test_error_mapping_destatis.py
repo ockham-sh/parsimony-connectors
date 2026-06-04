@@ -6,7 +6,7 @@ from parsimony_test_support import ErrorMappingSuite
 
 from parsimony_destatis.connectors.fetch import destatis_fetch
 
-_DATA_URL = "https://www-genesis.destatis.de/genesisGONLINE/api/rest/tables/61111-0001/data"
+_DATA_URL = "https://genesis.destatis.de/genesis/api/rest/tables/61111-0001/data"
 
 
 class TestDestatisFetchErrorMapping(ErrorMappingSuite):

@@ -1,77 +1,63 @@
 """US Energy Information Administration (EIA): fetch + catalog enumeration.
 
 API docs: https://www.eia.gov/opendata/documentation.php
-Requires EIA_API_KEY.
+
+The API key is declared as a secret and supplied by binding
+(``load(api_key=...)`` / ``Connector.bind``) or, as a dev fallback, from the
+``EIA_API_KEY`` environment variable. A missing key fails fast with
+:class:`UnauthorizedError`.
 """
 
 from __future__ import annotations
 
-import contextlib
-from typing import Annotated, Any
+import os
+from typing import Annotated
 
-import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError, InvalidParameterError
-from parsimony.result import (
-    Column,
-    ColumnRole,
-    OutputConfig,
-)
-from parsimony.transport import HttpClient, map_http_error
-from pydantic import BaseModel, Field, field_validator
+from parsimony.errors import EmptyDataError, InvalidParameterError, UnauthorizedError
+from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.transport import HttpClient
+from parsimony.transport.helpers import fetch_json, make_api_key_client
+
+__all__ = ["CONNECTORS", "load"]
 
 _BASE_URL = "https://api.eia.gov/v2"
-
-
-# ---------------------------------------------------------------------------
-# Parameter models
-# ---------------------------------------------------------------------------
-
-
-class EiaFetchParams(BaseModel):
-    """Parameters for fetching EIA energy data."""
-
-    route: Annotated[str, "ns:eia"] = Field(..., description="API route (e.g. petroleum/pri/spt)")
-    frequency: str | None = Field(default=None, description="Data frequency: monthly, weekly, daily, annual")
-    start: str | None = Field(default=None, description="Start date (YYYY-MM or YYYY)")
-    end: str | None = Field(default=None, description="End date (YYYY-MM or YYYY)")
-
-    @field_validator("route")
-    @classmethod
-    def _non_empty(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise InvalidParameterError("eia", "route must be non-empty")
-        return v
-
-
-class EiaEnumerateParams(BaseModel):
-    """No parameters needed — enumerates EIA API routes."""
-
-    pass
-
+_ENV_VAR = "EIA_API_KEY"
 
 # ---------------------------------------------------------------------------
-# Output configs
+# Output schemas
 # ---------------------------------------------------------------------------
 
 EIA_ENUMERATE_OUTPUT = OutputConfig(
     columns=[
         Column(name="route", role=ColumnRole.KEY, namespace="eia"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="category", role=ColumnRole.METADATA),
-        Column(name="frequency", role=ColumnRole.METADATA),
+        Column(name="description", role=ColumnRole.METADATA),
     ]
 )
 
 EIA_FETCH_OUTPUT = OutputConfig(
     columns=[
-        Column(name="route", role=ColumnRole.KEY, param_key="route", namespace="eia"),
+        Column(name="route", role=ColumnRole.KEY, namespace="eia"),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="period", dtype="datetime", role=ColumnRole.DATA),
+        Column(name="value", dtype="numeric", role=ColumnRole.DATA),
     ]
 )
+
+
+# ---------------------------------------------------------------------------
+# Transport
+# ---------------------------------------------------------------------------
+
+
+def _client(api_key: str) -> HttpClient:
+    """Resolve the API key (arg → env fallback) and build the EIA client."""
+    key = api_key or os.environ.get(_ENV_VAR, "")
+    if not key:
+        raise UnauthorizedError("eia", env_var=_ENV_VAR)
+    return make_api_key_client(_BASE_URL, api_key=key, api_key_param="api_key", timeout=30.0)
 
 
 # ---------------------------------------------------------------------------
@@ -79,94 +65,87 @@ EIA_FETCH_OUTPUT = OutputConfig(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=EIA_FETCH_OUTPUT, tags=["macro", "energy", "us"], secrets=('api_key',))
+@connector(output=EIA_FETCH_OUTPUT, tags=["macro", "energy", "us"], secrets=("api_key",))
 async def eia_fetch(
     route: Annotated[str, "ns:eia"],
+    measure: str = "value",
     frequency: str | None = None,
     start: str | None = None,
     end: str | None = None,
-    *,
-    api_key: str,
+    api_key: str = "",
 ) -> pd.DataFrame:
-    """Fetch EIA energy data by API route.
+    """Fetch EIA energy data by API route (e.g. petroleum/pri/spt).
 
-    Returns the dataset with period parsed and numeric columns converted.
-    Columns retain their original names from the EIA API.
+    `measure` selects EIA v2's required data facet — it is route-dependent
+    (e.g. "value" for petroleum prices; "sales"/"revenue"/"price"/"customers"
+    for electricity/retail-sales). The selected measure is normalized to a
+    `value` column. `period` is parsed to datetime; other columns retain their
+    original EIA names (folded in as data).
     """
-    params = EiaFetchParams(route=route, frequency=frequency, start=start, end=end)
-    http = HttpClient(_BASE_URL, query_params={"api_key": api_key})
+    r = route.strip()
+    if not r:
+        raise InvalidParameterError("eia", "route must be non-empty")
+    m = measure.strip()
+    if not m:
+        raise InvalidParameterError("eia", "measure must be non-empty")
 
-    req_params: dict[str, Any] = {}
-    if params.frequency:
-        req_params["frequency"] = params.frequency
-    if params.start:
-        req_params["start"] = params.start
-    if params.end:
-        req_params["end"] = params.end
-
-    response = await http.request("GET", f"/{params.route}/data", params=req_params)
-    try:
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider="eia", op_name="eia_fetch")
-    body = response.json()
+    http = _client(api_key)
+    body = await fetch_json(
+        http,
+        path=f"{r}/data",
+        # data[0]=<measure> is REQUIRED for EIA v2 to return the measure column;
+        # without it the API returns only dimension columns. The measure id is
+        # route-specific, hence the `measure` parameter (default "value").
+        params={"data[0]": m, "frequency": frequency, "start": start, "end": end},
+        provider="eia",
+        op_name="eia_fetch",
+    )
 
     resp = body.get("response", {})
     data = resp.get("data", [])
     if not data:
-        raise EmptyDataError(provider="eia", message=f"No data returned for route: {params.route}")
-
-    description = resp.get("description", params.route)
+        raise EmptyDataError("eia", query_params={"route": r, "measure": m})
 
     df = pd.DataFrame(data)
-
-    # Convert period to datetime-like
     if "period" in df.columns:
         df["period"] = pd.to_datetime(df["period"], errors="coerce", format="mixed")
+    # Normalize the selected measure to a stable `value` column. Coerce only it —
+    # the previous version coerced *every* column, silently NaN-ing string
+    # metadata like duoarea/product.
+    if m != "value" and m in df.columns:
+        df = df.rename(columns={m: "value"})
+    if "value" in df.columns:
+        df["value"] = pd.to_numeric(df["value"], errors="coerce")
 
-    # Convert detected numeric columns
-    for col in df.columns:
-        if col in ("period", "series-description", "seriesDescription"):
-            continue
-        with contextlib.suppress(ValueError, TypeError):
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    df["route"] = params.route
-    df["title"] = description
-
+    df["route"] = r
+    df["title"] = resp.get("description", r)
     return df
 
 
-@enumerator(output=EIA_ENUMERATE_OUTPUT, tags=["macro", "energy", "us"], secrets=('api_key',))
-async def enumerate_eia(*, api_key: str) -> pd.DataFrame:
+@enumerator(output=EIA_ENUMERATE_OUTPUT, tags=["macro", "energy", "us"], secrets=("api_key",))
+async def enumerate_eia(api_key: str = "") -> pd.DataFrame:
     """Enumerate top-level EIA API routes for catalog indexing."""
-    http = HttpClient(_BASE_URL, query_params={"api_key": api_key})
-
-    response = await http.request("GET", "/")
-    try:
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider="eia", op_name="enumerate_eia")
-    body = response.json()
+    http = _client(api_key)
+    body = await fetch_json(http, path="", provider="eia", op_name="enumerate_eia")
 
     routes = body.get("response", {}).get("routes", [])
-    rows: list[dict[str, str]] = []
-    for route in routes:
-        rows.append(
-            {
-                "route": route.get("id", ""),
-                "title": route.get("name", route.get("id", "")),
-                "category": "EIA",
-                "frequency": route.get("frequency", ""),
-            }
-        )
+    rows = [
+        {
+            "route": route.get("id", ""),
+            "title": route.get("name", route.get("id", "")),
+            "description": route.get("description", ""),
+        }
+        for route in routes
+    ]
+    if not rows:
+        raise EmptyDataError("eia", query_params={})
 
-    df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["route", "title", "category", "frequency"])
-    return df
+    return pd.DataFrame(rows)
 
-
-# ---------------------------------------------------------------------------
-# Exports
-# ---------------------------------------------------------------------------
 
 CONNECTORS = Connectors([eia_fetch, enumerate_eia])
+
+
+def load(*, api_key: str) -> Connectors:
+    """Return :data:`CONNECTORS` with ``api_key`` bound on every connector that accepts it."""
+    return CONNECTORS.bind(api_key=api_key)

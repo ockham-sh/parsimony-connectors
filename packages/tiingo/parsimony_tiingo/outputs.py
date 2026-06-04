@@ -143,14 +143,19 @@ FX_TOP_OUTPUT = OutputConfig(
     ]
 )
 
+# The supported_tickers.csv snapshot header is
+# ``ticker, exchange, assetType, priceCurrency, startDate, endDate`` — there is
+# no name or country column, so ``name`` (TITLE) falls back to the ticker
+# symbol and only columns the CSV actually carries are declared (enumerators
+# require an EXACT column match, and a column that is always empty is dead
+# metadata).
 ENUMERATE_OUTPUT = OutputConfig(
     columns=[
         Column(name="ticker", role=ColumnRole.KEY, namespace="tiingo_ticker"),
         Column(name="name", role=ColumnRole.TITLE),
         Column(name="asset_type", role=ColumnRole.METADATA),
         Column(name="exchange", role=ColumnRole.METADATA),
-        Column(name="is_active", role=ColumnRole.METADATA, dtype="bool"),
-        Column(name="country_code", role=ColumnRole.METADATA),
+        Column(name="price_currency", role=ColumnRole.METADATA),
         Column(name="start_date", role=ColumnRole.METADATA),
         Column(name="end_date", role=ColumnRole.METADATA),
     ]

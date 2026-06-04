@@ -10,6 +10,8 @@ def test_connectors_count() -> None:
 
 
 def test_minimal_public_surface() -> None:
-    assert parsimony_fmp.__all__ == ["CONNECTORS"]
+    # CONNECTORS is the contract; load() is the per-package key-binding idiom.
+    assert parsimony_fmp.__all__ == ["CONNECTORS", "load"]
     assert hasattr(parsimony_fmp, "CONNECTORS")
+    assert hasattr(parsimony_fmp, "load")
     assert not hasattr(parsimony_fmp, "FmpSearchParams")

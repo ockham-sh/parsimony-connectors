@@ -8,10 +8,10 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 
 29 connectors total (28 `@connector` + 1 `@enumerator`), grouped by category. See the [Alpha Vantage docs](https://www.alphavantage.co/documentation/) for endpoint-level reference.
 
-| Group | Count | Examples |
+| Group | Count | Verbs |
 |---|---|---|
 | Discovery | 1 | `alpha_vantage_search` |
-| Market data (OHLCV) | 4 | `alpha_vantage_quote`, `alpha_vantage_daily`, `alpha_vantage_weekly`, `alpha_vantage_monthly`, `alpha_vantage_intraday` |
+| Market data (OHLCV) | 5 | `alpha_vantage_quote`, `alpha_vantage_daily`, `alpha_vantage_weekly`, `alpha_vantage_monthly`, `alpha_vantage_intraday` |
 | Company fundamentals | 6 | `alpha_vantage_overview`, `alpha_vantage_income_statement`, `alpha_vantage_balance_sheet`, `alpha_vantage_cash_flow`, `alpha_vantage_earnings`, `alpha_vantage_etf_profile` |
 | Calendars | 2 | `alpha_vantage_earnings_calendar`, `alpha_vantage_ipo_calendar` |
 | Forex | 4 | `alpha_vantage_fx_rate`, `alpha_vantage_fx_daily`, `alpha_vantage_fx_weekly`, `alpha_vantage_fx_monthly` |
@@ -23,6 +23,8 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 | Options | 1 | `alpha_vantage_options` (premium plan only) |
 | Enumerator | 1 | `enumerate_alpha_vantage` (US listings, active or delisted) |
 
+Total: 28 `@connector` + 1 `@enumerator` = 29.
+
 Commodity series (WTI, Brent, natural gas, copper, etc.) are intentionally omitted — use the FRED connector instead, which has superior historical coverage.
 
 ## Install
@@ -31,7 +33,7 @@ Commodity series (WTI, Brent, natural gas, copper, etc.) are intentionally omitt
 pip install parsimony-alpha-vantage
 ```
 
-Pulls in `parsimony-core>=0.6,<0.7` automatically. Verify discovery:
+Pulls in `parsimony-core>=0.7,<0.8` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
@@ -51,10 +53,13 @@ Get a free key at https://www.alphavantage.co/support/#api-key. Free tier: 25 re
 
 ```python
 import asyncio
-from parsimony_alpha_vantage import CONNECTORS
+import os
+from parsimony_alpha_vantage import load
 
 async def main():
-    connectors = CONNECTORS
+    # load(api_key=...) binds the key across every connector and strips it
+    # from provenance (it is declared secrets=("api_key",) on each verb).
+    connectors = load(api_key=os.environ["ALPHA_VANTAGE_API_KEY"])
     result = await connectors["alpha_vantage_quote"](symbol="IBM")
     print(result.data.head())
 
@@ -72,7 +77,7 @@ connectors = discover.load_all()
 
 - Homepage: https://www.alphavantage.co
 - API docs: https://www.alphavantage.co/documentation/
-- Rate limits: free tier 25 requests/day, 5 requests/minute (per the plugin docstring)
+- Rate limits: free tier 25 requests/day shared across all endpoints (hard cap); the API returns an HTTP 200 `Information` body when the cap is hit, mapped to `RateLimitError`
 
 ## License
 

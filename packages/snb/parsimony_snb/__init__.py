@@ -1,13 +1,30 @@
 """Swiss National Bank (SNB): fetch + catalog enumeration.
 
-Data portal: https://data.snb.ch
-No authentication required.
+Data portal: https://data.snb.ch. No authentication required (keyless public
+CSV API — no ``secrets=``/``bind()``/``UnauthorizedError``; ``load()`` binds
+only the catalog URL for search).
+
+Transport:
+
+* ``snb_fetch`` reads the cube CSV download (``/api/cube/{id}/data/csv/{lang}``)
+  via ``make_http_client`` + the §6.7 ``_get_text`` helper (raw ``GET`` +
+  ``raise_for_status`` + ``map_http_error`` / ``map_timeout_error`` → text).
+  The CSV is parsed separately; a malformed / non-CSV 200 body raises
+  ``ParseError`` (§5.8), an empty-but-valid result raises ``EmptyDataError``.
+* ``enumerate_snb`` keeps its bespoke, concurrency-capped per-cube probe
+  fan-out (it does NOT use ``parsimony_shared``), but builds the client via
+  ``make_http_client`` + ``pooled_client`` and maps transport errors through
+  the kernel helpers. Per-cube probe failures are swallowed by design (SNB
+  leaves retired cube IDs reachable but empty); ``_KNOWN_CUBES`` is a module
+  global read at call time so live tests can monkeypatch it to a 2–3 cube
+  slice and bound the crawl.
 """
 
 from __future__ import annotations
 
 import asyncio
 import io
+import json
 import logging
 import re
 from itertools import product
@@ -16,18 +33,24 @@ from typing import Annotated, Any
 import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError, InvalidParameterError
+from parsimony.errors import ConnectorError, EmptyDataError, InvalidParameterError, ParseError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
 )
-from parsimony.transport import HttpClient, map_http_error
-from pydantic import BaseModel, Field, field_validator
+from parsimony.transport import HttpClient, map_http_error, map_timeout_error, pooled_client
+from parsimony.transport.helpers import make_http_client
 
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://data.snb.ch"
+
+#: Concurrency cap for the per-cube probe fan-out in ``enumerate_snb``. At
+#: ~237 cubes × two requests each, an unbounded fan-out saturates the SNB
+#: CDN's per-IP connection pool and trips transient 429s; 20 keeps wall-time
+#: near the latency floor while staying under the WAF radar.
+_PROBE_CONCURRENCY = 20
 
 
 # SNB cube registry, harvested from the data portal's own navigation tree
@@ -290,6 +313,12 @@ _KNOWN_CUBES: tuple[tuple[str, str], ...] = (
     ("ziverzq", "Average interest rates of selected balance sheet items (Quarterly)"),
 )
 
+#: cube_id → human-readable title from the curated registry. SNB's
+#: ``/api/cube/{id}/dimensions/{lang}`` payload carries only ``cubeId`` and
+#: ``dimensions`` — there is NO cube-title field upstream — so this registry
+#: is the only source of a human-readable cube title for ``snb_fetch``.
+_CUBE_TITLES: dict[str, str] = dict(_KNOWN_CUBES)
+
 # Cap on series rows emitted per cube. SNB exposes 9 mega-cubes whose
 # dimension cartesian-product exceeds 2,000 (e.g. ``frsekfutsek`` at
 # 5,040, ``babilsekum`` at 3,168) — the leaves are mostly redundant
@@ -312,44 +341,6 @@ _CATEGORY_KEYWORDS: dict[str, list[str]] = {
     "Reserves": ["reserve", "gold"],
     "Trade": ["handel", "trade", "aussenhandel"],
 }
-
-
-# ---------------------------------------------------------------------------
-# Parameter models
-# ---------------------------------------------------------------------------
-
-
-class SnbFetchParams(BaseModel):
-    """Parameters for fetching SNB data from a cube.
-
-    The SNB exposes named series within a cube via the ``/dimensions``
-    endpoint; the catalog encodes every (cube, series) pair as a compound
-    code ``{cube_id}#{dim_path}`` (for example ``rendoblim#10J`` or
-    ``devkum#M0.USD1``). Agents split on ``#`` and pass the right side as
-    ``dim_sel`` to retrieve that single series — this connector accepts
-    both the raw cube_id and an optional dim_sel exactly as before, so
-    the catalog change is backwards-compatible with existing callers.
-    """
-
-    cube_id: Annotated[str, "ns:snb"] = Field(..., description="SNB cube identifier (e.g. rendoblim, devkum)")
-    from_date: str | None = Field(default=None, description="Start date (YYYY or YYYY-MM or YYYY-MM-DD)")
-    to_date: str | None = Field(default=None, description="End date (YYYY or YYYY-MM or YYYY-MM-DD)")
-    dim_sel: str | None = Field(default=None, description="Dimension selection (e.g. D0(V0,V1),D1(ALL))")
-    lang: str = Field(default="en", description="Language: en, de, fr, it")
-
-    @field_validator("cube_id")
-    @classmethod
-    def _non_empty(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise InvalidParameterError("snb", "cube_id must be non-empty")
-        return v
-
-
-class SnbEnumerateParams(BaseModel):
-    """No parameters needed — enumerates all SNB series across known cubes."""
-
-    pass
 
 
 # ---------------------------------------------------------------------------
@@ -426,45 +417,95 @@ _DURATION_TO_FREQ: dict[str, str] = {
 }
 
 
-def _parse_snb_csv(text: str) -> pd.DataFrame:
-    """Parse SNB CSV response, skipping metadata preamble.
+def _parse_snb_csv(text: str, cube_id: str) -> pd.DataFrame:
+    """Parse an SNB cube CSV download, skipping its metadata preamble.
 
-    Returns the data as a clean DataFrame with the first column as
-    the date index — no melting.  Columns retain their original names.
+    The SNB cube CSV is long-format: a few preamble lines
+    (``"CubeId";"<id>"`` / ``"PublishingDate";"..."``), a blank line, then a
+    header row ``Date;<dim cols...>;Value`` and the data rows. The first
+    column is the observation date, the trailing ``Value`` column is the
+    numeric measure, and any intermediate columns are string dimension
+    codes (e.g. ``D0``/``D1`` carrying ``10J`` / ``USD1``).
+
+    Returns a DataFrame with the date column renamed to ``date`` and the
+    ``Value`` column (only) coerced to numeric — dimension codes stay as
+    strings (blanket numeric coercion would NaN them, the eia anti-pattern).
+
+    Raises :class:`ParseError` (§5.8) when the 200 body is not a usable cube
+    CSV — no separated columns, an SNB JSON error envelope, or an HTML error
+    page — never silently degrading to an empty frame. An empty-but-valid
+    parse (header present, zero data rows) returns an empty DataFrame and is
+    classified as :class:`EmptyDataError` by the caller.
     """
-    # Strip BOM if present
+    # Strip BOM if present.
     if text.startswith("﻿"):
         text = text[1:]
 
-    lines = text.strip().split("\n")
-    sep = ";" if ";" in text else ","
+    stripped = text.strip()
+    if not stripped:
+        # Genuinely empty body — caller surfaces EmptyDataError.
+        return pd.DataFrame()
 
-    # Find header line (first line with 2+ separators)
-    header_idx = 0
+    sep = ";" if ";" in stripped else ","
+    lines = stripped.split("\n")
+
+    # Find the header line (first line with 2+ separators — preamble lines
+    # carry exactly one). No such line means this is not a cube CSV (JSON
+    # error envelope, HTML page, single-column junk) → ParseError.
+    header_idx: int | None = None
     for i, line in enumerate(lines):
         if line.count(sep) >= 2:
             header_idx = i
             break
+    if header_idx is None:
+        raise ParseError(
+            "snb",
+            f"cube {cube_id!r} returned a 200 body that is not a parseable cube CSV",
+        )
 
     data_text = "\n".join(lines[header_idx:])
     try:
         df = pd.read_csv(io.StringIO(data_text), sep=sep, dtype=str)
-    except Exception as exc:
-        logger.warning("Failed to parse SNB CSV: %s", exc)
-        return pd.DataFrame()
+    except Exception as exc:  # noqa: BLE001 — surface any pandas parse failure as ParseError
+        raise ParseError("snb", f"failed to parse SNB CSV for cube {cube_id!r}: {exc}") from exc
 
     if df.empty:
+        # Header parsed but no data rows — a valid-but-empty result.
         return df
 
-    # First column is the date
-    date_col = df.columns[0]
-    df = df.rename(columns={date_col: "date"})
+    # First column is the observation date.
+    df = df.rename(columns={df.columns[0]: "date"})
 
-    # Convert value columns to numeric
-    for col in df.columns[1:]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+    # Coerce ONLY the trailing measure column to numeric; dimension code
+    # columns (D0/D1/...) are categorical strings and must stay as strings.
+    value_col = df.columns[-1]
+    if str(value_col).strip().lower() == "value":
+        df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
 
     return df
+
+
+def _snb_http(timeout: float = 30.0) -> HttpClient:
+    """Build the keyless SNB cube client (CSV + dimensions JSON live here)."""
+    return make_http_client(_BASE_URL, timeout=timeout)
+
+
+async def _get_text(http: HttpClient, path: str, *, op_name: str, params: dict[str, str] | None = None) -> str:
+    """GET *path* and return the raw text body (SNB cubes serve CSV, not JSON).
+
+    The §6.7 raw-transport shape for any response ``fetch_json`` cannot
+    handle: ``request("GET")`` + ``raise_for_status()`` mapping **both**
+    ``HTTPStatusError`` (via :func:`map_http_error`) **and** ``TimeoutException``
+    (via :func:`map_timeout_error`). The CSV body is parsed separately.
+    """
+    try:
+        response = await http.request("GET", path, params=params)
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="snb", op_name=op_name)
+    except httpx.TimeoutException as exc:
+        map_timeout_error(exc, provider="snb", op_name=op_name)
+    return response.text
 
 
 # ---------------------------------------------------------------------------
@@ -634,116 +675,102 @@ async def snb_fetch(
     dim_sel: str | None = None,
     lang: str = "en",
 ) -> pd.DataFrame:
-    """Fetch SNB cube data by cube_id.
+    """Fetch SNB cube data by cube_id (e.g. rendoblim, devkum).
 
-    Returns the cube's time series as a DataFrame with date + value
-    columns named by the SNB.  Column names are the original dimension
-    labels from the cube.
+    Returns the cube's time series as a long-format DataFrame: a ``date``
+    column, the cube's string dimension code columns (D0/D1/…), and a
+    numeric ``Value`` column, stamped with ``cube_id`` and the cube
+    ``title``. Optional ``from_date``/``to_date`` (YYYY, YYYY-MM, or
+    YYYY-MM-DD), ``dim_sel`` (e.g. ``D0(V0,V1)``), and ``lang`` (en/de/fr/it)
+    pass through to the portal.
     """
-    params = SnbFetchParams(
-        cube_id=cube_id,
-        from_date=from_date,
-        to_date=to_date,
-        dim_sel=dim_sel,
-        lang=lang,
-    )
-    http = HttpClient(_BASE_URL)
+    cube_id = cube_id.strip()
+    if not cube_id:
+        raise InvalidParameterError("snb", "cube_id must be non-empty")
+
+    http = _snb_http()
 
     req_params: dict[str, str] = {}
-    if params.from_date:
-        req_params["fromDate"] = params.from_date
-    if params.to_date:
-        req_params["toDate"] = params.to_date
-    if params.dim_sel:
-        req_params["dimSel"] = params.dim_sel
+    if from_date:
+        req_params["fromDate"] = from_date
+    if to_date:
+        req_params["toDate"] = to_date
+    if dim_sel:
+        req_params["dimSel"] = dim_sel
 
-    response = await http.request(
-        "GET",
-        f"/api/cube/{params.cube_id}/data/csv/{params.lang}",
-        params=req_params,
+    text = await _get_text(
+        http,
+        f"/api/cube/{cube_id}/data/csv/{lang}",
+        op_name="cube/data",
+        params=req_params or None,
     )
-    try:
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider="snb", op_name="cube/data")
 
-    df = _parse_snb_csv(response.text)
+    df = _parse_snb_csv(text, cube_id)
     if df.empty:
-        raise EmptyDataError(provider="snb", message=f"No data returned for cube: {params.cube_id}")
+        raise EmptyDataError(
+            "snb",
+            message=f"No data returned for cube: {cube_id}",
+            query_params={"cube_id": cube_id, "from_date": from_date, "to_date": to_date, "dim_sel": dim_sel},
+        )
 
-    df["cube_id"] = params.cube_id
-    df["title"] = params.cube_id
-
-    # Fetch cube title from dimensions endpoint
-    try:
-        dim_resp = await http.request("GET", f"/api/cube/{params.cube_id}/dimensions/{params.lang}")
-        if dim_resp.status_code == 200:
-            dim_data = dim_resp.json()
-            if isinstance(dim_data, dict):
-                df["title"] = dim_data.get("name", dim_data.get("cubeName", params.cube_id))
-        else:
-            logger.debug("SNB dimensions endpoint returned %d for %s", dim_resp.status_code, params.cube_id)
-    except Exception as exc:
-        logger.warning("Could not fetch title for SNB cube %s: %s", params.cube_id, exc)
+    df["cube_id"] = cube_id
+    # The SNB ``/dimensions`` payload carries NO cube title (only ``cubeId`` +
+    # ``dimensions``), so the human-readable title comes from the curated
+    # registry; cube_id is the fallback for any cube outside the registry.
+    df["title"] = _CUBE_TITLES.get(cube_id, cube_id)
 
     return df
 
 
 async def _probe_cube(
-    client: httpx.AsyncClient,
+    client: HttpClient,
     cube_id: str,
-    cube_title: str,
-    sem: asyncio.Semaphore | None = None,
+    sem: asyncio.Semaphore,
 ) -> tuple[dict[str, Any] | None, str]:
     """Fetch ``/dimensions/en`` and a frequency hint for ``cube_id``.
 
-    Returns ``(dimensions_payload, frequency)``. When the cube is
-    retired (404) or the response is the SNB error envelope
-    (``{"message": "..."}``), returns ``(None, "Unknown")`` so the
-    caller can decide whether to skip or emit a fallback entry.
+    Returns ``(dimensions_payload, frequency)``. When the cube is retired
+    (4xx), times out, or the response is the SNB error envelope
+    (``{"message": "..."}`` with no ``dimensions``), returns
+    ``(None, "Unknown")`` so the caller skips it.
 
-    The optional ``sem`` caps simultaneous probes — at 237 cubes × two
-    requests each, an unbounded fan-out can saturate the SNB CDN's
-    per-IP connection pool and trigger transient 429s; the semaphore
-    keeps us under the WAF radar while still finishing in seconds.
+    Both requests go through the kernel :class:`HttpClient` (built by the
+    caller via :func:`make_http_client`) and map ``HTTPStatusError`` /
+    ``TimeoutException`` through the canonical helpers — but cataloguing is a
+    best-effort sweep, so the resulting typed :class:`ConnectorError` is
+    caught and the cube is treated as retired rather than failing the whole
+    enumeration. ``sem`` caps in-flight probes (see :data:`_PROBE_CONCURRENCY`).
     """
     dim_payload: dict[str, Any] | None = None
     frequency = "Unknown"
 
-    async def _gated_get(path: str, **kw: Any) -> httpx.Response | None:
-        if sem is None:
-            return await client.get(path, **kw)
+    async def _gated_text(path: str, params: dict[str, str] | None = None) -> str | None:
         async with sem:
-            return await client.get(path, **kw)
-
-    try:
-        dim_resp = await _gated_get(f"/api/cube/{cube_id}/dimensions/en")
-        if dim_resp is not None and dim_resp.status_code == 200:
             try:
-                payload = dim_resp.json()
-            except ValueError:
-                payload = None
-            if isinstance(payload, dict) and "dimensions" in payload:
-                dim_payload = payload
-    except Exception as exc:
-        logger.debug("SNB dimensions probe failed for %s: %s", cube_id, exc)
+                return await _get_text(client, path, op_name="cube/probe", params=params)
+            except ConnectorError as exc:
+                logger.debug("SNB probe failed for %s (%s): %s", cube_id, path, exc)
+                return None
+
+    dim_text = await _gated_text(f"/api/cube/{cube_id}/dimensions/en")
+    if dim_text is not None:
+        try:
+            payload = json.loads(dim_text)
+        except (ValueError, TypeError):
+            payload = None
+        if isinstance(payload, dict) and "dimensions" in payload:
+            dim_payload = payload
 
     # Frequency inference is best-effort; sample one CSV page.
-    try:
-        data_resp = await _gated_get(
-            f"/api/cube/{cube_id}/data/csv/en",
-            params={"fromDate": "2020"},
-        )
-        if data_resp is not None and data_resp.status_code == 200:
-            sep = ";" if ";" in data_resp.text else ","
-            dates: list[str] = []
-            for line in data_resp.text.strip().split("\n")[:50]:
-                parts = line.split(sep)
-                if parts and re.match(r"^\d{4}", parts[0].strip().strip('"')):
-                    dates.append(parts[0].strip().strip('"'))
-            frequency = _infer_frequency_from_dates(dates)
-    except Exception as exc:
-        logger.debug("SNB frequency probe failed for %s: %s", cube_id, exc)
+    data_text = await _gated_text(f"/api/cube/{cube_id}/data/csv/en", {"fromDate": "2020"})
+    if data_text is not None:
+        sep = ";" if ";" in data_text else ","
+        dates: list[str] = []
+        for line in data_text.strip().split("\n")[:50]:
+            parts = line.split(sep)
+            if parts and re.match(r"^\d{4}", parts[0].strip().strip('"')):
+                dates.append(parts[0].strip().strip('"'))
+        frequency = _infer_frequency_from_dates(dates)
 
     return dim_payload, frequency
 
@@ -753,19 +780,16 @@ async def enumerate_snb() -> pd.DataFrame:
     """Enumerate SNB cube dimension leaves as fetchable series rows.
 
     Compound codes are ``cube_id#leaf_path`` so agents can route hits to
-    ``snb_fetch`` without reparsing cube metadata.
+    ``snb_fetch`` without reparsing cube metadata. The crawl probes every
+    cube in :data:`_KNOWN_CUBES` (read at call time, so a test can shrink it
+    to bound the fan-out); per-cube failures are skipped, not fatal.
     """
     rows: list[dict[str, str]] = []
-    # Concurrency cap: at 237 cubes × two requests per cube the SNB CDN
-    # has been observed to throttle unbounded fan-outs, so we keep the
-    # in-flight request count modest. 20 keeps wall-time near the latency
-    # floor (validated at ~5s for full-tree probe) without tripping the
-    # WAF.
-    sem = asyncio.Semaphore(20)
-    async with httpx.AsyncClient(base_url=_BASE_URL, timeout=30.0) as client:
+    sem = asyncio.Semaphore(_PROBE_CONCURRENCY)
+    base = _snb_http()
+    async with pooled_client(base) as client:
         probes = await asyncio.gather(
-            *(_probe_cube(client, cid, title, sem) for cid, title in _KNOWN_CUBES),
-            return_exceptions=False,
+            *(_probe_cube(client, cid, sem) for cid, _ in _KNOWN_CUBES),
         )
 
     for (cube_id, cube_title), (dim_payload, frequency) in zip(_KNOWN_CUBES, probes, strict=True):
@@ -801,8 +825,19 @@ async def enumerate_snb() -> pd.DataFrame:
 from parsimony_snb.search import (  # noqa: E402, F401  (after public decorators; re-exported)
     PARSIMONY_SNB_CATALOG_URL_ENV,
     SNB_SEARCH_OUTPUT,
-    SnbSearchParams,
     snb_search,
 )
 
 CONNECTORS = Connectors([snb_fetch, enumerate_snb, snb_search])
+
+
+def load(*, catalog_url: str | None = None) -> Connectors:
+    """Return :data:`CONNECTORS` with an optional catalog-search URL bound.
+
+    SNB is keyless, so there is no API key to bind — only the catalog
+    snapshot URL for ``snb_search`` (overrides the published default /
+    ``PARSIMONY_SNB_CATALOG_URL`` env var when supplied).
+    """
+    if catalog_url is None:
+        return CONNECTORS
+    return CONNECTORS.bind(catalog_url=catalog_url)
