@@ -86,10 +86,12 @@ FX_RATE_OUTPUT = OutputConfig(
 
 FX_DAILY_OUTPUT = OutputConfig(
     columns=[
+        # The entity is the currency pair (e.g. "EUR/USD"). The connector body
+        # injects a ``pair`` column from the from_symbol/to_symbol params — the
+        # raw payload carries no pair field, so the KEY must be synthesised.
         Column(
             name="pair",
             role=ColumnRole.KEY,
-            param_key="pair",
             namespace="alpha_vantage_fx",
         ),
         Column(name="date", dtype="date", role=ColumnRole.DATA),
@@ -102,10 +104,11 @@ FX_DAILY_OUTPUT = OutputConfig(
 
 CRYPTO_DAILY_OUTPUT = OutputConfig(
     columns=[
+        # The crypto rows carry no symbol field; the connector body injects a
+        # ``symbol`` column from the param so the KEY is populated.
         Column(
             name="symbol",
             role=ColumnRole.KEY,
-            param_key="symbol",
             namespace="alpha_vantage_crypto",
         ),
         Column(name="date", dtype="date", role=ColumnRole.DATA),
@@ -260,6 +263,40 @@ LISTING_OUTPUT = OutputConfig(
     ]
 )
 
+# --- Fundamentals: single-row / period-row shapes ------------------------------
+#
+# OVERVIEW is a flat ~50-field dict; the body emits a single row keyed by
+# ``symbol`` with ``Name`` as the title and every remaining provider field folded
+# in as a DATA column (no numeric coercion — many fields are "None"/"-" strings
+# that would coerce to all-NaN and raise). INCOME/BALANCE/CASH_FLOW return one
+# row per reporting period (keyed by ``symbol`` with the period's
+# ``fiscalDateEnding`` as a DATA column); ETF_PROFILE returns one row per holding.
+
+OVERVIEW_OUTPUT = OutputConfig(
+    columns=[
+        Column(name="Symbol", role=ColumnRole.KEY, namespace="alpha_vantage"),
+        Column(name="Name", role=ColumnRole.TITLE),
+        # All remaining ~50 overview fields fold in as DATA (string passthrough).
+    ]
+)
+
+STATEMENT_OUTPUT = OutputConfig(
+    columns=[
+        Column(name="symbol", role=ColumnRole.KEY, namespace="alpha_vantage"),
+        Column(name="fiscalDateEnding", role=ColumnRole.TITLE),
+        # All remaining statement line items fold in as DATA (string passthrough).
+    ]
+)
+
+ETF_PROFILE_OUTPUT = OutputConfig(
+    columns=[
+        Column(name="symbol", role=ColumnRole.KEY, namespace="alpha_vantage"),
+        Column(name="holding_symbol", role=ColumnRole.TITLE),
+        Column(name="description", role=ColumnRole.METADATA),
+        Column(name="weight", dtype="numeric", role=ColumnRole.DATA),
+    ]
+)
+
 
 __all__ = [
     "CRYPTO_DAILY_OUTPUT",
@@ -267,6 +304,7 @@ __all__ = [
     "EARNINGS_CAL_OUTPUT",
     "EARNINGS_OUTPUT",
     "ECON_OUTPUT",
+    "ETF_PROFILE_OUTPUT",
     "FX_DAILY_OUTPUT",
     "FX_RATE_OUTPUT",
     "INTRADAY_OUTPUT",
@@ -277,7 +315,9 @@ __all__ = [
     "MOVERS_OUTPUT",
     "NEWS_OUTPUT",
     "OPTIONS_OUTPUT",
+    "OVERVIEW_OUTPUT",
     "QUOTE_OUTPUT",
     "SEARCH_OUTPUT",
+    "STATEMENT_OUTPUT",
     "TECHNICAL_OUTPUT",
 ]
