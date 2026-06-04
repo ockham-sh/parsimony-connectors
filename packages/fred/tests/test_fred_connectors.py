@@ -5,11 +5,10 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from parsimony.errors import InvalidParameterError
+from parsimony.errors import InvalidParameterError, UnauthorizedError
 
 from parsimony_fred import (
     CONNECTORS,
-    FredFetchParams,
     fred_fetch,
     fred_search,
 )
@@ -101,6 +100,34 @@ async def test_fred_search_raises_empty_data_when_no_matches() -> None:
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_fred_fetch_raises_empty_data_when_no_observations() -> None:
+    from parsimony.errors import EmptyDataError
+
+    respx.get("https://api.stlouisfed.org/fred/series/observations").mock(
+        return_value=httpx.Response(200, json={"observations": []})
+    )
+
+    bound = fred_fetch.bind(api_key="test-key")
+    with pytest.raises(EmptyDataError):
+        await bound(series_id="UNRATE")
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_fred_fetch_raises_parse_error_when_observations_key_missing() -> None:
+    from parsimony.errors import ParseError
+
+    respx.get("https://api.stlouisfed.org/fred/series/observations").mock(
+        return_value=httpx.Response(200, json={"unexpected": "shape"})
+    )
+
+    bound = fred_fetch.bind(api_key="test-key")
+    with pytest.raises(ParseError):
+        await bound(series_id="UNRATE")
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_fred_fetch_returns_observations_with_metadata() -> None:
     respx.get("https://api.stlouisfed.org/fred/series/observations").mock(
         return_value=httpx.Response(
@@ -145,16 +172,39 @@ async def test_fred_fetch_returns_observations_with_metadata() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Parameter validation
+# Parameter validation (inline — no separate param model)
 # ---------------------------------------------------------------------------
 
 
-def test_fred_fetch_params_rejects_empty_series_id() -> None:
+@pytest.mark.asyncio
+async def test_fred_fetch_rejects_empty_series_id() -> None:
+    bound = fred_fetch.bind(api_key="test-key")
     with pytest.raises(InvalidParameterError, match="series_id"):
-        FredFetchParams(series_id="   ")
+        await bound(series_id="   ")
 
 
-def test_fred_fetch_params_accepts_date_bounds() -> None:
-    p = FredFetchParams(series_id="UNRATE", observation_start="2020-01-01", observation_end="2020-12-31")
-    assert p.observation_start == "2020-01-01"
-    assert p.observation_end == "2020-12-31"
+@pytest.mark.asyncio
+async def test_fred_search_rejects_empty_search_text() -> None:
+    bound = fred_search.bind(api_key="test-key")
+    with pytest.raises(InvalidParameterError, match="search_text"):
+        await bound(search_text="   ")
+
+
+@pytest.mark.asyncio
+async def test_fred_fetch_raises_unauthorized_when_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    # No bound key and no env fallback → fail fast with the env-var hint, no network.
+    monkeypatch.delenv("FRED_API_KEY", raising=False)
+    with pytest.raises(UnauthorizedError) as exc_info:
+        await fred_fetch(series_id="UNRATE")
+    assert exc_info.value.env_var == "FRED_API_KEY"
+    assert exc_info.value.provider == "fred"
+
+
+@pytest.mark.asyncio
+async def test_fred_search_raises_unauthorized_when_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Both verbs share _client(); assert the symmetric no-key fast-fail for search too.
+    monkeypatch.delenv("FRED_API_KEY", raising=False)
+    with pytest.raises(UnauthorizedError) as exc_info:
+        await fred_search(search_text="unemployment")
+    assert exc_info.value.env_var == "FRED_API_KEY"
+    assert exc_info.value.provider == "fred"
