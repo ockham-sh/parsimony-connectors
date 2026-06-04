@@ -15,8 +15,8 @@ from parsimony.errors import EmptyDataError, InvalidParameterError, RateLimitErr
 
 from parsimony_eia import (
     CONNECTORS,
-    EiaFetchParams,
     eia_fetch,
+    enumerate_eia,
 )
 
 _KEY = "live-looking-eia-xyz"
@@ -101,10 +101,62 @@ async def test_eia_fetch_raises_empty_data_when_no_records() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Parameter validation
+# enumerate_eia
 # ---------------------------------------------------------------------------
 
 
-def test_fetch_rejects_empty_route() -> None:
-    with pytest.raises(InvalidParameterError):
-        EiaFetchParams(route="   ")
+@respx.mock
+@pytest.mark.asyncio
+async def test_enumerate_eia_returns_routes() -> None:
+    respx.get("https://api.eia.gov/v2/").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "response": {
+                    "routes": [
+                        {"id": "petroleum", "name": "Petroleum", "description": "Crude oil and products"},
+                        {"id": "natural-gas", "name": "Natural Gas", "description": "Natural gas data"},
+                    ]
+                }
+            },
+        )
+    )
+
+    bound = enumerate_eia.bind(api_key=_KEY)
+    result = await bound()
+
+    df = result.data
+    assert list(df.columns) == ["route", "title", "description"]
+    assert set(df["route"]) == {"petroleum", "natural-gas"}
+    assert set(df["description"]) == {"Crude oil and products", "Natural gas data"}
+
+
+# ---------------------------------------------------------------------------
+# Parameter validation (inline — no separate param model)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_eia_fetch_rejects_empty_route() -> None:
+    bound = eia_fetch.bind(api_key=_KEY)
+    with pytest.raises(InvalidParameterError, match="route"):
+        await bound(route="   ")
+
+
+@pytest.mark.asyncio
+async def test_eia_fetch_raises_unauthorized_when_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EIA_API_KEY", raising=False)
+    with pytest.raises(UnauthorizedError) as exc_info:
+        await eia_fetch(route="petroleum/pri/spt")
+    assert exc_info.value.env_var == "EIA_API_KEY"
+    assert exc_info.value.provider == "eia"
+
+
+@pytest.mark.asyncio
+async def test_enumerate_eia_raises_unauthorized_when_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Both verbs share _client(); assert the symmetric no-key fast-fail for the enumerator too.
+    monkeypatch.delenv("EIA_API_KEY", raising=False)
+    with pytest.raises(UnauthorizedError) as exc_info:
+        await enumerate_eia()
+    assert exc_info.value.env_var == "EIA_API_KEY"
+    assert exc_info.value.provider == "eia"
