@@ -96,7 +96,10 @@ IPO_CAL_OUTPUT = OutputConfig(
         Column(name="date", role=ColumnRole.METADATA, dtype="date"),
         Column(name="exchange", role=ColumnRole.METADATA),
         Column(name="status", role=ColumnRole.METADATA),
-        Column(name="price", dtype="numeric"),
+        # Finnhub reports IPO price as a string that is sometimes a single value
+        # ("18.00") and sometimes a range ("18.00-20.00"). Coercing to numeric
+        # silently nulls every range, so keep the verbatim string as metadata.
+        Column(name="price_range", role=ColumnRole.METADATA),
         Column(name="number_of_shares", dtype="numeric"),
         Column(name="total_shares_value", dtype="numeric"),
     ]
