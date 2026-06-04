@@ -71,15 +71,21 @@ jobs:
           PKG_INPUT: ${{ github.event.inputs.package }}
         run: |
           set -euo pipefail
-          if ! [[ "$PKG_INPUT" =~ ^[a-z][a-z0-9_-]*$ ]]; then
-            echo "::error::Input 'package' must match ^[a-z][a-z0-9_-]*$ (got: $PKG_INPUT)"
+          if ! [[ "$PKG_INPUT" =~ ^_?[a-z][a-z0-9_-]*$ ]]; then
+            echo "::error::Input 'package' must match ^_?[a-z][a-z0-9_-]*$ (got: $PKG_INPUT)"
             exit 1
           fi
           # Folder form (PEP 8 module): underscores. Accept either form
           # of input and translate to the canonical folder name on disk.
+          # A leading underscore is preserved (e.g. the internal `_shared`
+          # package directory, which is excluded from connector discovery).
           pkg="${PKG_INPUT//-/_}"
-          # PEP 503 canonical form (distribution name + env name).
-          pkg_hyphen="${PKG_INPUT//_/-}"
+          # PEP 503 canonical form (distribution name + env name). Strip a
+          # leading underscore first: `_shared` publishes as `parsimony-shared`
+          # (not `parsimony--shared`); the underscore is an in-repo
+          # sorts-first / discovery-excluded marker, not part of the dist name.
+          pkg_base="${PKG_INPUT#_}"
+          pkg_hyphen="${pkg_base//_/-}"
           {
             echo "pkg=${pkg}"
             echo "pkg_dist=parsimony-${pkg_hyphen}"
