@@ -1,17 +1,29 @@
 """Declarative output schemas for the FMP connectors.
 
-One :class:`OutputConfig` per connector that projects a shaped DataFrame
-out of FMP's raw JSON. Columns declared here are the contract with the
-MCP tool catalog — renaming or re-ordering them is a breaking change.
+One :class:`OutputConfig` per DataFrame-returning connector that projects a
+shaped frame out of FMP's raw JSON. Column names and order are the contract with
+the catalog / tool surface — renaming or re-ordering them is a breaking change.
+
+Role conventions:
+
+* ``symbol`` is the entity identity on every equity verb, so it is a namespaced
+  ``KEY`` (namespace ``fmp_symbols``), never ``METADATA``. ``OutputConfig`` allows
+  at most one ``KEY`` per schema.
+* Columns are declared **only** when the live FMP payload actually carries them
+  (verified 2026-06-04). Declaring a column the payload can't populate would
+  surface a constant-empty column to the agent.
 """
 
 from __future__ import annotations
 
 from parsimony.result import Column, ColumnRole, OutputConfig
 
+_NS = "fmp_symbols"
+
+
 SEARCH_OUTPUT = OutputConfig(
     columns=[
-        Column(name="symbol"),
+        Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="name"),
         Column(name="currency"),
         Column(name="exchangeFullName"),
@@ -21,7 +33,7 @@ SEARCH_OUTPUT = OutputConfig(
 
 COMPANY_PROFILE_OUTPUT = OutputConfig(
     columns=[
-        Column(name="symbol"),
+        Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="companyName"),
         Column(name="price", dtype="numeric"),
         Column(name="marketCap", dtype="numeric"),
@@ -46,8 +58,8 @@ COMPANY_PROFILE_OUTPUT = OutputConfig(
 
 INCOME_STATEMENT_OUTPUT = OutputConfig(
     columns=[
+        Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="date", dtype="datetime"),
-        Column(name="symbol", role=ColumnRole.METADATA),
         Column(name="reportedCurrency", role=ColumnRole.METADATA),
         Column(name="revenue", dtype="numeric"),
         Column(name="costOfRevenue", dtype="numeric"),
@@ -63,8 +75,8 @@ INCOME_STATEMENT_OUTPUT = OutputConfig(
 
 BALANCE_SHEET_OUTPUT = OutputConfig(
     columns=[
+        Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="date", dtype="datetime"),
-        Column(name="symbol", role=ColumnRole.METADATA),
         Column(name="totalAssets", dtype="numeric"),
         Column(name="totalLiabilities", dtype="numeric"),
         Column(name="totalStockholdersEquity", dtype="numeric"),
@@ -77,8 +89,8 @@ BALANCE_SHEET_OUTPUT = OutputConfig(
 
 CASH_FLOW_OUTPUT = OutputConfig(
     columns=[
+        Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="date", dtype="datetime"),
-        Column(name="symbol", role=ColumnRole.METADATA),
         Column(name="reportedCurrency", role=ColumnRole.METADATA),
         Column(name="netIncome", dtype="numeric"),
         Column(name="operatingCashFlow", dtype="numeric"),
@@ -109,12 +121,17 @@ HISTORICAL_PRICES_OUTPUT = OutputConfig(
     ]
 )
 
+# batch-quote payload (verified live): symbol, name, price, change,
+# changePercentage, dayLow, dayHigh, yearLow, yearHigh, marketCap, volume,
+# priceAvg50, priceAvg200, exchange, open, previousClose, timestamp. It does NOT
+# carry avgVolume / pe / eps / changesPercentage — those are dropped here so the
+# schema does not declare columns the payload can't populate.
 STOCK_QUOTE_OUTPUT = OutputConfig(
     columns=[
-        Column(name="symbol"),
+        Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="name"),
         Column(name="price", dtype="numeric"),
-        Column(name="changesPercentage", dtype="numeric"),
+        Column(name="changePercentage", dtype="numeric"),
         Column(name="change", dtype="numeric"),
         Column(name="dayLow", dtype="numeric"),
         Column(name="dayHigh", dtype="numeric"),
@@ -122,9 +139,6 @@ STOCK_QUOTE_OUTPUT = OutputConfig(
         Column(name="yearHigh", dtype="numeric"),
         Column(name="marketCap", dtype="numeric"),
         Column(name="volume", dtype="numeric"),
-        Column(name="avgVolume", dtype="numeric"),
-        Column(name="pe", dtype="numeric"),
-        Column(name="eps", dtype="numeric"),
         Column(name="priceAvg50", dtype="numeric"),
         Column(name="priceAvg200", dtype="numeric"),
         Column(name="exchange"),
@@ -135,7 +149,7 @@ STOCK_QUOTE_OUTPUT = OutputConfig(
 
 PEERS_OUTPUT = OutputConfig(
     columns=[
-        Column(name="symbol", role=ColumnRole.METADATA),
+        Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="companyName"),
         Column(name="price", dtype="numeric"),
         Column(name="mktCap", dtype="numeric"),
@@ -144,7 +158,7 @@ PEERS_OUTPUT = OutputConfig(
 
 NEWS_OUTPUT = OutputConfig(
     columns=[
-        Column(name="symbol"),
+        Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="publishedDate", dtype="datetime"),
         Column(name="title"),
         Column(name="text"),
@@ -156,7 +170,7 @@ NEWS_OUTPUT = OutputConfig(
 
 INSIDER_TRADES_OUTPUT = OutputConfig(
     columns=[
-        Column(name="symbol", role=ColumnRole.METADATA),
+        Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="filingDate", dtype="datetime"),
         Column(name="transactionDate", dtype="datetime"),
         Column(name="reportingName"),
@@ -173,7 +187,7 @@ INSIDER_TRADES_OUTPUT = OutputConfig(
 
 INSTITUTIONAL_POSITIONS_OUTPUT = OutputConfig(
     columns=[
-        Column(name="symbol", role=ColumnRole.METADATA),
+        Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="date", dtype="date"),
         Column(name="investorsHolding", dtype="numeric"),
         Column(name="investorsHoldingChange", dtype="numeric"),
@@ -193,7 +207,7 @@ INSTITUTIONAL_POSITIONS_OUTPUT = OutputConfig(
 
 EARNINGS_TRANSCRIPT_OUTPUT = OutputConfig(
     columns=[
-        Column(name="symbol", role=ColumnRole.METADATA),
+        Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="year", dtype="numeric"),
         Column(name="period"),
         Column(name="date", dtype="date"),
@@ -203,7 +217,7 @@ EARNINGS_TRANSCRIPT_OUTPUT = OutputConfig(
 
 ANALYST_ESTIMATES_OUTPUT = OutputConfig(
     columns=[
-        Column(name="symbol"),
+        Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="date", dtype="date"),
         Column(name="revenueLow", dtype="numeric"),
         Column(name="revenueAvg", dtype="numeric"),
@@ -224,7 +238,7 @@ ANALYST_ESTIMATES_OUTPUT = OutputConfig(
 
 INDEX_CONSTITUENTS_OUTPUT = OutputConfig(
     columns=[
-        Column(name="symbol"),
+        Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="name"),
         Column(name="sector"),
         Column(name="subSector"),
@@ -237,7 +251,7 @@ INDEX_CONSTITUENTS_OUTPUT = OutputConfig(
 
 MARKET_MOVERS_OUTPUT = OutputConfig(
     columns=[
-        Column(name="symbol"),
+        Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="name"),
         Column(name="price", dtype="numeric"),
         Column(name="change", dtype="numeric"),
@@ -248,7 +262,7 @@ MARKET_MOVERS_OUTPUT = OutputConfig(
 
 SCREENER_OUTPUT = OutputConfig(
     columns=[
-        Column(name="symbol"),
+        Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="companyName"),
         Column(name="sector"),
         Column(name="industry"),

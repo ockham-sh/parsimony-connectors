@@ -35,7 +35,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 pip install parsimony-tiingo
 ```
 
-Pulls in `parsimony-core>=0.6,<0.7` automatically. Verify discovery:
+Pulls in `parsimony-core>=0.7,<0.8` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
@@ -53,15 +53,21 @@ Get a key at <https://www.tiingo.com/account/api/token>.
 
 ```python
 import asyncio
-from parsimony_tiingo import CONNECTORS
+import os
+from parsimony_tiingo import load
 
 async def main():
-    connectors = CONNECTORS
+    # Bind the key off the call surface (it never enters provenance).
+    connectors = load(api_key=os.environ["TIINGO_API_KEY"])
     result = await connectors["tiingo_eod"](ticker="AAPL")
     print(result.data.head())
 
 asyncio.run(main())
 ```
+
+The key is declared as a secret on every verb (stripped from provenance) and
+resolved from the bound value or, as a dev fallback, the `TIINGO_API_KEY`
+environment variable. A missing key fails fast with `UnauthorizedError`.
 
 For multi-plugin composition:
 

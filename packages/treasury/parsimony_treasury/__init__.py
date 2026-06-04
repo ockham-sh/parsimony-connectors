@@ -1,30 +1,55 @@
-"""US Treasury Fiscal Data: fetch + catalog enumeration.
+"""US Treasury connectors for parsimony.
 
-API docs: https://fiscaldata.treasury.gov/api-documentation/
-No authentication required.
+US Treasury is a **keyless** public source — no API key, no ``secrets=``, no
+``bind()``/``load()``. It spans three transports:
+
+* the **Fiscal Data** JSON API (``api.fiscaldata.treasury.gov``) — fetched via
+  :func:`parsimony.transport.helpers.fetch_json` over a plain
+  :func:`make_http_client` client;
+* the **Office of Debt Management** rate feeds (``home.treasury.gov``) — served
+  as OData/Atom **XML**, so they cannot use ``fetch_json`` (GET + JSON only) and
+  go through a raw :class:`~parsimony.transport.HttpClient` + the reusable
+  :func:`_get_text` helper (§6.7: ``request("GET")`` + ``raise_for_status()`` +
+  ``map_http_error`` **and** ``map_timeout_error``), then a stdlib
+  ``xml.etree.ElementTree`` parse;
+* the published **semantic-search catalog** (``treasury_search``) — delegates to
+  :func:`parsimony.catalog.search.make_local_search_connector`.
+
+Exports :data:`CONNECTORS`:
+
+* ``treasury_fetch`` (``@connector``) — any Fiscal Data endpoint as a DataFrame.
+* ``treasury_rates_fetch`` (``@connector``) — one ODM rate feed (XML) by year.
+* ``enumerate_treasury`` (``@enumerator``) — discover Fiscal Data measures + ODM
+  rate-feed benchmarks for catalog indexing.
+* ``treasury_search`` (``@connector``) — semantic search over the catalog.
 """
 
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
 
 import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError
+from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
 )
-from parsimony.transport import HttpClient, map_http_error
-from pydantic import BaseModel, Field
+from parsimony.transport import HttpClient, map_http_error, map_timeout_error
+from parsimony.transport.helpers import fetch_json, make_http_client
 
 _BASE_URL = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service"
-_METADATA_URL = "https://api.fiscaldata.treasury.gov/services/dtg/metadata/"
-_TREASURY_RATES_BASE_URL = "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml"
+_METADATA_BASE = "https://api.fiscaldata.treasury.gov/services/dtg"
+# home.treasury.gov rate feeds: split the host from the path so the request
+# URL carries no trailing slash. The bare ``.../xml/`` form 301-redirects to
+# ``.../xml`` on every call — wasteful — so we target the canonical path.
+_TREASURY_RATES_HOST = "https://home.treasury.gov"
+_TREASURY_RATES_PATH = "/resource-center/data-chart-center/interest-rates/pages/xml"
+_TREASURY_RATES_BASE_URL = f"{_TREASURY_RATES_HOST}{_TREASURY_RATES_PATH}"
 
 # OData Atom XML namespaces used by the home.treasury.gov rate feeds.
 _ATOM_NS = "{http://www.w3.org/2005/Atom}"
@@ -39,59 +64,7 @@ TreasuryRateFeed = Literal[
     "daily_treasury_real_long_term",
 ]
 
-
-# ---------------------------------------------------------------------------
-# Parameter models
-# ---------------------------------------------------------------------------
-
-
-class TreasuryFetchParams(BaseModel):
-    """Parameters for fetching US Treasury fiscal data."""
-
-    endpoint: Annotated[str, "ns:treasury"] = Field(
-        ..., description="API endpoint path (e.g. v2/accounting/od/debt_to_penny)"
-    )
-    filter: str | None = Field(
-        default=None,
-        description="Filter expression (e.g. record_date:gte:2024-01-01)",
-    )
-    sort: str | None = Field(
-        default=None,
-        description="Sort expression (e.g. -record_date for descending)",
-    )
-    page_size: int = Field(default=100, ge=1, le=10000, description="Records per page")
-
-
-class TreasuryEnumerateParams(BaseModel):
-    """No parameters needed — enumerates the full Treasury API catalog."""
-
-    pass
-
-
-class TreasuryRatesFetchParams(BaseModel):
-    """Parameters for fetching a Treasury Office of Debt Management rate feed.
-
-    The home.treasury.gov rate feeds — Daily Treasury Par Yield Curve,
-    Bill Rates, Real Yield Curve, Long-Term Rates, Real Long-Term — are
-    paginated by calendar year. ``feed`` is a closed enum so invalid
-    values are caught at param-validation time rather than as a 404 from
-    Treasury.
-    """
-
-    feed: Annotated[TreasuryRateFeed, "ns:treasury"] = Field(
-        ...,
-        description=(
-            "Treasury OBM rate feed name (one of: daily_treasury_yield_curve, "
-            "daily_treasury_real_yield_curve, daily_treasury_bill_rates, "
-            "daily_treasury_long_term_rate, daily_treasury_real_long_term)."
-        ),
-    )
-    year: int | None = Field(
-        default=None,
-        ge=1990,
-        le=2100,
-        description="Calendar year to retrieve. Defaults to the current UTC year.",
-    )
+_RATE_FEED_NAMES: frozenset[str] = frozenset(get_args(TreasuryRateFeed))
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +79,7 @@ TREASURY_ENUMERATE_OUTPUT = OutputConfig(
         Column(name="code", role=ColumnRole.KEY, namespace="treasury"),
         Column(name="title", role=ColumnRole.TITLE),
         # ``definition`` is the Fiscal Data field's own descriptive text — the
-        # most useful semantic signal for retrieval. Routing it through
+        # most useful semantic signal for retrieval.
         Column(name="definition", role=ColumnRole.METADATA),
         # ``source`` tells the agent which fetch connector to call —
         # ``"fiscal_data"`` → :func:`treasury_fetch`, ``"treasury_rates"`` →
@@ -123,6 +96,8 @@ TREASURY_ENUMERATE_OUTPUT = OutputConfig(
         Column(name="latest_date", role=ColumnRole.METADATA),
     ]
 )
+
+_ENUMERATE_COLUMNS = [c.name for c in TREASURY_ENUMERATE_OUTPUT.columns]
 
 # Treasury field ``data_type`` values that denote a time-series measure (as
 # opposed to dates, identifiers, category labels, or row-scaffolding ints).
@@ -176,13 +151,6 @@ def _is_measure_field(field: dict[str, Any]) -> bool:
 # ---------------------------------------------------------------------------
 
 _TREASURY_RATE_DATASET_CATEGORY = "Office of Debt Management"
-
-
-def _rate_feed_source_url(feed: str) -> str:
-    return (
-        "https://home.treasury.gov/resource-center/data-chart-center/"
-        f"interest-rates/TextView?type={feed}"
-    )
 
 
 _TREASURY_RATE_FEEDS: tuple[dict[str, Any], ...] = (
@@ -316,6 +284,7 @@ def _build_treasury_rate_rows() -> list[dict[str, str]]:
             )
     return rows
 
+
 # Treasury returns tabular datasets — the output is a DataFrame whose
 # columns depend on the endpoint.  We use a minimal schema with just
 # the identity key; actual data columns vary per endpoint.
@@ -341,12 +310,52 @@ TREASURY_RATES_FETCH_OUTPUT = OutputConfig(
 
 
 # ---------------------------------------------------------------------------
-# Connectors
+# Transport
 # ---------------------------------------------------------------------------
 
 
-def _make_http() -> HttpClient:
-    return HttpClient(_BASE_URL, query_params={"format": "json"})
+def _fiscal_http() -> HttpClient:
+    """Build the keyless Fiscal Data JSON client (``format=json`` on every call)."""
+    return make_http_client(_BASE_URL, query_params={"format": "json"})
+
+
+def _metadata_http() -> HttpClient:
+    """Build the keyless Fiscal Data metadata client."""
+    return make_http_client(_METADATA_BASE)
+
+
+def _rates_http() -> HttpClient:
+    """Build the keyless home.treasury.gov XML rate-feed client.
+
+    The feeds emit OData/Atom XML (not JSON), so they are read with
+    :func:`_get_text` rather than ``fetch_json``. The client targets the host;
+    the canonical (trailing-slash-free) feed path is passed per request.
+    """
+    return make_http_client(_TREASURY_RATES_HOST, timeout=30.0)
+
+
+async def _get_text(http: HttpClient, path: str, *, params: dict[str, Any], op_name: str) -> str:
+    """GET *path* and return the raw text body (non-JSON / XML document).
+
+    The §6.7 raw-transport shape for any response ``fetch_json`` can't handle:
+    ``request("GET")`` + ``raise_for_status()`` mapping **both**
+    ``HTTPStatusError`` (via :func:`map_http_error`) **and** ``TimeoutException``
+    (via :func:`map_timeout_error`). Reusable across the XML/text-feed
+    connectors (bde/snb/destatis will reuse this pattern).
+    """
+    try:
+        response = await http.request("GET", path, params=params)
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider="treasury", op_name=op_name)
+    except httpx.TimeoutException as exc:
+        map_timeout_error(exc, provider="treasury", op_name=op_name)
+    return response.text
+
+
+# ---------------------------------------------------------------------------
+# Connectors
+# ---------------------------------------------------------------------------
 
 
 @connector(output=TREASURY_FETCH_OUTPUT, tags=["macro", "us"])
@@ -356,41 +365,56 @@ async def treasury_fetch(
     sort: str | None = None,
     page_size: int = 100,
 ) -> pd.DataFrame:
-    """Fetch US Treasury fiscal data by endpoint.
+    """Fetch US Treasury Fiscal Data by endpoint (e.g. ``v2/accounting/od/debt_to_penny``).
 
-    Returns the dataset as-is with ``record_date`` parsed and numeric
-    columns converted.  Each row is one record from the Treasury API.
+    Returns the dataset as a DataFrame with ``record_date`` parsed and
+    metadata-typed numeric columns converted. Optional ``filter`` (e.g.
+    ``record_date:gte:2024-01-01``) and ``sort`` (e.g. ``-record_date``)
+    pass through to the API; ``page_size`` (1–10000) caps the rows returned.
     """
-    params = TreasuryFetchParams(endpoint=endpoint, filter=filter, sort=sort, page_size=page_size)
-    http = _make_http()
-    req_params: dict[str, Any] = {"page[size]": params.page_size}
-    if params.filter:
-        req_params["filter"] = params.filter
-    if params.sort:
-        req_params["sort"] = params.sort
+    endpoint = endpoint.strip().lstrip("/")
+    if not endpoint:
+        raise InvalidParameterError("treasury", "endpoint must be non-empty")
+    if page_size < 1 or page_size > 10000:
+        raise InvalidParameterError("treasury", "page_size must be between 1 and 10000")
 
-    response = await http.request("GET", f"/{params.endpoint}", params=req_params)
-    try:
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider="treasury", op_name=params.endpoint)
-    body = response.json()
+    req_params: dict[str, Any] = {
+        "page[size]": page_size,
+        "filter": filter,
+        "sort": sort,
+    }
+    body = await fetch_json(
+        _fiscal_http(),
+        path=endpoint,
+        params=req_params,
+        provider="treasury",
+        op_name=endpoint,
+    )
+
+    if not isinstance(body, dict):
+        raise ParseError("treasury", f"unexpected response shape for endpoint {endpoint!r}")
+    if "data" not in body:
+        raise ParseError("treasury", f"response missing 'data' for endpoint {endpoint!r}")
 
     data = body.get("data", [])
     if not data:
-        raise EmptyDataError(provider="treasury", message=f"No data returned for endpoint: {params.endpoint}")
+        raise EmptyDataError(
+            "treasury",
+            message=f"No data returned for endpoint: {endpoint}",
+            query_params={"endpoint": endpoint, "filter": filter, "sort": sort},
+        )
 
     meta = body.get("meta", {})
-    labels = meta.get("labels", {})
-    data_types = meta.get("dataTypes", {})
+    labels = meta.get("labels", {}) if isinstance(meta, dict) else {}
+    data_types = meta.get("dataTypes", {}) if isinstance(meta, dict) else {}
 
     df = pd.DataFrame(data)
 
-    # Parse record_date
     if "record_date" in df.columns:
         df["record_date"] = pd.to_datetime(df["record_date"], errors="coerce")
 
-    # Convert numeric columns identified by API metadata
+    # Convert only the columns the API metadata types as numeric measures —
+    # never blanket-coerce (that would NaN string identifiers/labels).
     numeric_types = {"CURRENCY", "NUMBER", "PERCENTAGE", "RATE"}
     for col, dtype in data_types.items():
         if dtype in numeric_types and col in df.columns:
@@ -399,10 +423,11 @@ async def treasury_fetch(
                 errors="coerce",
             )
 
-    # Add identity columns
-    table_name = labels.get("record_date", params.endpoint)
-    df["endpoint"] = params.endpoint
-    df["title"] = table_name
+    # Identity columns for the KEY/TITLE schema slots. ``labels`` maps a
+    # field name to its human label; Fiscal Data labels ``record_date`` with
+    # the dataset's display name, which doubles as a serviceable title.
+    df["endpoint"] = endpoint
+    df["title"] = labels.get("record_date", endpoint)
 
     return df
 
@@ -424,8 +449,15 @@ def _parse_treasury_rates_xml(xml_text: str) -> pd.DataFrame:
     encountered (Treasury uses ``NEW_DATE``, ``INDEX_DATE``, or
     ``QUOTE_DATE`` depending on the feed) is duplicated as
     ``record_date`` to give every feed a uniform time axis.
+
+    Raises :class:`ParseError` if *xml_text* is not well-formed XML (a 200
+    that is not the expected Atom shape).
     """
-    root = ET.fromstring(xml_text)
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        raise ParseError("treasury", f"rate feed did not return parseable XML: {exc}") from exc
+
     rows: list[dict[str, Any]] = []
     for entry in root.findall(f"{_ATOM_NS}entry"):
         props = entry.find(f"{_ATOM_NS}content/{_ODATA_METADATA_NS}properties")
@@ -470,39 +502,42 @@ async def treasury_rates_fetch(
 ) -> pd.DataFrame:
     """Fetch a Treasury Office of Debt Management rate feed for one calendar year.
 
-    The home.treasury.gov XML feed is paginated by year via the
-    ``field_tdr_date_value`` query parameter. ``year=None`` defaults to
-    the current UTC year. Returns a DataFrame whose columns are the
-    feed's native rate columns (e.g. ``BC_10YEAR`` for the par yield
-    curve) plus a normalised ``record_date``.
+    ``feed`` is one of: ``daily_treasury_yield_curve``,
+    ``daily_treasury_real_yield_curve``, ``daily_treasury_bill_rates``,
+    ``daily_treasury_long_term_rate``, ``daily_treasury_real_long_term``. The
+    home.treasury.gov OData/Atom XML feed is paginated by year via
+    ``field_tdr_date_value``; ``year=None`` defaults to the current UTC year.
+    Returns a DataFrame whose columns are the feed's native rate columns (e.g.
+    ``BC_10YEAR`` for the par yield curve) plus a normalised ``record_date``.
     """
-    params = TreasuryRatesFetchParams(feed=feed, year=year)
-    year = params.year if params.year is not None else datetime.now(tz=UTC).year
-    op_name = f"rates/{params.feed}/{year}"
-    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-        try:
-            response = await client.get(
-                _TREASURY_RATES_BASE_URL,
-                params={"data": params.feed, "field_tdr_date_value": str(year)},
-            )
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            map_http_error(exc, provider="treasury", op_name=op_name)
-        xml_text = response.text
+    if feed not in _RATE_FEED_NAMES:
+        raise InvalidParameterError(
+            "treasury",
+            f"unknown rate feed {feed!r}; expected one of {sorted(_RATE_FEED_NAMES)}",
+        )
+    resolved_year = year if year is not None else datetime.now(tz=UTC).year
+    if resolved_year < 1990 or resolved_year > 2100:
+        raise InvalidParameterError("treasury", "year must be between 1990 and 2100")
+
+    op_name = f"rates/{feed}/{resolved_year}"
+    xml_text = await _get_text(
+        _rates_http(),
+        _TREASURY_RATES_PATH,
+        params={"data": feed, "field_tdr_date_value": str(resolved_year)},
+        op_name=op_name,
+    )
 
     df = _parse_treasury_rates_xml(xml_text)
     if df.empty:
         raise EmptyDataError(
-            provider="treasury",
-            message=f"No rows returned for rate feed {params.feed!r} year={year}",
+            "treasury",
+            message=f"No rows returned for rate feed {feed!r} year={resolved_year}",
+            query_params={"feed": feed, "year": resolved_year},
         )
 
-    df["feed"] = params.feed
-    df["title"] = params.feed.replace("_", " ").title()
-
-    df["source_url"] = (
-        f"{_TREASURY_RATES_BASE_URL}?data={params.feed}&field_tdr_date_value={year}"
-    )
+    df["feed"] = feed
+    df["title"] = feed.replace("_", " ").title()
+    df["source_url"] = f"{_TREASURY_RATES_BASE_URL}?data={feed}&field_tdr_date_value={resolved_year}"
     return df
 
 
@@ -510,16 +545,17 @@ async def treasury_rates_fetch(
 async def enumerate_treasury() -> pd.DataFrame:
     """Enumerate Treasury Fiscal Data measures and ODM rate-feed benchmarks.
 
-    Combines Fiscal Data metadata rows with static Office of Debt Management
-    yield and bill-rate series for catalog indexing.
+    Combines Fiscal Data metadata rows (one per addressable time-series
+    measure across every dataset) with the static Office of Debt Management
+    yield and bill-rate series, for catalog indexing. Each row is an
+    ``{endpoint}#{field}`` code with a title, definition, and routing source.
     """
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get(_METADATA_URL)
-        try:
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            map_http_error(exc, provider="treasury", op_name="datasets/metadata")
-        raw = resp.json()
+    raw = await fetch_json(
+        _metadata_http(),
+        path="metadata/",
+        provider="treasury",
+        op_name="datasets/metadata",
+    )
 
     datasets: list[dict] = []
     if isinstance(raw, list):
@@ -576,21 +612,13 @@ async def enumerate_treasury() -> pd.DataFrame:
 
     rows.extend(_build_treasury_rate_rows())
 
-    columns = [
-        "code",
-        "title",
-        "source",
-        "endpoint",
-        "field",
-        "definition",
-        "data_type",
-        "dataset",
-        "category",
-        "frequency",
-        "earliest_date",
-        "latest_date",
-    ]
-    df = pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
+    # @enumerator drops unmapped columns then requires an EXACT match to the
+    # declared schema — build the frame with exactly the declared columns.
+    df = (
+        pd.DataFrame(rows, columns=_ENUMERATE_COLUMNS)
+        if rows
+        else pd.DataFrame(columns=_ENUMERATE_COLUMNS)
+    )
     return df
 
 
@@ -601,7 +629,6 @@ async def enumerate_treasury() -> pd.DataFrame:
 from parsimony_treasury.search import (  # noqa: E402, F401  (after public decorators; re-exported)
     PARSIMONY_TREASURY_CATALOG_URL_ENV,
     TREASURY_SEARCH_OUTPUT,
-    TreasurySearchParams,
     treasury_search,
 )
 

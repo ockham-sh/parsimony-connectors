@@ -48,6 +48,7 @@ def _entries() -> list[Entity]:
     ]
 
 
+@pytest.mark.integration  # live-builds an embedder from HuggingFace; not offline-safe (CI has no HF egress)
 @pytest.mark.asyncio
 async def test_search_structured_end_to_end() -> None:
     raw = _entries()

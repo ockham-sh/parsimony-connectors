@@ -1,10 +1,11 @@
-"""Happy-path tests for the Riksbank connectors.
+"""Offline (respx-mocked) tests for the Riksbank connectors.
 
-Riksbank exposes an optional Ocp-Apim-Subscription-Key header; the connector
-defaults ``api_key=""`` (quota lower without a key but the endpoint works).
-Template 401/429 contract targets keyword-only deps that are required —
-Riksbank's api_key is optional, so we don't exercise the 401/429 mapping
-here.
+Riksbank's SWEA + SWESTR APIs are open / keyless for fetch and
+enumeration; the ``Ocp-Apim-Subscription-Key`` header is optional and only
+raises the quota. The connectors default ``api_key=""`` and skip the header
+when empty, so there is no ``UnauthorizedError`` fast-fail on the fetch/
+enumerate happy path — that fast-fail lives only on the *catalog-build*
+path (see ``test_build_catalog.py``).
 """
 
 from __future__ import annotations
@@ -14,13 +15,10 @@ import pytest
 import respx
 from parsimony.errors import EmptyDataError, InvalidParameterError
 from parsimony.result import ColumnRole
-from pydantic import ValidationError
 
 from parsimony_riksbank import (
     CONNECTORS,
     RIKSBANK_ENUMERATE_OUTPUT,
-    RiksbankFetchParams,
-    RiksbankSwestrFetchParams,
     enumerate_riksbank,
     riksbank_fetch,
     riksbank_swestr_fetch,
@@ -33,19 +31,21 @@ from parsimony_riksbank import (
 
 def test_connectors_collection_exposes_expected_names() -> None:
     names = {c.name for c in CONNECTORS}
-    # Forecasts endpoints 404 as of catalog freeze; CBA is
-    # un-discoverable on api.riksbank.se. The dispatch ``source``
-    # METADATA column is in place so ``riksbank_forecasts_fetch`` and
-    # ``riksbank_cba_fetch`` slot in without a schema migration when
-    # those endpoints surface.
     assert names == {"riksbank_fetch", "riksbank_swestr_fetch", "enumerate_riksbank", "riksbank_search"}
 
 
+def test_all_keyed_verbs_declare_api_key_secret() -> None:
+    """The optional ``api_key`` is stripped from provenance on every keyed
+    verb — even keyless, a passed key must not leak into recorded params."""
+    for name in ("riksbank_fetch", "riksbank_swestr_fetch", "enumerate_riksbank"):
+        conn = CONNECTORS[name]
+        assert "api_key" in conn.secrets, f"{name} must declare api_key in secrets="
+
+
 def test_enumerate_output_declares_description_and_source_columns() -> None:
-    """Catalog-completeness contract: the enumerator must emit a
-    description metadata column for searchable prose and a ``source``
-    metadata column so dispatching agents can route fetch calls without
-    sniffing the series id.
+    """Catalog-completeness contract: the enumerator emits a description
+    metadata column for searchable prose and a ``source`` metadata column
+    so dispatching agents route fetch calls without sniffing the series id.
     """
     by_role: dict[ColumnRole, list[str]] = {}
     for col in RIKSBANK_ENUMERATE_OUTPUT.columns:
@@ -61,31 +61,70 @@ def test_enumerate_output_declares_description_and_source_columns() -> None:
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_riksbank_fetch_returns_observations() -> None:
+async def test_riksbank_fetch_latest_single_object() -> None:
+    """SWEA ``/Observations/Latest/{id}`` returns a single JSON object (not
+    a list). The connector wraps it into a one-row DataFrame."""
     respx.get("https://api.riksbank.se/swea/v1/Observations/Latest/SEKEURPMI").mock(
-        return_value=httpx.Response(
-            200,
-            json=[
-                {"date": "2026-04-17", "value": 11.35},
-                {"date": "2026-04-18", "value": 11.40},
-            ],
-        )
+        return_value=httpx.Response(200, json={"date": "2026-06-03", "value": 10.884})
     )
-    # /Series title lookup — returned but optional
     respx.get("https://api.riksbank.se/swea/v1/Series").mock(
         return_value=httpx.Response(
             200,
-            json=[{"seriesId": "SEKEURPMI", "seriesName": "SEK/EUR exchange rate"}],
+            json=[{"seriesId": "SEKEURPMI", "shortDescription": "EUR", "source": "Refinitiv"}],
         )
     )
 
-    bound = riksbank_fetch.bind(api_key="")
-    result = await bound(series_id="SEKEURPMI")
+    result = await riksbank_fetch(series_id="SEKEURPMI")
 
     assert result.provenance.source == "riksbank_fetch"
     df = result.data
+    assert len(df) == 1
+    # Title resolved from /Series shortDescription (NOT the dead seriesName key).
+    assert df.iloc[0]["title"] == "EUR"
+    assert df.iloc[0]["value"] == pytest.approx(10.884)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_riksbank_fetch_window_returns_list() -> None:
+    respx.get("https://api.riksbank.se/swea/v1/Observations/SEKEURPMI/2026-01-01/2026-01-10").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {"date": "2026-01-02", "value": 10.8085},
+                {"date": "2026-01-05", "value": 10.787},
+            ],
+        )
+    )
+    respx.get("https://api.riksbank.se/swea/v1/Series").mock(
+        return_value=httpx.Response(200, json=[{"seriesId": "SEKEURPMI", "shortDescription": "EUR"}])
+    )
+
+    result = await riksbank_fetch(series_id="SEKEURPMI", from_date="2026-01-01", to_date="2026-01-10")
+    df = result.data
     assert len(df) == 2
-    assert df.iloc[0]["title"] == "SEK/EUR exchange rate"
+    assert list(df["date"].dt.strftime("%Y-%m-%d")) == ["2026-01-02", "2026-01-05"]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_riksbank_fetch_title_lookup_failure_falls_back_to_id() -> None:
+    """A transient operational failure of the secondary /Series title lookup
+    must NOT fail the whole fetch — it falls back to the series id. (Replaces
+    the old bare ``except Exception: pass`` swallow.)"""
+    respx.get("https://api.riksbank.se/swea/v1/Observations/Latest/SEKEURPMI").mock(
+        return_value=httpx.Response(200, json={"date": "2026-06-03", "value": 10.884})
+    )
+    # /Series 429s — a typed ConnectorError the lookup tolerates.
+    respx.get("https://api.riksbank.se/swea/v1/Series").mock(
+        return_value=httpx.Response(429, text="rate limited")
+    )
+
+    result = await riksbank_fetch(series_id="SEKEURPMI")
+    df = result.data
+    assert len(df) == 1
+    # Falls back to the id rather than raising or silently swallowing.
+    assert df.iloc[0]["title"] == "SEKEURPMI"
 
 
 @respx.mock
@@ -94,22 +133,41 @@ async def test_riksbank_fetch_raises_empty_data_when_no_observations() -> None:
     respx.get("https://api.riksbank.se/swea/v1/Observations/Latest/XX").mock(
         return_value=httpx.Response(200, json=[])
     )
+    respx.get("https://api.riksbank.se/swea/v1/Series").mock(
+        return_value=httpx.Response(200, json=[])
+    )
 
-    bound = riksbank_fetch.bind(api_key="")
     with pytest.raises(EmptyDataError):
-        await bound(series_id="XX")
+        await riksbank_fetch(series_id="XX")
 
 
 def test_fetch_rejects_empty_series_id() -> None:
+    """Inline validation replaces the deleted RiksbankFetchParams model."""
+
+    async def _run() -> None:
+        await riksbank_fetch(series_id="   ")
+
     with pytest.raises(InvalidParameterError):
-        RiksbankFetchParams(series_id="   ")
+        import asyncio
+
+        asyncio.run(_run())
 
 
-# NOTE: the existing `_both_dates_or_neither` validator is decorated with
-# @field_validator but does not pass validate_default=True, so it does not
-# fire when `to_date` takes its None default with `from_date` set. That is a
-# pre-existing bug — documented here rather than fixed mid-sweep to keep
-# per-package commits focused on migration-only changes.
+@pytest.mark.asyncio
+async def test_fetch_rejects_lonely_from_date() -> None:
+    """``from_date`` without ``to_date`` is ambiguous against the window-vs-
+    latest dispatch. The (now-correct) date-pair validator rejects it. This
+    is the bug the old ``_both_dates_or_neither`` @field_validator missed
+    because it lacked ``validate_default=True`` — now an inline guard that
+    always fires."""
+    with pytest.raises(InvalidParameterError):
+        await riksbank_fetch(series_id="SEKEURPMI", from_date="2026-01-01")
+
+
+@pytest.mark.asyncio
+async def test_fetch_rejects_lonely_to_date() -> None:
+    with pytest.raises(InvalidParameterError):
+        await riksbank_fetch(series_id="SEKEURPMI", to_date="2026-01-10")
 
 
 # ---------------------------------------------------------------------------
@@ -119,13 +177,15 @@ def test_fetch_rejects_empty_series_id() -> None:
 
 _GROUPS_PAYLOAD = {
     # Mirrors the upstream shape: a single root node with ``childGroups``,
-    # not the ``groupInfos``/``children`` keys earlier code looked for.
+    # each node carrying ``groupId``/``name``/``description``.
     "groupId": 1,
     "name": "Interest rates and exchange rates",
+    "description": "",
     "childGroups": [
         {
             "groupId": 11,
             "name": "Exchange rates",
+            "description": "FX rates.",
             "childGroups": [
                 {"groupId": 130, "name": "Currencies against Swedish kronor", "childGroups": []},
                 {"groupId": 133, "name": "Monthly aggregate", "childGroups": []},
@@ -169,7 +229,7 @@ _SERIES_PAYLOAD = [
         "source": "Refinitiv",
         "shortDescription": "USD monthly average",
         "midDescription": "USD/SEK monthly average.",
-        "longDescription": "",  # description is missing → fall through to mid
+        "longDescription": "",  # missing → fall through to mid
         "groupId": 133,
         "observationMinDate": "1990-01-31",
         "observationMaxDate": "2026-03-31",
@@ -200,17 +260,27 @@ def _mock_swea_endpoints() -> None:
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_enumerate_riksbank_emits_description_for_embedder() -> None:
-    """Every row carries the upstream long-form text on a DESCRIPTION
-    column, so the catalog embedder sees the phrase at index time."""
+async def test_enumerate_exact_column_match() -> None:
+    """@enumerator enforces an EXACT column match against the declared schema."""
     _mock_swea_endpoints()
-    bound = enumerate_riksbank.bind(api_key="")
-    result = await bound()
+    result = await enumerate_riksbank()
+    df = result.data
+    assert list(df.columns) == [c.name for c in RIKSBANK_ENUMERATE_OUTPUT.columns]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_enumerate_riksbank_emits_description_for_embedder() -> None:
+    """Every row carries upstream long-form text on a DESCRIPTION column."""
+    _mock_swea_endpoints()
+    result = await enumerate_riksbank()
     df = result.data
     assert "description" in df.columns
 
     repo = df.loc[df["series_id"] == "SECBREPOEFF"].iloc[0]
     assert "policy rate" in repo["description"].lower()
+    # Title resolves from shortDescription.
+    assert repo["title"] == "Policy rate"
 
     # Series with empty longDescription falls back to midDescription.
     usd_monthly = df.loc[df["series_id"] == "SEKUSDPMM"].iloc[0]
@@ -220,15 +290,10 @@ async def test_enumerate_riksbank_emits_description_for_embedder() -> None:
 @respx.mock
 @pytest.mark.asyncio
 async def test_enumerate_riksbank_emits_source_metadata_for_dispatch() -> None:
-    """Catalog rows carry ``source="swea"`` (SWEA fetches) or
-    ``source="swestr"`` (SWESTR fetches) so an agent dispatching off a
-    hit knows which fetch connector to call. Forecasts/CBA are not
-    implemented; when they land, additional rows will carry
-    ``"forecasts"``/``"cba"`` without a schema migration.
-    """
+    """Catalog rows carry ``source="swea"`` or ``source="swestr"`` so a
+    dispatching agent knows which fetch connector to call."""
     _mock_swea_endpoints()
-    bound = enumerate_riksbank.bind(api_key="")
-    result = await bound()
+    result = await enumerate_riksbank()
     df = result.data
     assert set(df["source"].unique()) == {"swea", "swestr"}
 
@@ -236,12 +301,9 @@ async def test_enumerate_riksbank_emits_source_metadata_for_dispatch() -> None:
 @respx.mock
 @pytest.mark.asyncio
 async def test_enumerate_riksbank_resolves_group_hierarchy() -> None:
-    """Group resolution must walk ``childGroups`` (the actual upstream
-    key). Earlier code looked for ``groupInfos`` and lost every group
-    label silently."""
+    """Group resolution walks ``childGroups`` into a full breadcrumb path."""
     _mock_swea_endpoints()
-    bound = enumerate_riksbank.bind(api_key="")
-    result = await bound()
+    result = await enumerate_riksbank()
     df = result.data
 
     repo = df.loc[df["series_id"] == "SECBREPOEFF"].iloc[0]
@@ -259,32 +321,25 @@ async def test_enumerate_riksbank_resolves_group_hierarchy() -> None:
 @respx.mock
 @pytest.mark.asyncio
 async def test_enumerate_riksbank_infers_frequency_with_provenance_tag() -> None:
-    """``frequency_source`` reports how the value was derived. Group-id
-    matches beat suffix matches; suffix matches beat the unknown
-    fallback. Downstream consumers can choose how much to trust each.
-    """
+    """``frequency_source`` reports how the value was derived: group beats
+    suffix beats the unknown fallback."""
     _mock_swea_endpoints()
-    bound = enumerate_riksbank.bind(api_key="")
-    result = await bound()
+    result = await enumerate_riksbank()
     df = result.data
 
-    # group=2 → Daily via group lookup, regardless of suffix shape.
     repo = df.loc[df["series_id"] == "SECBREPOEFF"].iloc[0]
     assert repo["frequency"] == "Daily"
     assert repo["frequency_source"] == "group"
 
-    # group=130 → Daily via group lookup (matches the SEKEURPMI suffix
-    # heuristic too, but group wins because it's the more confident path).
     eur = df.loc[df["series_id"] == "SEKEURPMI"].iloc[0]
     assert eur["frequency"] == "Daily"
     assert eur["frequency_source"] == "group"
 
-    # group=133 → Monthly via group lookup.
     usd_monthly = df.loc[df["series_id"] == "SEKUSDPMM"].iloc[0]
     assert usd_monthly["frequency"] == "Monthly"
     assert usd_monthly["frequency_source"] == "group"
 
-    # group=999 → unknown → suffix EFF → "Unknown" frequency.
+    # group=999 unknown → suffix EFF unmatched → "Unknown".
     discount = df.loc[df["series_id"] == "SECBDISCEFF"].iloc[0]
     assert discount["frequency"] == "Unknown"
     assert discount["frequency_source"] == "unknown"
@@ -293,21 +348,16 @@ async def test_enumerate_riksbank_infers_frequency_with_provenance_tag() -> None
 @respx.mock
 @pytest.mark.asyncio
 async def test_enumerate_riksbank_passes_through_provider_and_date_range() -> None:
-    """Upstream ``source`` (Refinitiv, Nasdaq, etc.) and observation
-    bounds become METADATA columns that BM25 can match on, and
-    ``series_closed`` carries the lifecycle bit."""
+    """Upstream ``source`` (Refinitiv, etc.) and observation bounds become
+    METADATA columns; ``series_closed`` carries the lifecycle bit."""
     _mock_swea_endpoints()
-    bound = enumerate_riksbank.bind(api_key="")
-    result = await bound()
+    result = await enumerate_riksbank()
     df = result.data
 
     eur = df.loc[df["series_id"] == "SEKEURPMI"].iloc[0]
     assert eur["provider"] == "Refinitiv"
     assert eur["observation_min"] == "1999-01-04"
     assert eur["observation_max"] == "2026-04-24"
-    # pandas widens Python ``bool`` to ``numpy.bool_`` inside a
-    # DataFrame column; comparing with ``==`` keeps the assertion
-    # robust to that promotion (``is False`` would mis-fire).
     assert bool(eur["series_closed"]) is False
 
     discount = df.loc[df["series_id"] == "SECBDISCEFF"].iloc[0]
@@ -317,28 +367,21 @@ async def test_enumerate_riksbank_passes_through_provider_and_date_range() -> No
 @respx.mock
 @pytest.mark.asyncio
 async def test_enumerate_riksbank_row_count_matches_series_payload() -> None:
-    """Sanity check: one row per upstream SWEA series plus the static
-    SWESTR registry (seven entries — fixing, five compounded averages,
-    one index). SWEA returns ~117 series live; the test fixture trims
-    to four for clarity, so the expected total here is 4 + 7 = 11.
-    """
+    """One row per upstream SWEA series plus the static SWESTR registry
+    (seven entries). Fixture trims SWEA to four, so 4 + 7 = 11."""
     _mock_swea_endpoints()
-    bound = enumerate_riksbank.bind(api_key="")
-    result = await bound()
+    result = await enumerate_riksbank()
     assert len(result.data) == len(_SERIES_PAYLOAD) + 7
 
 
 @respx.mock
 @pytest.mark.asyncio
 async def test_enumerate_riksbank_emits_swestr_family() -> None:
-    """The SWESTR family (fixing + five compounded averages + index)
-    appears as seven rows with ``source="swestr"``. The series ids
-    exactly match what :func:`riksbank_swestr_fetch` accepts — if they
-    diverge, an agent finding a catalog hit could not actually fetch it.
-    """
+    """The SWESTR family (fixing + five compounded averages + index) appears
+    as seven rows with ``source="swestr"``. The ids exactly match what
+    :func:`riksbank_swestr_fetch` accepts."""
     _mock_swea_endpoints()
-    bound = enumerate_riksbank.bind(api_key="")
-    result = await bound()
+    result = await enumerate_riksbank()
     df = result.data
 
     swestr_rows = df[df["source"] == "swestr"]
@@ -353,12 +396,26 @@ async def test_enumerate_riksbank_emits_swestr_family() -> None:
         "SWESTRINDEX",
     }
     assert set(swestr_rows["series_id"]) == expected_ids
-    # Description text is rich enough to index on — spot-check a phrase
-    # the embedder should pick up for the raw fixing.
     raw = swestr_rows[swestr_rows["series_id"] == "SWESTR"].iloc[0]
     assert "overnight" in raw["description"].lower()
     assert raw["frequency"] == "Daily"
     assert raw["frequency_source"] == "registry"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_enumerate_riksbank_parse_error_on_bad_series_shape() -> None:
+    """A 200 with a non-list /Series body → ParseError (not a crash)."""
+    from parsimony.errors import ParseError
+
+    respx.get("https://api.riksbank.se/swea/v1/Groups").mock(
+        return_value=httpx.Response(200, json=_GROUPS_PAYLOAD)
+    )
+    respx.get("https://api.riksbank.se/swea/v1/Series").mock(
+        return_value=httpx.Response(200, json="not a list")
+    )
+    with pytest.raises(ParseError):
+        await enumerate_riksbank()
 
 
 # ---------------------------------------------------------------------------
@@ -389,51 +446,33 @@ async def test_riksbank_swestr_fetch_latest_rate_hits_latest_endpoint() -> None:
             },
         )
     )
-    bound = riksbank_swestr_fetch.bind(api_key="")
-    result = await bound(series="SWESTR")
+    result = await riksbank_swestr_fetch(series="SWESTR")
     df = result.data
     assert len(df) == 1
     assert df.iloc[0]["value"] == pytest.approx(1.639)
     assert df.iloc[0]["series"] == "SWESTR"
-    # Native metadata columns ride along so analysts can spot
-    # alternative-calculation days without a second request.
+    assert df.iloc[0]["title"] == "SWESTR — Swedish Krona Short-Term Rate"
+    # Native metadata folds in as additional columns.
     assert df.iloc[0]["numberOfTransactions"] == 255
 
 
 @respx.mock
 @pytest.mark.asyncio
 async def test_riksbank_swestr_fetch_windowed_average_hits_avg_endpoint() -> None:
-    """A compounded average with a date window routes to ``/avg/<id>``
-    (not ``/all`` or ``/latest``) and flattens the list response."""
+    """A compounded average with a date window routes to ``/avg/<id>``."""
     respx.get("https://api.riksbank.se/swestr/v1/avg/SWESTRAVG1W").mock(
         return_value=httpx.Response(
             200,
             json=[
-                {
-                    "rate": 1.633,
-                    "date": "2026-04-15",
-                    "startDate": "2026-04-08",
-                    "publicationTime": "2026-04-16T07:05:00Z",
-                    "republication": False,
-                },
-                {
-                    "rate": 1.636,
-                    "date": "2026-04-16",
-                    "startDate": "2026-04-09",
-                    "publicationTime": "2026-04-17T07:05:00Z",
-                    "republication": False,
-                },
+                {"rate": 1.633, "date": "2026-04-15", "startDate": "2026-04-08", "republication": False},
+                {"rate": 1.636, "date": "2026-04-16", "startDate": "2026-04-09", "republication": False},
             ],
         )
     )
-    bound = riksbank_swestr_fetch.bind(api_key="")
-    result = await bound(series="SWESTRAVG1W", from_date="2026-04-15", to_date="2026-04-16")
+    result = await riksbank_swestr_fetch(series="SWESTRAVG1W", from_date="2026-04-15", to_date="2026-04-16")
     df = result.data
     assert len(df) == 2
     assert list(df["series"].unique()) == ["SWESTRAVG1W"]
-    # ``startDate`` is the window-start for a compounded average; the
-    # raw fixing doesn't publish it. Keeping it on the DataFrame lets
-    # agents reason about the underlying accrual interval.
     assert df.iloc[0]["startDate"] == "2026-04-08"
 
 
@@ -441,22 +480,14 @@ async def test_riksbank_swestr_fetch_windowed_average_hits_avg_endpoint() -> Non
 @pytest.mark.asyncio
 async def test_riksbank_swestr_fetch_index_normalises_value_field() -> None:
     """The SWESTR index publishes ``value`` (an index level) rather than
-    ``rate``. The connector normalises both field names onto a single
-    ``value`` column so downstream code doesn't branch on series kind.
-    """
+    ``rate``; the connector normalises both onto a single ``value`` column."""
     respx.get("https://api.riksbank.se/swestr/v1/index/latest/SWESTRINDEX").mock(
         return_value=httpx.Response(
             200,
-            json={
-                "value": 110.25032277,
-                "date": "2026-04-24",
-                "publicationTime": "2026-04-24T07:05:00Z",
-                "republication": False,
-            },
+            json={"value": 110.25032277, "date": "2026-04-24", "republication": False},
         )
     )
-    bound = riksbank_swestr_fetch.bind(api_key="")
-    result = await bound(series="SWESTRINDEX")
+    result = await riksbank_swestr_fetch(series="SWESTRINDEX")
     df = result.data
     assert len(df) == 1
     assert df.iloc[0]["value"] == pytest.approx(110.25032277)
@@ -468,21 +499,12 @@ async def test_riksbank_swestr_fetch_raises_empty_data_when_no_observations() ->
     respx.get("https://api.riksbank.se/swestr/v1/latest/SWESTR").mock(
         return_value=httpx.Response(200, json={})
     )
-    bound = riksbank_swestr_fetch.bind(api_key="")
-    from parsimony.errors import EmptyDataError as _EmptyDataError
-
-    with pytest.raises(_EmptyDataError):
-        await bound(series="SWESTR")
+    with pytest.raises(EmptyDataError):
+        await riksbank_swestr_fetch(series="SWESTR")
 
 
-def test_swestr_fetch_rejects_unknown_series() -> None:
-    """Closed enum: pydantic rejects unknown ids at param-validation time."""
-    with pytest.raises(ValidationError):
-        RiksbankSwestrFetchParams(series="SWESTRAVGBOGUS")  # type: ignore[arg-type]
-
-
-def test_swestr_fetch_rejects_lonely_from_date() -> None:
-    """``from_date`` without ``to_date`` is ambiguous against the
-    window vs. latest dispatch. The validator rejects it."""
+@pytest.mark.asyncio
+async def test_swestr_fetch_rejects_lonely_from_date() -> None:
+    """``from_date`` without ``to_date`` → InvalidParameterError (inline)."""
     with pytest.raises(InvalidParameterError):
-        RiksbankSwestrFetchParams(series="SWESTR", from_date="2026-01-01")
+        await riksbank_swestr_fetch(series="SWESTR", from_date="2026-01-01")

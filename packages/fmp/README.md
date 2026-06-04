@@ -18,13 +18,15 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 
 19 connectors total. Tier coverage is annotated per-connector in the docstrings (`[All plans]`, `[Starter+]`, `[Professional+]`); the demo plan returns AAPL/TSLA/MSFT only for symbol-bound endpoints.
 
+**Status semantics:** an invalid key returns 401 → `UnauthorizedError`; a plan or legacy restriction returns 403 (FMP also uses 402) → `PaymentRequiredError`. An unknown symbol returns HTTP 200 with `[]` → `EmptyDataError`.
+
 ## Install
 
 ```bash
 pip install parsimony-fmp
 ```
 
-Pulls in `parsimony-core>=0.6,<0.7` automatically. Verify discovery:
+Pulls in `parsimony-core>=0.7,<0.8` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
@@ -32,20 +34,25 @@ python -c "from parsimony import discover; print([p.name for p in discover.iter_
 
 ## Configuration
 
+The API key is supplied per-call via `bind(api_key=...)` / `load(api_key=...)`,
+or — as a dev fallback — from the `FMP_API_KEY` environment variable:
+
 ```bash
 export FMP_API_KEY="<your-key>"
 ```
 
-Get a key at <https://financialmodelingprep.com>.
+Get a key at <https://financialmodelingprep.com>. The key is declared as a
+secret (`secrets=("api_key",)`), so it is stripped from recorded provenance and
+redacted from logs. A missing key fails fast with `UnauthorizedError`.
 
 ## Quick start
 
 ```python
 import asyncio
-from parsimony_fmp import CONNECTORS
+from parsimony_fmp import load
 
 async def main():
-    connectors = CONNECTORS
+    connectors = load(api_key="<your-key>")   # or rely on FMP_API_KEY
     result = await connectors["fmp_quotes"](symbols="AAPL,TSLA,MSFT")
     print(result.data.head())
 

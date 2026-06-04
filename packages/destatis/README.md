@@ -1,6 +1,6 @@
 # parsimony-destatis
 
-Destatis (German Federal Statistical Office) connector — fetches tables from the GENESIS-Online API.
+Destatis (German Federal Statistical Office) connector — fetches and enumerates tables from the public GENESIS-Online REST API.
 
 Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connectors) monorepo. Distributed standalone on PyPI as `parsimony-destatis`.
 
@@ -8,8 +8,9 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 
 | Name | Kind | Description |
 |---|---|---|
-| `destatis_fetch` | fetch | Fetch a GENESIS table by `table_id` (e.g. `61111-0001`), with optional `start_year` / `end_year`. German number/date formats are normalized automatically. |
-| `enumerate_destatis` | enumerator | Enumerate GENESIS tables via the catalogue API (catalog indexing). |
+| `destatis_fetch` | fetch | Fetch a GENESIS table by code (e.g. `61111-0001`), with optional `start_year` / `end_year`. JSON-stat 2.0 is parsed into long-format rows; German month/quarter labels are normalized to ISO dates. |
+| `enumerate_destatis` | enumerator | Enumerate GENESIS statistics and their tables (catalog indexing) by crawling `/statistics`, `/statistics/{code}/information`, and `/statistics/{code}/tables`. |
+| `destatis_search` | tool | Semantic-search the published Destatis catalog and map a natural-language query to a table code (feed it to `destatis_fetch(name=...)`). |
 
 ## Install
 
@@ -17,7 +18,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 pip install parsimony-destatis
 ```
 
-Pulls in `parsimony-core>=0.6,<0.7` automatically. Verify discovery:
+Pulls in `parsimony-core>=0.7,<0.8` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
@@ -25,14 +26,13 @@ python -c "from parsimony import discover; print([p.name for p in discover.iter_
 
 ## Configuration
 
-Both environment variables are **optional**. When unset, the connectors default to the public guest account (`GAST` / `GAST`), which is Destatis's documented anonymous credential pair:
+**No credentials required.** GENESIS-Online allows anonymous access — there is no API key, username, or password to set.
+
+The only optional setting is the catalog-snapshot URL used by `destatis_search`:
 
 ```bash
-export DESTATIS_USERNAME="<your-username>"   # optional, defaults to GAST
-export DESTATIS_PASSWORD="<your-password>"   # optional, defaults to GAST
+export PARSIMONY_DESTATIS_CATALOG_URL="hf://your-org/destatis"   # optional; overrides the default snapshot
 ```
-
-Register for a personal account at https://www-genesis.destatis.de/genesis/online if the guest account is rate-limited or redirected to an announcement page.
 
 ## Quick start
 
@@ -41,8 +41,7 @@ import asyncio
 from parsimony_destatis import CONNECTORS
 
 async def main():
-    connectors = CONNECTORS
-    result = await connectors["destatis_fetch"](table_id="61111-0001")
+    result = await CONNECTORS["destatis_fetch"](name="61111-0001")
     print(result.data.head())
 
 asyncio.run(main())
@@ -58,7 +57,7 @@ connectors = discover.load_all()
 ## Provider
 
 - Homepage: https://www.destatis.de
-- GENESIS-Online: https://www-genesis.destatis.de/genesis/online
+- GENESIS-Online API: https://genesis.destatis.de/genesis/api/rest
 
 ## License
 

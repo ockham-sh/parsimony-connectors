@@ -10,5 +10,7 @@ def test_connectors_count() -> None:
 
 
 def test_minimal_public_surface() -> None:
-    assert parsimony_tiingo.__all__ == ["CONNECTORS"]
+    # CONNECTORS is the contract; load() is the per-package key-binding idiom.
+    assert parsimony_tiingo.__all__ == ["CONNECTORS", "load"]
     assert hasattr(parsimony_tiingo, "CONNECTORS")
+    assert hasattr(parsimony_tiingo, "load")

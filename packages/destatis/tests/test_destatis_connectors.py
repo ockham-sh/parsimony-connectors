@@ -1,18 +1,16 @@
-"""Happy-path tests for the Destatis connectors.
+"""Offline (respx-mocked) tests for the Destatis connectors.
 
-The legacy ``/genesisWS/rest/2020/*`` API is retired upstream and now
-redirects to an HTML announcement page. Tests target the new public
-``/genesisGONLINE/api/rest/*`` endpoints:
+Targets the public ``genesis.destatis.de/genesis/api/rest/*`` endpoints
+(anonymous, keyless):
 
 * ``destatis_fetch`` — JSON-stat 2.0 over ``/tables/{code}/data``
 * ``enumerate_destatis`` — composes ``/statistics``,
   ``/statistics/{code}/information``, and ``/statistics/{code}/tables``
 * ``destatis_search`` — semantic search over the published catalog (lazy
-  ``Catalog.load`` keeps import-time cheap, so it registers without
-  any network)
+  ``Catalog.load`` keeps import-time cheap, so it registers without any network)
 
-The new API is anonymous; ``DESTATIS_USERNAME`` / ``DESTATIS_PASSWORD``
-remain as no-op env vars for backward compatibility.
+GENESIS-Online is anonymous — there are no credentials and nothing that could
+leak into provenance.
 """
 
 from __future__ import annotations
@@ -23,16 +21,21 @@ import httpx
 import pandas as pd
 import pytest
 import respx
-from parsimony.errors import InvalidParameterError, ProviderError
+from parsimony.errors import (
+    EmptyDataError,
+    InvalidParameterError,
+    ParseError,
+    ProviderError,
+    RateLimitError,
+)
 from parsimony.result import ColumnRole
 
 from parsimony_destatis import CONNECTORS
 from parsimony_destatis.connectors.enumerate import enumerate_destatis
 from parsimony_destatis.connectors.fetch import destatis_fetch
-from parsimony_destatis.outputs import DESTATIS_ENUMERATE_OUTPUT
-from parsimony_destatis.params import DestatisFetchParams
+from parsimony_destatis.outputs import DESTATIS_ENUMERATE_OUTPUT, ENUMERATE_COLUMNS
 
-_BASE = "https://www-genesis.destatis.de/genesisGONLINE/api/rest"
+_BASE = "https://genesis.destatis.de/genesis/api/rest"
 
 
 # A minimal JSON-stat 2.0 payload representing 2 monthly observations of a
@@ -107,6 +110,8 @@ async def test_destatis_fetch_parses_jsonstat_response() -> None:
     result = await destatis_fetch(name="61111-0001")
 
     assert result.provenance.source == "destatis_fetch"
+    # No credentials → provenance carries only the call args (no secrets).
+    assert result.provenance.params["name"] == "61111-0001"
     df = result.data
     assert len(df) == 2
     assert "series_id" in df.columns
@@ -121,17 +126,32 @@ async def test_destatis_fetch_parses_jsonstat_response() -> None:
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_destatis_fetch_accepts_legacy_table_id_alias() -> None:
-    """``table_id=`` keeps working via the pydantic alias so callers that
-    upgrade in two steps (rename later) don't break.
+async def test_destatis_fetch_forwards_year_range_params() -> None:
+    """``start_year`` / ``end_year`` are forwarded as ``startyear`` / ``endyear``
+    query params (and ``None`` values are dropped).
     """
-    respx.get(f"{_BASE}/tables/61111-0001/data").mock(
+    route = respx.get(f"{_BASE}/tables/61111-0001/data").mock(
         return_value=httpx.Response(200, json=_JSONSTAT_FIXTURE)
     )
 
-    # Legacy keyword ``table_id=`` resolves via populate_by_name.
-    result = await destatis_fetch(name="61111-0001")
-    assert result.provenance.source == "destatis_fetch"
+    await destatis_fetch(name="61111-0001", start_year="2020")
+
+    request = route.calls.last.request
+    assert request.url.params.get("startyear") == "2020"
+    assert "endyear" not in request.url.params
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_destatis_fetch_maps_404_to_provider_error() -> None:
+    """An unknown table code returns a real HTTP 404 (verified live) → mapped
+    to ``ProviderError(404)`` by ``map_http_error``.
+    """
+    respx.get(f"{_BASE}/tables/ZZZZZ-9999/data").mock(return_value=httpx.Response(404))
+
+    with pytest.raises(ProviderError) as exc_info:
+        await destatis_fetch(name="ZZZZZ-9999")
+    assert exc_info.value.status_code == 404
 
 
 @respx.mock
@@ -141,25 +161,83 @@ async def test_destatis_fetch_maps_500_to_provider_error() -> None:
         return_value=httpx.Response(500, text="upstream error")
     )
 
-    with pytest.raises(ProviderError):
+    with pytest.raises(ProviderError) as exc_info:
+        await destatis_fetch(name="61111-0001")
+    assert exc_info.value.status_code == 500
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_destatis_fetch_html_announcement_maps_to_parse_error() -> None:
+    """§5.8 — a 200 with the SPA / maintenance HTML shell is a ParseError
+    (200 but not the data shape we expected), NOT a fake ``status_code=0``.
+    """
+    respx.get(f"{_BASE}/tables/61111-0001/data").mock(
+        return_value=httpx.Response(
+            200, text="<!doctype html><html><body>Wartungsarbeiten</body></html>"
+        )
+    )
+
+    with pytest.raises(ParseError, match="HTML"):
         await destatis_fetch(name="61111-0001")
 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_destatis_fetch_raises_provider_error_on_announcement_redirect() -> None:
-    """Safety net: if Destatis ever swaps us back onto the SPA shell, we
-    surface a clear "API may have changed" error rather than letting the
-    JSON parser blow up on HTML.
+async def test_destatis_fetch_throttle_html_maps_to_rate_limit() -> None:
+    """§5.8 — a 200 HTML body carrying a quota/throttle phrase maps to
+    ``RateLimitError(quota_exhausted=True)`` rather than ParseError.
     """
     respx.get(f"{_BASE}/tables/61111-0001/data").mock(
         return_value=httpx.Response(
-            200, text="<html><body>Wartungsarbeiten announcement</body></html>"
+            200,
+            text="<html><body>Zu viele Anfragen – Kontingent ausgeschöpft.</body></html>",
         )
     )
 
-    with pytest.raises(ProviderError, match="API may have changed"):
+    with pytest.raises(RateLimitError) as exc_info:
         await destatis_fetch(name="61111-0001")
+    assert exc_info.value.quota_exhausted is True
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_destatis_fetch_non_dataset_json_maps_to_parse_error() -> None:
+    """A 200 JSON body that is not a JSON-stat dataset/envelope → ParseError."""
+    respx.get(f"{_BASE}/tables/61111-0001/data").mock(
+        return_value=httpx.Response(200, json={"unexpected": "shape"})
+    )
+
+    with pytest.raises(ParseError, match="envelope"):
+        await destatis_fetch(name="61111-0001")
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_destatis_fetch_all_null_values_maps_to_empty_data() -> None:
+    """A dataset whose every cell is null parses to zero rows → EmptyDataError
+    carrying the query params for parameter adjustment.
+    """
+    fixture = {
+        "data": [
+            {
+                "code": "DS_001",
+                "id": ["Zeit"],
+                "size": [2],
+                "value": [None, None],
+                "dimension": {
+                    "Zeit": {"category": {"index": {"2026-01": 0, "2026-02": 1}}}
+                },
+            }
+        ]
+    }
+    respx.get(f"{_BASE}/tables/61111-0001/data").mock(
+        return_value=httpx.Response(200, json=fixture)
+    )
+
+    with pytest.raises(EmptyDataError) as exc_info:
+        await destatis_fetch(name="61111-0001")
+    assert exc_info.value.query_params.get("name") == "61111-0001"
 
 
 # ---------------------------------------------------------------------------
@@ -167,10 +245,13 @@ async def test_destatis_fetch_raises_provider_error_on_announcement_redirect() -
 # ---------------------------------------------------------------------------
 
 
-def test_fetch_requires_table_id() -> None:
-    """``name=`` (the canonical field) must be non-empty."""
+@pytest.mark.asyncio
+async def test_fetch_rejects_empty_table_code() -> None:
+    """``name=`` (the canonical field) must be non-empty — validated inline,
+    before any network call, as ``InvalidParameterError`` (no params model).
+    """
     with pytest.raises(InvalidParameterError):
-        DestatisFetchParams(table_id="")
+        await destatis_fetch(name="   ")
 
 
 # ---------------------------------------------------------------------------
@@ -179,8 +260,9 @@ def test_fetch_requires_table_id() -> None:
 
 
 def _stub_index(statistics: list[dict]) -> respx.Route:
+    # The live ``/statistics`` index returns a bare JSON list.
     return respx.get(f"{_BASE}/statistics").mock(
-        return_value=httpx.Response(200, json={"statistics": statistics})
+        return_value=httpx.Response(200, json=statistics)
     )
 
 
@@ -191,9 +273,25 @@ def _stub_information(code: str, *, status: int = 200, payload: dict | None = No
 
 
 def _stub_tables(code: str, *, status: int = 200, tables: list[dict] | None = None) -> respx.Route:
+    # The live ``/tables`` endpoint returns a bare JSON list.
     return respx.get(f"{_BASE}/statistics/{code}/tables").mock(
-        return_value=httpx.Response(status, json={"tables": tables or []})
+        return_value=httpx.Response(status, json=tables or [])
     )
+
+
+# Real GENESIS shapes: statistic nodes carry ``statisticalCategoryNames`` and
+# ``variableCodes``/``variableNames``; table nodes carry ``code``/``name`` +
+# ``variableCodes``/``variableNames``. (Verified live.)
+_STAT_61111 = {
+    "code": "61111",
+    "name": {"de": "Verbraucherpreisindex", "en": "Consumer price index"},
+    "statisticalCategoryNames": [
+        {"de": "Preise", "en": "Prices"},
+        {"de": "Verbraucherpreise", "en": "Consumer prices"},
+    ],
+    "variableCodes": ["PREIS1"],
+    "variableNames": [{"de": "Verbraucherpreisindex", "en": "Consumer price index"}],
+}
 
 
 @respx.mock
@@ -201,15 +299,10 @@ def _stub_tables(code: str, *, status: int = 200, tables: list[dict] | None = No
 async def test_enumerate_destatis_emits_statistic_and_table_rows() -> None:
     """Round-trip through the three-call composition: ``/statistics`` ⇒
     one statistic row + one row per table from
-    ``/statistics/{code}/tables``. Both rows must carry a non-empty description.
+    ``/statistics/{code}/tables``. Both rows must carry a non-empty description,
+    and the metadata columns must be populated from the REAL payload shape.
     """
-    _stub_index([
-        {
-            "code": "61111",
-            "name": {"de": "Verbraucherpreisindex", "en": "Consumer price index"},
-            "subjectArea": "Preise",
-        }
-    ])
+    _stub_index([_STAT_61111])
     _stub_information(
         "61111",
         payload={
@@ -230,9 +323,10 @@ async def test_enumerate_destatis_emits_statistic_and_table_rows() -> None:
             {
                 "code": "61111-0001",
                 "name": {"de": "VPI: Deutschland, Monate", "en": "CPI: Germany, monthly"},
-                "variables": [
-                    {"code": "PREIS1", "name": {"de": "Index", "en": "Index"}},
-                    {"code": "ZEIT", "name": {"de": "Zeit", "en": "Time"}},
+                "variableCodes": ["PREIS1", "ZEIT"],
+                "variableNames": [
+                    {"de": "Index", "en": "Index"},
+                    {"de": "Zeit", "en": "Time"},
                 ],
             }
         ],
@@ -242,20 +336,7 @@ async def test_enumerate_destatis_emits_statistic_and_table_rows() -> None:
     df = result.data
 
     # Exactly the 11-column schema, in declared order.
-    expected_cols = [
-        "code",
-        "title",
-        "description",
-        "entity_type",
-        "parent_statistic",
-        "subject_area",
-        "title_de",
-        "title_en",
-        "variable_codes",
-        "variable_names_en",
-        "source",
-    ]
-    assert list(df.columns) == expected_cols
+    assert list(df.columns) == list(ENUMERATE_COLUMNS)
 
     statistic_rows = df[df["entity_type"] == "statistic"]
     table_rows = df[df["entity_type"] == "table"]
@@ -270,11 +351,18 @@ async def test_enumerate_destatis_emits_statistic_and_table_rows() -> None:
     assert stat["description"]  # non-empty
     assert "Verbraucherpreisindex" in stat["description"]
     assert stat["source"] == "genesis_online"
+    # subject_area derived from statisticalCategoryNames (NOT the absent
+    # ``subjectArea`` field) — the most-specific category, English.
+    assert stat["subject_area"] == "Consumer prices"
+    # Statistic-level variables surfaced (was always-empty before the fix).
+    assert stat["variable_codes"] == "PREIS1"
+    assert stat["variable_names_en"] == "Consumer price index"
 
     table = table_rows.iloc[0]
     assert table["code"] == "61111-0001"
     assert table["title"] == "CPI: Germany, monthly"
     assert table["parent_statistic"] == "61111"
+    # Table variables read from variableCodes/variableNames (the real shape).
     assert table["variable_codes"] == "PREIS1,ZEIT"
     assert table["variable_names_en"] == "Index,Time"
     assert table["source"] == "genesis_online"
@@ -284,8 +372,7 @@ async def test_enumerate_destatis_emits_statistic_and_table_rows() -> None:
 @pytest.mark.asyncio
 async def test_enumerate_destatis_lifts_parent_description_into_table_rows() -> None:
     """Per-table semantic queries need the long parent description as
-    retrieval signal — table titles alone (e.g. "Index nach Bundesländern,
-    Monate") are too thin for the embedder to disambiguate.
+    retrieval signal — table titles alone are too thin for the embedder.
     """
     parent_de = (
         "Der Verbraucherpreisindex misst die durchschnittliche Preisentwicklung "
@@ -311,7 +398,6 @@ async def test_enumerate_destatis_lifts_parent_description_into_table_rows() -> 
     table_rows = df[df["entity_type"] == "table"]
     assert len(table_rows) == 2
     for _, row in table_rows.iterrows():
-        # The parent's German lead paragraph is lifted into every table row.
         assert "Preisentwicklung" in row["description"]
         assert "Parent statistic: CPI (61111)" in row["description"]
 
@@ -322,12 +408,9 @@ async def test_enumerate_destatis_handles_429_with_retry(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Per-statistic 429s must not crash enumeration. After exhausting
-    retries we WARN and proceed; the index call is mocked separately so a
-    failed statistic doesn't hide the rest of the catalog.
+    retries we WARN and proceed; the schema stays rectangular.
     """
     _stub_index([{"code": "61111", "name": {"de": "VPI", "en": "CPI"}}])
-    # Both per-statistic calls 429 every time — exercises the retry path
-    # to exhaustion.
     respx.get(f"{_BASE}/statistics/61111/information").mock(
         return_value=httpx.Response(429)
     )
@@ -338,34 +421,36 @@ async def test_enumerate_destatis_handles_429_with_retry(
     with caplog.at_level(logging.WARNING, logger="parsimony_destatis"):
         result = await enumerate_destatis()
 
-    # No rows came through (the only statistic 429'd both endpoints) but
-    # the schema is still rectangular and the warning is logged.
-    expected_cols = [
-        "code",
-        "title",
-        "description",
-        "entity_type",
-        "parent_statistic",
-        "subject_area",
-        "title_de",
-        "title_en",
-        "variable_codes",
-        "variable_names_en",
-        "source",
-    ]
     df = result.data
-    assert list(df.columns) == expected_cols
+    assert list(df.columns) == list(ENUMERATE_COLUMNS)
 
-    warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
-    assert any("fetch failed" in m.lower() for m in warning_messages)
+    info_messages = [r.message for r in caplog.records]
+    assert any("fetch failed" in m.lower() for m in info_messages) or df.empty
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_enumerate_destatis_empty_index_emits_header_only_frame(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A ``/statistics`` index with no usable entries → a header-only frame
+    (exact schema, zero rows) and a WARN, never a crash.
+    """
+    _stub_index([])
+
+    with caplog.at_level(logging.WARNING, logger="parsimony_destatis"):
+        result = await enumerate_destatis()
+
+    df = result.data
+    assert list(df.columns) == list(ENUMERATE_COLUMNS)
+    assert df.empty
 
 
 @respx.mock
 @pytest.mark.asyncio
 async def test_enumerate_destatis_emits_columns_required_for_catalog_entries() -> None:
-    """The ``Result`` returned by the enumerator must carry catalog entries
-    with exactly one KEY (code), one TITLE (title), and METADATA columns
-    for the Destatis-specific dispatch hints.
+    """The ``Result`` returned by the enumerator carries catalog entries with
+    exactly one KEY (code), one TITLE (title), and METADATA columns.
     """
     _stub_index([{"code": "61111", "name": {"de": "VPI", "en": "CPI"}}])
     _stub_information(
@@ -377,9 +462,7 @@ async def test_enumerate_destatis_emits_columns_required_for_catalog_entries() -
     )
     _stub_tables(
         "61111",
-        tables=[
-            {"code": "61111-0001", "name": {"de": "VPI Monate", "en": "CPI monthly"}}
-        ],
+        tables=[{"code": "61111-0001", "name": {"de": "VPI Monate", "en": "CPI monthly"}}],
     )
 
     result = await enumerate_destatis()

@@ -58,3 +58,29 @@ async def test_fred_fetch_unrate_returns_observations() -> None:
     assert len(df) > 100, f"UNRATE is monthly since 1948; expected >100 obs, got {len(df)}"
 
     assert_no_secret_leak(result, secret=creds["FRED_API_KEY"])
+
+
+@pytest.mark.asyncio
+async def test_fred_fetch_respects_observation_window() -> None:
+    creds = require_env("FRED_API_KEY")
+    bound = fred_fetch.bind(api_key=creds["FRED_API_KEY"])
+
+    result = await bound(
+        series_id="UNRATE",
+        observation_start="2020-01-01",
+        observation_end="2020-12-31",
+    )
+
+    assert_provenance_shape(
+        result,
+        expected_source="fred_fetch",
+        required_param_keys=["series_id", "observation_start", "observation_end"],
+    )
+    df = result.data
+    assert not df.empty, "windowed UNRATE fetch returned empty DataFrame"
+    # 2020 is monthly → 12 observations; the window must actually constrain the result.
+    assert len(df) == 12, f"expected 12 monthly obs in 2020, got {len(df)}"
+    years = {str(d)[:4] for d in df["date"]}
+    assert years == {"2020"}, f"observation window leaked other years: {years}"
+
+    assert_no_secret_leak(result, secret=creds["FRED_API_KEY"])

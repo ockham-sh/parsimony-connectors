@@ -9,14 +9,15 @@ import httpx
 import pandas as pd
 import pytest
 import respx
-from parsimony.errors import EmptyDataError, InvalidParameterError
+from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 from parsimony.result import Result
 
 from parsimony_bde import CONNECTORS
 from parsimony_bde.connectors.enumerate import enumerate_bde
 from parsimony_bde.connectors.fetch import bde_fetch
 from parsimony_bde.outputs import BDE_ENUMERATE_OUTPUT
-from parsimony_bde.params import BdeFetchParams
+
+_LISTA_SERIES_URL = "https://app.bde.es/bierest/resources/srdatosapp/listaSeries"
 
 _ENUMERATE_FRAME_COLUMNS = [
     "key",
@@ -59,50 +60,155 @@ def test_connectors_collection_exposes_expected_names() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _series_record(
+    serie: str = "D_1NBAF472",
+    *,
+    short_desc: str = "One-year Euribor",
+    dates: list[str] | None = None,
+    values: list[float | str] | None = None,
+) -> dict[str, object]:
+    """A minimal BdE ``listaSeries`` record matching the live JSON shape."""
+    return {
+        "serie": serie,
+        "descripcion": short_desc,
+        "descripcionCorta": short_desc,
+        "codFrecuencia": "M",
+        "decimales": 3,
+        "fechas": dates if dates is not None else ["2026-01-01T08:15:00Z", "2026-02-01T08:15:00Z"],
+        "valores": values if values is not None else [2.804, 2.747],
+    }
+
+
 @respx.mock
 @pytest.mark.asyncio
-async def test_bde_fetch_merges_single_series_response() -> None:
-    respx.get("https://app.bde.es/bierest/resources/srdatosapp/listaSeries").mock(
-        return_value=httpx.Response(
-            200,
-            json=[
-                {
-                    "serie": "D_1NBAF472",
-                    "descripcionCorta": "Price index",
-                    "codFrecuencia": "M",
-                    "fechas": ["2026-01", "2026-02"],
-                    "valores": ["108.4", "108.7"],
-                }
-            ],
-        )
-    )
+async def test_bde_fetch_parses_single_series_response() -> None:
+    respx.get(_LISTA_SERIES_URL).mock(return_value=httpx.Response(200, json=[_series_record()]))
 
     result = await bde_fetch(key="D_1NBAF472")
 
     assert result.provenance.source == "bde_fetch"
+    # Secrets/keyless: provenance records the call-time args verbatim.
+    assert result.provenance.params == {"key": "D_1NBAF472", "time_range": None, "lang": "en"}
     df = result.data
-    assert len(df) >= 1
+    assert list(df["key"].unique()) == ["D_1NBAF472"]
+    assert df["title"].iloc[0] == "One-year Euribor"
+    # The ISO timestamp is parsed to a real datetime (declared dtype="datetime").
+    assert df["date"].dtype.kind == "M"
+    assert df["date"].iloc[0] == pd.Timestamp("2026-01-01")
+    # Values coerce to the declared numeric dtype.
+    assert df["value"].dtype.kind == "f"
+    assert df["value"].iloc[0] == pytest.approx(2.804)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_bde_fetch_sends_one_request_for_comma_joined_keys() -> None:
+    """Multiple comma-separated codes go out in a SINGLE request (BdE supports
+    a comma-joined ``series`` param) — not one request per key."""
+    route = respx.get(_LISTA_SERIES_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json=[_series_record("D_1NBAF472"), _series_record("DTCCBCEUSDEUR.B", short_desc="USD/EUR")],
+        )
+    )
+
+    df = (await bde_fetch(key="D_1NBAF472, DTCCBCEUSDEUR.B")).data
+
+    assert len(route.calls) == 1
+    sent = route.calls.last.request
+    assert sent.url.params["series"] == "D_1NBAF472,DTCCBCEUSDEUR.B"
+    assert set(df["key"]) == {"D_1NBAF472", "DTCCBCEUSDEUR.B"}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_bde_fetch_passes_time_range_and_lang() -> None:
+    route = respx.get(_LISTA_SERIES_URL).mock(return_value=httpx.Response(200, json=[_series_record()]))
+
+    await bde_fetch(key="D_1NBAF472", time_range="30m", lang="es")
+
+    sent = route.calls.last.request
+    assert sent.url.params["idioma"] == "es"
+    # Lowercase keyword is normalised to canonical uppercase.
+    assert sent.url.params["rango"] == "30M"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_bde_fetch_omits_rango_when_no_time_range() -> None:
+    route = respx.get(_LISTA_SERIES_URL).mock(return_value=httpx.Response(200, json=[_series_record()]))
+
+    await bde_fetch(key="D_1NBAF472")
+
+    # fetch_json drops None-valued params, so no full-range default leaks out.
+    assert "rango" not in route.calls.last.request.url.params
 
 
 @respx.mock
 @pytest.mark.asyncio
 async def test_bde_fetch_raises_empty_data_on_empty_list() -> None:
-    respx.get("https://app.bde.es/bierest/resources/srdatosapp/listaSeries").mock(
-        return_value=httpx.Response(200, json=[])
+    respx.get(_LISTA_SERIES_URL).mock(return_value=httpx.Response(200, json=[]))
+
+    with pytest.raises(EmptyDataError) as exc:
+        await bde_fetch(key="XX")
+    assert exc.value.query_params == {"key": "XX", "time_range": None, "lang": "en"}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_bde_fetch_raises_empty_data_when_series_has_no_observations() -> None:
+    respx.get(_LISTA_SERIES_URL).mock(
+        return_value=httpx.Response(200, json=[_series_record(dates=[], values=[])])
     )
 
     with pytest.raises(EmptyDataError):
-        await bde_fetch(key="XX")
+        await bde_fetch(key="D_1NBAF472")
 
 
-def test_fetch_rejects_invalid_time_range() -> None:
+@respx.mock
+@pytest.mark.asyncio
+async def test_bde_fetch_raises_parse_error_on_non_list_shape() -> None:
+    # HTTP 200 but a JSON object, not the expected list -> ParseError (§5.8).
+    respx.get(_LISTA_SERIES_URL).mock(return_value=httpx.Response(200, json={"errNum": 412}))
+
+    with pytest.raises(ParseError):
+        await bde_fetch(key="D_1NBAF472")
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_bde_fetch_maps_http_error_to_provider_error() -> None:
+    from parsimony.errors import ProviderError
+
+    # BdE returns 412 for a validation error (e.g. unknown series); the canonical
+    # "other 4xx" mapping surfaces it as ProviderError(412).
+    respx.get(_LISTA_SERIES_URL).mock(return_value=httpx.Response(412, json={"errNum": 412}))
+
+    with pytest.raises(ProviderError) as exc:
+        await bde_fetch(key="NOPE")
+    assert exc.value.status_code == 412
+
+
+@pytest.mark.asyncio
+async def test_bde_fetch_rejects_invalid_time_range() -> None:
     with pytest.raises(InvalidParameterError, match="time_range"):
-        BdeFetchParams(key="X", time_range="3M")
+        await bde_fetch(key="D_1NBAF472", time_range="3M")
 
 
-def test_fetch_rejects_empty_key() -> None:
+@pytest.mark.asyncio
+async def test_bde_fetch_rejects_empty_key() -> None:
     with pytest.raises(InvalidParameterError):
-        BdeFetchParams(key="  ")
+        await bde_fetch(key="  ")
+
+
+@pytest.mark.asyncio
+async def test_bde_fetch_rejects_unknown_lang() -> None:
+    with pytest.raises(InvalidParameterError):
+        await bde_fetch(key="D_1NBAF472", lang="fr")
+
+
+def test_bde_fetch_namespace_hint() -> None:
+    assert dict(bde_fetch.namespace_hints) == {"key": "bde"}
 
 
 # ---------------------------------------------------------------------------

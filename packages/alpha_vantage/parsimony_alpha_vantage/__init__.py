@@ -5,6 +5,6 @@ API docs: https://www.alphavantage.co/documentation/
 
 from __future__ import annotations
 
-from parsimony_alpha_vantage.connectors import CONNECTORS
+from parsimony_alpha_vantage.connectors import CONNECTORS, load
 
-__all__ = ["CONNECTORS"]
+__all__ = ["CONNECTORS", "load"]

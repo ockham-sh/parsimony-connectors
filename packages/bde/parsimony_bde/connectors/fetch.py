@@ -1,4 +1,10 @@
-"""BdE series fetch connector."""
+"""BdE series fetch connector.
+
+Banco de España BIEST is a **keyless** public JSON API — no api_key, no
+``secrets=``/``bind()``/``load()``, no ``UnauthorizedError``. The
+``listaSeries`` endpoint returns long-format JSON (``fechas``/``valores``
+parallel arrays) which we reshape into one row per (series, observation).
+"""
 
 from __future__ import annotations
 
@@ -6,24 +12,43 @@ import contextlib
 from datetime import datetime
 from typing import Annotated, Any
 
-import httpx
 import pandas as pd
 from parsimony.connector import connector
-from parsimony.errors import EmptyDataError
-from parsimony.transport import map_http_error
+from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
+from parsimony.transport.helpers import fetch_json, make_http_client
 
 from parsimony_bde._http import BASE_URL
 from parsimony_bde.outputs import BDE_FETCH_OUTPUT
-from parsimony_bde.params import BdeFetchParams
+
+_VALID_RANGES = frozenset({"30M", "60M", "MAX"})
+_VALID_LANGS = frozenset({"en", "es"})
+
+
+def _validate_time_range(time_range: str | None) -> str | None:
+    """Normalise and validate the ``time_range`` argument.
+
+    Accepts ``30M``/``60M``/``MAX`` (case-insensitive) or a 4-digit year.
+    Returns the validated value, or ``None`` for the default full range.
+    """
+    if time_range is None:
+        return None
+    value = time_range.strip()
+    if not value:
+        return None
+    if value.upper() in _VALID_RANGES:
+        return value.upper()
+    if value.isdigit():
+        return value
+    raise InvalidParameterError("bde", f"Invalid time_range '{time_range}'. Use 30M, 60M, MAX, or a year (e.g. 2024).")
 
 
 def _parse_bde_response(json_data: list[dict[str, Any]]) -> pd.DataFrame:
-    """Parse BdE JSON response into a long-format DataFrame."""
+    """Parse BdE long-format JSON into a flat ``key,title,date,value`` frame."""
     all_rows: list[dict[str, Any]] = []
 
     for series in json_data:
         key = series.get("serie", "")
-        title = series.get("descripcionCorta", series.get("descripcion", key))
+        title = series.get("descripcionCorta") or series.get("descripcion") or key
         dates = series.get("fechas", [])
         values = series.get("valores", [])
 
@@ -41,16 +66,11 @@ def _parse_bde_response(json_data: list[dict[str, Any]]) -> pd.DataFrame:
                 with contextlib.suppress(ValueError):
                     date_val = datetime.strptime(date_str[:10], "%Y-%m-%d").strftime("%Y-%m-%d")
 
-            all_rows.append(
-                {
-                    "key": key,
-                    "title": title,
-                    "date": date_val,
-                    "value": value,
-                }
-            )
+            all_rows.append({"key": key, "title": title, "date": date_val, "value": value})
 
-    return pd.DataFrame(all_rows) if all_rows else pd.DataFrame(columns=["key", "title", "date", "value"])
+    if not all_rows:
+        return pd.DataFrame(columns=["key", "title", "date", "value"])
+    return pd.DataFrame(all_rows)
 
 
 @connector(output=BDE_FETCH_OUTPUT, tags=["macro", "es"])
@@ -59,36 +79,50 @@ async def bde_fetch(
     time_range: str | None = None,
     lang: str = "en",
 ) -> pd.DataFrame:
-    """Fetch Banco de España time series by series code(s)."""
-    params = BdeFetchParams(key=key, time_range=time_range, lang=lang)
-    url = f"{BASE_URL}/listaSeries"
+    """Fetch Banco de España time series by series code(s).
 
-    keys = [k.strip() for k in params.key.split(",") if k.strip()]
-    json_data: list[dict[str, Any]] = []
+    ``key`` is one or more comma-separated BdE series codes (e.g.
+    ``D_1NBAF472`` or ``D_1NBAF472,DTCCBCEUSDEUR.B``); all codes are fetched in
+    a single request. ``time_range`` accepts ``30M``/``60M``/``MAX`` or a year
+    (e.g. ``2024``); ``None`` returns the full available range. ``lang`` selects
+    the title/description language (``en`` or ``es``). Returns one row per
+    observation with ``key``, ``title``, ``date``, ``value``.
+    """
+    keys = [k.strip() for k in key.split(",") if k.strip()]
+    if not keys:
+        raise InvalidParameterError("bde", "At least one series code required")
+    if lang not in _VALID_LANGS:
+        raise InvalidParameterError("bde", "lang must be 'en' or 'es'")
+    resolved_range = _validate_time_range(time_range)
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        for series_key in keys:
-            req_params: dict[str, str] = {
-                "idioma": params.lang,
-                "series": series_key,
-            }
-            if params.time_range is not None:
-                req_params["rango"] = str(params.time_range)
+    req_params: dict[str, Any] = {
+        "idioma": lang,
+        "series": ",".join(keys),
+        "rango": resolved_range,
+    }
+    body = await fetch_json(
+        make_http_client(BASE_URL, timeout=60.0),
+        path="listaSeries",
+        params=req_params,
+        provider="bde",
+        op_name="series",
+    )
 
-            response = await client.get(url, params=req_params)
-            try:
-                response.raise_for_status()
-            except httpx.HTTPStatusError as exc:
-                map_http_error(exc, provider="bde", op_name="series")
-            data = response.json()
-            if isinstance(data, list):
-                json_data.extend(data)
+    if not isinstance(body, list):
+        raise ParseError("bde", f"unexpected response shape for series: {','.join(keys)}")
+    if not body:
+        raise EmptyDataError(
+            "bde",
+            message=f"BdE returned no series for: {','.join(keys)}",
+            query_params={"key": key, "time_range": time_range, "lang": lang},
+        )
 
-    if not isinstance(json_data, list) or not json_data:
-        raise EmptyDataError(provider="bde", message=f"BdE returned empty or invalid response for: {params.key}")
-
-    df = _parse_bde_response(json_data)
+    df = _parse_bde_response(body)
     if df.empty:
-        raise EmptyDataError(provider="bde", message=f"No observations parsed for: {params.key}")
+        raise EmptyDataError(
+            "bde",
+            message=f"No observations parsed for: {','.join(keys)}",
+            query_params={"key": key, "time_range": time_range, "lang": lang},
+        )
 
     return df

@@ -1,10 +1,15 @@
 """Banque de France (BdF): fetch + catalog enumeration.
 
 API base: ``https://webstat.banque-france.fr/api/explore/v2.1/catalog/datasets``
-(Webstat Opendatasoft public API). Requires a free API key via the
-``BANQUEDEFRANCE_KEY`` environment variable, sent in the
-``Authorization: Apikey <KEY>`` header (literal word ``Apikey`` — *not*
-``Bearer``). Register at https://developer.webstat.banque-france.fr/.
+(Webstat Opendatasoft public API). Requires a free API key supplied via the
+``BDF_API_KEY`` environment variable (or bound with ``load(api_key=...)`` /
+``Connector.bind``), sent in the ``Authorization: Apikey <KEY>`` header (literal
+word ``Apikey`` — *not* ``Bearer``). Register at
+https://developer.webstat.banque-france.fr/.
+
+The key is declared as a secret (stripped from provenance) and rides the
+``Authorization`` header (never a query param, so it stays out of request logs).
+A missing key fails fast with :class:`UnauthorizedError` naming the env var.
 
 The catalog enumerator is series-grained — every individual time series
 across BdF's 45 datasets (~41,607 series total) is published as its own
@@ -32,29 +37,38 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from typing import Annotated, Any, cast
 
 import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError, InvalidParameterError
+from parsimony.errors import (
+    EmptyDataError,
+    InvalidParameterError,
+    ParseError,
+    UnauthorizedError,
+)
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
 )
-from parsimony.transport import map_http_error
+from parsimony.transport import HttpClient
+from parsimony.transport.helpers import fetch_json, make_http_client
 from parsimony_shared.cb_enumerate import (
     MetadataCrawlConfig,
     ThrottledJsonFetcher,
     enumerate_descriptions,
     truncate_description,
 )
-from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
+__all__ = ["CONNECTORS", "load"]
+
 _BASE_URL = "https://webstat.banque-france.fr/api/explore/v2.1/catalog/datasets"
+_ENV_VAR = "BDF_API_KEY"
 
 # Conservative throttling. The Opendatasoft endpoint is rate-limited
 # globally at 10K requests/day and per-IP at a modest QPS; concurrency=4
@@ -68,43 +82,48 @@ _HTTP_TIMEOUT = httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0)
 
 
 # ---------------------------------------------------------------------------
-# Parameter models
+# Transport
 # ---------------------------------------------------------------------------
 
 
-class BdfFetchParams(BaseModel):
-    """Parameters for fetching Banque de France time series."""
+def _resolve_key(api_key: str) -> str:
+    """Resolve the API key (arg → env fallback); fast-fail before any network call.
 
-    key: Annotated[str, "ns:bdf"] = Field(
-        ...,
-        description=(
-            "Dot-separated SDMX series key as published by BdF Webstat "
-            "(e.g. EXR.D.USD.EUR.SP00.A or ICP.M.FR.N.000000.4.ANR). "
-            "Discover keys via bdf_search or enumerate_bdf."
-        ),
+    A missing key raises :class:`UnauthorizedError` naming the env var so the
+    agent gets the exact variable to export. ``env_var`` is keyword-only.
+    """
+    key = api_key or os.environ.get(_ENV_VAR, "")
+    if not key:
+        raise UnauthorizedError("bdf", env_var=_ENV_VAR)
+    return key
+
+
+def _auth_headers(api_key: str) -> dict[str, str]:
+    """Build the BdF Webstat Opendatasoft auth + transport headers.
+
+    Note the literal ``Apikey`` token (not ``Bearer``) — Opendatasoft's
+    auth scheme is non-standard. The key rides the ``Authorization`` header,
+    never a query param, so it never reaches the (query-only) request log.
+    """
+    return {
+        "Authorization": f"Apikey {api_key}",
+        "Accept": "application/json",
+        "User-Agent": "parsimony-bdf/0.7",
+    }
+
+
+def _client(api_key: str) -> HttpClient:
+    """Resolve the key (arg → env fallback) and build the BdF HTTP client.
+
+    Auth is via the ``Authorization: Apikey <key>`` header (header auth → the
+    key never reaches the query log). Fast-fails before any network call.
+    """
+    key = _resolve_key(api_key)
+    return make_http_client(
+        _BASE_URL,
+        headers=_auth_headers(key),
+        timeout=120.0,
     )
-    start_period: str | None = Field(
-        default=None,
-        description="Start period (YYYY-MM-DD); filters time_period_start.",
-    )
-    end_period: str | None = Field(
-        default=None,
-        description="End period (YYYY-MM-DD); filters time_period_start.",
-    )
-
-    @field_validator("key")
-    @classmethod
-    def _non_empty(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise InvalidParameterError("bdf", "key must be non-empty")
-        return v
-
-
-class BdfEnumerateParams(BaseModel):
-    """No parameters needed — enumerates BdF datasets and series."""
-
-    pass
 
 
 # ---------------------------------------------------------------------------
@@ -149,42 +168,13 @@ BDF_FETCH_OUTPUT = OutputConfig(
 )
 
 
-_ENUMERATE_COLUMNS: tuple[str, ...] = (
-    "code",
-    "title",
-    "description",
-    "entity_type",
-    "dataset_id",
-    "dataset_description",
-    "series_key",
-    "title_fr",
-    "title_long_en",
-    "title_long_fr",
-    "frequency",
-    "ref_area",
-    "first_time_period",
-    "last_time_period",
-    "source_agency",
-    "dimensions_json",
-)
+_ENUMERATE_COLUMNS: tuple[str, ...] = tuple(c.name for c in BDF_ENUMERATE_OUTPUT.columns)
+_FETCH_COLUMNS: tuple[str, ...] = tuple(c.name for c in BDF_FETCH_OUTPUT.columns)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _auth_headers(api_key: str) -> dict[str, str]:
-    """Build the BdF Webstat Opendatasoft auth + transport headers.
-
-    Note the literal ``Apikey`` token (not ``Bearer``) — Opendatasoft's
-    auth scheme is non-standard.
-    """
-    return {
-        "Authorization": f"Apikey {api_key}",
-        "Accept": "application/json",
-        "User-Agent": "parsimony-bdf/0.1",
-    }
 
 
 def _parse_dimensions(raw: str | None) -> dict[str, Any]:
@@ -282,55 +272,51 @@ def _series_description(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=BDF_FETCH_OUTPUT, tags=["macro", "fr"], secrets=('api_key',))
+@connector(output=BDF_FETCH_OUTPUT, tags=["macro", "fr"], secrets=("api_key",))
 async def bdf_fetch(
     key: Annotated[str, "ns:bdf"],
     start_period: str | None = None,
     end_period: str | None = None,
-    *,
-    api_key: str,
+    api_key: str = "",
 ) -> pd.DataFrame:
     """Fetch Banque de France time series via the Webstat Opendatasoft API.
 
-    Pulls observation rows for a single series key and returns
-    ``(key, title, date, value)`` rows. Optional ``start_period`` /
-    ``end_period`` filter on ``time_period_start``.
+    Pulls observation rows for a single dot-separated SDMX series ``key`` (e.g.
+    ``EXR.M.USD.EUR.SP00.E``) and returns ``(key, title, date, value)`` rows.
+    Optional ``start_period`` / ``end_period`` (YYYY-MM-DD) filter on
+    ``time_period_start``. Discover keys via ``bdf_search`` or ``enumerate_bdf``.
     """
-    params = BdfFetchParams(key=key, start_period=start_period, end_period=end_period)
-    headers = _auth_headers(api_key)
-    where = f'series_key="{params.key}"'
-    if params.start_period:
-        where += f" and time_period_start>=date'{params.start_period}'"
-    if params.end_period:
-        where += f" and time_period_start<=date'{params.end_period}'"
+    series_key = key.strip()
+    if not series_key:
+        raise InvalidParameterError("bdf", "key must be non-empty")
 
-    req_params: dict[str, str] = {
-        "select": (
-            "series_key,title_en,title_fr,time_period,"
-            "time_period_start,time_period_end,obs_value,obs_status"
-        ),
-        "where": where,
-        "order_by": "time_period_start",
-    }
+    http = _client(api_key)
 
-    url = f"{_BASE_URL}/observations/exports/json"
+    where = f'series_key="{series_key}"'
+    if start_period:
+        where += f" and time_period_start>=date'{start_period}'"
+    if end_period:
+        where += f" and time_period_start<=date'{end_period}'"
 
-    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT, headers=headers) as client:
-        response = await client.get(url, params=req_params)
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            map_http_error(exc, provider="bdf", op_name="observations")
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise EmptyDataError(
-                provider="bdf",
-                message=f"BdF returned non-JSON body for key={params.key}: {exc}",
-            ) from exc
+    payload = await fetch_json(
+        http,
+        path="observations/exports/json",
+        params={
+            "select": (
+                "series_key,title_en,title_fr,time_period,"
+                "time_period_start,time_period_end,obs_value,obs_status"
+            ),
+            "where": where,
+            "order_by": "time_period_start",
+        },
+        provider="bdf",
+        op_name="observations",
+    )
 
-    if not isinstance(payload, list) or not payload:
-        raise EmptyDataError(provider="bdf", message=f"No data returned for key: {params.key}")
+    if not isinstance(payload, list):
+        raise ParseError("bdf", f"unexpected response shape for key: {series_key}")
+    if not payload:
+        raise EmptyDataError("bdf", query_params={"key": series_key})
 
     rows: list[dict[str, Any]] = []
     for row in payload:
@@ -348,11 +334,11 @@ async def bdf_fetch(
             row.get("title_en")
             or row.get("title_fr")
             or row.get("series_key")
-            or params.key
+            or series_key
         )
         rows.append(
             {
-                "key": str(row.get("series_key") or params.key),
+                "key": str(row.get("series_key") or series_key),
                 "title": str(title),
                 "date": str(date_str),
                 "value": value,
@@ -360,12 +346,9 @@ async def bdf_fetch(
         )
 
     if not rows:
-        raise EmptyDataError(
-            provider="bdf",
-            message=f"No observations parsed for key: {params.key}",
-        )
+        raise EmptyDataError("bdf", query_params={"key": series_key})
 
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=list(_FETCH_COLUMNS))
 
 
 # ---------------------------------------------------------------------------
@@ -376,7 +359,13 @@ async def bdf_fetch(
 async def _list_datasets(
     fetcher: ThrottledJsonFetcher,
 ) -> list[dict[str, Any]]:
-    """Return every BdF dataset (45 entries) in a single request."""
+    """Return every BdF dataset (45 entries) in a single request.
+
+    This is the enumerate crawl seam: tests bound the fan-out by
+    monkeypatching this function to return a small dataset slice, so only a
+    handful of per-dataset series requests fire (never the full ~46-request,
+    ~41K-row build).
+    """
     url = f"{_BASE_URL}/webstat-datasets/exports/json"
     params = {
         "select": (
@@ -516,21 +505,22 @@ def _emit_rows_for_dataset(
     return rows
 
 
-@enumerator(output=BDF_ENUMERATE_OUTPUT, tags=["macro", "fr"], secrets=('api_key',))
-async def enumerate_bdf(*, api_key: str) -> pd.DataFrame:
+@enumerator(output=BDF_ENUMERATE_OUTPUT, tags=["macro", "fr"], secrets=("api_key",))
+async def enumerate_bdf(*, api_key: str = "") -> pd.DataFrame:
     """Enumerate every BdF series with parent dataset context.
 
     Pull dataset list, then per-dataset series exports; emit dataset stubs
     and series rows. Concurrency capped at 4 with backoff on 429/5xx; failed
     datasets log WARNING and skip series rows. About 46 requests total.
     """
+    key = _resolve_key(api_key)
 
     rows: list[dict[str, str]] = []
     failed_datasets: list[str] = []
 
     async with httpx.AsyncClient(
         timeout=_HTTP_TIMEOUT,
-        headers=_auth_headers(api_key),
+        headers=_auth_headers(key),
         follow_redirects=True,
     ) as client:
         fetcher = ThrottledJsonFetcher(client, provider="bdf", config=_METADATA_CRAWL, logger=logger)
@@ -566,8 +556,7 @@ async def enumerate_bdf(*, api_key: str) -> pd.DataFrame:
         logger.info("BdF enumerate: emitted %d rows", len(rows))
 
     columns = list(_ENUMERATE_COLUMNS)
-    df = pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
-    return df
+    return pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
 
 
 # ---------------------------------------------------------------------------
@@ -578,4 +567,7 @@ from parsimony_bdf.search import bdf_search  # noqa: E402  (after public decorat
 
 CONNECTORS = Connectors([bdf_fetch, enumerate_bdf, bdf_search])
 
-__all__ = ["CONNECTORS"]
+
+def load(*, api_key: str) -> Connectors:
+    """Return :data:`CONNECTORS` with ``api_key`` bound on every connector that accepts it."""
+    return CONNECTORS.bind(api_key=api_key)

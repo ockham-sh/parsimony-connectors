@@ -4,90 +4,52 @@ Exports:
 
 * :data:`CONNECTORS` — the :class:`parsimony.Connectors` collection exposed
   via the ``parsimony.providers`` entry point. Includes ``fred_search``
-  (tool-tagged for MCP) and ``fred_fetch``.
+  (tool-tagged for agent use) and ``fred_fetch``.
+* :func:`load` — convenience that binds an ``api_key`` across the collection.
+
+The API key is declared as a secret (stripped from provenance) and supplied
+either by binding (``load(api_key=...)`` / ``Connector.bind``) or, as a dev
+fallback, from the ``FRED_API_KEY`` environment variable. A missing key
+fails fast with :class:`UnauthorizedError` naming the env var.
 """
 
 from __future__ import annotations
 
 import os
-from typing import Annotated, Any
+from typing import Annotated
 
-import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector
-from parsimony.errors import EmptyDataError, InvalidParameterError, UnauthorizedError
-from parsimony.result import (
-    Column,
-    ColumnRole,
-    OutputConfig,
+from parsimony.errors import (
+    EmptyDataError,
+    InvalidParameterError,
+    ParseError,
+    UnauthorizedError,
 )
-from parsimony.transport import HttpClient, map_http_error
-from pydantic import BaseModel, Field, field_validator
+from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.transport import HttpClient
+from parsimony.transport.helpers import fetch_json, make_http_client
 
 __all__ = ["CONNECTORS", "load"]
 
-# ---------------------------------------------------------------------------
-# Parameter models
-# ---------------------------------------------------------------------------
-
-
-class FredSearchParams(BaseModel):
-    """Parameters for FRED keyword search."""
-
-    search_text: str = Field(..., min_length=1, description="Search query")
-
-
-class FredFetchParams(BaseModel):
-    """Parameters for fetching FRED time series observations."""
-
-    series_id: Annotated[str, "ns:fred"] = Field(..., description="FRED series identifier (e.g. GDPC1, UNRATE)")
-    observation_start: str | None = Field(default=None, description="Start date (YYYY-MM-DD)")
-    observation_end: str | None = Field(default=None, description="End date (YYYY-MM-DD)")
-
-    @field_validator("series_id")
-    @classmethod
-    def _non_empty(cls, value: str) -> str:
-        stripped = str(value).strip()
-        if not stripped:
-            raise InvalidParameterError("fred", "series_id must be non-empty")
-        return stripped
-
+_BASE_URL = "https://api.stlouisfed.org/fred"
+_ENV_VAR = "FRED_API_KEY"
 
 # ---------------------------------------------------------------------------
-# Output configs
+# Output schemas
 # ---------------------------------------------------------------------------
-
-_FRED_IDENTITY_METADATA: list[Column] = [
-    Column(
-        name="series_id",
-        role=ColumnRole.KEY,
-        param_key="series_id",
-        namespace="fred",
-    ),
-    Column(name="title", role=ColumnRole.TITLE),
-    Column(name="units_short", role=ColumnRole.METADATA),
-    Column(name="frequency_short", role=ColumnRole.METADATA),
-    Column(name="seasonal_adjustment_short", role=ColumnRole.METADATA),
-]
 
 FETCH_OUTPUT = OutputConfig(
     columns=[
-        *_FRED_IDENTITY_METADATA,
+        Column(name="series_id", role=ColumnRole.KEY, namespace="fred"),
+        Column(name="title", role=ColumnRole.TITLE),
+        Column(name="units_short", role=ColumnRole.METADATA),
+        Column(name="frequency_short", role=ColumnRole.METADATA),
+        Column(name="seasonal_adjustment_short", role=ColumnRole.METADATA),
         Column(name="date", dtype="datetime", role=ColumnRole.DATA),
         Column(name="value", dtype="numeric", role=ColumnRole.DATA),
     ]
 )
-
-SEARCH_COLUMNS = [
-    "id",
-    "title",
-    "units",
-    "frequency_short",
-    "seasonal_adjustment_short",
-    "observation_start",
-    "observation_end",
-    "last_updated",
-]
 
 SEARCH_OUTPUT = OutputConfig(
     columns=[
@@ -102,19 +64,25 @@ SEARCH_OUTPUT = OutputConfig(
     ]
 )
 
-
-def _make_http(api_key: str) -> HttpClient:
-    return HttpClient(
-        "https://api.stlouisfed.org/fred",
-        query_params={"api_key": api_key, "file_type": "json"},
-    )
+_SEARCH_COLUMNS = [c.name for c in SEARCH_OUTPUT.columns]
 
 
-def _resolve_api_key(api_key: str) -> str:
-    key = api_key or os.environ.get("FRED_API_KEY", "")
+# ---------------------------------------------------------------------------
+# Transport
+# ---------------------------------------------------------------------------
+
+
+def _client(api_key: str) -> HttpClient:
+    """Resolve the API key (arg → env fallback) and build a FRED HTTP client.
+
+    The key and ``file_type=json`` are set as default query params on every
+    request; the transport layer redacts the key from logs. A missing key
+    raises :class:`UnauthorizedError` before any network call.
+    """
+    key = api_key or os.environ.get(_ENV_VAR, "")
     if not key:
-        raise UnauthorizedError("fred", env_var="FRED_API_KEY")
-    return key
+        raise UnauthorizedError("fred", env_var=_ENV_VAR)
+    return make_http_client(_BASE_URL, query_params={"api_key": key, "file_type": "json"})
 
 
 # ---------------------------------------------------------------------------
@@ -122,84 +90,90 @@ def _resolve_api_key(api_key: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-@connector(output=SEARCH_OUTPUT, tags=["macro", "tool"], secrets=('api_key',))
+@connector(output=SEARCH_OUTPUT, tags=["macro", "tool"], secrets=("api_key",))
 async def fred_search(search_text: str, api_key: str = "") -> pd.DataFrame:
     """Keyword search for FRED economic time series.
 
-    Returns series metadata (id, title, units, frequency).
-    Use short, specific queries like 'US unemployment rate' or 'GDPC1'.
+    Returns series metadata (id, title, units, frequency). Use short,
+    specific queries like 'US unemployment rate' or 'GDPC1'.
     """
-    params = FredSearchParams(search_text=search_text)
-    http = _make_http(_resolve_api_key(api_key))
-    response = await http.request(
-        "GET",
-        "/series/search",
-        params={"search_text": params.search_text},
+    query = search_text.strip()
+    if not query:
+        raise InvalidParameterError("fred", "search_text must be non-empty")
+
+    http = _client(api_key)
+    body = await fetch_json(
+        http,
+        path="series/search",
+        params={"search_text": query},
+        provider="fred",
+        op_name="series/search",
     )
-    try:
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider="fred", op_name="series/search")
-    seriess = response.json().get("seriess", [])
+
+    seriess = body.get("seriess") or []
     if not seriess:
-        raise EmptyDataError(provider="fred", message=f"No series found for: {params.search_text}")
+        raise EmptyDataError("fred", query_params={"search_text": query})
+
     df = pd.DataFrame(seriess)
-    cols = [c for c in SEARCH_COLUMNS if c in df.columns]
+    cols = [c for c in _SEARCH_COLUMNS if c in df.columns]
     return df[cols]
 
 
-@connector(output=FETCH_OUTPUT, tags=["macro"], secrets=('api_key',))
+@connector(output=FETCH_OUTPUT, tags=["macro"], secrets=("api_key",))
 async def fred_fetch(
     series_id: Annotated[str, "ns:fred"],
     observation_start: str | None = None,
     observation_end: str | None = None,
     api_key: str = "",
-) -> Any:
+) -> pd.DataFrame:
     """Fetch FRED time series observations by series_id.
 
-    Returns date + value columns with rich metadata (title, units, frequency, seasonal adjustment).
+    Returns date + value rows enriched with series metadata (title, units,
+    frequency, seasonal adjustment). Optional observation_start/observation_end
+    bound the window (YYYY-MM-DD).
     """
-    params = FredFetchParams(
-        series_id=series_id,
-        observation_start=observation_start,
-        observation_end=observation_end,
+    sid = series_id.strip()
+    if not sid:
+        raise InvalidParameterError("fred", "series_id must be non-empty")
+
+    http = _client(api_key)
+    obs_body = await fetch_json(
+        http,
+        path="series/observations",
+        params={
+            "series_id": sid,
+            "observation_start": observation_start,
+            "observation_end": observation_end,
+        },
+        provider="fred",
+        op_name="series/observations",
     )
-    http = _make_http(_resolve_api_key(api_key))
-    series_id = params.series_id
 
-    req_params: dict[str, Any] = {"series_id": series_id}
-    if params.observation_start is not None:
-        req_params["observation_start"] = params.observation_start
-    if params.observation_end is not None:
-        req_params["observation_end"] = params.observation_end
+    observations = obs_body.get("observations")
+    if observations is None:
+        raise ParseError("fred", "FRED response missing 'observations'")
+    if not observations:
+        raise EmptyDataError("fred", query_params={"series_id": sid})
 
-    obs_response = await http.request("GET", "/series/observations", params=req_params)
-    try:
-        obs_response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider="fred", op_name="series/observations")
-    obs_data = obs_response.json()["observations"]
+    meta_body = await fetch_json(
+        http,
+        path="series",
+        params={"series_id": sid},
+        provider="fred",
+        op_name="series",
+    )
+    seriess = meta_body.get("seriess") or []
+    meta = seriess[0] if seriess else {}
 
-    series_response = await http.request("GET", "/series", params={"series_id": series_id})
-    try:
-        series_response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider="fred", op_name="series")
-    series_data = series_response.json()["seriess"][0]
-
-    df = pd.DataFrame(obs_data)
-    df["series_id"] = series_id
-    df["title"] = str(series_data.get("title", ""))
-    df["units_short"] = series_data.get("units_short")
-    df["frequency_short"] = series_data.get("frequency_short")
-    df["seasonal_adjustment_short"] = series_data.get("seasonal_adjustment_short")
-
-    df["series_url"] = f"https://fred.stlouisfed.org/series/{series_id}"
-    if "units" in series_data:
-        df["units"] = str(series_data["units"])
-    if "notes" in series_data:
-        df["notes"] = str(series_data["notes"])
-    return df
+    df = pd.DataFrame(observations)
+    df["series_id"] = sid
+    df["title"] = str(meta.get("title", ""))
+    df["units_short"] = meta.get("units_short")
+    df["frequency_short"] = meta.get("frequency_short")
+    df["seasonal_adjustment_short"] = meta.get("seasonal_adjustment_short")
+    # Return only the declared schema columns — FRED observation rows also carry
+    # realtime_start/realtime_end, which would otherwise be folded in as stray DATA.
+    return df[[c.name for c in FETCH_OUTPUT.columns]]
 
 
 CONNECTORS = Connectors([fred_search, fred_fetch])

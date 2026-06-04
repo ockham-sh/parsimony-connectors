@@ -49,7 +49,10 @@ async def test_fmp_screener_joins_screener_and_enrichment() -> None:
     bound = fmp_screener.bind(api_key=_KEY)
     result = await bound(sector="Technology")
 
-    assert result.provenance.source.startswith("fmp")
+    assert result.provenance.source == "fmp_screener"
+    # Theme-B: bound key stripped from provenance.
+    assert _KEY not in str(result.provenance.params)
+    assert "api_key" not in result.provenance.params
     df = result.data
     assert len(df) == 1
     assert df.iloc[0]["symbol"] == "AAPL"

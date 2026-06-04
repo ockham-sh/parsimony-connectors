@@ -30,15 +30,15 @@ dependencies = [
     # discontinued b3/c9/e4-e7/f16 histories). Pure-Python, tiny.
     "openpyxl>=3.1.5",
     "xlrd>=2.0.2",
+    # curl_cffi is a HARD dependency: RBA fronts its CDN with Akamai
+    # bot-mitigation that 403s stock httpx TLS fingerprints. The connector
+    # impersonates Chrome via curl_cffi; without it every live request fails.
+    "curl_cffi>=0.7,<1",
 ]
 
 [project.optional-dependencies]
-# curl_cffi is a runtime *recommendation* — RBA fronts its CDN with
-# Akamai bot-mitigation that blocks stock python-httpx TLS fingerprints.
-# With curl_cffi installed, _http_get impersonates Chrome and succeeds;
-# without it, the enumerator falls back to httpx (which works under
-# respx mocks in tests but typically 403s in production against the
-# live RBA origin). Optional so the test suite can mock httpx.
+# curl_cffi moved to the hard dependency list above — the Akamai TLS
+# fingerprint block makes it required, not optional, for any real request.
 recommended = []
 dev = [
     "pytest>=9.0.3",

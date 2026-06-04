@@ -1,8 +1,14 @@
 """Bank of Japan (BoJ): fetch + catalog enumeration.
 
 API manual: https://www.stat-search.boj.or.jp/info/api_manual_en.pdf
-No authentication required. Max 250 codes per request.
+No authentication required (keyless public JSON API). Max 250 codes per
+request.
 
+``boj_fetch`` uses the canonical ``make_http_client`` + ``fetch_json`` transport
+(GET + raise_for_status + map_http_error + map_timeout_error + JSON parse +
+None-param drop in one call). The enumerator keeps the shared
+``ThrottledJsonFetcher`` for the Akamai-aware metadata crawl — the re-base of
+``_shared`` onto core transport is a separate cross-cutting step.
 """
 
 from __future__ import annotations
@@ -14,24 +20,26 @@ from typing import Annotated, Any, cast
 import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError, InvalidParameterError
+from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 from parsimony.result import (
     Column,
     ColumnRole,
     OutputConfig,
 )
-from parsimony.transport import map_http_error
+from parsimony.transport.helpers import fetch_json, make_http_client
 from parsimony_shared.cb_enumerate import MetadataCrawlConfig, ThrottledJsonFetcher
-from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://www.stat-search.boj.or.jp/api/v1"
+_MAX_CODES = 250
 
-# BoJ's stat_search endpoints sit behind Akamai, which blocks both the
+# BoJ's stat_search endpoints sit behind Akamai, which can block both the
 # default httpx User-Agent and high-concurrency fan-outs. Empirically a
-# concurrency cap of 2, a small inter-request delay, and a browser UA
-# are enough to keep enumeration stable; higher concurrency triggers 403s.
+# concurrency cap of 2, a small inter-request delay, and a browser UA are
+# enough to keep the metadata crawl stable; higher concurrency triggers 403s.
+# (The single-shot ``getDataCode`` data endpoint does not need the browser UA
+# from every probed network, but we send it there too for symmetry / safety.)
 _BROWSER_USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -155,57 +163,6 @@ _BOJ_DATABASES: tuple[tuple[str, str, str], ...] = (
 
 
 # ---------------------------------------------------------------------------
-# Parameter models
-# ---------------------------------------------------------------------------
-
-
-class BojFetchParams(BaseModel):
-    """Parameters for fetching Bank of Japan time series."""
-
-    db: str = Field(
-        ...,
-        description="Database code (e.g. FM08 for FX rates, PR01 for prices)",
-    )
-    code: Annotated[str, "ns:boj"] = Field(
-        ...,
-        description="Comma-separated series codes (max 250, e.g. FXERD01)",
-    )
-    start_date: str | None = Field(
-        default=None,
-        description="Start date (YYYYMMDD, YYYYMM, or YYYY depending on frequency)",
-    )
-    end_date: str | None = Field(
-        default=None,
-        description="End date (same format as start_date)",
-    )
-    lang: str = Field(default="en", description="Language: en or jp")
-
-    @field_validator("db")
-    @classmethod
-    def _non_empty_db(cls, v: str) -> str:
-        v = v.strip().upper()
-        if not v:
-            raise InvalidParameterError("boj", "db must be non-empty")
-        return v
-
-    @field_validator("code")
-    @classmethod
-    def _validate_codes(cls, v: str) -> str:
-        codes = [s.strip() for s in v.split(",") if s.strip()]
-        if not codes:
-            raise InvalidParameterError("boj", "At least one series code required")
-        if len(codes) > 250:
-            raise InvalidParameterError("boj", "Maximum 250 codes per request")
-        return ",".join(codes)
-
-
-class BojEnumerateParams(BaseModel):
-    """No parameters needed — enumerates BoJ statistics databases."""
-
-    pass
-
-
-# ---------------------------------------------------------------------------
 # Output configs
 # ---------------------------------------------------------------------------
 
@@ -249,22 +206,7 @@ BOJ_FETCH_OUTPUT = OutputConfig(
 )
 
 
-_ENUMERATE_COLUMNS: tuple[str, ...] = (
-    "code",
-    "title",
-    "description",
-    "db",
-    "db_title",
-    "entity_type",
-    "frequency",
-    "unit",
-    "category",
-    "breadcrumb",
-    "start_date",
-    "end_date",
-    "last_update",
-    "source",
-)
+_ENUMERATE_COLUMNS: tuple[str, ...] = tuple(c.name for c in BOJ_ENUMERATE_OUTPUT.columns)
 
 
 # ---------------------------------------------------------------------------
@@ -273,9 +215,16 @@ _ENUMERATE_COLUMNS: tuple[str, ...] = (
 
 
 def _parse_boj_date(date_str: str, freq: str) -> str:
-    """Parse BoJ date string based on frequency code."""
+    """Parse a BoJ survey-date token into an ISO ``YYYY-MM-DD`` string.
+
+    BoJ returns survey dates as compact integers/strings whose width depends
+    on the series frequency (``19990101`` daily, ``199901`` monthly, ``1999``
+    annual, ``199901`` for quarter-of-year). Unrecognised widths pass through
+    unchanged so the downstream ``dtype="datetime"`` coercion can surface a
+    real parse problem rather than us silently mangling the value.
+    """
     freq_lower = freq.lower()
-    if freq_lower in ("dm", "daily"):
+    if freq_lower in ("dm", "daily", "weekly"):
         # YYYYMMDD
         if len(date_str) == 8:
             return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
@@ -289,7 +238,7 @@ def _parse_boj_date(date_str: str, freq: str) -> str:
             quarter = int(date_str[4:6])
             month = (quarter - 1) * 3 + 1
             return f"{date_str[:4]}-{month:02d}-01"
-    elif freq_lower in ("am", "annual") and len(date_str) >= 4:
+    elif freq_lower in ("am", "annual", "sm", "semi-annual", "semiannual") and len(date_str) >= 4:
         return f"{date_str[:4]}-01-01"
     return date_str
 
@@ -305,8 +254,18 @@ def _normalize_frequency(raw: str) -> str:
     return _FREQ_MAP.get(raw.strip().upper(), raw)
 
 
+def _validate_codes(code: str) -> str:
+    """Validate + normalise the comma-separated ``code`` argument.
 
-
+    Returns the cleaned comma-joined string. Raises ``InvalidParameterError``
+    for an empty list or more than ``_MAX_CODES`` codes.
+    """
+    codes = [s.strip() for s in code.split(",") if s.strip()]
+    if not codes:
+        raise InvalidParameterError("boj", "At least one series code required")
+    if len(codes) > _MAX_CODES:
+        raise InvalidParameterError("boj", f"Maximum {_MAX_CODES} codes per request")
+    return ",".join(codes)
 
 
 async def _fetch_metadata(fetcher: ThrottledJsonFetcher, db: str) -> dict[str, Any] | None:
@@ -320,32 +279,31 @@ async def _fetch_metadata(fetcher: ThrottledJsonFetcher, db: str) -> dict[str, A
         ),
     )
 
-def _layers(series_row: dict[str, Any]) -> list[tuple[int, str]]:
-    """Extract non-empty layer entries as ``(layer_number, title)`` tuples.
 
-    BoJ occasionally encodes layer values as numeric JSON literals (e.g. an
-    integer year like ``2024`` for time-series snapshots), so we coerce to
-    str defensively before stripping.
+def _is_header_row(series_row: dict[str, Any]) -> bool:
+    """A metadata row with no ``SERIES_CODE`` is a section header.
+
+    Section headers carry the section title in ``NAME_OF_TIME_SERIES`` and a
+    section ordinal in ``LAYER1`` (with ``LAYER2..5 == 0``); series rows carry
+    a real ``SERIES_CODE`` and their parent-section ordinal in ``LAYER1``.
     """
-    out: list[tuple[int, str]] = []
-    for i in range(1, 6):
-        raw = series_row.get(f"LAYER{i}")
-        if raw is None:
-            continue
-        title = str(raw).strip()
-        if title:
-            out.append((i, title))
-    return out
+    return not (series_row.get("SERIES_CODE") or "").strip()
 
 
-def _build_breadcrumb(layer_stack: dict[int, str]) -> str:
-    """Render the active layer stack as a breadcrumb string.
+def _layer1_ordinal(series_row: dict[str, Any]) -> int | None:
+    """Return the ``LAYER1`` section ordinal as an int, or ``None``.
 
-    ``layer_stack`` maps layer number → header title for currently-open
-    sections. The breadcrumb walks layers in depth order.
+    BoJ encodes ``LAYER1`` as a JSON integer (e.g. ``1``, ``2``). It is a
+    POSITION index into the DB's section list, NOT a title — the section title
+    lives in the matching header row's ``NAME_OF_TIME_SERIES``.
     """
-    parts = [layer_stack[k] for k in sorted(layer_stack)]
-    return " > ".join(parts)
+    raw = series_row.get("LAYER1")
+    if raw is None:
+        return None
+    try:
+        return int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
 
 
 def _series_description(
@@ -402,12 +360,16 @@ def _emit_rows_for_db(
 ) -> list[dict[str, str]]:
     """Convert a single DB's metadata payload into catalog rows.
 
-    Always emits a DB-level row. Series rows come from ``RESULTSET``
-    entries that carry a non-empty ``SERIES_CODE``; layer headers (rows
-    with empty ``SERIES_CODE``) are used to build breadcrumbs.
+    Always emits a DB-level row. Series rows come from ``RESULTSET`` entries
+    that carry a non-empty ``SERIES_CODE``. Section header rows (empty
+    ``SERIES_CODE``) define the breadcrumb: each header's
+    ``NAME_OF_TIME_SERIES`` is the section title for its ``LAYER1`` ordinal,
+    and every series inherits the title of the most-recent header at its own
+    ``LAYER1`` ordinal.
     """
     rows: list[dict[str, str]] = []
-    layer_stack: dict[int, str] = {}
+    # ``LAYER1`` ordinal -> section title, populated as header rows stream by.
+    section_titles: dict[int, str] = {}
     n_series = 0
     top_sections: list[str] = []
     seen_top: set[str] = set()
@@ -419,35 +381,23 @@ def _emit_rows_for_db(
     for series in result_set:
         if not isinstance(series, dict):
             continue
-        series_code = (series.get("SERIES_CODE") or "").strip()
-        if not series_code:
-            # Layer header row — refresh the stack for subsequent series.
-            # When a layer updates, drop any strictly-deeper entries so
-            # the breadcrumb reflects the current section path.
-            layers = _layers(series)
-            if not layers:
-                continue
-            shallowest = min(layer_num for layer_num, _ in layers)
-            for deeper in [k for k in layer_stack if k >= shallowest]:
-                layer_stack.pop(deeper, None)
-            for layer_num, title in layers:
-                layer_stack[layer_num] = title
-            # Track top-level sections (LAYER1) for the DB description.
-            top = layer_stack.get(1, "").strip()
-            if top and top not in seen_top:
-                seen_top.add(top)
-                top_sections.append(top)
+
+        ordinal = _layer1_ordinal(series)
+
+        if _is_header_row(series):
+            # Section header: record its title for the LAYER1 ordinal so the
+            # following series rows can build a breadcrumb. Track top-level
+            # section titles for the DB description.
+            section_title = str(series.get("NAME_OF_TIME_SERIES") or "").strip()
+            if ordinal is not None and section_title:
+                section_titles[ordinal] = section_title
+                if section_title not in seen_top:
+                    seen_top.add(section_title)
+                    top_sections.append(section_title)
             continue
 
-        # Series row — also propagate any layer hints embedded on the
-        # series row itself (BoJ sometimes emits LAYER fields directly on
-        # the series record without a preceding header row).
-        for layer_num, title in _layers(series):
-            layer_stack[layer_num] = title
-        top = layer_stack.get(1, "").strip()
-        if top and top not in seen_top:
-            seen_top.add(top)
-            top_sections.append(top)
+        series_code = (series.get("SERIES_CODE") or "").strip()
+        breadcrumb = section_titles.get(ordinal, "") if ordinal is not None else ""
 
         title = (
             series.get("NAME_OF_TIME_SERIES")
@@ -457,7 +407,6 @@ def _emit_rows_for_db(
         unit = (series.get("UNIT") or "").strip()
         frequency = _normalize_frequency(series.get("FREQUENCY") or "")
         category = (series.get("CATEGORY") or db_category).strip()
-        breadcrumb = _build_breadcrumb(layer_stack)
         notes = (series.get("NOTES") or "").strip()
         start = (series.get("START_OF_THE_TIME_SERIES") or "").strip()
         end = (series.get("END_OF_THE_TIME_SERIES") or "").strip()
@@ -534,41 +483,58 @@ async def boj_fetch(
 ) -> pd.DataFrame:
     """Fetch Bank of Japan time series by database and series code(s).
 
-    Returns date + value with series metadata. Max 250 codes per request.
+    ``db`` is a BoJ statistics database code (e.g. ``FM08`` for FX rates,
+    ``PR01`` for prices); ``code`` is one or more comma-separated series codes
+    (max 250, e.g. ``FXERD01`` or ``FXERD01,FXERD04``). ``start_date`` /
+    ``end_date`` are period strings whose format follows the series frequency
+    (e.g. ``YYYYMM`` for monthly/daily-by-month). Returns one row per
+    observation with ``code``, ``title``, ``date``, ``value``.
     """
-    params = BojFetchParams(db=db, code=code, start_date=start_date, end_date=end_date, lang=lang)
-    url = f"{_BASE_URL}/getDataCode"
-    req_params: dict[str, str] = {
-        "db": params.db,
-        "code": params.code,
-        "lang": params.lang,
+    db_clean = db.strip().upper()
+    if not db_clean:
+        raise InvalidParameterError("boj", "db must be non-empty")
+    codes = _validate_codes(code)
+
+    req_params: dict[str, Any] = {
+        "db": db_clean,
+        "code": codes,
+        "lang": lang,
+        "startDate": start_date or None,
+        "endDate": end_date or None,
     }
-    if params.start_date:
-        req_params["startDate"] = params.start_date
-    if params.end_date:
-        req_params["endDate"] = params.end_date
+    body = await fetch_json(
+        make_http_client(_BASE_URL, headers={"User-Agent": _BROWSER_USER_AGENT}, timeout=60.0),
+        path="getDataCode",
+        params=req_params,
+        provider="boj",
+        op_name="series",
+    )
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.get(url, params=req_params)
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            map_http_error(exc, provider="boj", op_name="series")
-        json_data = response.json()
+    if not isinstance(body, dict):
+        raise ParseError("boj", f"unexpected response shape for db={db_clean}, code={codes}")
 
-    result_set = json_data.get("RESULTSET", [])
+    result_set = body.get("RESULTSET")
     if not result_set:
-        raise EmptyDataError(provider="boj", message=f"No data returned for db={params.db}, code={params.code}")
+        raise EmptyDataError(
+            "boj",
+            message=f"No data returned for db={db_clean}, code={codes}",
+            query_params={"db": db_clean, "code": codes},
+        )
+    if not isinstance(result_set, list):
+        raise ParseError("boj", f"RESULTSET is not a list for db={db_clean}, code={codes}")
 
     rows: list[dict[str, Any]] = []
     for series in result_set:
-        code = series.get("SERIES_CODE", "")
-        name = series.get("NAME_OF_TIME_SERIES", series.get("NAME_OF_TIME_SERIES_J", code))
-        freq = series.get("FREQUENCY", "").lower()
-        dates = series.get("VALUES", {}).get("SURVEY_DATES", [])
-        values = series.get("VALUES", {}).get("VALUES", [])
+        if not isinstance(series, dict):
+            continue
+        series_code = series.get("SERIES_CODE", "")
+        name = series.get("NAME_OF_TIME_SERIES", series.get("NAME_OF_TIME_SERIES_J", series_code))
+        freq = (series.get("FREQUENCY") or "").lower()
+        values_block = series.get("VALUES") or {}
+        dates = values_block.get("SURVEY_DATES", []) if isinstance(values_block, dict) else []
+        values = values_block.get("VALUES", []) if isinstance(values_block, dict) else []
 
-        if isinstance(dates, str):
+        if isinstance(dates, (str, int)):
             dates = [dates]
         if isinstance(values, (str, int, float)):
             values = [values]
@@ -582,7 +548,7 @@ async def boj_fetch(
                 continue
             rows.append(
                 {
-                    "code": code,
+                    "code": series_code,
                     "title": name,
                     "date": _parse_boj_date(str(date_str), freq),
                     "value": value,
@@ -590,7 +556,11 @@ async def boj_fetch(
             )
 
     if not rows:
-        raise EmptyDataError(provider="boj", message=f"No observations parsed for db={params.db}, code={params.code}")
+        raise EmptyDataError(
+            "boj",
+            message=f"No observations parsed for db={db_clean}, code={codes}",
+            query_params={"db": db_clean, "code": codes},
+        )
 
     return pd.DataFrame(rows)
 
@@ -600,7 +570,7 @@ def _resolve_boj_database(db_code: str) -> tuple[str, str, str]:
     for code, category, title in _BOJ_DATABASES:
         if code == normalized:
             return code, category, title
-    raise ValueError(f"Unknown BoJ database {db_code!r}")
+    raise InvalidParameterError("boj", f"Unknown BoJ database {db_code!r}")
 
 
 async def fetch_boj_enumeration_rows_for_db(db_code: str) -> pd.DataFrame:
@@ -625,8 +595,11 @@ async def fetch_boj_enumeration_rows_for_db(db_code: str) -> pd.DataFrame:
 async def enumerate_boj() -> pd.DataFrame:
     """Enumerate BoJ series by fetching metadata for each canonical database.
 
-    Emits series and database rows with breadcrumb context. Retries on
-    429/5xx with bounded concurrency.
+    Emits one series row per discovered series plus one synthetic ``db:<code>``
+    row per database, with breadcrumb + coverage metadata for catalog
+    discovery. The crawl is Akamai-throttled (bounded concurrency, browser UA,
+    retries on 403/429/5xx); per-DB failures are logged and skipped so a
+    partial catalog is still produced.
     """
     rows: list[dict[str, str]] = []
     failed_dbs: list[str] = []
@@ -656,7 +629,7 @@ async def enumerate_boj() -> pd.DataFrame:
         )
 
     if failed_dbs:
-        logger.info(
+        logger.warning(
             "BoJ enumerate: %d/%d DBs failed metadata fetch: %s",
             len(failed_dbs),
             len(_BOJ_DATABASES),
@@ -665,9 +638,7 @@ async def enumerate_boj() -> pd.DataFrame:
     else:
         logger.info("BoJ enumerate: all %d DBs fetched successfully", len(_BOJ_DATABASES))
 
-    columns = list(_ENUMERATE_COLUMNS)
-    df = pd.DataFrame(rows, columns=columns) if rows else pd.DataFrame(columns=columns)
-    return df
+    return pd.DataFrame(rows, columns=list(_ENUMERATE_COLUMNS))
 
 
 # ---------------------------------------------------------------------------

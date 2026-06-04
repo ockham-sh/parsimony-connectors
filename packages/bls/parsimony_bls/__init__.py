@@ -1,7 +1,12 @@
 """US Bureau of Labor Statistics: fetch + catalog enumeration.
 
 API docs: https://www.bls.gov/developers/
-API key optional but recommended (higher rate limits).
+
+BLS is a POST-body JSON API that signals failure in the response body
+(HTTP 200 + a ``status`` field), not via HTTP status codes. The API key
+(``registrationkey``) is **optional** — it only raises rate limits — so this
+connector does not fast-fail on a missing key. The key is still declared as a
+secret and stripped from provenance.
 """
 
 from __future__ import annotations
@@ -11,55 +16,24 @@ from typing import Annotated, Any
 import httpx
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError, InvalidParameterError, ProviderError
-from parsimony.result import (
-    Column,
-    ColumnRole,
-    OutputConfig,
+from parsimony.errors import (
+    ConnectorError,
+    EmptyDataError,
+    InvalidParameterError,
+    ParseError,
+    RateLimitError,
+    UnauthorizedError,
 )
-from parsimony.transport import HttpClient, map_http_error
-from pydantic import BaseModel, Field, field_validator
+from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.transport import HttpClient, map_http_error, map_timeout_error, pooled_client
+from parsimony.transport.helpers import fetch_json, make_http_client
+
+__all__ = ["CONNECTORS", "load"]
 
 _BASE_URL = "https://api.bls.gov/publicAPI/v2"
 
-
 # ---------------------------------------------------------------------------
-# Parameter models
-# ---------------------------------------------------------------------------
-
-
-class BlsFetchParams(BaseModel):
-    """Parameters for fetching a BLS time series."""
-
-    series_id: Annotated[str, "ns:bls"] = Field(..., description="BLS series ID (e.g. LNS14000000)")
-    start_year: str = Field(..., description="Start year (YYYY)")
-    end_year: str = Field(..., description="End year (YYYY)")
-
-    @field_validator("series_id")
-    @classmethod
-    def _non_empty(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise InvalidParameterError("bls", "series_id must be non-empty")
-        return v
-
-    @field_validator("start_year", "end_year")
-    @classmethod
-    def _validate_year(cls, v: str) -> str:
-        v = v.strip()
-        if not v.isdigit() or len(v) != 4:
-            raise InvalidParameterError("bls", "Year must be 4-digit string (YYYY)")
-        return v
-
-
-class BlsEnumerateParams(BaseModel):
-    """No parameters needed — enumerates popular BLS series across surveys."""
-
-    pass
-
-
-# ---------------------------------------------------------------------------
-# Output configs
+# Output schemas
 # ---------------------------------------------------------------------------
 
 BLS_ENUMERATE_OUTPUT = OutputConfig(
@@ -67,13 +41,12 @@ BLS_ENUMERATE_OUTPUT = OutputConfig(
         Column(name="series_id", role=ColumnRole.KEY, namespace="bls"),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="survey", role=ColumnRole.METADATA),
-        Column(name="frequency", role=ColumnRole.METADATA),
     ]
 )
 
 BLS_FETCH_OUTPUT = OutputConfig(
     columns=[
-        Column(name="series_id", role=ColumnRole.KEY, param_key="series_id", namespace="bls"),
+        Column(name="series_id", role=ColumnRole.KEY, namespace="bls"),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="frequency", role=ColumnRole.METADATA),
         Column(name="date", dtype="datetime", role=ColumnRole.DATA),
@@ -83,33 +56,76 @@ BLS_FETCH_OUTPUT = OutputConfig(
 
 
 # ---------------------------------------------------------------------------
+# Transport
+# ---------------------------------------------------------------------------
+
+
+async def _post_json(
+    http: HttpClient, path: str, payload: dict[str, Any], *, provider: str, op_name: str
+) -> Any:
+    """POST a JSON body and return parsed JSON, mapping transport failures to typed errors.
+
+    The canonical POST helper: `fetch_json` is GET-only, so POST connectors use
+    this — `raise_for_status()` + `map_http_error` / `map_timeout_error`. POST is
+    not retried by the transport retry policy (non-idempotent), by design.
+    """
+    try:
+        response = await http.request("POST", path, json=payload)
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        map_http_error(exc, provider=provider, op_name=op_name)
+    except httpx.TimeoutException as exc:
+        map_timeout_error(exc, provider=provider, op_name=op_name)
+    return response.json()
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
 def _period_to_date(year: str, period: str) -> str:
-    """Convert BLS year + period code to ISO date string."""
-    if period.startswith("M") and len(period) == 3:
-        return f"{year}-{period[1:]}-01"
-    if period.startswith("Q") and len(period) == 3:
+    """Convert a BLS year + period code to an ISO date string.
+
+    BLS period codes: M01-M12 monthly; M13 = annual average; Q01-Q04 quarterly
+    (Q05 = annual avg); S01/S02/S03 semiannual; A01 annual.
+    """
+    if period == "M13":  # annual average — represent at year end
+        return f"{year}-12-31"
+    if period.startswith("M") and len(period) == 3 and period[1:].isdigit():
+        month = min(max(int(period[1:]), 1), 12)
+        return f"{year}-{month:02d}-01"
+    if period.startswith("Q") and len(period) == 3 and period[1:].isdigit():
         quarter = int(period[1:])
+        if quarter >= 5:  # Q05 = annual
+            return f"{year}-12-31"
         month = (quarter - 1) * 3 + 1
         return f"{year}-{month:02d}-01"
-    if period == "A01":
-        return f"{year}-01-01"
+    if period.startswith("S") and len(period) == 3 and period[1:].isdigit():
+        half = int(period[1:])
+        return f"{year}-07-01" if half == 2 else f"{year}-01-01"
     return f"{year}-01-01"
 
 
 def _infer_frequency(period: str) -> str:
+    if period == "M13":
+        return "Annual"
     if period.startswith("M"):
         return "Monthly"
     if period.startswith("Q"):
-        return "Quarterly"
+        return "Annual" if period == "Q05" else "Quarterly"
     if period.startswith("S"):
         return "Semiannual"
-    if period == "A01":
+    if period.startswith("A"):
         return "Annual"
     return "Monthly"
+
+
+def _validate_year(value: str, label: str) -> str:
+    v = value.strip()
+    if not v.isdigit() or len(v) != 4:
+        raise InvalidParameterError("bls", f"{label} must be a 4-digit year (YYYY)")
+    return v
 
 
 # ---------------------------------------------------------------------------
@@ -117,65 +133,66 @@ def _infer_frequency(period: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-@connector(output=BLS_FETCH_OUTPUT, tags=["macro", "us"], secrets=('api_key',))
+@connector(output=BLS_FETCH_OUTPUT, tags=["macro", "us"], secrets=("api_key",))
 async def bls_fetch(
     series_id: Annotated[str, "ns:bls"],
     start_year: str,
     end_year: str,
-    *,
     api_key: str = "",
 ) -> pd.DataFrame:
     """Fetch a single BLS time series by series_id.
 
-    Returns date + value with series metadata (title, frequency).
+    Returns date + value rows with series metadata (title, frequency). The
     API key is optional but recommended for higher rate limits.
     """
-    params = BlsFetchParams(series_id=series_id, start_year=start_year, end_year=end_year)
+    sid = series_id.strip()
+    if not sid:
+        raise InvalidParameterError("bls", "series_id must be non-empty")
+    start = _validate_year(start_year, "start_year")
+    end = _validate_year(end_year, "end_year")
+
     payload: dict[str, Any] = {
-        "seriesid": [params.series_id],
-        "startyear": params.start_year,
-        "endyear": params.end_year,
+        "seriesid": [sid],
+        "startyear": start,
+        "endyear": end,
         "catalog": True,
     }
     if api_key:
         payload["registrationkey"] = api_key
 
-    http = HttpClient(_BASE_URL, timeout=60.0)
-    response = await http.request("POST", "/timeseries/data/", json=payload)
-    try:
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider="bls", op_name="timeseries/data")
-    body = response.json()
+    http = make_http_client(_BASE_URL, timeout=60.0)
+    body = await _post_json(http, "/timeseries/data/", payload, provider="bls", op_name="timeseries/data")
 
+    # BLS reports logical failure in the body (HTTP 200 + a non-success status).
     status = body.get("status", "")
     if status != "REQUEST_SUCCEEDED":
-        messages = body.get("message", [])
-        raise ProviderError(provider="bls", status_code=0, message=f"BLS API error ({status}): {'; '.join(messages)}")
+        messages = [str(m) for m in (body.get("message") or [])]
+        text = "; ".join(messages) or status
+        if any(("threshold" in m.lower() or "daily" in m.lower()) for m in messages):
+            raise RateLimitError(
+                "bls", retry_after=3600.0, quota_exhausted=True,
+                message=f"BLS query threshold reached: {text}",
+            )
+        raise ParseError("bls", f"BLS request not processed ({status}): {text}")
 
     series_list = body.get("Results", {}).get("series", [])
     if not series_list:
-        raise EmptyDataError(provider="bls", message=f"No data returned for series: {params.series_id}")
+        raise EmptyDataError("bls", query_params={"series_id": sid})
 
     series_block = series_list[0]
-    catalog = series_block.get("catalog", {})
-    title = catalog.get("series_title", params.series_id)
+    title = series_block.get("catalog", {}).get("series_title", sid)
 
     rows: list[dict[str, Any]] = []
     for obs in series_block.get("data", []):
         val_str = obs.get("value", "")
-        if val_str in ("-", ""):
+        try:
+            value: float | None = float(val_str) if val_str not in ("-", "") else None
+        except (ValueError, TypeError):
             value = None
-        else:
-            try:
-                value = float(val_str)
-            except (ValueError, TypeError):
-                value = None
-
         period = obs["period"]
         rows.append(
             {
-                "series_id": params.series_id,
+                "series_id": sid,
                 "title": title,
                 "frequency": _infer_frequency(period),
                 "date": _period_to_date(obs["year"], period),
@@ -184,74 +201,74 @@ async def bls_fetch(
         )
 
     if not rows:
-        raise EmptyDataError(provider="bls", message=f"No observations for series: {params.series_id}")
+        raise EmptyDataError("bls", query_params={"series_id": sid})
 
     return pd.DataFrame(rows)
 
 
-@enumerator(output=BLS_ENUMERATE_OUTPUT, tags=["macro", "us"], secrets=('api_key',))
-async def enumerate_bls(*, api_key: str = "") -> pd.DataFrame:
-    """Enumerate popular BLS series across all surveys.
+@enumerator(output=BLS_ENUMERATE_OUTPUT, tags=["macro", "us"], secrets=("api_key",))
+async def enumerate_bls(survey: str = "", api_key: str = "") -> pd.DataFrame:
+    """Enumerate popular BLS series, optionally limited to one survey code (e.g. 'CE').
 
-    Uses the BLS surveys + popular series endpoints.
+    With no `survey`, crawls every survey's popular-series list (a large fan-out
+    for catalog building). With a `survey` code, fetches just that survey — cheap.
     """
-    import asyncio
+    query = {"registrationkey": api_key} if api_key else None
+    http = make_http_client(_BASE_URL, query_params=query, timeout=60.0)
 
-    base_params: dict[str, str] = {}
-    if api_key:
-        base_params["registrationkey"] = api_key
+    if survey.strip():
+        surveys: list[tuple[str, str]] = [(survey.strip(), survey.strip())]
+    else:
+        surveys_body = await fetch_json(http, path="surveys", provider="bls", op_name="surveys")
+        surveys = [
+            (s.get("survey_abbreviation", ""), s.get("survey_name", ""))
+            for s in surveys_body.get("Results", {}).get("survey", [])
+        ]
 
-    async with httpx.AsyncClient(base_url=_BASE_URL, timeout=60.0) as client:
-        resp = await client.get("/surveys", params=base_params)
-        try:
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            map_http_error(exc, provider="bls", op_name="surveys")
-        surveys_data = resp.json()
-
-        surveys: list[dict[str, str]] = []
-        if isinstance(surveys_data, dict) and "Results" in surveys_data:
-            for s in surveys_data["Results"].get("survey", []):
-                surveys.append(
-                    {
-                        "code": s.get("survey_abbreviation", ""),
-                        "name": s.get("survey_name", ""),
-                    }
-                )
-
-        rows: list[dict[str, str]] = []
-        for survey in surveys:
-            code = survey["code"]
+    rows: list[dict[str, str]] = []
+    async with pooled_client(http) as shared:
+        for code, name in surveys:
             if not code:
                 continue
             try:
-                await asyncio.sleep(0.35)
-                resp = await client.get("/timeseries/popular", params={**base_params, "survey": code})
-                resp.raise_for_status()
-                results = resp.json().get("Results") or {}
-                for s in results.get("series") or []:
-                    if s is None:
-                        continue
-                    sid = s.get("seriesID", "")
-                    if not sid:
-                        continue
-                    rows.append(
-                        {
-                            "series_id": sid,
-                            "title": s.get("seriesTitle") or s.get("title") or sid,
-                            "survey": survey["name"],
-                            "frequency": "Monthly",
-                        }
-                    )
-            except (httpx.HTTPError, KeyError):
+                popular = await fetch_json(
+                    shared,
+                    path="timeseries/popular",
+                    params={"survey": code},
+                    provider="bls",
+                    op_name="timeseries/popular",
+                )
+            except (RateLimitError, UnauthorizedError):
+                # A quota wall / auth failure must abort loudly — returning a
+                # half-built catalog that looks complete would be a surprise.
+                raise
+            except ConnectorError:
+                # A single survey's transient/empty failure must not abort the
+                # whole catalog crawl.
                 continue
+            for s in (popular.get("Results") or {}).get("series") or []:
+                if not s:
+                    continue
+                sid = s.get("seriesID", "")
+                if not sid:
+                    continue
+                rows.append(
+                    {
+                        "series_id": sid,
+                        "title": s.get("seriesTitle") or s.get("title") or sid,
+                        "survey": name,
+                    }
+                )
 
-    df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["series_id", "title", "survey", "frequency"])
-    return df
+    if not rows:
+        raise EmptyDataError("bls", query_params={"survey": survey})
 
+    return pd.DataFrame(rows)
 
-# ---------------------------------------------------------------------------
-# Exports
-# ---------------------------------------------------------------------------
 
 CONNECTORS = Connectors([bls_fetch, enumerate_bls])
+
+
+def load(*, api_key: str = "") -> Connectors:
+    """Return :data:`CONNECTORS` with ``api_key`` bound on every connector that accepts it."""
+    return CONNECTORS.bind(api_key=api_key)

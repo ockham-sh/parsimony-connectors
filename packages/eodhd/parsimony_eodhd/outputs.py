@@ -24,7 +24,10 @@ EOD_OUTPUT = OutputConfig(
 LIVE_OUTPUT = OutputConfig(
     columns=[
         Column(name="code", role=ColumnRole.KEY),
-        Column(name="timestamp", role=ColumnRole.METADATA, dtype="timestamp"),
+        # EODHD returns ``timestamp`` as a raw Unix epoch int; keep it un-coerced
+        # (dtype="auto") — a "timestamp" coercion would mis-read the seconds value.
+        Column(name="timestamp", role=ColumnRole.METADATA),
+        Column(name="gmtoffset", role=ColumnRole.METADATA),
         Column(name="open", dtype="numeric"),
         Column(name="high", dtype="numeric"),
         Column(name="low", dtype="numeric"),
@@ -115,6 +118,8 @@ EXCHANGE_SYMBOLS_OUTPUT = OutputConfig(
         Column(name="Exchange", role=ColumnRole.METADATA),
         Column(name="Currency", role=ColumnRole.METADATA),
         Column(name="Type", role=ColumnRole.METADATA),
+        # Live payload key is ``Isin`` (not ``ISIN`` as on the search endpoint).
+        Column(name="Isin", role=ColumnRole.METADATA),
     ]
 )
 
@@ -145,10 +150,12 @@ NEWS_OUTPUT = OutputConfig(
 
 MACRO_OUTPUT = OutputConfig(
     columns=[
+        # EODHD macro-indicator rows: CountryCode, CountryName, Indicator, Date,
+        # Period, Value. (No LastUpdated — do not declare a column the payload
+        # cannot populate.) CountryName/Indicator/CountryCode fold in as DATA.
         Column(name="Date", role=ColumnRole.KEY, dtype="date"),
         Column(name="Value", dtype="numeric"),
         Column(name="Period", role=ColumnRole.METADATA),
-        Column(name="LastUpdated", role=ColumnRole.METADATA),
     ]
 )
 
