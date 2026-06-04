@@ -1,6 +1,6 @@
 [project]
 name = "parsimony-bls"
-version = "0.6.0"
+version = "0.7.0"
 description = "U.S. Bureau of Labor Statistics connector for the parsimony framework"
 authors = [{ name = "Ockham.sh", email = "team@ockham.sh" }]
 license = "Apache-2.0"

@@ -1,6 +1,6 @@
 [project]
 name = "parsimony-treasury"
-version = "0.7.0"
+version = "0.7.1"
 description = "U.S. Treasury connector for the parsimony framework"
 authors = [{ name = "Ockham.sh", email = "team@ockham.sh" }]
 license = "Apache-2.0"
