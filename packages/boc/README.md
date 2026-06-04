@@ -9,7 +9,8 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 | Name | Kind | Description |
 |---|---|---|
 | `boc_fetch` | fetch | Fetch one or more BoC time series by name (e.g. `FXUSDCAD,FXEURCAD`) or by group (e.g. `group:FX_RATES_DAILY`). |
-| `enumerate_boc` | enumerator | Enumerate all BoC series (15,000+) via `/lists/series/json`. |
+| `enumerate_boc` | enumerator | Enumerate every BoC series (~15.6k) and group (~2.4k) via Valet's list endpoints plus a per-group membership fan-out. |
+| `boc_search` | search | Semantic/structured search over the published BoC catalog. Pass returned codes to `boc_fetch(series_name=...)`. |
 
 ## Install
 

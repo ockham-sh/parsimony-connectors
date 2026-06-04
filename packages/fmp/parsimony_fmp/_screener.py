@@ -20,8 +20,7 @@ import pandas as pd
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError, PaymentRequiredError, UnauthorizedError
 from parsimony.transport import HttpClient
 
-from parsimony_fmp._http import fetch_json, pooled_client
-from parsimony_fmp.params import FmpScreenerParams
+from parsimony_fmp._http import fmp_get, pooled_client
 
 logger = logging.getLogger(__name__)
 
@@ -257,7 +256,15 @@ def _collect_enrichment(results: list[Any]) -> pd.DataFrame:
             errors[0],
         )
 
-    return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame(columns=["symbol"])
+    if not dfs:
+        return pd.DataFrame(columns=["symbol"])
+    # Drop all-NA columns per frame before concat: pandas raises a FutureWarning
+    # when concatenating frames where a column is empty/all-NA in some of them.
+    cleaned = [df.dropna(axis=1, how="all") for df in dfs]
+    cleaned = [df for df in cleaned if not df.empty]
+    if not cleaned:
+        return pd.DataFrame(columns=["symbol"])
+    return pd.concat(cleaned, ignore_index=True)
 
 
 async def _fetch_enrichment_df(
@@ -273,7 +280,7 @@ async def _fetch_enrichment_df(
     responses so ``_collect_enrichment`` can distinguish those from errors.
     """
     async with semaphore:
-        data = await fetch_json(http, path=path, params={"symbol": symbol}, op_name=f"fmp_screener:{path}")
+        data = await fmp_get(http, path=path, params={"symbol": symbol}, op_name=f"fmp_screener:{path}")
     if not data:
         return pd.DataFrame()
     df = pd.json_normalize(data if isinstance(data, list) else [data])
@@ -284,29 +291,70 @@ async def _fetch_enrichment_df(
     return df
 
 
-async def execute(params: FmpScreenerParams, http: HttpClient) -> Any:
-    """Run the full screener pipeline and return a :class:`Result`.
+async def execute(
+    http: HttpClient,
+    *,
+    sector: str | None = None,
+    industry: str | None = None,
+    country: str | None = None,
+    exchange: str | None = None,
+    market_cap_min: float | None = None,
+    market_cap_max: float | None = None,
+    price_min: float | None = None,
+    price_max: float | None = None,
+    volume_min: float | None = None,
+    volume_max: float | None = None,
+    beta_min: float | None = None,
+    beta_max: float | None = None,
+    dividend_min: float | None = None,
+    dividend_max: float | None = None,
+    is_etf: bool | None = None,
+    is_fund: bool | None = None,
+    is_actively_trading: bool | None = None,
+    where_clause: str | None = None,
+    sort_by: str | None = None,
+    sort_order: str = "desc",
+    limit: int = 100,
+    prefilter_limit: int | None = None,
+    fields: list[str] | None = None,
+) -> Any:
+    """Run the full screener pipeline and return the shaped DataFrame.
 
-    Called from the ``@connector fmp_screener`` stub in ``__init__.py``.
+    Called from the ``@connector fmp_screener`` stub in ``__init__.py`` with a
+    client whose key is already bound. All filter params are flat scalars.
     """
-    where_clause = params.where_clause
-    limit = params.limit
-    sort_by = params.sort_by
-    sort_order = (params.sort_order or "desc").lower()
-    fields = params.fields
-    screener_limit = int(params.prefilter_limit or max(limit or 500, 500))
+    sort_order = (sort_order or "desc").lower()
+    screener_limit = int(prefilter_limit or max(limit or 500, 500))
+
+    # Pushdown values keyed by the internal param name (mirrors _PUSHDOWN_MAP).
+    pushdown_values: dict[str, Any] = {
+        "market_cap_min": market_cap_min,
+        "market_cap_max": market_cap_max,
+        "sector": sector,
+        "industry": industry,
+        "beta_min": beta_min,
+        "beta_max": beta_max,
+        "price_min": price_min,
+        "price_max": price_max,
+        "dividend_min": dividend_min,
+        "dividend_max": dividend_max,
+        "volume_min": volume_min,
+        "volume_max": volume_max,
+        "exchange": exchange,
+        "country": country,
+        "is_etf": is_etf,
+        "is_fund": is_fund,
+        "is_actively_trading": is_actively_trading,
+    }
 
     # Step 1: Screener pushdown
     screener_params: dict[str, Any] = {"limit": screener_limit}
-    params_dict = params.model_dump(
-        exclude={"where_clause", "sort_by", "sort_order", "limit", "prefilter_limit", "fields"}
-    )
     for internal_key, upstream_key in _PUSHDOWN_MAP.items():
-        value = params_dict.get(internal_key)
+        value = pushdown_values.get(internal_key)
         if value is not None:
             screener_params[upstream_key] = value
 
-    screener_raw = await fetch_json(
+    screener_raw = await fmp_get(
         http,
         path="company-screener",
         params=screener_params,
@@ -315,20 +363,19 @@ async def execute(params: FmpScreenerParams, http: HttpClient) -> Any:
     screener_df = pd.json_normalize(screener_raw) if screener_raw else pd.DataFrame()
     if screener_df.empty:
         raise EmptyDataError(
-            provider="fmp",
+            "fmp",
             message="FMP company-screener returned no rows for the selected filter set.",
+            query_params={k: v for k, v in pushdown_values.items() if v is not None},
         )
     if "symbol" not in screener_df.columns:
-        raise ParseError(
-            provider="fmp",
-            message="Unexpected company-screener payload: missing 'symbol' column.",
-        )
+        raise ParseError("fmp", "Unexpected company-screener payload: missing 'symbol' column.")
 
     symbols = [s for s in screener_df["symbol"].dropna().astype(str).str.strip().tolist() if s]
     if not symbols:
         raise EmptyDataError(
-            provider="fmp",
+            "fmp",
             message="FMP company-screener did not return any valid symbols.",
+            query_params={k: v for k, v in pushdown_values.items() if v is not None},
         )
 
     # Step 2: Decide which enrichment endpoints are required
@@ -440,10 +487,7 @@ async def execute(params: FmpScreenerParams, http: HttpClient) -> Any:
         df = df[keep]
 
     if df.empty:
-        raise EmptyDataError(
-            provider="fmp",
-            message="Screener returned no rows after applying all filters.",
-        )
+        raise EmptyDataError("fmp", message="Screener returned no rows after applying all filters.")
 
     return df
 

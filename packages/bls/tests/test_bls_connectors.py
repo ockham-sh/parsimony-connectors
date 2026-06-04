@@ -11,12 +11,12 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from parsimony.errors import EmptyDataError, InvalidParameterError, ProviderError
+from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError, RateLimitError
 
 from parsimony_bls import (
     CONNECTORS,
-    BlsFetchParams,
     bls_fetch,
+    enumerate_bls,
 )
 
 # ---------------------------------------------------------------------------
@@ -68,7 +68,9 @@ async def test_bls_fetch_returns_series_observations() -> None:
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_bls_fetch_raises_provider_error_on_bls_status_failure() -> None:
+async def test_bls_fetch_raises_parse_error_on_bls_status_failure() -> None:
+    # BLS signals failure in the body with HTTP 200 — map a non-success status
+    # (that isn't a quota threshold) to ParseError, NOT a fake status_code=0.
     respx.post("https://api.bls.gov/publicAPI/v2/timeseries/data/").mock(
         return_value=httpx.Response(
             200,
@@ -76,8 +78,26 @@ async def test_bls_fetch_raises_provider_error_on_bls_status_failure() -> None:
         )
     )
 
-    with pytest.raises(ProviderError):
+    with pytest.raises(ParseError):
         await bls_fetch(series_id="BAD", start_year="2026", end_year="2026")
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_bls_fetch_maps_threshold_to_rate_limit() -> None:
+    respx.post("https://api.bls.gov/publicAPI/v2/timeseries/data/").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "status": "REQUEST_NOT_PROCESSED",
+                "message": ["Request could not be serviced, the daily threshold has been reached."],
+            },
+        )
+    )
+
+    with pytest.raises(RateLimitError) as exc_info:
+        await bls_fetch(series_id="LNS14000000", start_year="2026", end_year="2026")
+    assert exc_info.value.quota_exhausted is True
 
 
 @respx.mock
@@ -95,15 +115,52 @@ async def test_bls_fetch_raises_empty_data_when_no_series_returned() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Parameter validation
+# enumerate_bls (bounded to one survey)
 # ---------------------------------------------------------------------------
 
 
-def test_fetch_rejects_non_four_digit_year() -> None:
-    with pytest.raises(InvalidParameterError):
-        BlsFetchParams(series_id="X", start_year="26", end_year="2026")
+@respx.mock
+@pytest.mark.asyncio
+async def test_enumerate_bls_single_survey() -> None:
+    # With a survey code, no /surveys call is made — just the one popular list.
+    respx.get("https://api.bls.gov/publicAPI/v2/timeseries/popular").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "status": "REQUEST_SUCCEEDED",
+                "Results": {
+                    "series": [
+                        {"seriesID": "CES0000000001", "seriesTitle": "Total nonfarm employment"},
+                        {"seriesID": "CES0500000003"},
+                    ]
+                },
+            },
+        )
+    )
+
+    bound = enumerate_bls.bind(api_key="test-key")
+    result = await bound(survey="CE")
+
+    df = result.data
+    assert list(df.columns) == ["series_id", "title", "survey"]
+    assert set(df["series_id"]) == {"CES0000000001", "CES0500000003"}
+    # title falls back to the series id when the popular payload omits it.
+    assert df.set_index("series_id").loc["CES0500000003", "title"] == "CES0500000003"
+    assert set(df["survey"]) == {"CE"}
 
 
-def test_fetch_rejects_empty_series_id() -> None:
-    with pytest.raises(InvalidParameterError):
-        BlsFetchParams(series_id="   ", start_year="2026", end_year="2026")
+# ---------------------------------------------------------------------------
+# Parameter validation (inline — no separate param model)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_bls_fetch_rejects_non_four_digit_year() -> None:
+    with pytest.raises(InvalidParameterError, match="start_year"):
+        await bls_fetch(series_id="LNS14000000", start_year="26", end_year="2026")
+
+
+@pytest.mark.asyncio
+async def test_bls_fetch_rejects_empty_series_id() -> None:
+    with pytest.raises(InvalidParameterError, match="series_id"):
+        await bls_fetch(series_id="   ", start_year="2026", end_year="2026")

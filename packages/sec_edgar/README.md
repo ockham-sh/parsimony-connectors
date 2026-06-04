@@ -1,6 +1,6 @@
 # parsimony-sec-edgar
 
-SEC EDGAR connector plugin for parsimony — public-company filings, financial statements (XBRL), filing documents, and insider trades for U.S. issuers.
+SEC EDGAR connector plugin for parsimony — company lookup, recent filings, XBRL company facts, and raw filing documents for U.S. issuers over the public `data.sec.gov` / `www.sec.gov` APIs.
 
 Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connectors) monorepo. Distributed standalone on PyPI as `parsimony-sec-edgar`.
 
@@ -8,21 +8,10 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 
 | Name | Kind | Description |
 |---|---|---|
-| `sec_edgar_find_company` | connector | Search EDGAR by name, ticker, or CIK. Returns CIK, name, ticker. |
-| `sec_edgar_company_profile` | connector | Profile for one company: name, CIK, ticker, industry, SIC, fiscal year end. |
-| `sec_edgar_income_statement` | connector | Income statement from 10-K/10-Q XBRL — multi-period summary or single-filing detailed view. |
-| `sec_edgar_balance_sheet` | connector | Balance sheet from 10-K/10-Q XBRL — multi-period summary or detailed view. |
-| `sec_edgar_cashflow_statement` | connector | Cash flow statement from 10-K/10-Q XBRL — multi-period summary or detailed view. |
-| `sec_edgar_search_filings` | connector | Full-text search across all EDGAR filings, optionally scoped by form and date. |
-| `sec_edgar_filings` | connector | List filings for a company or across all companies, filtered by form and date. |
-| `sec_edgar_company_facts` | connector | All XBRL company facts for a company (custom time-series base). |
-| `sec_edgar_filing_document` | connector | Filing content as markdown by accession number. |
-| `sec_edgar_filing_metadata` | connector | Form-specific metadata summary for a filing. |
-| `sec_edgar_filing_sections` | connector | Table of contents (item identifiers + titles) for a filing. |
-| `sec_edgar_filing_item` | connector | Specific section/item of a filing as text. |
-| `sec_edgar_filing_tables` | connector | List tables in a filing with caption, type, and shape. |
-| `sec_edgar_filing_table` | connector | Specific table from a filing as a DataFrame. |
-| `sec_edgar_insider_trades` | connector | Structured insider transactions (Form 4) for a company. |
+| `sec_edgar_find_company` | connector | Resolve an SEC registrant by ticker symbol or CIK from the published ticker map. Returns cik + ticker + company title. |
+| `sec_edgar_submissions` | connector | List recent filings for a CIK (accession number, filing date, form type, primary document). |
+| `sec_edgar_company_facts` | connector | Raw XBRL company-facts blob for a CIK (all reported concepts keyed by taxonomy). |
+| `sec_edgar_fetch_filing` | connector | Fetch one filing document body from the EDGAR archives (resolves the primary document when none is given). |
 
 ## Install
 
@@ -30,11 +19,21 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 pip install parsimony-sec-edgar
 ```
 
-Pulls in `parsimony-core>=0.6,<0.7` automatically. Verify discovery:
+Pulls in `parsimony-core>=0.7,<0.8` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
 ```
+
+## User-Agent (required)
+
+SEC's fair-access policy **requires** every request to carry a `User-Agent` header that identifies the requester (a name and contact email). A generic or missing User-Agent gets a `403`/`429`. There is no API key — the User-Agent is the only thing you must supply, via the `SEC_EDGAR_USER_AGENT` environment variable:
+
+```bash
+export SEC_EDGAR_USER_AGENT="Acme Research contact@acme.com"
+```
+
+If it is unset, the connectors fail fast with `UnauthorizedError` naming the env var, before any network call.
 
 ## Quick start
 
@@ -43,8 +42,7 @@ import asyncio
 from parsimony_sec_edgar import CONNECTORS
 
 async def main():
-    connectors = CONNECTORS
-    result = await connectors["sec_edgar_find_company"](identifier="AAPL")
+    result = await CONNECTORS["sec_edgar_find_company"](identifier="AAPL")
     print(result.data.head())
 
 asyncio.run(main())
@@ -56,8 +54,6 @@ For multi-plugin composition:
 from parsimony import discover
 connectors = discover.load_all()
 ```
-
-EDGAR requires a user-agent identity per SEC fair-access policy. Set `EDGAR_IDENTITY` (or `SEC_EDGAR_USER_AGENT`) to a string of the form `"YourApp your-email@example.com"` before issuing requests.
 
 ## Provider
 

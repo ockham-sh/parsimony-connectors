@@ -83,4 +83,9 @@ CONNECTORS = Connectors(
 )
 
 
-__all__ = ["CONNECTORS"]
+def load(*, api_key: str) -> Connectors:
+    """Return :data:`CONNECTORS` with ``api_key`` bound on every connector."""
+    return CONNECTORS.bind(api_key=api_key)
+
+
+__all__ = ["CONNECTORS", "load"]

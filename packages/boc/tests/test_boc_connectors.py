@@ -1,8 +1,8 @@
 """Happy-path tests for the Bank of Canada Valet connectors.
 
-Public API, no api_key; template 401/429 contract does not apply. BoC
-constructs an httpx.AsyncClient directly (not the kernel HttpClient) so
-respx still hooks into the transport.
+Public API, no api_key; template 401/429 contract does not apply. BoC fetches
+go through the kernel ``HttpClient`` (httpx under the hood) so respx still hooks
+into the transport.
 """
 
 from __future__ import annotations
@@ -11,13 +11,12 @@ import httpx
 import pandas as pd
 import pytest
 import respx
-from parsimony.errors import EmptyDataError, InvalidParameterError
+from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 from parsimony.result import Result
 
 from parsimony_boc import (
     BOC_ENUMERATE_OUTPUT,
     CONNECTORS,
-    BocFetchParams,
     boc_fetch,
     enumerate_boc,
 )
@@ -68,7 +67,14 @@ async def test_boc_fetch_single_series_returns_observations() -> None:
 
     assert result.provenance.source == "boc_fetch"
     df = result.data
-    assert len(df) >= 1
+    assert len(df) == 2
+    assert set(df["series_name"]) == {"FXUSDCAD"}
+    assert df["title"].iloc[0] == "USD/CAD"
+    # Values parse to real numerics (declared dtype="numeric").
+    assert df["value"].dtype.kind == "f"
+    assert df["value"].tolist() == [1.3852, 1.3840]
+    # Dates parse to real datetimes (declared dtype="datetime").
+    assert df["date"].dtype.kind == "M"
 
 
 @respx.mock
@@ -96,7 +102,43 @@ async def test_boc_fetch_group_syntax_uses_group_endpoint() -> None:
     result = await boc_fetch(series_name="group:FX_RATES_DAILY")
 
     assert result.provenance.source == "boc_fetch"
-    assert len(result.data) >= 1
+    df = result.data
+    # Both series in the group panel are melted into long format.
+    assert set(df["series_name"]) == {"FXUSDCAD", "FXEURCAD"}
+    assert df["value"].notna().all()
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_boc_fetch_passes_date_window_params() -> None:
+    """``start_date``/``end_date`` reach the wire; ``None`` values are dropped."""
+    route = respx.get("https://www.bankofcanada.ca/valet/observations/FXUSDCAD/json").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "seriesDetail": {"FXUSDCAD": {"label": "USD/CAD"}},
+                "observations": [{"d": "2024-01-02", "FXUSDCAD": {"v": "1.3316"}}],
+            },
+        )
+    )
+
+    await boc_fetch(series_name="FXUSDCAD", start_date="2024-01-01", end_date="2024-01-10")
+
+    sent = route.calls.last.request
+    assert "start_date=2024-01-01" in str(sent.url)
+    assert "end_date=2024-01-10" in str(sent.url)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_boc_fetch_raises_parse_error_on_non_dict_body() -> None:
+    """A 200 whose body is not a JSON object → ParseError (not a crash)."""
+    respx.get("https://www.bankofcanada.ca/valet/observations/FXUSDCAD/json").mock(
+        return_value=httpx.Response(200, json=["unexpected", "list"])
+    )
+
+    with pytest.raises(ParseError):
+        await boc_fetch(series_name="FXUSDCAD")
 
 
 @respx.mock
@@ -112,9 +154,18 @@ async def test_boc_fetch_raises_empty_data_when_no_observations() -> None:
         await boc_fetch(series_name="XX")
 
 
-def test_fetch_rejects_empty_series_name() -> None:
+@pytest.mark.asyncio
+async def test_fetch_rejects_empty_series_name() -> None:
+    """Blank ``series_name`` is rejected inline before any network call."""
     with pytest.raises(InvalidParameterError):
-        BocFetchParams(series_name="   ")
+        await boc_fetch(series_name="   ")
+
+
+@pytest.mark.asyncio
+async def test_fetch_rejects_empty_group_name() -> None:
+    """A bare ``group:`` with no name is rejected inline."""
+    with pytest.raises(InvalidParameterError):
+        await boc_fetch(series_name="group:")
 
 
 # ---------------------------------------------------------------------------
@@ -476,3 +527,37 @@ async def test_enumerate_boc_emits_columns_required_for_catalog_entries() -> Non
     assert group_entry.title == "Daily exchange rates"
     assert group_entry.metadata.get("entity_type") == "group"
     assert group_entry.metadata.get("group") == "FX_RATES_DAILY"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_enumerate_boc_columns_exactly_match_declared_schema() -> None:
+    """The emitted DataFrame columns exactly match the declared @enumerator
+    schema (enumerators drop unmapped columns then require an exact match)."""
+    _mock_enumerate_endpoints(
+        series_payload={"series": {"FXUSDCAD": {"label": "USD/CAD", "description": "USD to CAD"}}},
+        groups_payload={"groups": {"FX_RATES_DAILY": {"label": "Daily exchange rates"}}},
+        group_membership={
+            "FX_RATES_DAILY": {
+                "name": "FX_RATES_DAILY",
+                "groupSeries": {"FXUSDCAD": {"label": "USD/CAD"}},
+            },
+        },
+    )
+
+    df = _enumerate_dataframe(await enumerate_boc())
+    assert list(df.columns) == [c.name for c in BOC_ENUMERATE_OUTPUT.columns]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_enumerate_boc_maps_http_error_on_failed_list_endpoint() -> None:
+    """A non-200 on a list endpoint surfaces a typed ProviderError (not raw httpx)."""
+    from parsimony.errors import ProviderError
+
+    respx.get("https://www.bankofcanada.ca/valet/lists/series/json").mock(
+        return_value=httpx.Response(503)
+    )
+
+    with pytest.raises(ProviderError):
+        await enumerate_boc()

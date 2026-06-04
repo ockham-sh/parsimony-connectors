@@ -10,6 +10,7 @@ def test_connectors_count() -> None:
 
 
 def test_minimal_public_surface() -> None:
-    assert parsimony_alpha_vantage.__all__ == ["CONNECTORS"]
+    assert parsimony_alpha_vantage.__all__ == ["CONNECTORS", "load"]
     assert hasattr(parsimony_alpha_vantage, "CONNECTORS")
+    assert callable(parsimony_alpha_vantage.load)
     assert not hasattr(parsimony_alpha_vantage, "alpha_vantage_search")

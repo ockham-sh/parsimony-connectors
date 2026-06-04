@@ -20,7 +20,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 | `eodhd_dividends` | fetch | Dividend history for a ticker. |
 | `eodhd_splits` | fetch | Stock split history for a ticker. |
 | `eodhd_fundamentals` | fetch | Full fundamentals for a stock or ETF (raw nested dict). |
-| `eodhd_calendar` | fetch | Earnings / IPO / analyst trends calendars. |
+| `eodhd_calendar` | fetch | Earnings / IPO / analyst trends / splits calendars. |
 | `eodhd_news` | fetch | Financial news, optionally filtered by ticker. |
 | `eodhd_macro` | fetch | Single macro indicator time series for a country. |
 | `eodhd_macro_bulk` | fetch | All available macro indicators for a country. |
@@ -28,7 +28,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 | `eodhd_insider` | fetch | Insider (executive / director) transactions. |
 | `eodhd_screener` | fetch | Screen stocks by structured filter triples. |
 
-Several endpoints require paid EODHD plans (EOD+Intraday, Fundamentals); per-connector docstrings tag the minimum plan as `[Free+]`, `[EOD+Intraday+]`, or `[Fundamentals+]`.
+Several endpoints require paid EODHD plans (EOD+Intraday, Fundamentals); per-connector docstrings tag the minimum plan as `[Free+]`, `[EOD+Intraday+]`, or `[Fundamentals+]`. On a free key a plan-gated endpoint returns HTTP 403 (or 423 for bulk), surfaced as `PaymentRequiredError` — not an auth error.
 
 ## Install
 
@@ -36,7 +36,7 @@ Several endpoints require paid EODHD plans (EOD+Intraday, Fundamentals); per-con
 pip install parsimony-eodhd
 ```
 
-Pulls in `parsimony-core>=0.6,<0.7` automatically. Verify discovery:
+Pulls in `parsimony-core>=0.7,<0.8` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
@@ -56,10 +56,12 @@ Get a key at https://eodhd.com/register.
 
 ```python
 import asyncio
-from parsimony_eodhd import CONNECTORS
+import os
+from parsimony_eodhd import load
 
 async def main():
-    connectors = CONNECTORS
+    # load() binds the API key off the call surface (and out of provenance).
+    connectors = load(api_key=os.environ["EODHD_API_KEY"])
     result = await connectors["eodhd_eod"](ticker="AAPL.US")
     print(result.data.head())
 
