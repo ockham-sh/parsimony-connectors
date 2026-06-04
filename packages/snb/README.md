@@ -8,8 +8,9 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 
 | Name | Kind | Description |
 |---|---|---|
-| `snb_fetch` | connector | Fetch an SNB cube as a tidy DataFrame by `cube_id`, with optional date window, dimension selection, and language. |
-| `enumerate_snb` | enumerator | Enumerate the curated SNB cube list with inferred category and frequency (drives the `snb` catalog). |
+| `snb_fetch` | connector | Fetch an SNB cube as a long-format DataFrame by `cube_id`, with optional date window, dimension selection, and language. |
+| `enumerate_snb` | enumerator | Enumerate the curated SNB cube list as per-series rows with inferred category and frequency (drives the `snb` catalog). |
+| `snb_search` | search | Semantic search over the published SNB catalog. Pass the `cube_id` portion (before `#`) of a returned code to `snb_fetch(cube_id=...)`. |
 
 ## Install
 
@@ -46,7 +47,11 @@ connectors = discover.load_all()
 
 ## Catalogs
 
-This plugin currently exposes connectors only. If a catalog is added, it should be a lazy `Catalog` declaration that maintainers build and push directly.
+`snb_search` runs semantic search over a published catalog snapshot
+(`hf://parsimony-dev/snb` by default; override with the
+`PARSIMONY_SNB_CATALOG_URL` env var or `load(catalog_url=...)`). The snapshot
+is built from `enumerate_snb` via `scripts/build_catalog.py`. No API key is
+required — SNB is a public, keyless data portal.
 
 ## Provider
 

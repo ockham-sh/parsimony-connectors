@@ -8,22 +8,28 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from parsimony.errors import EmptyDataError, InvalidParameterError
+from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError, ProviderError
 
 import parsimony_snb as _snb_module
 from parsimony_snb import (
     CONNECTORS,
-    SnbFetchParams,
     _is_measure_series,
+    _parse_snb_csv,
     _series_from_dimensions,
     enumerate_snb,
     snb_fetch,
 )
 
+# Real-shaped SNB cube CSV: BOM + preamble (CubeId/PublishingDate) + blank
+# line + long-format header (Date;D0;Value) + data rows. Mirrors a live
+# `rendoblim` download.
 _SNB_CSV = (
-    "﻿date;value\n"
-    "2026-01;108.4\n"
-    "2026-02;108.7\n"
+    '﻿"CubeId";"rendoblim"\r\n'
+    '"PublishingDate";"2025-09-01 14:29"\r\n'
+    "\r\n"
+    '"Date";"D0";"Value"\r\n'
+    '"2026-01";"10J";"0.83"\r\n'
+    '"2026-02";"10J";"0.86"\r\n'
 )
 
 
@@ -38,10 +44,6 @@ async def test_snb_fetch_parses_csv() -> None:
     respx.get("https://data.snb.ch/api/cube/rendoblim/data/csv/en").mock(
         return_value=httpx.Response(200, text=_SNB_CSV)
     )
-    # Dimensions endpoint — returned but not required for the test
-    respx.get("https://data.snb.ch/api/cube/rendoblim/dimensions/en").mock(
-        return_value=httpx.Response(200, json={"name": "Bond yields"})
-    )
 
     result = await snb_fetch(cube_id="rendoblim")
 
@@ -49,6 +51,31 @@ async def test_snb_fetch_parses_csv() -> None:
     df = result.data
     assert "cube_id" in df.columns
     assert df.iloc[0]["cube_id"] == "rendoblim"
+    # Title is sourced from the curated registry (SNB's /dimensions payload
+    # carries NO cube title), so it is the human-readable cube name.
+    assert df.iloc[0]["title"] == _snb_module._CUBE_TITLES["rendoblim"]
+    assert "Yields on bond issues" in df.iloc[0]["title"]
+    # The trailing measure column coerces to numeric…
+    assert df["Value"].dtype.kind == "f"
+    assert df["Value"].tolist() == [0.83, 0.86]
+    # …but the string dimension code column is NOT blanket-coerced to NaN.
+    assert set(df["D0"]) == {"10J"}
+    # Dates parse to real datetimes (declared dtype="datetime").
+    assert df["date"].dtype.kind == "M"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_snb_fetch_title_falls_back_to_cube_id_for_unknown_cube() -> None:
+    """A cube outside the curated registry falls back to the cube_id as its
+    title — the fetch still succeeds (single request, no dimensions call)."""
+    respx.get("https://data.snb.ch/api/cube/notacube/data/csv/en").mock(
+        return_value=httpx.Response(200, text=_SNB_CSV)
+    )
+
+    df = (await snb_fetch(cube_id="notacube")).data
+    assert not df.empty
+    assert set(df["title"]) == {"notacube"}
 
 
 @respx.mock
@@ -62,9 +89,71 @@ async def test_snb_fetch_raises_empty_data_on_empty_csv() -> None:
         await snb_fetch(cube_id="rendoblim")
 
 
+@respx.mock
+@pytest.mark.asyncio
+async def test_snb_fetch_raises_parse_error_on_malformed_csv() -> None:
+    """A 200 whose body is NOT a parseable cube CSV (e.g. an SNB JSON error
+    envelope or an HTML error page) → ParseError, never a silent empty frame
+    (the bug this rewrite fixes)."""
+    respx.get("https://data.snb.ch/api/cube/rendoblim/data/csv/en").mock(
+        return_value=httpx.Response(200, text='{"message": "Table rendoblim not found"}')
+    )
+
+    with pytest.raises(ParseError):
+        await snb_fetch(cube_id="rendoblim")
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_snb_fetch_raises_parse_error_on_html_error_page() -> None:
+    """An HTML stub (single-column junk, no CSV header) → ParseError."""
+    respx.get("https://data.snb.ch/api/cube/rendoblim/data/csv/en").mock(
+        return_value=httpx.Response(200, text="<html><body>Service unavailable</body></html>")
+    )
+
+    with pytest.raises(ParseError):
+        await snb_fetch(cube_id="rendoblim")
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_snb_fetch_maps_http_error_to_provider_error() -> None:
+    """A non-200 on the cube CSV endpoint surfaces a typed ProviderError."""
+    respx.get("https://data.snb.ch/api/cube/rendoblim/data/csv/en").mock(
+        return_value=httpx.Response(500)
+    )
+
+    with pytest.raises(ProviderError):
+        await snb_fetch(cube_id="rendoblim")
+
+
 def test_fetch_rejects_empty_cube_id() -> None:
+    """Blank cube_id is rejected inline before any network call."""
+    import asyncio
+
     with pytest.raises(InvalidParameterError):
-        SnbFetchParams(cube_id="   ")
+        asyncio.run(snb_fetch(cube_id="   "))
+
+
+def test_parse_snb_csv_raises_on_unparseable_body() -> None:
+    """``_parse_snb_csv`` raises ParseError on a 200 body that isn't a cube
+    CSV — it no longer swallows the failure to an empty frame."""
+    with pytest.raises(ParseError):
+        _parse_snb_csv('{"message": "not found"}', "rendoblim")
+
+
+def test_parse_snb_csv_returns_empty_frame_on_blank_body() -> None:
+    """A genuinely empty body parses to an empty frame (caller → EmptyData)."""
+    assert _parse_snb_csv("", "rendoblim").empty
+
+
+def test_parse_snb_csv_keeps_dimension_codes_as_strings() -> None:
+    """Only the trailing ``Value`` column is coerced to numeric; dimension
+    code columns stay strings (the eia blanket-coerce anti-pattern)."""
+    df = _parse_snb_csv(_SNB_CSV, "rendoblim")
+    assert df["Value"].dtype.kind == "f"
+    assert df["D0"].dtype == object
+    assert set(df["D0"]) == {"10J"}
 
 
 # ---------------------------------------------------------------------------
