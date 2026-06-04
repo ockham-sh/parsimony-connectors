@@ -8,8 +8,9 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 
 | Name | Kind | Description |
 |---|---|---|
-| `bde_fetch` | fetch | Fetch one or more BdE time series by series code (comma-separated). |
-| `enumerate_bde` | enumerator | Enumerate BdE series by querying well-known series codes for catalog seeding. |
+| `bde_fetch` | connector | Fetch one or more BdE time series by series code (comma-separated). |
+| `enumerate_bde` | enumerator | Discover BdE series by crawling the seven published catalog CSV chapters. |
+| `bde_search` | connector | Semantic-search the published BdE catalog snapshot; returns ranked series codes. |
 
 ## Install
 
@@ -17,7 +18,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 pip install parsimony-bde
 ```
 
-Pulls in `parsimony-core>=0.6,<0.7` automatically. Verify discovery:
+Pulls in `parsimony-core>=0.7,<0.8` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
@@ -25,7 +26,11 @@ python -c "from parsimony import discover; print([p.name for p in discover.iter_
 
 ## Configuration
 
-No configuration required — the BdE BIEST API is open and unauthenticated.
+No API key required — the BdE BIEST API is open and unauthenticated.
+
+`bde_search` reads a published catalog snapshot (default `hf://parsimony-dev/bde`).
+Override the snapshot location with the `PARSIMONY_BDE_CATALOG_URL` environment
+variable, or pass `catalog_url=` at call time.
 
 ## Quick start
 
@@ -50,7 +55,12 @@ connectors = discover.load_all()
 
 ## Catalogs
 
-This plugin currently exposes connectors only. If a catalog is added, it should be a lazy `Catalog` declaration that maintainers build and push directly.
+`enumerate_bde` discovers the full BdE series catalog by crawling the published
+CSV chapters; maintainers build a `Catalog` snapshot from it (see
+`scripts/build_catalog.py`) and push it to the snapshot URL that `bde_search`
+reads. The crawl is expensive (seven chapters; the CF/Financial-Accounts chapter
+alone is several thousand series), so it runs offline as a publish job — never at
+query time.
 
 ## Provider
 
