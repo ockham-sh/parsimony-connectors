@@ -157,11 +157,11 @@ This repository is one of three open-source components in the Ockham data stack:
 | **`parsimony-connectors`** (this repo) | `parsimony-<name>` (23 packages) | Apache 2.0 | Officially-maintained provider connectors |
 | [`parsimony-agents`](https://github.com/ockham-sh/parsimony-agents) | `parsimony-agents` | Apache 2.0 | Agent loop and orchestration primitives built on the connector layer |
 
-These three libraries form the open-source data-access stack. The fourth component, [ockham (`terminal`)](https://github.com/ockham-sh/terminal), is an AGPLv3 institutional deployment product for self-hosted teams that bundles all three libraries with a web UI and enterprise features.
+These three libraries form the open-source data-access stack. The fourth component, [ockham (`terminal`)](https://github.com/ockham-sh/terminal) (coming soon), is an AGPLv3 institutional deployment product for self-hosted teams that bundles all three libraries with a web UI and enterprise features.
 
 **Kernel.** `parsimony-core` is a thin shell: connector primitives, entry-point discovery, conformance suite, scaffolding. It knows nothing about specific providers. Connectors depend on the kernel through the stable `parsimony.providers` entry-point contract and a declared contract-version pin, so connector and kernel release cadences are independent.
 
-**Agent framework.** `parsimony-agents` provides the agent loop and tool orchestration that powers the Ockham terminal and can be used standalone in custom agent pipelines. Published to PyPI under Apache 2.0.
+**Agent framework.** `parsimony-agents` provides the agent loop and tool orchestration that powers the Ockham terminal (coming soon) and can be used standalone in custom agent pipelines. Published to PyPI under Apache 2.0.
 
 Adding a new public data source means adding a new package under `packages/` and passing the conformance suite. The full contract specification lives at [ockham-sh/parsimony `docs/contract.md`](https://github.com/ockham-sh/parsimony/blob/main/docs/contract.md).
 
