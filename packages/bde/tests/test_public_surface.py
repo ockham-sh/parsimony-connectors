@@ -10,6 +10,7 @@ def test_connectors_count() -> None:
 
 
 def test_minimal_public_surface() -> None:
-    assert parsimony_bde.__all__ == ["CONNECTORS"]
+    assert parsimony_bde.__all__ == ["CONNECTORS", "load"]
     assert hasattr(parsimony_bde, "CONNECTORS")
+    assert hasattr(parsimony_bde, "load")
     assert not hasattr(parsimony_bde, "bde_fetch")

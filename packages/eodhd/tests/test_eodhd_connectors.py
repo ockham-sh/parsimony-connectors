@@ -84,8 +84,7 @@ def test_load_binds_key_across_collection() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_search_returns_rows_and_strips_key() -> None:
+def test_eodhd_search_returns_rows_and_strips_key() -> None:
     respx.get(f"{_BASE}/search/apple").mock(
         return_value=httpx.Response(
             200,
@@ -105,7 +104,7 @@ async def test_eodhd_search_returns_rows_and_strips_key() -> None:
         )
     )
 
-    result = await eodhd_search.bind(api_key=_KEY)(query="apple")
+    result = eodhd_search.bind(api_key=_KEY)(query="apple")
 
     assert result.provenance.source == "eodhd_search"
     # Theme-B: the bound key must not appear in provenance.
@@ -119,50 +118,44 @@ async def test_eodhd_search_returns_rows_and_strips_key() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_search_empty_raises_empty_data() -> None:
+def test_eodhd_search_empty_raises_empty_data() -> None:
     respx.get(f"{_BASE}/search/zzz").mock(return_value=httpx.Response(200, json=[]))
     with pytest.raises(EmptyDataError):
-        await eodhd_search.bind(api_key=_KEY)(query="zzz")
+        eodhd_search.bind(api_key=_KEY)(query="zzz")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_search_non_list_raises_parse_error() -> None:
+def test_eodhd_search_non_list_raises_parse_error() -> None:
     respx.get(f"{_BASE}/search/apple").mock(return_value=httpx.Response(200, json={"detail": "weird"}))
     with pytest.raises(ParseError):
-        await eodhd_search.bind(api_key=_KEY)(query="apple")
+        eodhd_search.bind(api_key=_KEY)(query="apple")
 
 
-@pytest.mark.asyncio
-async def test_eodhd_search_rejects_empty_query() -> None:
+def test_eodhd_search_rejects_empty_query() -> None:
     with pytest.raises(InvalidParameterError, match="query"):
-        await eodhd_search.bind(api_key=_KEY)(query="   ")
+        eodhd_search.bind(api_key=_KEY)(query="   ")
 
 
-@pytest.mark.asyncio
-async def test_eodhd_search_rejects_bad_limit() -> None:
+def test_eodhd_search_rejects_bad_limit() -> None:
     with pytest.raises(InvalidParameterError, match="limit"):
-        await eodhd_search.bind(api_key=_KEY)(query="apple", limit=0)
+        eodhd_search.bind(api_key=_KEY)(query="apple", limit=0)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_search_maps_401_without_leaking_key() -> None:
+def test_eodhd_search_maps_401_without_leaking_key() -> None:
     respx.get(f"{_BASE}/search/apple").mock(return_value=httpx.Response(401, text="Unauthenticated"))
     with pytest.raises(UnauthorizedError) as exc_info:
-        await eodhd_search.bind(api_key=_KEY)(query="apple")
+        eodhd_search.bind(api_key=_KEY)(query="apple")
     assert _KEY not in str(exc_info.value)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_search_maps_429_without_leaking_key() -> None:
+def test_eodhd_search_maps_429_without_leaking_key() -> None:
     respx.get(f"{_BASE}/search/apple").mock(
         return_value=httpx.Response(429, headers={"Retry-After": "15"}, text="too many requests")
     )
     with pytest.raises(RateLimitError) as exc_info:
-        await eodhd_search.bind(api_key=_KEY)(query="apple")
+        eodhd_search.bind(api_key=_KEY)(query="apple")
     assert _KEY not in str(exc_info.value)
 
 
@@ -172,29 +165,27 @@ async def test_eodhd_search_maps_429_without_leaking_key() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_403_maps_to_payment_required() -> None:
+def test_403_maps_to_payment_required() -> None:
     # 403 "Only EOD data allowed for free users" is a plan restriction, not a
     # credential failure — must NOT map to UnauthorizedError.
     respx.get(f"{_BASE}/fundamentals/AAPL.US").mock(
         return_value=httpx.Response(403, text="Only EOD data allowed for free users.")
     )
     with pytest.raises(PaymentRequiredError) as exc_info:
-        await eodhd_fundamentals.bind(api_key=_KEY)(ticker="AAPL.US")
+        eodhd_fundamentals.bind(api_key=_KEY)(ticker="AAPL.US")
     assert exc_info.value.provider == "eodhd"
     assert not isinstance(exc_info.value, UnauthorizedError)
     assert _KEY not in str(exc_info.value)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_423_maps_to_payment_required() -> None:
+def test_423_maps_to_payment_required() -> None:
     # 423 Locked "Bulk requests are prohibited for free users" → plan restriction.
     respx.get(f"{_BASE}/eod-bulk-last-day/US").mock(
         return_value=httpx.Response(423, text="Bulk requests are prohibited for free users.")
     )
     with pytest.raises(PaymentRequiredError) as exc_info:
-        await eodhd_bulk_eod.bind(api_key=_KEY)(exchange="US")
+        eodhd_bulk_eod.bind(api_key=_KEY)(exchange="US")
     assert exc_info.value.provider == "eodhd"
     assert _KEY not in str(exc_info.value)
 
@@ -205,8 +196,7 @@ async def test_423_maps_to_payment_required() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_eod_returns_ohlc_and_drops_warning() -> None:
+def test_eodhd_eod_returns_ohlc_and_drops_warning() -> None:
     respx.get(f"{_BASE}/eod/AAPL.US").mock(
         return_value=httpx.Response(
             200,
@@ -224,24 +214,22 @@ async def test_eodhd_eod_returns_ohlc_and_drops_warning() -> None:
             ],
         )
     )
-    result = await eodhd_eod.bind(api_key=_KEY)(ticker="AAPL.US")
+    result = eodhd_eod.bind(api_key=_KEY)(ticker="AAPL.US")
     df = result.data
     assert df.iloc[0]["close"] == 171.5
     assert "warning" not in df.columns
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_eod_empty_raises_empty_data() -> None:
+def test_eodhd_eod_empty_raises_empty_data() -> None:
     respx.get(f"{_BASE}/eod/AAPL.US").mock(return_value=httpx.Response(200, json=[]))
     with pytest.raises(EmptyDataError):
-        await eodhd_eod.bind(api_key=_KEY)(ticker="AAPL.US")
+        eodhd_eod.bind(api_key=_KEY)(ticker="AAPL.US")
 
 
-@pytest.mark.asyncio
-async def test_eodhd_eod_rejects_unsafe_ticker() -> None:
+def test_eodhd_eod_rejects_unsafe_ticker() -> None:
     with pytest.raises(InvalidParameterError, match="unsafe"):
-        await eodhd_eod.bind(api_key=_KEY)(ticker="../etc/passwd")
+        eodhd_eod.bind(api_key=_KEY)(ticker="../etc/passwd")
 
 
 # ---------------------------------------------------------------------------
@@ -250,8 +238,7 @@ async def test_eodhd_eod_rejects_unsafe_ticker() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_live_returns_quote() -> None:
+def test_eodhd_live_returns_quote() -> None:
     respx.get(f"{_BASE}/real-time/AAPL.US").mock(
         return_value=httpx.Response(
             200,
@@ -270,18 +257,17 @@ async def test_eodhd_live_returns_quote() -> None:
             },
         )
     )
-    result = await eodhd_live.bind(api_key=_KEY)(ticker="AAPL.US")
+    result = eodhd_live.bind(api_key=_KEY)(ticker="AAPL.US")
     df = result.data
     assert df.iloc[0]["code"] == "AAPL.US"
     assert df.iloc[0]["close"] == 310.26
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_live_no_code_raises_empty_data() -> None:
+def test_eodhd_live_no_code_raises_empty_data() -> None:
     respx.get(f"{_BASE}/real-time/AAPL.US").mock(return_value=httpx.Response(200, json={}))
     with pytest.raises(EmptyDataError):
-        await eodhd_live.bind(api_key=_KEY)(ticker="AAPL.US")
+        eodhd_live.bind(api_key=_KEY)(ticker="AAPL.US")
 
 
 # ---------------------------------------------------------------------------
@@ -290,8 +276,7 @@ async def test_eodhd_live_no_code_raises_empty_data() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_intraday_returns_bars() -> None:
+def test_eodhd_intraday_returns_bars() -> None:
     respx.get(f"{_BASE}/intraday/AAPL.US").mock(
         return_value=httpx.Response(
             200,
@@ -308,7 +293,7 @@ async def test_eodhd_intraday_returns_bars() -> None:
             ],
         )
     )
-    result = await eodhd_intraday.bind(api_key=_KEY)(ticker="AAPL.US", interval="5m")
+    result = eodhd_intraday.bind(api_key=_KEY)(ticker="AAPL.US", interval="5m")
     assert result.data.iloc[0]["close"] == 1.5
 
 
@@ -318,8 +303,7 @@ async def test_eodhd_intraday_returns_bars() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_bulk_eod_returns_rows() -> None:
+def test_eodhd_bulk_eod_returns_rows() -> None:
     respx.get(f"{_BASE}/eod-bulk-last-day/US").mock(
         return_value=httpx.Response(
             200,
@@ -339,7 +323,7 @@ async def test_eodhd_bulk_eod_returns_rows() -> None:
             ],
         )
     )
-    result = await eodhd_bulk_eod.bind(api_key=_KEY)(exchange="US")
+    result = eodhd_bulk_eod.bind(api_key=_KEY)(exchange="US")
     assert result.data.iloc[0]["code"] == "AAPL"
 
 
@@ -349,8 +333,7 @@ async def test_eodhd_bulk_eod_returns_rows() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_dividends_returns_rows() -> None:
+def test_eodhd_dividends_returns_rows() -> None:
     respx.get(f"{_BASE}/div/AAPL.US").mock(
         return_value=httpx.Response(
             200,
@@ -368,25 +351,23 @@ async def test_eodhd_dividends_returns_rows() -> None:
             ],
         )
     )
-    result = await eodhd_dividends.bind(api_key=_KEY)(ticker="AAPL.US")
+    result = eodhd_dividends.bind(api_key=_KEY)(ticker="AAPL.US")
     assert result.data.iloc[0]["value"] == 0.1925
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_dividends_empty_raises_empty_data() -> None:
+def test_eodhd_dividends_empty_raises_empty_data() -> None:
     respx.get(f"{_BASE}/div/AAPL.US").mock(return_value=httpx.Response(200, json=[]))
     with pytest.raises(EmptyDataError):
-        await eodhd_dividends.bind(api_key=_KEY)(ticker="AAPL.US")
+        eodhd_dividends.bind(api_key=_KEY)(ticker="AAPL.US")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_splits_returns_rows() -> None:
+def test_eodhd_splits_returns_rows() -> None:
     respx.get(f"{_BASE}/splits/AAPL.US").mock(
         return_value=httpx.Response(200, json=[{"date": "1987-06-16", "split": "2.000000/1.000000"}])
     )
-    result = await eodhd_splits.bind(api_key=_KEY)(ticker="AAPL.US")
+    result = eodhd_splits.bind(api_key=_KEY)(ticker="AAPL.US")
     assert result.data.iloc[0]["split"] == "2.000000/1.000000"
 
 
@@ -396,25 +377,23 @@ async def test_eodhd_splits_returns_rows() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_fundamentals_returns_dict() -> None:
+def test_eodhd_fundamentals_returns_dict() -> None:
     respx.get(f"{_BASE}/fundamentals/AAPL.US").mock(
         return_value=httpx.Response(
             200,
             json={"General": {"Code": "AAPL"}, "Highlights": {"MarketCapitalization": 3e12}},
         )
     )
-    result = await eodhd_fundamentals.bind(api_key=_KEY)(ticker="AAPL.US")
+    result = eodhd_fundamentals.bind(api_key=_KEY)(ticker="AAPL.US")
     assert isinstance(result.data, dict)
     assert result.data["General"]["Code"] == "AAPL"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_fundamentals_empty_raises_empty_data() -> None:
+def test_eodhd_fundamentals_empty_raises_empty_data() -> None:
     respx.get(f"{_BASE}/fundamentals/AAPL.US").mock(return_value=httpx.Response(200, json={}))
     with pytest.raises(EmptyDataError):
-        await eodhd_fundamentals.bind(api_key=_KEY)(ticker="AAPL.US")
+        eodhd_fundamentals.bind(api_key=_KEY)(ticker="AAPL.US")
 
 
 # ---------------------------------------------------------------------------
@@ -423,8 +402,7 @@ async def test_eodhd_fundamentals_empty_raises_empty_data() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_calendar_unwraps_earnings() -> None:
+def test_eodhd_calendar_unwraps_earnings() -> None:
     respx.get(f"{_BASE}/calendar/earnings").mock(
         return_value=httpx.Response(
             200,
@@ -445,18 +423,17 @@ async def test_eodhd_calendar_unwraps_earnings() -> None:
             },
         )
     )
-    result = await eodhd_calendar.bind(api_key=_KEY)(type="earnings")
+    result = eodhd_calendar.bind(api_key=_KEY)(type="earnings")
     assert result.data.iloc[0]["code"] == "AAPL.US"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_calendar_ipos_uses_correct_path() -> None:
+def test_eodhd_calendar_ipos_uses_correct_path() -> None:
     # The IPO calendar type is "ipos" (not "ipo"); the route must match.
     route = respx.get(f"{_BASE}/calendar/ipos").mock(
         return_value=httpx.Response(200, json={"ipos": [{"code": "NEW.US", "date": "2024-03-01"}]})
     )
-    result = await eodhd_calendar.bind(api_key=_KEY)(type="ipos")
+    result = eodhd_calendar.bind(api_key=_KEY)(type="ipos")
     assert route.called
     assert result.data.iloc[0]["code"] == "NEW.US"
 
@@ -467,8 +444,7 @@ async def test_eodhd_calendar_ipos_uses_correct_path() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_news_returns_rows_and_drops_sentiment() -> None:
+def test_eodhd_news_returns_rows_and_drops_sentiment() -> None:
     respx.get(f"{_BASE}/news").mock(
         return_value=httpx.Response(
             200,
@@ -485,16 +461,15 @@ async def test_eodhd_news_returns_rows_and_drops_sentiment() -> None:
             ],
         )
     )
-    result = await eodhd_news.bind(api_key=_KEY)(ticker="AAPL.US")
+    result = eodhd_news.bind(api_key=_KEY)(ticker="AAPL.US")
     df = result.data
     assert df.iloc[0]["title"] == "Apple beats earnings"
     assert "sentiment" not in df.columns
 
 
-@pytest.mark.asyncio
-async def test_eodhd_news_rejects_bad_limit() -> None:
+def test_eodhd_news_rejects_bad_limit() -> None:
     with pytest.raises(InvalidParameterError, match="limit"):
-        await eodhd_news.bind(api_key=_KEY)(limit=0)
+        eodhd_news.bind(api_key=_KEY)(limit=0)
 
 
 # ---------------------------------------------------------------------------
@@ -503,8 +478,7 @@ async def test_eodhd_news_rejects_bad_limit() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_macro_returns_rows() -> None:
+def test_eodhd_macro_returns_rows() -> None:
     respx.get(f"{_BASE}/macro-indicator/USA").mock(
         return_value=httpx.Response(
             200,
@@ -520,26 +494,24 @@ async def test_eodhd_macro_returns_rows() -> None:
             ],
         )
     )
-    result = await eodhd_macro.bind(api_key=_KEY)(country="USA", indicator="gdp_current_usd")
+    result = eodhd_macro.bind(api_key=_KEY)(country="USA", indicator="gdp_current_usd")
     assert result.data.iloc[0]["Value"] == 27000000000000.0
 
 
-@pytest.mark.asyncio
-async def test_eodhd_macro_rejects_empty_indicator() -> None:
+def test_eodhd_macro_rejects_empty_indicator() -> None:
     with pytest.raises(InvalidParameterError, match="indicator"):
-        await eodhd_macro.bind(api_key=_KEY)(country="USA", indicator="  ")
+        eodhd_macro.bind(api_key=_KEY)(country="USA", indicator="  ")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_macro_bulk_returns_rows() -> None:
+def test_eodhd_macro_bulk_returns_rows() -> None:
     respx.get(f"{_BASE}/macro-indicator/USA").mock(
         return_value=httpx.Response(
             200,
             json=[{"Date": "2023-12-31", "Period": "Annual", "Value": 1.0}],
         )
     )
-    result = await eodhd_macro_bulk.bind(api_key=_KEY)(country="USA")
+    result = eodhd_macro_bulk.bind(api_key=_KEY)(country="USA")
     assert result.data.iloc[0]["Value"] == 1.0
 
 
@@ -549,20 +521,31 @@ async def test_eodhd_macro_bulk_returns_rows() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_technical_returns_indicator_columns() -> None:
+def test_eodhd_technical_returns_indicator_columns() -> None:
     respx.get(f"{_BASE}/technical/AAPL.US").mock(
-        return_value=httpx.Response(200, json=[{"date": "2024-01-02", "sma": 170.5}])
+        return_value=httpx.Response(
+            200,
+            json=[
+                {
+                    "date": "2024-01-02",
+                    "open": 170.0,
+                    "high": 171.0,
+                    "low": 169.0,
+                    "close": 170.5,
+                    "volume": 1000,
+                    "sma": 170.5,
+                }
+            ],
+        )
     )
-    result = await eodhd_technical.bind(api_key=_KEY)(ticker="AAPL.US", function="sma")
+    result = eodhd_technical.bind(api_key=_KEY)(ticker="AAPL.US", function="sma")
     df = result.data
     assert df.iloc[0]["sma"] == 170.5
 
 
-@pytest.mark.asyncio
-async def test_eodhd_technical_rejects_bad_period() -> None:
+def test_eodhd_technical_rejects_bad_period() -> None:
     with pytest.raises(InvalidParameterError, match="period"):
-        await eodhd_technical.bind(api_key=_KEY)(ticker="AAPL.US", function="sma", period=0)
+        eodhd_technical.bind(api_key=_KEY)(ticker="AAPL.US", function="sma", period=0)
 
 
 # ---------------------------------------------------------------------------
@@ -571,8 +554,7 @@ async def test_eodhd_technical_rejects_bad_period() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_insider_returns_rows() -> None:
+def test_eodhd_insider_returns_rows() -> None:
     respx.get(f"{_BASE}/insider-transactions").mock(
         return_value=httpx.Response(
             200,
@@ -581,13 +563,17 @@ async def test_eodhd_insider_returns_rows() -> None:
                     "code": "AAPL.US",
                     "date": "2024-01-02",
                     "ownerName": "Tim Cook",
+                    "ownerCik": "0001234567",
                     "transactionType": "S",
+                    "transactionDate": "2024-01-02",
                     "value": 1000000.0,
+                    "sharesOwned": 50000.0,
+                    "change": -1000.0,
                 }
             ],
         )
     )
-    result = await eodhd_insider.bind(api_key=_KEY)(ticker="AAPL.US")
+    result = eodhd_insider.bind(api_key=_KEY)(ticker="AAPL.US")
     assert result.data.iloc[0]["code"] == "AAPL.US"
 
 
@@ -597,8 +583,7 @@ async def test_eodhd_insider_returns_rows() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_screener_unwraps_data() -> None:
+def test_eodhd_screener_unwraps_data() -> None:
     respx.get(f"{_BASE}/screener").mock(
         return_value=httpx.Response(
             200,
@@ -617,16 +602,15 @@ async def test_eodhd_screener_unwraps_data() -> None:
             },
         )
     )
-    result = await eodhd_screener.bind(api_key=_KEY)(
+    result = eodhd_screener.bind(api_key=_KEY)(
         filters=[("market_capitalization", ">", "1000000000")], sort="market_capitalization"
     )
     assert result.data.iloc[0]["code"] == "AAPL"
 
 
-@pytest.mark.asyncio
-async def test_eodhd_screener_rejects_bad_limit() -> None:
+def test_eodhd_screener_rejects_bad_limit() -> None:
     with pytest.raises(InvalidParameterError, match="limit"):
-        await eodhd_screener.bind(api_key=_KEY)(limit=0)
+        eodhd_screener.bind(api_key=_KEY)(limit=0)
 
 
 # ---------------------------------------------------------------------------
@@ -635,8 +619,7 @@ async def test_eodhd_screener_rejects_bad_limit() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_exchanges_lists_exchanges() -> None:
+def test_eodhd_exchanges_lists_exchanges() -> None:
     respx.get(f"{_BASE}/exchanges-list").mock(
         return_value=httpx.Response(
             200,
@@ -646,13 +629,12 @@ async def test_eodhd_exchanges_lists_exchanges() -> None:
             ],
         )
     )
-    result = await eodhd_exchanges.bind(api_key=_KEY)()
+    result = eodhd_exchanges.bind(api_key=_KEY)()
     assert set(result.data["Code"]) == {"US", "LSE"}
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eodhd_exchange_symbols_lists_symbols() -> None:
+def test_eodhd_exchange_symbols_lists_symbols() -> None:
     respx.get(f"{_BASE}/exchange-symbol-list/US").mock(
         return_value=httpx.Response(
             200,
@@ -669,15 +651,14 @@ async def test_eodhd_exchange_symbols_lists_symbols() -> None:
             ],
         )
     )
-    result = await eodhd_exchange_symbols.bind(api_key=_KEY)(exchange="US")
+    result = eodhd_exchange_symbols.bind(api_key=_KEY)(exchange="US")
     assert result.data.iloc[0]["Code"] == "AAPL"
     assert result.data.iloc[0]["Isin"] == "US0378331005"
 
 
-@pytest.mark.asyncio
-async def test_eodhd_exchange_symbols_rejects_unsafe_exchange() -> None:
+def test_eodhd_exchange_symbols_rejects_unsafe_exchange() -> None:
     with pytest.raises(InvalidParameterError, match="unsafe"):
-        await eodhd_exchange_symbols.bind(api_key=_KEY)(exchange="../etc")
+        eodhd_exchange_symbols.bind(api_key=_KEY)(exchange="../etc")
 
 
 # ---------------------------------------------------------------------------
@@ -708,11 +689,10 @@ async def test_eodhd_exchange_symbols_rejects_unsafe_exchange() -> None:
         (eodhd_screener, {}),
     ],
 )
-@pytest.mark.asyncio
-async def test_no_key_raises_unauthorized(connector_fn, kwargs, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_no_key_raises_unauthorized(connector_fn, kwargs, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EODHD_API_KEY", raising=False)
     with pytest.raises(UnauthorizedError) as exc_info:
-        await connector_fn(**kwargs)
+        connector_fn(**kwargs)
     assert exc_info.value.env_var == "EODHD_API_KEY"
     assert exc_info.value.provider == "eodhd"
 

@@ -6,10 +6,7 @@ from parsimony_test_support import ErrorMappingSuite
 
 from parsimony_bdf import bdf_fetch
 
-_OBSERVATIONS_URL = (
-    "https://webstat.banque-france.fr/api/explore/v2.1/catalog/datasets"
-    "/observations/exports/json"
-)
+_OBSERVATIONS_URL = "https://webstat.banque-france.fr/api/explore/v2.1/catalog/datasets/observations/exports/json"
 
 
 class TestBdfFetchErrorMapping(ErrorMappingSuite):

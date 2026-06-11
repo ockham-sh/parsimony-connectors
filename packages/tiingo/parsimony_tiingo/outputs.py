@@ -23,7 +23,7 @@ SEARCH_OUTPUT = OutputConfig(
 
 EOD_OUTPUT = OutputConfig(
     columns=[
-        Column(name="ticker", role=ColumnRole.KEY, param_key="ticker", namespace="tiingo_ticker"),
+        Column(name="ticker", role=ColumnRole.KEY, namespace="tiingo_ticker"),
         Column(name="date", role=ColumnRole.DATA, dtype="datetime"),
         Column(name="close", dtype="numeric"),
         Column(name="high", dtype="numeric"),
@@ -60,7 +60,7 @@ IEX_OUTPUT = OutputConfig(
 
 IEX_HIST_OUTPUT = OutputConfig(
     columns=[
-        Column(name="ticker", role=ColumnRole.KEY, param_key="ticker", namespace="tiingo_ticker"),
+        Column(name="ticker", role=ColumnRole.KEY, namespace="tiingo_ticker"),
         Column(name="date", role=ColumnRole.DATA, dtype="datetime"),
         Column(name="open", dtype="numeric"),
         Column(name="high", dtype="numeric"),
@@ -94,7 +94,7 @@ NEWS_OUTPUT = OutputConfig(
 
 CRYPTO_PRICES_OUTPUT = OutputConfig(
     columns=[
-        Column(name="ticker", role=ColumnRole.KEY, param_key="tickers", namespace="tiingo_crypto"),
+        Column(name="ticker", role=ColumnRole.KEY, namespace="tiingo_crypto"),
         Column(name="date", role=ColumnRole.DATA, dtype="datetime"),
         Column(name="open", dtype="numeric"),
         Column(name="high", dtype="numeric"),
@@ -122,7 +122,7 @@ CRYPTO_TOP_OUTPUT = OutputConfig(
 
 FX_PRICES_OUTPUT = OutputConfig(
     columns=[
-        Column(name="ticker", role=ColumnRole.KEY, param_key="tickers", namespace="tiingo_fx"),
+        Column(name="ticker", role=ColumnRole.KEY, namespace="tiingo_fx"),
         Column(name="date", role=ColumnRole.DATA, dtype="datetime"),
         Column(name="open", dtype="numeric"),
         Column(name="high", dtype="numeric"),

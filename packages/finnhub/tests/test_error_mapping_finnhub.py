@@ -37,22 +37,20 @@ class TestFinnhubSearchErrorMapping(ErrorMappingSuite):
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_finnhub_403_maps_to_payment_required() -> None:
+def test_finnhub_403_maps_to_payment_required() -> None:
     """A premium-only endpoint returns 403 → PaymentRequiredError (plan gate)."""
     respx.get(_ROUTE).mock(return_value=httpx.Response(403, text="You don't have access to this resource."))
 
     bound = finnhub_search.bind(api_key=CANARY_KEY)
     with pytest.raises(PaymentRequiredError) as exc_info:
-        await bound(query="apple")
+        bound(query="apple")
 
     assert_no_secret_leak(exc_info.value)
     assert exc_info.value.provider == "finnhub"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_finnhub_401_maps_to_unauthorized_not_payment() -> None:
+def test_finnhub_401_maps_to_unauthorized_not_payment() -> None:
     """An invalid key returns 401 → UnauthorizedError (NOT Payment).
 
     This pins the dual-meaning distinction: finnhub uses 401 for bad creds and
@@ -63,21 +61,20 @@ async def test_finnhub_401_maps_to_unauthorized_not_payment() -> None:
 
     bound = finnhub_search.bind(api_key=CANARY_KEY)
     with pytest.raises(UnauthorizedError) as exc_info:
-        await bound(query="apple")
+        bound(query="apple")
 
     assert_no_secret_leak(exc_info.value)
     assert exc_info.value.provider == "finnhub"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerator_403_maps_to_payment_required() -> None:
+def test_enumerator_403_maps_to_payment_required() -> None:
     """The enumerator path is now mapped too (it had zero error mapping before)."""
     respx.get(_SYMBOL_ROUTE).mock(return_value=httpx.Response(403, text="no access"))
 
     bound = enumerate_finnhub.bind(api_key=CANARY_KEY)
     with pytest.raises(PaymentRequiredError) as exc_info:
-        await bound(exchange="US")
+        bound(exchange="US")
 
     assert_no_secret_leak(exc_info.value)
     assert exc_info.value.provider == "finnhub"

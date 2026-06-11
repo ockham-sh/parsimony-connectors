@@ -25,7 +25,7 @@ BDE_ENUMERATE_OUTPUT = OutputConfig(
 
 BDE_FETCH_OUTPUT = OutputConfig(
     columns=[
-        Column(name="key", role=ColumnRole.KEY, param_key="key", namespace="bde"),
+        Column(name="key", role=ColumnRole.KEY, namespace="bde"),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="date", dtype="datetime", role=ColumnRole.DATA),
         Column(name="value", dtype="numeric", role=ColumnRole.DATA),

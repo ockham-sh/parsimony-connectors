@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import logging
 
 from parsimony_rba.catalog_build import build_rba_catalog
@@ -11,13 +10,13 @@ from parsimony_rba.catalog_build import build_rba_catalog
 logger = logging.getLogger(__name__)
 
 
-async def build(*, save: str | None, push: str | None) -> None:
-    catalog = await build_rba_catalog()
+def build(*, save: str | None, push: str | None) -> None:
+    catalog = build_rba_catalog()
     logger.info("Built %s catalog with %d entries", catalog.name, len(catalog))
     if save is not None:
-        await catalog.save(save, builder="packages/rba/scripts/build_catalog.py")
+        catalog.save(save, builder="packages/rba/scripts/build_catalog.py")
     if push is not None:
-        await catalog.save(push, builder="packages/rba/scripts/build_catalog.py")
+        catalog.save(push, builder="packages/rba/scripts/build_catalog.py")
 
 
 def main() -> None:
@@ -26,7 +25,7 @@ def main() -> None:
     parser.add_argument("--push", help="Catalog URL to push, e.g. hf://parsimony-dev/rba.")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    asyncio.run(build(save=args.save, push=args.push))
+    build(save=args.save, push=args.push)
 
 
 if __name__ == "__main__":

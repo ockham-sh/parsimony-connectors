@@ -47,7 +47,7 @@ def _lru_size_from_env() -> int:
 _lru = CatalogLRU(_lru_size_from_env())
 
 
-async def _get_or_load_catalog(
+def _get_or_load_catalog(
     namespace: str,
     *,
     catalog_root: str | None = None,
@@ -60,7 +60,7 @@ async def _get_or_load_catalog(
     )
     url = f"{root}/{namespace}"
     cache_path = lazy_catalog_dir("sdmx", namespace)
-    return await _lru.get_or_load(url, cache_path=cache_path, build=build)
+    return _lru.get_or_load(url, cache_path=cache_path, build=build)
 
 
 def _clear_catalog_lru() -> None:
@@ -154,7 +154,7 @@ class SeriesSearchParams(BaseModel):
 
 
 @connector(output=SERIES_SEARCH_OUTPUT, tags=["sdmx", "tool"])
-async def sdmx_series_search(
+def sdmx_series_search(
     query: str,
     flow_id: str,
     limit: int = 10,
@@ -169,11 +169,11 @@ async def sdmx_series_search(
     agency, dataset_id = _parse_series_flow(params.flow_id)
     namespace = series_namespace(agency, dataset_id)
 
-    async def _build() -> Catalog:
-        return await build_series_catalog(agency, dataset_id)
+    def _build() -> Catalog:
+        return build_series_catalog(agency, dataset_id)
 
-    catalog = await _get_or_load_catalog(namespace, catalog_root=params.catalog_root, build=_build)
-    matches, _ = await catalog.search(params.query, limit=params.limit)
+    catalog = _get_or_load_catalog(namespace, catalog_root=params.catalog_root, build=_build)
+    matches, _ = catalog.search(params.query, limit=params.limit)
 
     if not matches:
         raise EmptyDataError(
@@ -221,7 +221,7 @@ class DatasetsSearchParams(BaseModel):
 
 
 @connector(output=DATASETS_SEARCH_OUTPUT, tags=["sdmx", "tool"])
-async def sdmx_datasets_search(
+def sdmx_datasets_search(
     query: str,
     agency: str,
     limit: int = 10,
@@ -237,11 +237,11 @@ async def sdmx_datasets_search(
     parsed_agency = _parse_agency(params.agency)
     namespace = datasets_namespace(parsed_agency)
 
-    async def _build() -> Catalog:
-        return await build_agency_datasets_catalog(parsed_agency)
+    def _build() -> Catalog:
+        return build_agency_datasets_catalog(parsed_agency)
 
-    catalog = await _get_or_load_catalog(namespace, catalog_root=params.catalog_root, build=_build)
-    matches, _ = await catalog.search(params.query, limit=params.limit)
+    catalog = _get_or_load_catalog(namespace, catalog_root=params.catalog_root, build=_build)
+    matches, _ = catalog.search(params.query, limit=params.limit)
 
     if not matches:
         raise EmptyDataError(

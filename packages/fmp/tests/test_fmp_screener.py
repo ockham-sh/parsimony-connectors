@@ -19,8 +19,7 @@ _KEY = "live-looking-fmp-screener-key"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_screener_joins_screener_and_enrichment() -> None:
+def test_fmp_screener_joins_screener_and_enrichment() -> None:
     respx.get("https://financialmodelingprep.com/stable/company-screener").mock(
         return_value=httpx.Response(
             200,
@@ -47,7 +46,7 @@ async def test_fmp_screener_joins_screener_and_enrichment() -> None:
     )
 
     bound = fmp_screener.bind(api_key=_KEY)
-    result = await bound(sector="Technology")
+    result = bound(sector="Technology")
 
     assert result.provenance.source == "fmp_screener"
     # Theme-B: bound key stripped from provenance.
@@ -59,21 +58,19 @@ async def test_fmp_screener_joins_screener_and_enrichment() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_screener_maps_401_without_leaking_key() -> None:
+def test_fmp_screener_maps_401_without_leaking_key() -> None:
     respx.get("https://financialmodelingprep.com/stable/company-screener").mock(
         return_value=httpx.Response(401, text="unauthorized")
     )
 
     bound = fmp_screener.bind(api_key=_KEY)
     with pytest.raises(UnauthorizedError) as exc_info:
-        await bound(sector="Technology")
+        bound(sector="Technology")
     assert _KEY not in str(exc_info.value)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_screener_maps_402_to_payment_required() -> None:
+def test_fmp_screener_maps_402_to_payment_required() -> None:
     """HTTP 402 from the screener endpoint must raise ``PaymentRequiredError``."""
     respx.get("https://financialmodelingprep.com/stable/company-screener").mock(
         return_value=httpx.Response(402, text="plan upgrade required")
@@ -81,13 +78,12 @@ async def test_fmp_screener_maps_402_to_payment_required() -> None:
 
     bound = fmp_screener.bind(api_key=_KEY)
     with pytest.raises(PaymentRequiredError) as exc_info:
-        await bound(sector="Technology")
+        bound(sector="Technology")
     assert _KEY not in str(exc_info.value)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_screener_skips_enrichment_when_fields_are_native_only() -> None:
+def test_fmp_screener_skips_enrichment_when_fields_are_native_only() -> None:
     """Zero enrichment calls when ``fields`` references only screener-native columns.
 
     If a caller passes ``fields=["symbol", "companyName", "marketCap"]`` the
@@ -107,7 +103,7 @@ async def test_fmp_screener_skips_enrichment_when_fields_are_native_only() -> No
     ratios_route = respx.get("https://financialmodelingprep.com/stable/ratios-ttm")
 
     bound = fmp_screener.bind(api_key=_KEY)
-    result = await bound(
+    result = bound(
         sector="Technology",
         fields=["symbol", "companyName", "marketCap"],
     )

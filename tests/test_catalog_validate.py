@@ -31,14 +31,13 @@ def _tiny_catalog() -> Catalog:
     return catalog
 
 
-@pytest.mark.asyncio
-async def test_generate_probes_respects_index_shape(tmp_path: Path) -> None:
+def test_generate_probes_respects_index_shape(tmp_path: Path) -> None:
     catalog = _tiny_catalog()
-    await catalog.build()
+    catalog.build()
     save = tmp_path / "demo"
-    await catalog.save(str(save), builder="test")
+    catalog.save(str(save), builder="test")
 
-    loaded = await Catalog.load(f"file://{save}")
+    loaded = Catalog.load(f"file://{save}")
     probes = generate_probes(loaded, catalog_url=f"file://{save}", sample_size=2, seed=0)
     modes = {p["mode"] for p in probes}
     assert "code" in modes
@@ -47,12 +46,11 @@ async def test_generate_probes_respects_index_shape(tmp_path: Path) -> None:
     assert "title_bm25" in modes
 
 
-@pytest.mark.asyncio
-async def test_validate_curated_queries_local(tmp_path: Path) -> None:
+def test_validate_curated_queries_local(tmp_path: Path) -> None:
     catalog = _tiny_catalog()
-    await catalog.build()
+    catalog.build()
     save = tmp_path / "demo"
-    await catalog.save(str(save), builder="test")
+    catalog.save(str(save), builder="test")
     url = f"file://{save}"
 
     queries_path = tmp_path / "queries.yaml"
@@ -80,7 +78,7 @@ async def test_validate_curated_queries_local(tmp_path: Path) -> None:
         },
     )
     query_set = load_queries_file(queries_path)
-    report = await validate_catalog(url, query_set)
+    report = validate_catalog(url, query_set)
     assert report.ok
     assert report.required_recall == 1.0
 

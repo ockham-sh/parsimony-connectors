@@ -25,7 +25,7 @@ No separate builder CLI, no intermediate on-disk cache — every call hits the l
 | `sdmx_datasets_search` | connector | Structured search over per-agency dataset catalogs. |
 | `sdmx_series_search` | connector | Structured search over per-dataset series catalogs. |
 
-Five registered connectors total (2 enumerators + 1 fetch + 2 search).
+Five registered connectors total (1 enumerator + 1 dynamic-schema connector + 1 fetch + 2 search).
 
 ### Dynamic schema: `enumerate_sdmx_series`
 
@@ -42,11 +42,7 @@ therefore **dynamic per call** — it cannot be declared statically on
 pip install parsimony-sdmx
 ```
 
-Pulls in `parsimony-core>=0.6,<0.7` automatically. Local catalog publishing uses the core catalog stack (hybrid BM25+vector or BM25-only per field):
-
-```bash
-pip install "parsimony-core[standard]"
-```
+Pulls in `parsimony-core[catalog]>=0.7,<0.8` automatically (includes the hybrid BM25+vector catalog stack).
 
 Verify discovery:
 
@@ -170,7 +166,7 @@ The package implements the standard parsimony plugin contract, exported at the t
 
 | Export               | Role                                                                          |
 |----------------------|-------------------------------------------------------------------------------|
-| ``CONNECTORS``       | ``Connectors`` collection — two enumerators, ``sdmx_fetch``, and two search connectors.   |
+| ``CONNECTORS``       | ``Connectors`` collection — one enumerator, one dynamic-schema connector, ``sdmx_fetch``, and two search connectors.   |
 
 SDMX endpoints are public; no environment variables are required.
 

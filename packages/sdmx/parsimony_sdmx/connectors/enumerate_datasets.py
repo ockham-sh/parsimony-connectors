@@ -16,7 +16,6 @@ Each agency's rows are stamped with a per-agency catalog namespace
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 import pandas as pd
@@ -110,7 +109,7 @@ SDMX_DATASETS_ENUM_OUTPUT = OutputConfig(
 
 
 @enumerator(output=SDMX_DATASETS_ENUM_OUTPUT, tags=["sdmx"])
-async def enumerate_sdmx_datasets(fetch_timeout_s: float = LISTING_TIMEOUT_S) -> pd.DataFrame:
+def enumerate_sdmx_datasets(fetch_timeout_s: float = LISTING_TIMEOUT_S) -> pd.DataFrame:
     """List every SDMX dataset across every supported agency.
 
     Spawns one subprocess per agency (sequential, not parallel — parallel
@@ -127,11 +126,8 @@ async def enumerate_sdmx_datasets(fetch_timeout_s: float = LISTING_TIMEOUT_S) ->
     frames: list[pd.DataFrame] = []
     for agency in ALL_AGENCIES:
         try:
-            records: list[DatasetRecord] = await asyncio.to_thread(
-                list_datasets,
-                agency.value,
-                fetch_timeout_s,
-            )
+            records: list[DatasetRecord] = list_datasets(agency.value, fetch_timeout_s)
+
         except ListDatasetsError as exc:
             logger.warning(
                 "dataset listing failed for agency %s (%s): %s",

@@ -10,4 +10,12 @@ from parsimony_destatis.search import destatis_search
 
 CONNECTORS = Connectors([destatis_fetch, enumerate_destatis, destatis_search])
 
-__all__ = ["CONNECTORS"]
+
+def load(*, catalog_url: str | None = None) -> Connectors:
+    """Return :data:`CONNECTORS` with an optional catalog URL bound on search."""
+    if catalog_url is None:
+        return CONNECTORS
+    return CONNECTORS.bind(catalog_url=catalog_url)
+
+
+__all__ = ["CONNECTORS", "load"]

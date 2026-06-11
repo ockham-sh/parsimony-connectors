@@ -8,7 +8,6 @@ network and without depending on real SDMX message shapes.
 
 from __future__ import annotations
 
-import asyncio
 from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
@@ -77,9 +76,20 @@ def patch_sdmx(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     return state
 
 
+def _call_sdmx_fetch(params):
+    from parsimony_sdmx.connectors.fetch import sdmx_fetch
+
+    return sdmx_fetch(
+        dataset_ref=params.dataset_key,
+        series_ref=params.series_key,
+        start_period=params.start_period,
+        end_period=params.end_period,
+    )
+
+
 class TestSdmxFetch:
     def test_returns_table_result_with_expected_schema(self, patch_sdmx: dict[str, Any]) -> None:
-        from parsimony_sdmx.connectors.fetch import SdmxFetchParams, sdmx_fetch
+        from parsimony_sdmx.connectors.fetch import SdmxFetchParams
 
         dim_ids = ["FREQ", "REF_AREA", "CURRENCY"]
         structure_msg = _structure_msg(dim_ids, "YC")
@@ -102,7 +112,7 @@ class TestSdmxFetch:
             dataset_key="ECB-YC",
             series_key="M.DE.EUR",
         )
-        result = asyncio.run(sdmx_fetch(**params.model_dump()))
+        result = _call_sdmx_fetch(params)
 
         df = result.data
         assert list(df.columns) == [
@@ -121,7 +131,7 @@ class TestSdmxFetch:
         assert all(df["title"].str.len() > 0)
 
     def test_empty_data_raises_empty_data_error(self, patch_sdmx: dict[str, Any]) -> None:
-        from parsimony_sdmx.connectors.fetch import SdmxFetchParams, sdmx_fetch
+        from parsimony_sdmx.connectors.fetch import SdmxFetchParams
 
         dim_ids = ["FREQ", "REF_AREA"]
         structure_msg = _structure_msg(dim_ids, "YC")
@@ -131,7 +141,7 @@ class TestSdmxFetch:
 
         params = SdmxFetchParams(dataset_key="ECB-YC", series_key="M.DE")
         with pytest.raises(EmptyDataError):
-            asyncio.run(sdmx_fetch(**params.model_dump()))
+            _call_sdmx_fetch(params)
 
     def test_unknown_agency_rejected_at_param_validation(self) -> None:
         from parsimony_sdmx.connectors.fetch import SdmxFetchParams
@@ -146,7 +156,7 @@ class TestSdmxFetch:
             SdmxFetchParams(dataset_key="YCONLY", series_key="M.DE")
 
     def test_series_url_metadata_for_ecb(self, patch_sdmx: dict[str, Any]) -> None:
-        from parsimony_sdmx.connectors.fetch import SdmxFetchParams, sdmx_fetch
+        from parsimony_sdmx.connectors.fetch import SdmxFetchParams
 
         dim_ids = ["FREQ", "REF_AREA"]
         structure_msg = _structure_msg(dim_ids, "YC")
@@ -162,7 +172,7 @@ class TestSdmxFetch:
         ).set_index(["FREQ", "REF_AREA", "TIME_PERIOD"])["value"]
 
         params = SdmxFetchParams(dataset_key="ECB-YC", series_key="M.DE")
-        result = asyncio.run(sdmx_fetch(**params.model_dump()))
+        result = _call_sdmx_fetch(params)
 
         assert "series_url" in result.data.columns
         parsed = urlparse(str(result.data["series_url"].iloc[0]))
@@ -170,7 +180,7 @@ class TestSdmxFetch:
         assert parsed.hostname == "data.ecb.europa.eu"
 
     def test_no_series_url_for_wb_wdi(self, patch_sdmx: dict[str, Any]) -> None:
-        from parsimony_sdmx.connectors.fetch import SdmxFetchParams, sdmx_fetch
+        from parsimony_sdmx.connectors.fetch import SdmxFetchParams
 
         dim_ids = ["FREQ", "REF_AREA"]
         structure_msg = _structure_msg(dim_ids, "WDI")
@@ -186,14 +196,13 @@ class TestSdmxFetch:
         ).set_index(["FREQ", "REF_AREA", "TIME_PERIOD"])["value"]
 
         params = SdmxFetchParams(dataset_key="WB_WDI-WDI", series_key="A.USA")
-        result = asyncio.run(sdmx_fetch(**params.model_dump()))
+        result = _call_sdmx_fetch(params)
         assert "series_url" not in result.data.columns or result.data["series_url"].isna().all()
 
     def test_namespace_uses_normalized_dataset_key(self, patch_sdmx: dict[str, Any]) -> None:
         from parsimony_sdmx.connectors.fetch import (
             SdmxFetchParams,
             _sdmx_namespace_from_dataset_key,
-            sdmx_fetch,
         )
 
         ns = _sdmx_namespace_from_dataset_key("ECB-YC")
@@ -209,7 +218,7 @@ class TestSdmxFetch:
         ).set_index(["FREQ", "TIME_PERIOD"])["value"]
 
         params = SdmxFetchParams(dataset_key="ECB-YC", series_key="M")
-        result = asyncio.run(sdmx_fetch(**params.model_dump()))
+        result = _call_sdmx_fetch(params)
         # The series_key column carries the namespace via OutputConfig.
         assert "series_key" in result.data.columns
 

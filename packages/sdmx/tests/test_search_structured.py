@@ -49,8 +49,7 @@ def _entries() -> list[Entity]:
 
 
 @pytest.mark.integration  # live-builds an embedder from HuggingFace; not offline-safe (CI has no HF egress)
-@pytest.mark.asyncio
-async def test_search_structured_end_to_end() -> None:
+def test_search_structured_end_to_end() -> None:
     raw = _entries()
     dims = ["FREQ", "REF_AREA", "DATA_TYPE_FM"]
     entries = sdmx_series_entries(raw, dims)
@@ -58,13 +57,13 @@ async def test_search_structured_end_to_end() -> None:
     cat = Catalog("sdmx_series_ecb_yc")
     cat.set_indexes(sdmx_series_indexes(entries, dims))
     cat.set_entities(entries)
-    await cat.build()
+    cat.build()
 
     with tempfile.TemporaryDirectory() as tmpdir:
         path = Path(tmpdir) / "sdmx_series_ecb_yc"
-        await cat.save(path)
+        cat.save(path)
 
-        res_df = await sdmx_series_search(
+        res_df = sdmx_series_search(
             query="REF_AREA: Germany && FREQ: Monthly",
             flow_id="ECB/YC",
             limit=5,

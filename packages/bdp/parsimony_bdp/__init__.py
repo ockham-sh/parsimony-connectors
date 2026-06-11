@@ -41,13 +41,13 @@ Transport:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Annotated, Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pandas as pd
+from parsimony import Namespace
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 from parsimony.result import (
@@ -66,8 +66,7 @@ _BASE_URL = "https://bpstat.bportugal.pt/data/v1"
 # conservative defaults that have empirically held up across the full
 # enumeration (~7,200 dataset-detail pages at ~0.4–0.6 s each).
 _BROWSER_USER_AGENT = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 _HEADERS = {
     "User-Agent": _BROWSER_USER_AGENT,
@@ -136,7 +135,7 @@ BDP_ENUMERATE_OUTPUT = OutputConfig(
 # "KEY + DATA only, no TITLE" rule applies only to ``@loader``-decorated verbs.
 BDP_FETCH_OUTPUT = OutputConfig(
     columns=[
-        Column(name="series_id", role=ColumnRole.KEY, param_key="dataset_id", namespace="bdp"),
+        Column(name="series_id", role=ColumnRole.KEY, namespace="bdp"),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="date", dtype="datetime", role=ColumnRole.DATA),
         Column(name="value", dtype="numeric", role=ColumnRole.DATA),
@@ -408,9 +407,9 @@ def _parse_dataset_observations(json_data: dict[str, Any]) -> list[dict[str, Any
 
 
 @connector(output=BDP_FETCH_OUTPUT, tags=["macro", "pt"])
-async def bdp_fetch(
+def bdp_fetch(
     domain_id: int,
-    dataset_id: Annotated[str, "ns:bdp"],
+    dataset_id: Annotated[str, Namespace("bdp")],
     series_ids: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
@@ -438,7 +437,7 @@ async def bdp_fetch(
         "obs_since": start_date,
         "obs_to": end_date,
     }
-    json_data = await fetch_json(
+    json_data = fetch_json(
         make_http_client(_BASE_URL, headers=_HEADERS, timeout=60.0),
         path=f"domains/{domain_id}/datasets/{dataset_id}/",
         params=req_params,
@@ -471,7 +470,7 @@ async def bdp_fetch(
 # ---------------------------------------------------------------------------
 
 
-async def _list_domains(fetcher: ThrottledJsonFetcher) -> list[dict[str, Any]]:
+def _list_domains(fetcher: ThrottledJsonFetcher) -> list[dict[str, Any]]:
     """Return the BdP domain list (77 entries).
 
     Empty list on failure; the caller logs and emits an empty catalog. This is
@@ -479,13 +478,13 @@ async def _list_domains(fetcher: ThrottledJsonFetcher) -> list[dict[str, Any]]:
     a 1–2 domain slice so the crawl fires a handful of requests, never the full
     ~7,200-page fan-out.
     """
-    payload = await fetcher.get_json(f"{_BASE_URL}/domains/", params={"lang": "EN"})
+    payload = fetcher.get_json(f"{_BASE_URL}/domains/", params={"lang": "EN"})
     if not isinstance(payload, list):
         return []
     return [d for d in payload if isinstance(d, dict)]
 
 
-async def _list_datasets(
+def _list_datasets(
     fetcher: ThrottledJsonFetcher,
     domain_id: int | str,
 ) -> list[dict[str, Any]]:
@@ -493,7 +492,7 @@ async def _list_datasets(
 
     Each stub carries ``label`` and ``extension.{id, num_series, obs_updated_at}``.
     """
-    payload = await fetcher.get_json(f"{_BASE_URL}/domains/{domain_id}/datasets/", params={"lang": "EN"})
+    payload = fetcher.get_json(f"{_BASE_URL}/domains/{domain_id}/datasets/", params={"lang": "EN"})
     if not isinstance(payload, dict):
         return []
     items = payload.get("link", {}).get("item", []) if isinstance(payload.get("link"), dict) else []
@@ -502,7 +501,7 @@ async def _list_datasets(
     return [it for it in items if isinstance(it, dict)]
 
 
-async def _crawl_dataset_series(
+def _crawl_dataset_series(
     fetcher: ThrottledJsonFetcher,
     domain_id: int | str,
     dataset_id: str,
@@ -519,7 +518,7 @@ async def _crawl_dataset_series(
     base = f"{_BASE_URL}/domains/{domain_id}/datasets/{dataset_id}/"
     first_url = base
     first_params = {"lang": lang}
-    first_payload = await fetcher.get_json(first_url, params=first_params)
+    first_payload = fetcher.get_json(first_url, params=first_params)
     if not isinstance(first_payload, dict):
         return [], None
 
@@ -547,7 +546,7 @@ async def _crawl_dataset_series(
     next_url = _next_page_url(first_payload, first_url + "?" + "&".join(f"{k}={v}" for k, v in first_params.items()))
     pages = 1
     while next_url and pages < _MAX_PAGES_PER_DATASET:
-        page_payload = await fetcher.get_json(next_url)
+        page_payload = fetcher.get_json(next_url)
         if not isinstance(page_payload, dict):
             break
         _accumulate(page_payload)
@@ -565,7 +564,7 @@ async def _crawl_dataset_series(
     return series, first_payload
 
 
-async def _fetch_pt_labels(
+def _fetch_pt_labels(
     fetcher: ThrottledJsonFetcher,
     series_ids: list[str],
 ) -> dict[str, str]:
@@ -583,10 +582,10 @@ async def _fetch_pt_labels(
     BATCH = 100
     batches = [series_ids[i : i + BATCH] for i in range(0, len(series_ids), BATCH)]
 
-    async def _one(batch: list[str]) -> None:
+    def _one(batch: list[str]) -> None:
         url = f"{_BASE_URL}/series/"
         params = {"series_ids": ",".join(batch), "lang": "PT"}
-        payload = await fetcher.get_json(url, params=params)
+        payload = fetcher.get_json(url, params=params)
         if not isinstance(payload, list):
             return
         for entry in payload:
@@ -597,7 +596,8 @@ async def _fetch_pt_labels(
             if sid and label:
                 out[sid] = label
 
-    await asyncio.gather(*[_one(b) for b in batches])
+    for b in batches:
+        _one(b)
     return out
 
 
@@ -688,7 +688,7 @@ def _emit_rows_for_dataset(
 
 
 @enumerator(output=BDP_ENUMERATE_OUTPUT, tags=["macro", "pt"])
-async def enumerate_bdp() -> pd.DataFrame:
+def enumerate_bdp() -> pd.DataFrame:
     """Enumerate Banco de Portugal domains, datasets, and paginated series.
 
     Walks leaf domains and dataset pages with bounded concurrency; retries
@@ -700,13 +700,13 @@ async def enumerate_bdp() -> pd.DataFrame:
     rows: list[dict[str, str]] = []
     failed_datasets: list[str] = []
 
-    async with httpx.AsyncClient(
+    with httpx.Client(
         timeout=httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0),
         headers=_HEADERS,
         follow_redirects=True,
     ) as client:
         fetcher = ThrottledJsonFetcher(client, provider="bdp", config=_METADATA_CRAWL, logger=logger)
-        domains = await _list_domains(fetcher)
+        domains = _list_domains(fetcher)
         if not domains:
             logger.warning("BdP enumerate: /domains fetch failed; emitting empty catalog")
             return pd.DataFrame(columns=list(_ENUMERATE_COLUMNS))
@@ -753,12 +753,12 @@ async def enumerate_bdp() -> pd.DataFrame:
             )
 
         # Discover datasets per leaf domain (concurrent fan-out).
-        async def _discover(domain: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        def _discover(domain: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             did = domain.get("id", "")
-            stubs = await _list_datasets(fetcher, did)
+            stubs = _list_datasets(fetcher, did)
             return domain, stubs
 
-        domain_results = await asyncio.gather(*[_discover(d) for d in leaf_domains])
+        domain_results = [_discover(d) for d in leaf_domains]
 
         # Flatten to a list of (domain, dataset_stub) work items so we
         # can run the per-dataset crawl concurrency-capped without
@@ -772,7 +772,7 @@ async def enumerate_bdp() -> pd.DataFrame:
 
         # Per-dataset crawl. Each task internally serializes the page walk
         # but the global semaphore caps total in-flight HTTP at 4.
-        async def _crawl_one(
+        def _crawl_one(
             domain: dict[str, Any],
             stub: dict[str, Any],
         ) -> list[dict[str, str]]:
@@ -786,7 +786,7 @@ async def enumerate_bdp() -> pd.DataFrame:
             dataset_label = str(stub.get("label") or ext.get("label") or dataset_id).strip()
             last_update = str(ext.get("obs_updated_at") or "")
 
-            series_stubs, first_payload = await _crawl_dataset_series(fetcher, did, dataset_id)
+            series_stubs, first_payload = _crawl_dataset_series(fetcher, did, dataset_id)
             if first_payload is None:
                 failed_datasets.append(f"{did}/{dataset_id}")
                 return []
@@ -797,7 +797,7 @@ async def enumerate_bdp() -> pd.DataFrame:
             # datasets will simply be empty (English title still works).
             pt_labels: dict[str, str] = {}
             if 0 < len(series_stubs) <= 1000:
-                pt_labels = await _fetch_pt_labels(
+                pt_labels = _fetch_pt_labels(
                     fetcher,
                     [str(s.get("id")) for s in series_stubs if s.get("id")],
                 )
@@ -813,7 +813,7 @@ async def enumerate_bdp() -> pd.DataFrame:
                 last_update=last_update,
             )
 
-        per_dataset_rows = await asyncio.gather(*[_crawl_one(d, s) for d, s in work_items])
+        per_dataset_rows = [_crawl_one(d, s) for d, s in work_items]
         for batch in per_dataset_rows:
             rows.extend(batch)
 
@@ -839,4 +839,12 @@ from parsimony_bdp.search import bdp_search  # noqa: E402  (after public decorat
 
 CONNECTORS = Connectors([bdp_fetch, enumerate_bdp, bdp_search])
 
-__all__ = ["CONNECTORS"]
+
+def load(*, catalog_url: str | None = None) -> Connectors:
+    """Return :data:`CONNECTORS` with an optional catalog URL bound on search."""
+    if catalog_url is None:
+        return CONNECTORS
+    return CONNECTORS.bind(catalog_url=catalog_url)
+
+
+__all__ = ["CONNECTORS", "load"]

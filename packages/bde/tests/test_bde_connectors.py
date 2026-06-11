@@ -45,6 +45,7 @@ def _enumerate_frame(result: Result) -> pd.DataFrame:
     rows = [{"key": entry.code, "title": entry.title, **entry.metadata} for entry in entries]
     return pd.DataFrame(rows)
 
+
 # ---------------------------------------------------------------------------
 # Plugin contract shape
 # ---------------------------------------------------------------------------
@@ -80,11 +81,10 @@ def _series_record(
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_bde_fetch_parses_single_series_response() -> None:
+def test_bde_fetch_parses_single_series_response() -> None:
     respx.get(_LISTA_SERIES_URL).mock(return_value=httpx.Response(200, json=[_series_record()]))
 
-    result = await bde_fetch(key="D_1NBAF472")
+    result = bde_fetch(key="D_1NBAF472")
 
     assert result.provenance.source == "bde_fetch"
     # Secrets/keyless: provenance records the call-time args verbatim.
@@ -101,8 +101,7 @@ async def test_bde_fetch_parses_single_series_response() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_bde_fetch_sends_one_request_for_comma_joined_keys() -> None:
+def test_bde_fetch_sends_one_request_for_comma_joined_keys() -> None:
     """Multiple comma-separated codes go out in a SINGLE request (BdE supports
     a comma-joined ``series`` param) — not one request per key."""
     route = respx.get(_LISTA_SERIES_URL).mock(
@@ -112,7 +111,7 @@ async def test_bde_fetch_sends_one_request_for_comma_joined_keys() -> None:
         )
     )
 
-    df = (await bde_fetch(key="D_1NBAF472, DTCCBCEUSDEUR.B")).data
+    df = (bde_fetch(key="D_1NBAF472, DTCCBCEUSDEUR.B")).data
 
     assert len(route.calls) == 1
     sent = route.calls.last.request
@@ -121,11 +120,10 @@ async def test_bde_fetch_sends_one_request_for_comma_joined_keys() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_bde_fetch_passes_time_range_and_lang() -> None:
+def test_bde_fetch_passes_time_range_and_lang() -> None:
     route = respx.get(_LISTA_SERIES_URL).mock(return_value=httpx.Response(200, json=[_series_record()]))
 
-    await bde_fetch(key="D_1NBAF472", time_range="30m", lang="es")
+    bde_fetch(key="D_1NBAF472", time_range="30m", lang="es")
 
     sent = route.calls.last.request
     assert sent.url.params["idioma"] == "es"
@@ -134,50 +132,43 @@ async def test_bde_fetch_passes_time_range_and_lang() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_bde_fetch_omits_rango_when_no_time_range() -> None:
+def test_bde_fetch_omits_rango_when_no_time_range() -> None:
     route = respx.get(_LISTA_SERIES_URL).mock(return_value=httpx.Response(200, json=[_series_record()]))
 
-    await bde_fetch(key="D_1NBAF472")
+    bde_fetch(key="D_1NBAF472")
 
     # fetch_json drops None-valued params, so no full-range default leaks out.
     assert "rango" not in route.calls.last.request.url.params
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_bde_fetch_raises_empty_data_on_empty_list() -> None:
+def test_bde_fetch_raises_empty_data_on_empty_list() -> None:
     respx.get(_LISTA_SERIES_URL).mock(return_value=httpx.Response(200, json=[]))
 
     with pytest.raises(EmptyDataError) as exc:
-        await bde_fetch(key="XX")
+        bde_fetch(key="XX")
     assert exc.value.query_params == {"key": "XX", "time_range": None, "lang": "en"}
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_bde_fetch_raises_empty_data_when_series_has_no_observations() -> None:
-    respx.get(_LISTA_SERIES_URL).mock(
-        return_value=httpx.Response(200, json=[_series_record(dates=[], values=[])])
-    )
+def test_bde_fetch_raises_empty_data_when_series_has_no_observations() -> None:
+    respx.get(_LISTA_SERIES_URL).mock(return_value=httpx.Response(200, json=[_series_record(dates=[], values=[])]))
 
     with pytest.raises(EmptyDataError):
-        await bde_fetch(key="D_1NBAF472")
+        bde_fetch(key="D_1NBAF472")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_bde_fetch_raises_parse_error_on_non_list_shape() -> None:
+def test_bde_fetch_raises_parse_error_on_non_list_shape() -> None:
     # HTTP 200 but a JSON object, not the expected list -> ParseError (§5.8).
     respx.get(_LISTA_SERIES_URL).mock(return_value=httpx.Response(200, json={"errNum": 412}))
 
     with pytest.raises(ParseError):
-        await bde_fetch(key="D_1NBAF472")
+        bde_fetch(key="D_1NBAF472")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_bde_fetch_maps_http_error_to_provider_error() -> None:
+def test_bde_fetch_maps_http_error_to_provider_error() -> None:
     from parsimony.errors import ProviderError
 
     # BdE returns 412 for a validation error (e.g. unknown series); the canonical
@@ -185,26 +176,23 @@ async def test_bde_fetch_maps_http_error_to_provider_error() -> None:
     respx.get(_LISTA_SERIES_URL).mock(return_value=httpx.Response(412, json={"errNum": 412}))
 
     with pytest.raises(ProviderError) as exc:
-        await bde_fetch(key="NOPE")
+        bde_fetch(key="NOPE")
     assert exc.value.status_code == 412
 
 
-@pytest.mark.asyncio
-async def test_bde_fetch_rejects_invalid_time_range() -> None:
+def test_bde_fetch_rejects_invalid_time_range() -> None:
     with pytest.raises(InvalidParameterError, match="time_range"):
-        await bde_fetch(key="D_1NBAF472", time_range="3M")
+        bde_fetch(key="D_1NBAF472", time_range="3M")
 
 
-@pytest.mark.asyncio
-async def test_bde_fetch_rejects_empty_key() -> None:
+def test_bde_fetch_rejects_empty_key() -> None:
     with pytest.raises(InvalidParameterError):
-        await bde_fetch(key="  ")
+        bde_fetch(key="  ")
 
 
-@pytest.mark.asyncio
-async def test_bde_fetch_rejects_unknown_lang() -> None:
+def test_bde_fetch_rejects_unknown_lang() -> None:
     with pytest.raises(InvalidParameterError):
-        await bde_fetch(key="D_1NBAF472", lang="fr")
+        bde_fetch(key="D_1NBAF472", lang="fr")
 
 
 def test_bde_fetch_namespace_hint() -> None:
@@ -414,10 +402,7 @@ _CSV_IE = _csv(
         _row(
             serie="D_1NEAD861",
             alias="IE_2_7.1",
-            description=(
-                "Economía internacional. Índice de precios internacionales "
-                "de materias primas en euros."
-            ),
+            description=("Economía internacional. Índice de precios internacionales de materias primas en euros."),
             frequency_raw="MENSUAL",
             unit="Base 2000 = 100",
             decimals="2",
@@ -454,10 +439,9 @@ def _mock_csv_chapters() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_bde_pulls_all_seven_catalog_chapters() -> None:
+def test_enumerate_bde_pulls_all_seven_catalog_chapters() -> None:
     _mock_csv_chapters()
-    result = await enumerate_bde()
+    result = enumerate_bde()
     df = _enumerate_frame(result)
 
     # One row per chapter mock — seven total — wired to BDE_ENUMERATE_OUTPUT.
@@ -478,14 +462,13 @@ async def test_enumerate_bde_pulls_all_seven_catalog_chapters() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_bde_includes_cf_financial_accounts_rows() -> None:
+def test_enumerate_bde_includes_cf_financial_accounts_rows() -> None:
     """CF chapter (CFEE / Financial Accounts of the Spanish Economy) ships
     the bulk of SEC2010 sector balance-sheet series — ~4.7k rows live here
     and nowhere else. Regression guard: if someone removes ``cf`` from
     ``_CATALOG_CHAPTERS`` we lose those series silently."""
     _mock_csv_chapters()
-    df = _enumerate_frame(await enumerate_bde())
+    df = _enumerate_frame(enumerate_bde())
 
     cf_rows = df[df["category"] == "Financial Accounts"]
     assert len(cf_rows) >= 1
@@ -498,13 +481,12 @@ async def test_enumerate_bde_includes_cf_financial_accounts_rows() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_bde_includes_ie_international_economy_rows() -> None:
+def test_enumerate_bde_includes_ie_international_economy_rows() -> None:
     """IE chapter (International Economy) carries world-price and
     commodity-index series. Most IE codes overlap with BE under a
     different taxonomy, but the category-filtered view still matters."""
     _mock_csv_chapters()
-    df = _enumerate_frame(await enumerate_bde())
+    df = _enumerate_frame(enumerate_bde())
 
     ie_rows = df[df["category"] == "International Economy"]
     assert len(ie_rows) >= 1
@@ -512,11 +494,10 @@ async def test_enumerate_bde_includes_ie_international_economy_rows() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_bde_populates_description_column() -> None:
+def test_enumerate_bde_populates_description_column() -> None:
     """The description metadata carries upstream long-form prose for search."""
     _mock_csv_chapters()
-    df = _enumerate_frame(await enumerate_bde())
+    df = _enumerate_frame(enumerate_bde())
 
     ti_row = df[df["key"] == "D_DTFK09A0"].iloc[0]
     # Spanish character round-trips through CP1252 → str unscathed.
@@ -526,24 +507,22 @@ async def test_enumerate_bde_populates_description_column() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_bde_carries_source_metadata_for_dispatch() -> None:
+def test_enumerate_bde_carries_source_metadata_for_dispatch() -> None:
     """Every catalog row carries ``source`` so an agent dispatching off a
     search hit knows which fetch connector to call without parsing the key."""
     _mock_csv_chapters()
-    df = _enumerate_frame(await enumerate_bde())
+    df = _enumerate_frame(enumerate_bde())
 
     assert "source" in df.columns
     assert (df["source"] == "bde_biest").all()
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_bde_normalises_frequency_to_english() -> None:
+def test_enumerate_bde_normalises_frequency_to_english() -> None:
     """BdE encodes frequency in Spanish (``MENSUAL``, ``TRIMESTRAL``); the
     enumerator translates so an agent searching ``monthly`` hits Spanish series."""
     _mock_csv_chapters()
-    df = _enumerate_frame(await enumerate_bde())
+    df = _enumerate_frame(enumerate_bde())
 
     freqs = set(df["frequency"])
     assert "Monthly" in freqs
@@ -552,13 +531,12 @@ async def test_enumerate_bde_normalises_frequency_to_english() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_bde_splits_dataset_from_leaf_title() -> None:
+def test_enumerate_bde_splits_dataset_from_leaf_title() -> None:
     """The ``/``-separated taxonomic path becomes ``dataset`` (METADATA) and
     the leaf becomes ``title`` (TITLE) — agents can filter by topic without
     coupling to the exact leaf phrasing."""
     _mock_csv_chapters()
-    df = _enumerate_frame(await enumerate_bde())
+    df = _enumerate_frame(enumerate_bde())
 
     ti_row = df[df["key"] == "D_DTFK09A0"].iloc[0]
     # Title is the leaf segment after the last "/" in the upstream title path.
@@ -570,10 +548,9 @@ async def test_enumerate_bde_splits_dataset_from_leaf_title() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_bde_captures_dates_and_units_metadata() -> None:
+def test_enumerate_bde_captures_dates_and_units_metadata() -> None:
     _mock_csv_chapters()
-    df = _enumerate_frame(await enumerate_bde())
+    df = _enumerate_frame(enumerate_bde())
 
     tc_row = df[df["key"] == "DTCCBCEUSDEUR.B"].iloc[0]
     assert tc_row["unit"].startswith("Dolares")
@@ -585,29 +562,20 @@ async def test_enumerate_bde_captures_dates_and_units_metadata() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_bde_degrades_gracefully_on_chapter_outage() -> None:
+def test_enumerate_bde_degrades_gracefully_on_chapter_outage() -> None:
     """Per-chapter 5xx must not lose the surviving ones. Catalog completeness
     is best-effort; partial is strictly better than empty."""
     base = "https://www.bde.es/webbe/es/estadisticas/compartido/datos/csv"
     # Four chapters succeed, three fail — verify we still get the surviving rows.
-    respx.get(f"{base}/catalogo_be.csv").mock(
-        return_value=httpx.Response(200, content=_CSV_BE.encode("cp1252"))
-    )
+    respx.get(f"{base}/catalogo_be.csv").mock(return_value=httpx.Response(200, content=_CSV_BE.encode("cp1252")))
     respx.get(f"{base}/catalogo_cf.csv").mock(return_value=httpx.Response(503))
-    respx.get(f"{base}/catalogo_ie.csv").mock(
-        return_value=httpx.Response(200, content=_CSV_IE.encode("cp1252"))
-    )
+    respx.get(f"{base}/catalogo_ie.csv").mock(return_value=httpx.Response(200, content=_CSV_IE.encode("cp1252")))
     respx.get(f"{base}/catalogo_pb.csv").mock(return_value=httpx.Response(503))
-    respx.get(f"{base}/catalogo_si.csv").mock(
-        return_value=httpx.Response(200, content=_CSV_SI.encode("cp1252"))
-    )
+    respx.get(f"{base}/catalogo_si.csv").mock(return_value=httpx.Response(200, content=_CSV_SI.encode("cp1252")))
     respx.get(f"{base}/catalogo_tc.csv").mock(return_value=httpx.Response(500))
-    respx.get(f"{base}/catalogo_ti.csv").mock(
-        return_value=httpx.Response(200, content=_CSV_TI.encode("cp1252"))
-    )
+    respx.get(f"{base}/catalogo_ti.csv").mock(return_value=httpx.Response(200, content=_CSV_TI.encode("cp1252")))
 
-    df = _enumerate_frame(await enumerate_bde())
+    df = _enumerate_frame(enumerate_bde())
     assert len(df) == 4
     assert set(df["category"]) == {
         "General Statistics",
@@ -618,8 +586,7 @@ async def test_enumerate_bde_degrades_gracefully_on_chapter_outage() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_bde_skips_rows_missing_serie() -> None:
+def test_enumerate_bde_skips_rows_missing_serie() -> None:
     """A row with no ``serie`` value can't be fetched and is dropped — this
     is a real failure mode in BdE's exporter when a description contains an
     unescaped quote."""
@@ -666,24 +633,21 @@ async def test_enumerate_bde_skips_rows_missing_serie() -> None:
         respx.get(f"{base}/catalogo_{chapter}.csv").mock(
             return_value=httpx.Response(200, content=header_only.encode("cp1252"))
         )
-    respx.get(f"{base}/catalogo_ti.csv").mock(
-        return_value=httpx.Response(200, content=bogus.encode("cp1252"))
-    )
+    respx.get(f"{base}/catalogo_ti.csv").mock(return_value=httpx.Response(200, content=bogus.encode("cp1252")))
 
-    df = _enumerate_frame(await enumerate_bde())
+    df = _enumerate_frame(enumerate_bde())
     assert list(df["key"]) == ["D_DTFK09A0"]
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_bde_returns_empty_when_all_chapters_fail() -> None:
+def test_enumerate_bde_returns_empty_when_all_chapters_fail() -> None:
     """All seven chapters down → empty frame with the declared schema columns,
     not a crash. Catalog publish jobs check ``len(df) == 0`` separately."""
     base = "https://www.bde.es/webbe/es/estadisticas/compartido/datos/csv"
     for chapter in ("be", "cf", "ie", "pb", "si", "tc", "ti"):
         respx.get(f"{base}/catalogo_{chapter}.csv").mock(return_value=httpx.Response(503))
 
-    df = _enumerate_frame(await enumerate_bde())
+    df = _enumerate_frame(enumerate_bde())
     assert len(df) == 0
     # Schema columns are still present so downstream OutputConfig.apply works.
     assert "key" in df.columns
@@ -692,8 +656,7 @@ async def test_enumerate_bde_returns_empty_when_all_chapters_fail() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_bde_emits_description_as_metadata() -> None:
+def test_enumerate_bde_emits_description_as_metadata() -> None:
     """Descriptions are ordinary metadata in the clean catalog contract."""
     from parsimony.result import ColumnRole
 
@@ -749,9 +712,7 @@ def test_split_title_path_treats_faceted_dsd_paths_as_dataset() -> None:
     catalog title and keeps the whole faceted string as ``dataset``."""
     from parsimony_bde.connectors._catalog import split_title_path
 
-    dataset, leaf = split_title_path(
-        "Metodología: SEC2010/Año Base: 2020/Valoración: Volúmenes encadenados"
-    )
+    dataset, leaf = split_title_path("Metodología: SEC2010/Año Base: 2020/Valoración: Volúmenes encadenados")
     assert leaf == ""
     assert "Metodología" in dataset
     assert "Año Base" in dataset

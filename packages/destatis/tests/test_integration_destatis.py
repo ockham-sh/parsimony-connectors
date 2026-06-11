@@ -54,9 +54,8 @@ _SMALL_STAT = {
 }
 
 
-@pytest.mark.asyncio
-async def test_destatis_fetch_known_table_live() -> None:
-    result = await destatis_fetch(name=_KNOWN_TABLE)
+def test_destatis_fetch_known_table_live() -> None:
+    result = destatis_fetch(name=_KNOWN_TABLE)
 
     assert_provenance_shape(result, expected_source="destatis_fetch", required_param_keys=["name"])
     df = result.data
@@ -76,17 +75,15 @@ async def test_destatis_fetch_known_table_live() -> None:
     assert df["date"].notna().any(), "record dates all NaT"
 
 
-@pytest.mark.asyncio
-async def test_destatis_fetch_year_range_live() -> None:
+def test_destatis_fetch_year_range_live() -> None:
     """A bounded year range still returns real CPI observations."""
-    result = await destatis_fetch(name=_KNOWN_TABLE, start_year="2015", end_year="2020")
+    result = destatis_fetch(name=_KNOWN_TABLE, start_year="2015", end_year="2020")
     df = result.data
     assert not df.empty
     assert df["value"].notna().any(), "no real values in the requested window"
 
 
-@pytest.mark.asyncio
-async def test_enumerate_destatis_bounded_single_statistic_live(
+def test_enumerate_destatis_bounded_single_statistic_live(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Crawl ONE real statistic (territorial status, ~2 tables) to verify the
@@ -95,13 +92,13 @@ async def test_enumerate_destatis_bounded_single_statistic_live(
     hit the network.
     """
 
-    async def _bounded_index(_fetcher: Any) -> list[dict[str, Any]]:
+    def _bounded_index(_fetcher: Any) -> list[dict[str, Any]]:
         return [_SMALL_STAT]
 
     monkeypatch.setattr(enumerate_module, "_load_statistics_index", _bounded_index)
 
     try:
-        result = await enumerate_destatis()
+        result = enumerate_destatis()
     except RateLimitError:
         pytest.skip("GENESIS transiently rate-limited the bounded enumerate crawl")
 
@@ -137,8 +134,7 @@ async def test_enumerate_destatis_bounded_single_statistic_live(
     assert entities[0].namespace == "destatis"
 
 
-@pytest.mark.asyncio
-async def test_destatis_search_over_bounded_catalog_live(tmp_path: Path) -> None:
+def test_destatis_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     """Exercise ``destatis_search`` end-to-end over a small, locally-built
     catalog so the search runs network-free and never triggers the expensive
     full ``build_destatis_catalog()`` fan-out.
@@ -197,11 +193,11 @@ async def test_destatis_search_over_bounded_catalog_live(tmp_path: Path) -> None
     entries = entities_from_raw(df, DESTATIS_ENUMERATE_OUTPUT)
     catalog = Catalog("destatis", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
-    await catalog.build()
+    catalog.build()
     out_dir = tmp_path / "destatis_catalog"
-    await catalog.save(out_dir)
+    catalog.save(out_dir)
 
-    result = await destatis_search(query="consumer prices inflation", limit=5, catalog_url=str(out_dir))
+    result = destatis_search(query="consumer prices inflation", limit=5, catalog_url=str(out_dir))
 
     assert_provenance_shape(result, expected_source="destatis_search", required_param_keys=["query"])
     sdf = result.data
@@ -215,5 +211,5 @@ async def test_destatis_search_over_bounded_catalog_live(tmp_path: Path) -> None
 
     # Ranking actually discriminates: a different query surfaces a different
     # entry as the top hit (not the same row regardless of query).
-    other = await destatis_search(query="unemployment labour market", limit=5, catalog_url=str(out_dir))
+    other = destatis_search(query="unemployment labour market", limit=5, catalog_url=str(out_dir))
     assert other.data.iloc[0]["code"] == "13211-0001"

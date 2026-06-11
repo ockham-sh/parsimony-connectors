@@ -31,7 +31,6 @@ headers. No core sensitive-param change is needed (contrast bls's
 
 from __future__ import annotations
 
-import os
 from typing import Any, NoReturn
 
 import httpx
@@ -42,7 +41,7 @@ from parsimony.errors import (
     UnauthorizedError,
 )
 from parsimony.transport import HttpClient, map_timeout_error, parse_retry_after
-from parsimony.transport.helpers import make_http_client
+from parsimony.transport.helpers import make_http_client, require_key
 
 _PROVIDER = "coingecko"
 _BASE_URL = "https://api.coingecko.com/api/v3"
@@ -71,9 +70,7 @@ def _client(api_key: str, *, timeout: float = _DEFAULT_TIMEOUT_SECONDS) -> HttpC
     are reached via the ``/onchain/...`` path prefix — so one client serves
     every verb.
     """
-    key = api_key or os.environ.get(_ENV_VAR, "")
-    if not key:
-        raise UnauthorizedError(_PROVIDER, env_var=_ENV_VAR)
+    key = require_key(api_key, env_var=_ENV_VAR, provider=_PROVIDER)
     return make_http_client(
         _BASE_URL,
         headers={"x-cg-demo-api-key": key},
@@ -142,7 +139,7 @@ def _raise_mapped_status(exc: httpx.HTTPStatusError, op_name: str) -> NoReturn:
             raise ProviderError(_PROVIDER, status_code=status) from exc
 
 
-async def coingecko_fetch(
+def coingecko_fetch(
     http: HttpClient,
     *,
     path: str,
@@ -157,7 +154,7 @@ async def coingecko_fetch(
     """
     filtered = {k: v for k, v in (params or {}).items() if v is not None}
     try:
-        response = await http.request("GET", f"/{path.lstrip('/')}", params=filtered or None)
+        response = http.request("GET", f"/{path.lstrip('/')}", params=filtered or None)
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         _raise_mapped_status(exc, op_name)

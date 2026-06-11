@@ -64,11 +64,10 @@ def _json_stat(
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_bdp_fetch_parses_json_stat_response() -> None:
+def test_bdp_fetch_parses_json_stat_response() -> None:
     respx.get(_DATASET_URL).mock(return_value=httpx.Response(200, json=_json_stat()))
 
-    result = await bdp_fetch(domain_id=11, dataset_id="ABC")
+    result = bdp_fetch(domain_id=11, dataset_id="ABC")
 
     assert result.provenance.source == "bdp_fetch"
     df = result.data
@@ -82,8 +81,7 @@ async def test_bdp_fetch_parses_json_stat_response() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_bdp_fetch_melts_multiple_series_single_request() -> None:
+def test_bdp_fetch_melts_multiple_series_single_request() -> None:
     """Two series × two dates = a row-major value array of four; both surface
     from one request."""
     route = respx.get(_DATASET_URL).mock(
@@ -96,7 +94,7 @@ async def test_bdp_fetch_melts_multiple_series_single_request() -> None:
         )
     )
 
-    df = (await bdp_fetch(domain_id=11, dataset_id="ABC")).data
+    df = (bdp_fetch(domain_id=11, dataset_id="ABC")).data
 
     assert len(route.calls) == 1
     assert set(df["series_id"]) == {"s1", "s2"}
@@ -104,11 +102,10 @@ async def test_bdp_fetch_melts_multiple_series_single_request() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_bdp_fetch_drops_none_params_and_uppercases_lang() -> None:
+def test_bdp_fetch_drops_none_params_and_uppercases_lang() -> None:
     route = respx.get(_DATASET_URL).mock(return_value=httpx.Response(200, json=_json_stat()))
 
-    await bdp_fetch(domain_id=11, dataset_id="ABC")
+    bdp_fetch(domain_id=11, dataset_id="ABC")
 
     sent = route.calls.last.request
     # fetch_json drops None-valued params — no series_ids/obs_since/obs_to leak.
@@ -119,11 +116,10 @@ async def test_bdp_fetch_drops_none_params_and_uppercases_lang() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_bdp_fetch_forwards_filter_and_window_params() -> None:
+def test_bdp_fetch_forwards_filter_and_window_params() -> None:
     route = respx.get(_DATASET_URL).mock(return_value=httpx.Response(200, json=_json_stat()))
 
-    await bdp_fetch(
+    bdp_fetch(
         domain_id=11,
         dataset_id="ABC",
         series_ids="s1,s2",
@@ -140,31 +136,26 @@ async def test_bdp_fetch_forwards_filter_and_window_params() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_bdp_fetch_raises_empty_data_on_no_observations() -> None:
-    respx.get(_DATASET_URL).mock(
-        return_value=httpx.Response(200, json={"role": {}, "dimension": {}, "value": []})
-    )
+def test_bdp_fetch_raises_empty_data_on_no_observations() -> None:
+    respx.get(_DATASET_URL).mock(return_value=httpx.Response(200, json={"role": {}, "dimension": {}, "value": []}))
 
     with pytest.raises(EmptyDataError) as exc:
-        await bdp_fetch(domain_id=11, dataset_id="ABC")
+        bdp_fetch(domain_id=11, dataset_id="ABC")
     # EmptyData carries query_params for parameter-adjustment hints (no DO NOT retry).
     assert exc.value.query_params["dataset_id"] == "ABC"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_bdp_fetch_raises_parse_error_on_non_dict_shape() -> None:
+def test_bdp_fetch_raises_parse_error_on_non_dict_shape() -> None:
     # HTTP 200 but a JSON list, not the expected JSON-stat object -> ParseError (§5.8).
     respx.get(_DATASET_URL).mock(return_value=httpx.Response(200, json=[1, 2, 3]))
 
     with pytest.raises(ParseError):
-        await bdp_fetch(domain_id=11, dataset_id="ABC")
+        bdp_fetch(domain_id=11, dataset_id="ABC")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_bdp_fetch_maps_404_to_provider_error() -> None:
+def test_bdp_fetch_maps_404_to_provider_error() -> None:
     from parsimony.errors import ProviderError
 
     # BPstat returns 404 (HTML body) for an unknown dataset; canonical mapping
@@ -172,20 +163,18 @@ async def test_bdp_fetch_maps_404_to_provider_error() -> None:
     respx.get(_DATASET_URL).mock(return_value=httpx.Response(404, text="<html>Not Found</html>"))
 
     with pytest.raises(ProviderError) as exc:
-        await bdp_fetch(domain_id=11, dataset_id="ABC")
+        bdp_fetch(domain_id=11, dataset_id="ABC")
     assert exc.value.status_code == 404
 
 
-@pytest.mark.asyncio
-async def test_bdp_fetch_rejects_empty_dataset_id() -> None:
+def test_bdp_fetch_rejects_empty_dataset_id() -> None:
     with pytest.raises(InvalidParameterError):
-        await bdp_fetch(domain_id=11, dataset_id="   ")
+        bdp_fetch(domain_id=11, dataset_id="   ")
 
 
-@pytest.mark.asyncio
-async def test_bdp_fetch_rejects_unknown_lang() -> None:
+def test_bdp_fetch_rejects_unknown_lang() -> None:
     with pytest.raises(InvalidParameterError):
-        await bdp_fetch(domain_id=11, dataset_id="ABC", lang="fr")
+        bdp_fetch(domain_id=11, dataset_id="ABC", lang="fr")
 
 
 # ---------------------------------------------------------------------------
@@ -267,8 +256,7 @@ def _mock_enumerate_routes() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_bdp_bounded_crawl(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_enumerate_bdp_bounded_crawl(monkeypatch: pytest.MonkeyPatch) -> None:
     """Crawl one mocked leaf domain; assert exact enumerator schema + real
     content across domain/dataset/series rows."""
     monkeypatch.setattr(
@@ -278,7 +266,7 @@ async def test_enumerate_bdp_bounded_crawl(monkeypatch: pytest.MonkeyPatch) -> N
     )
     _mock_enumerate_routes()
 
-    result = await enumerate_bdp()
+    result = enumerate_bdp()
     df = result.data
 
     # @enumerator enforces an EXACT column match against the declared schema.
@@ -307,16 +295,15 @@ async def test_enumerate_bdp_bounded_crawl(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_bdp_empty_catalog_on_domains_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_enumerate_bdp_empty_catalog_on_domains_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     """A failed /domains fetch yields a header-only frame with the declared
     schema columns, not a crash."""
     monkeypatch.setattr(parsimony_bdp, "_list_domains", lambda fetcher: _async_return([]))
 
-    df = (await enumerate_bdp()).data
+    df = (enumerate_bdp()).data
     assert len(df) == 0
     assert list(df.columns) == [c.name for c in BDP_ENUMERATE_OUTPUT.columns]
 
 
-async def _async_return(value: Any) -> Any:
+def _async_return(value: Any) -> Any:
     return value

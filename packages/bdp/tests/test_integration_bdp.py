@@ -44,7 +44,7 @@ _BOUNDED_DOMAIN_ID = 48
 _DOMAIN_48_DATASET = "aea9d7f70ddf9c6de29feaeba86a9456"
 
 
-async def _bounded_domains(fetcher: Any) -> list[dict[str, Any]]:
+def _bounded_domains(fetcher: Any) -> list[dict[str, Any]]:
     """Return ONLY domain 48 — bounds the live enumerate to one tiny domain."""
     return [
         {
@@ -59,10 +59,9 @@ async def _bounded_domains(fetcher: Any) -> list[dict[str, Any]]:
     ]
 
 
-@pytest.mark.asyncio
-async def test_bdp_fetch_known_dataset_live() -> None:
+def test_bdp_fetch_known_dataset_live() -> None:
     """Fetch the real domain-48 dataset and assert real numeric content."""
-    result = await bdp_fetch(
+    result = bdp_fetch(
         domain_id=_BOUNDED_DOMAIN_ID,
         dataset_id=_DOMAIN_48_DATASET,
         start_date="2020-01-01",
@@ -82,11 +81,10 @@ async def test_bdp_fetch_known_dataset_live() -> None:
     assert df["date"].notna().any(), "record dates all NaT"
 
 
-@pytest.mark.asyncio
-async def test_bdp_fetch_series_filter_live() -> None:
+def test_bdp_fetch_series_filter_live() -> None:
     """The ``series_ids`` filter narrows the result to a single series live."""
     series_id = "12099329"  # Economic activity coincident indicator (yoy).
-    result = await bdp_fetch(
+    result = bdp_fetch(
         domain_id=_BOUNDED_DOMAIN_ID,
         dataset_id=_DOMAIN_48_DATASET,
         series_ids=series_id,
@@ -97,8 +95,7 @@ async def test_bdp_fetch_series_filter_live() -> None:
     assert df["value"].notna().any()
 
 
-@pytest.mark.asyncio
-async def test_enumerate_bdp_bounded_single_domain_live(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_enumerate_bdp_bounded_single_domain_live(monkeypatch: pytest.MonkeyPatch) -> None:
     """Crawl ONE real tiny domain to verify the live JSON-stat shape without
     pulling the full ~7,200-page fan-out. A request counter asserts the bound."""
     monkeypatch.setattr(parsimony_bdp, "_list_domains", _bounded_domains)
@@ -111,13 +108,13 @@ async def test_enumerate_bdp_bounded_single_domain_live(monkeypatch: pytest.Monk
     real_get_json = cb_enumerate.ThrottledJsonFetcher.get_json
     calls: list[str] = []
 
-    async def _counting_get_json(self: Any, url: str, *args: Any, **kwargs: Any) -> Any:
+    def _counting_get_json(self: Any, url: str, *args: Any, **kwargs: Any) -> Any:
         calls.append(url)
-        return await real_get_json(self, url, *args, **kwargs)
+        return real_get_json(self, url, *args, **kwargs)
 
     monkeypatch.setattr(cb_enumerate.ThrottledJsonFetcher, "get_json", _counting_get_json)
 
-    result = await enumerate_bdp()
+    result = enumerate_bdp()
     df = result.data
 
     # The bound held: domain 48 → 1 dataset list + 1 detail page + 1 PT sweep.
@@ -144,8 +141,7 @@ async def test_enumerate_bdp_bounded_single_domain_live(monkeypatch: pytest.Monk
     assert entities[0].namespace == "bdp"
 
 
-@pytest.mark.asyncio
-async def test_bdp_search_over_bounded_catalog_live(tmp_path: Path) -> None:
+def test_bdp_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     """Exercise ``bdp_search`` end-to-end over a small, locally-built catalog.
 
     Bounded by design: a cold full ``build_bdp_catalog()`` crawls all 65 leaf
@@ -191,11 +187,11 @@ async def test_bdp_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     entries = entities_from_raw(df, BDP_ENUMERATE_OUTPUT)
     catalog = Catalog("bdp", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
-    await catalog.build()
+    catalog.build()
     out_dir = tmp_path / "bdp_catalog"
-    await catalog.save(out_dir)
+    catalog.save(out_dir)
 
-    result = await bdp_search(query="economic activity coincident indicator", limit=5, catalog_url=str(out_dir))
+    result = bdp_search(query="economic activity coincident indicator", limit=5, catalog_url=str(out_dir))
 
     assert_provenance_shape(result, expected_source="bdp_search", required_param_keys=["query"])
     sdf = result.data
@@ -208,5 +204,5 @@ async def test_bdp_search_over_bounded_catalog_live(tmp_path: Path) -> None:
 
     # Ranking actually discriminates: a different query surfaces a different
     # series as the top hit (not the same row regardless of query).
-    inflation = await bdp_search(query="consumer price inflation HICP", limit=5, catalog_url=str(out_dir))
+    inflation = bdp_search(query="consumer price inflation HICP", limit=5, catalog_url=str(out_dir))
     assert inflation.data.iloc[0]["code"] == "12:ds2:55501"

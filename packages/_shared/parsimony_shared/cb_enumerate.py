@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
+import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -57,7 +58,7 @@ class ThrottledJsonFetcher:
 
     def __init__(
         self,
-        client: httpx.AsyncClient,
+        client: httpx.Client,
         *,
         provider: str,
         config: MetadataCrawlConfig | None = None,
@@ -68,14 +69,14 @@ class ThrottledJsonFetcher:
         self._provider = provider
         self._config = config or MetadataCrawlConfig()
         self._logger = logger or logging.getLogger(__name__)
-        self._semaphore = asyncio.Semaphore(self._config.concurrency)
+        self._semaphore = threading.Semaphore(self._config.concurrency)
         self._accept_non_json = accept_non_json
 
     @property
     def config(self) -> MetadataCrawlConfig:
         return self._config
 
-    async def _get_with_retries(
+    def _get_with_retries(
         self,
         url: str,
         *,
@@ -84,18 +85,18 @@ class ThrottledJsonFetcher:
     ) -> httpx.Response | None:
         """GET *url* with throttling and retries; ``None`` after exhausted attempts."""
         log_target = label or url
-        async with self._semaphore:
-            await asyncio.sleep(self._config.inter_request_delay_s)
+        with self._semaphore:
+            time.sleep(self._config.inter_request_delay_s)
             last_status: int | None = None
             last_error: str | None = None
             for attempt, backoff in enumerate((*self._config.retry_backoffs_s, None)):
                 try:
-                    response = await self._client.get(url, params=params)
+                    response = self._client.get(url, params=params)
                 except httpx.HTTPError as exc:
                     last_error = f"{type(exc).__name__}: {exc}"
                     if backoff is None:
                         break
-                    await asyncio.sleep(backoff)
+                    time.sleep(backoff)
                     continue
 
                 if response.status_code == 200:
@@ -114,7 +115,7 @@ class ThrottledJsonFetcher:
                         attempt + 1,
                         wait,
                     )
-                    await asyncio.sleep(wait)
+                    time.sleep(wait)
                     continue
                 break
 
@@ -127,7 +128,7 @@ class ThrottledJsonFetcher:
             )
             return None
 
-    async def get_json(
+    def get_json(
         self,
         url: str,
         *,
@@ -136,7 +137,7 @@ class ThrottledJsonFetcher:
     ) -> Any | None:
         """GET *url* and return parsed JSON, or ``None`` after exhausted retries."""
         log_target = label or url
-        response = await self._get_with_retries(url, params=params, label=label)
+        response = self._get_with_retries(url, params=params, label=label)
         if response is None:
             return None
         try:
@@ -145,7 +146,7 @@ class ThrottledJsonFetcher:
             self._logger.warning("%s %s returned non-JSON body: %s", self._provider, log_target, exc)
             return None
 
-    async def get_text(
+    def get_text(
         self,
         url: str,
         *,
@@ -153,12 +154,12 @@ class ThrottledJsonFetcher:
         label: str | None = None,
     ) -> str | None:
         """GET *url* and return response text, or ``None`` after exhausted retries."""
-        response = await self._get_with_retries(url, params=params, label=label)
+        response = self._get_with_retries(url, params=params, label=label)
         if response is None:
             return None
         return response.text
 
-    async def get_content(
+    def get_content(
         self,
         url: str,
         *,
@@ -166,7 +167,7 @@ class ThrottledJsonFetcher:
         label: str | None = None,
     ) -> bytes | None:
         """GET *url* and return raw response bytes, or ``None`` after exhausted retries."""
-        response = await self._get_with_retries(url, params=params, label=label)
+        response = self._get_with_retries(url, params=params, label=label)
         if response is None:
             return None
         return response.content

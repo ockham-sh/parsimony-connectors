@@ -8,6 +8,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.7.0]
+
+### Changed
+
+- **Catalog-backed connectors** now depend on `parsimony-core[catalog]>=0.7,<0.8`
+  (all 11 search-capable macro connectors pull the full hybrid catalog stack).
+- **Non-catalog connectors** pin plain `parsimony-core>=0.7,<0.8`.
+- **BLS / Riksbank**: optional `BLS_API_KEY` / `RIKSBANK_API_KEY` env fallback
+  (quota boosters; keyless when absent).
+- **Riksbank search**: surfaces `source` column for SWEA/SWESTR routing.
+- **Polymarket**: preserves `clobTokenIds` in market listings for discovery→price.
+- **SDMX**: agencies corrected to ECB, Eurostat, IMF, World Bank; ESTAT macro
+  recall fix in `series_selection.py`; remote catalog tests expect schema v1.
+- **Catalog URL override**: standardized `load(catalog_url=...)` / env override
+  convention across catalog-backed connectors.
+- **Docs**: auth/discovery matrix, refreshed catalog manifest/operations, roster
+  counts include enumerators and factory search connectors.
+
+## [0.6.0-pre]
+
 ### Added
 
 - Initial public release hygiene: `CODE_OF_CONDUCT.md`, `AGENTS.md`,

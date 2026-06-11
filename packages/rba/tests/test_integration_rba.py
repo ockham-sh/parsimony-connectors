@@ -20,7 +20,7 @@ Run explicitly with::
 **Bounded crawls only.** A full ``enumerate_rba`` fetches ~216 CSVs + XLSX +
 xls-hist (~250 requests). The live enumerate test monkeypatches the module-level
 ``_discover_csv_links`` seam down to ONE real CSV so the crawl fires a handful of
-requests, and a request counter wrapped around ``AsyncSession.get`` asserts the
+requests, and a request counter wrapped around ``Session.get`` asserts the
 bound actually held. ``rba_search`` is covered against a locally-built fixture
 catalog rather than the published snapshot, so it never triggers a cold full
 enumerate + embed.
@@ -51,29 +51,35 @@ curl_cffi = pytest.importorskip(
 )
 
 
-async def _akamai_reachable() -> bool:
+def _akamai_reachable() -> bool:
     """Probe the RBA tables index once; False if Akamai blocks this environment."""
-    from curl_cffi.requests import AsyncSession
+    from parsimony_rba import _make_session
 
     try:
-        async with AsyncSession() as s:
-            r = await s.get("https://www.rba.gov.au/statistics/tables/", impersonate="chrome", timeout=30.0)
+        session = _make_session()
+        try:
+            r = session.get(
+                "https://www.rba.gov.au/statistics/tables/",
+                impersonate="chrome",
+                timeout=30.0,
+            )
             return r.status_code == 200 and "/statistics/tables/csv/" in r.text
+        finally:
+            session.close()
     except Exception:
         return False
 
 
-@pytest.mark.asyncio
-async def test_rba_fetch_cash_rate_live() -> None:
+def test_rba_fetch_cash_rate_live() -> None:
     """F1 is the RBA Cash Rate Target table — the canonical RBA dataset.
 
     Asserts REAL content: the cash-rate-target series (FIRMMCRTD) carries real
     numeric values in a plausible policy-rate band, not just a non-empty frame.
     """
-    if not await _akamai_reachable():
+    if not _akamai_reachable():
         pytest.skip("⚠️ rba live skipped: Akamai blocks this environment even with curl_cffi")
 
-    result = await rba_fetch(table_id="f1-data")
+    result = rba_fetch(table_id="f1-data")
 
     assert_provenance_shape(result, expected_source="rba_fetch", required_param_keys=["table_id"])
     df = result.data
@@ -96,20 +102,19 @@ async def test_rba_fetch_cash_rate_live() -> None:
     assert df["date"].notna().any(), "observation dates all NaT"
 
 
-@pytest.mark.asyncio
-async def test_enumerate_rba_bounded_live(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_enumerate_rba_bounded_live(monkeypatch: pytest.MonkeyPatch) -> None:
     """Crawl ONE real CSV (f1-data) to verify the live RBA CSV shape without the
     full ~250-request fan-out. A request counter asserts the bound held."""
-    if not await _akamai_reachable():
+    if not _akamai_reachable():
         pytest.skip("⚠️ rba live skipped: Akamai blocks this environment even with curl_cffi")
 
-    async def _one_link(_session: Any) -> list[str]:
+    def _one_link(_session: Any) -> list[str]:
         return ["/statistics/tables/csv/f1-data.csv"]
 
-    async def _no_xlsx(_session: Any) -> set[str]:
+    def _no_xlsx(_session: Any) -> set[str]:
         return set()
 
-    async def _no_xls_hist(_session: Any) -> list[str]:
+    def _no_xls_hist(_session: Any) -> list[str]:
         return []
 
     # Bound all three passes: one real CSV, and zero XLSX/xls-hist fetches.
@@ -117,19 +122,19 @@ async def test_enumerate_rba_bounded_live(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(parsimony_rba, "_discover_xlsx_stems", _no_xlsx)
     monkeypatch.setattr(parsimony_rba, "_discover_xls_hist_stems", _no_xls_hist)
 
-    # Instrument curl_cffi's AsyncSession.get so we can assert the bound held.
-    from curl_cffi.requests import AsyncSession
+    # Instrument curl_cffi Session.get so we can assert the bound held.
+    from curl_cffi.requests import Session
 
-    real_get = AsyncSession.get
+    real_get = Session.get
     calls: list[str] = []
 
-    async def _counting_get(self: Any, url: str, *args: Any, **kwargs: Any) -> Any:
+    def _counting_get(self: Any, url: str, *args: Any, **kwargs: Any) -> Any:
         calls.append(url)
-        return await real_get(self, url, *args, **kwargs)
+        return real_get(self, url, *args, **kwargs)
 
-    monkeypatch.setattr(AsyncSession, "get", _counting_get)
+    monkeypatch.setattr(Session, "get", _counting_get)
 
-    result = await enumerate_rba()
+    result = enumerate_rba()
     df = result.data
 
     # The bound held: exactly the one real CSV — XLSX and xls-hist passes are
@@ -156,8 +161,7 @@ async def test_enumerate_rba_bounded_live(monkeypatch: pytest.MonkeyPatch) -> No
     assert entities[0].namespace == "rba"
 
 
-@pytest.mark.asyncio
-async def test_rba_search_over_bounded_catalog_live(tmp_path: Path) -> None:
+def test_rba_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     """Exercise ``rba_search`` end-to-end over a small, locally-built catalog.
 
     Bounded by design: a cold full ``build_rba_catalog()`` runs the expensive
@@ -200,11 +204,11 @@ async def test_rba_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     entries = entities_from_raw(df, RBA_ENUMERATE_OUTPUT)
     catalog = Catalog("rba", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
-    await catalog.build()
+    catalog.build()
     out_dir = tmp_path / "rba_catalog"
-    await catalog.save(out_dir)
+    catalog.save(out_dir)
 
-    result = await rba_search(query="cash rate target monetary policy", limit=5, catalog_url=str(out_dir))
+    result = rba_search(query="cash rate target monetary policy", limit=5, catalog_url=str(out_dir))
 
     assert_provenance_shape(result, expected_source="rba_search", required_param_keys=["query"])
     sdf = result.data
@@ -217,5 +221,5 @@ async def test_rba_search_over_bounded_catalog_live(tmp_path: Path) -> None:
 
     # Ranking actually discriminates: a different query surfaces a different
     # series as the top hit (not the same row regardless of query).
-    fx = await rba_search(query="US dollar exchange rate", limit=5, catalog_url=str(out_dir))
+    fx = rba_search(query="US dollar exchange rate", limit=5, catalog_url=str(out_dir))
     assert fx.data.iloc[0]["code"] == "g1-data#FXRUSD"

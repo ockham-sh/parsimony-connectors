@@ -71,9 +71,8 @@ def test_parse_datasets_namespace_round_trip() -> None:
         assert is_datasets_namespace(ns)
 
 
-@pytest.mark.asyncio
-async def test_enumerates_all_agencies(mock_list_datasets) -> None:
-    result = await enumerate_sdmx_datasets()
+def test_enumerates_all_agencies(mock_list_datasets) -> None:
+    result = enumerate_sdmx_datasets()
     entries: list[Entity] = SDMX_DATASETS_ENUM_OUTPUT.build_entities(result.data)
     assert set(entry.code for entry in entries) == {
         "ECB|YC",
@@ -89,9 +88,8 @@ async def test_enumerates_all_agencies(mock_list_datasets) -> None:
     }
 
 
-@pytest.mark.asyncio
-async def test_ingests_into_per_agency_namespaces(mock_list_datasets) -> None:
-    result = await enumerate_sdmx_datasets()
+def test_ingests_into_per_agency_namespaces(mock_list_datasets) -> None:
+    result = enumerate_sdmx_datasets()
     entries: list[Entity] = SDMX_DATASETS_ENUM_OUTPUT.build_entities(result.data)
 
     assert {entry.namespace for entry in entries} == {
@@ -103,8 +101,7 @@ async def test_ingests_into_per_agency_namespaces(mock_list_datasets) -> None:
     assert codes_to_titles["ECB|YC"] == "Euro Yield Curve"
 
 
-@pytest.mark.asyncio
-async def test_agency_failure_skipped_silently(
+def test_agency_failure_skipped_silently(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """One dead agency must not sink the whole listing."""
@@ -123,14 +120,13 @@ async def test_agency_failure_skipped_silently(
         _fake_list,
     )
 
-    result = await enumerate_sdmx_datasets()
+    result = enumerate_sdmx_datasets()
     entries: list[Entity] = SDMX_DATASETS_ENUM_OUTPUT.build_entities(result.data)
     assert [entry.code for entry in entries] == ["ECB|YC"]
     assert entries[0].namespace == "sdmx_datasets_ecb"
 
 
-@pytest.mark.asyncio
-async def test_all_agencies_fail_raises_emptydata(
+def test_all_agencies_fail_raises_emptydata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from parsimony.errors import EmptyDataError
@@ -144,7 +140,7 @@ async def test_all_agencies_fail_raises_emptydata(
     )
 
     with pytest.raises(EmptyDataError, match="no rows for any agency"):
-        await enumerate_sdmx_datasets()
+        enumerate_sdmx_datasets()
 
 
 def test_enumerator_metadata_shape() -> None:

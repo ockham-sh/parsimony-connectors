@@ -32,6 +32,7 @@ from typing import Annotated, Any, Literal, get_args
 
 import httpx
 import pandas as pd
+from parsimony import Namespace
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 from parsimony.result import (
@@ -290,7 +291,7 @@ def _build_treasury_rate_rows() -> list[dict[str, str]]:
 # the identity key; actual data columns vary per endpoint.
 TREASURY_FETCH_OUTPUT = OutputConfig(
     columns=[
-        Column(name="endpoint", role=ColumnRole.KEY, param_key="endpoint", namespace="treasury"),
+        Column(name="endpoint", role=ColumnRole.KEY, namespace="treasury"),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="record_date", dtype="datetime", role=ColumnRole.DATA),
     ]
@@ -302,7 +303,7 @@ TREASURY_FETCH_OUTPUT = OutputConfig(
 # feed-specific rate columns ride along as additional DATA columns.
 TREASURY_RATES_FETCH_OUTPUT = OutputConfig(
     columns=[
-        Column(name="feed", role=ColumnRole.KEY, param_key="feed", namespace="treasury"),
+        Column(name="feed", role=ColumnRole.KEY, namespace="treasury"),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="record_date", dtype="datetime", role=ColumnRole.DATA),
     ]
@@ -334,7 +335,7 @@ def _rates_http() -> HttpClient:
     return make_http_client(_TREASURY_RATES_HOST, timeout=30.0)
 
 
-async def _get_text(http: HttpClient, path: str, *, params: dict[str, Any], op_name: str) -> str:
+def _get_text(http: HttpClient, path: str, *, params: dict[str, Any], op_name: str) -> str:
     """GET *path* and return the raw text body (non-JSON / XML document).
 
     The §6.7 raw-transport shape for any response ``fetch_json`` can't handle:
@@ -344,7 +345,7 @@ async def _get_text(http: HttpClient, path: str, *, params: dict[str, Any], op_n
     connectors (bde/snb/destatis will reuse this pattern).
     """
     try:
-        response = await http.request("GET", path, params=params)
+        response = http.request("GET", path, params=params)
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         map_http_error(exc, provider="treasury", op_name=op_name)
@@ -359,8 +360,8 @@ async def _get_text(http: HttpClient, path: str, *, params: dict[str, Any], op_n
 
 
 @connector(output=TREASURY_FETCH_OUTPUT, tags=["macro", "us"])
-async def treasury_fetch(
-    endpoint: Annotated[str, "ns:treasury"],
+def treasury_fetch(
+    endpoint: Annotated[str, Namespace("treasury")],
     filter: str | None = None,
     sort: str | None = None,
     page_size: int = 100,
@@ -383,7 +384,7 @@ async def treasury_fetch(
         "filter": filter,
         "sort": sort,
     }
-    body = await fetch_json(
+    body = fetch_json(
         _fiscal_http(),
         path=endpoint,
         params=req_params,
@@ -433,9 +434,7 @@ async def treasury_fetch(
 
 
 _RATES_DATE_COLUMNS: tuple[str, ...] = ("NEW_DATE", "INDEX_DATE", "QUOTE_DATE")
-_RATES_NUMERIC_TYPES: frozenset[str] = frozenset(
-    {"Edm.Double", "Edm.Decimal", "Edm.Single", "Edm.Int32", "Edm.Int64"}
-)
+_RATES_NUMERIC_TYPES: frozenset[str] = frozenset({"Edm.Double", "Edm.Decimal", "Edm.Single", "Edm.Int32", "Edm.Int64"})
 _RATES_DATETIME_TYPES: frozenset[str] = frozenset({"Edm.DateTime"})
 
 
@@ -496,8 +495,8 @@ def _parse_treasury_rates_xml(xml_text: str) -> pd.DataFrame:
 
 
 @connector(output=TREASURY_RATES_FETCH_OUTPUT, tags=["macro", "us"])
-async def treasury_rates_fetch(
-    feed: Annotated[TreasuryRateFeed, "ns:treasury"],
+def treasury_rates_fetch(
+    feed: Annotated[TreasuryRateFeed, Namespace("treasury")],
     year: int | None = None,
 ) -> pd.DataFrame:
     """Fetch a Treasury Office of Debt Management rate feed for one calendar year.
@@ -520,7 +519,7 @@ async def treasury_rates_fetch(
         raise InvalidParameterError("treasury", "year must be between 1990 and 2100")
 
     op_name = f"rates/{feed}/{resolved_year}"
-    xml_text = await _get_text(
+    xml_text = _get_text(
         _rates_http(),
         _TREASURY_RATES_PATH,
         params={"data": feed, "field_tdr_date_value": str(resolved_year)},
@@ -542,7 +541,7 @@ async def treasury_rates_fetch(
 
 
 @enumerator(output=TREASURY_ENUMERATE_OUTPUT, tags=["macro", "us"])
-async def enumerate_treasury() -> pd.DataFrame:
+def enumerate_treasury() -> pd.DataFrame:
     """Enumerate Treasury Fiscal Data measures and ODM rate-feed benchmarks.
 
     Combines Fiscal Data metadata rows (one per addressable time-series
@@ -550,7 +549,7 @@ async def enumerate_treasury() -> pd.DataFrame:
     yield and bill-rate series, for catalog indexing. Each row is an
     ``{endpoint}#{field}`` code with a title, definition, and routing source.
     """
-    raw = await fetch_json(
+    raw = fetch_json(
         _metadata_http(),
         path="metadata/",
         provider="treasury",
@@ -614,11 +613,7 @@ async def enumerate_treasury() -> pd.DataFrame:
 
     # @enumerator drops unmapped columns then requires an EXACT match to the
     # declared schema — build the frame with exactly the declared columns.
-    df = (
-        pd.DataFrame(rows, columns=_ENUMERATE_COLUMNS)
-        if rows
-        else pd.DataFrame(columns=_ENUMERATE_COLUMNS)
-    )
+    df = pd.DataFrame(rows, columns=_ENUMERATE_COLUMNS) if rows else pd.DataFrame(columns=_ENUMERATE_COLUMNS)
     return df
 
 
@@ -633,3 +628,10 @@ from parsimony_treasury.search import (  # noqa: E402, F401  (after public decor
 )
 
 CONNECTORS = Connectors([treasury_fetch, treasury_rates_fetch, enumerate_treasury, treasury_search])
+
+
+def load(*, catalog_url: str | None = None) -> Connectors:
+    """Return :data:`CONNECTORS` with an optional catalog URL bound on search."""
+    if catalog_url is None:
+        return CONNECTORS
+    return CONNECTORS.bind(catalog_url=catalog_url)

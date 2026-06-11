@@ -11,12 +11,12 @@ from parsimony_snb import SNB_ENUMERATE_OUTPUT, enumerate_snb
 CATALOG_NAMESPACE = "snb"
 
 
-async def build_snb_catalog() -> Catalog:
-    result = await enumerate_snb()
+def build_snb_catalog() -> Catalog:
+    result = enumerate_snb()
     entries = entities_from_raw(result, SNB_ENUMERATE_OUTPUT)
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
-    await catalog.build()
+    catalog.build()
     return catalog
 
 

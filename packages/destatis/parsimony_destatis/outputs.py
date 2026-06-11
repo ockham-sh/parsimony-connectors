@@ -22,7 +22,7 @@ DESTATIS_ENUMERATE_OUTPUT = OutputConfig(
 
 DESTATIS_FETCH_OUTPUT = OutputConfig(
     columns=[
-        Column(name="series_id", role=ColumnRole.KEY, param_key="name", namespace="destatis"),
+        Column(name="series_id", role=ColumnRole.KEY, namespace="destatis"),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="date", dtype="datetime", role=ColumnRole.DATA),
         Column(name="value", dtype="numeric", role=ColumnRole.DATA),

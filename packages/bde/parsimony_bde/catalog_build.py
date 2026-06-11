@@ -12,12 +12,15 @@ from parsimony_bde.outputs import BDE_ENUMERATE_OUTPUT
 CATALOG_NAMESPACE = "bde"
 
 
-async def build_bde_catalog() -> Catalog:
-    result = await enumerate_bde()
-    entries = entities_from_raw(result, BDE_ENUMERATE_OUTPUT)
+def build_bde_catalog() -> Catalog:
+    result = enumerate_bde()
+    # The published CSV chapters can list the same series key more than once
+    # (e.g. cross-listed aliases). Catalog entities are keyed by ``key`` only.
+    df = result.data.drop_duplicates(subset=["key"], keep="first")
+    entries = entities_from_raw(df, BDE_ENUMERATE_OUTPUT)
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
-    await catalog.build()
+    catalog.build()
     return catalog
 
 

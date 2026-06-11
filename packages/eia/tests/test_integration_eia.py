@@ -23,13 +23,12 @@ from parsimony_eia import eia_fetch, enumerate_eia
 pytestmark = pytest.mark.integration
 
 
-@pytest.mark.asyncio
-async def test_eia_fetch_petroleum_spot_prices() -> None:
+def test_eia_fetch_petroleum_spot_prices() -> None:
     creds = require_env("EIA_API_KEY")
     bound = eia_fetch.bind(api_key=creds["EIA_API_KEY"])
 
     # petroleum/pri/spt — spot prices — is a stable EIA v2 route.
-    result = await bound(route="petroleum/pri/spt")
+    result = bound(route="petroleum/pri/spt")
 
     assert_provenance_shape(result, expected_source="eia_fetch", required_param_keys=["route"])
     df = result.data
@@ -41,15 +40,14 @@ async def test_eia_fetch_petroleum_spot_prices() -> None:
     assert_no_secret_leak(result, secret=creds["EIA_API_KEY"])
 
 
-@pytest.mark.asyncio
-async def test_eia_fetch_non_value_measure_route() -> None:
+def test_eia_fetch_non_value_measure_route() -> None:
     # electricity/retail-sales has NO `value` measure — valid measures are
     # revenue/sales/price/customers. Exercises the route-specific `measure` param
     # + the normalize-to-`value` path (the default measure would 400 here).
     creds = require_env("EIA_API_KEY")
     bound = eia_fetch.bind(api_key=creds["EIA_API_KEY"])
 
-    result = await bound(route="electricity/retail-sales", measure="price", frequency="annual")
+    result = bound(route="electricity/retail-sales", measure="price", frequency="annual")
 
     assert_provenance_shape(result, expected_source="eia_fetch", required_param_keys=["route", "measure"])
     df = result.data
@@ -60,13 +58,12 @@ async def test_eia_fetch_non_value_measure_route() -> None:
     assert_no_secret_leak(result, secret=creds["EIA_API_KEY"])
 
 
-@pytest.mark.asyncio
-async def test_enumerate_eia_lists_top_level_routes() -> None:
+def test_enumerate_eia_lists_top_level_routes() -> None:
     creds = require_env("EIA_API_KEY")
     bound = enumerate_eia.bind(api_key=creds["EIA_API_KEY"])
 
     # Single request to the v2 root — cheap, no fan-out.
-    result = await bound()
+    result = bound()
 
     assert_provenance_shape(result, expected_source="enumerate_eia")
     df = result.data

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from parsimony.entity import Entity
 
@@ -9,6 +11,7 @@ from parsimony_sdmx.catalog_build import (
     build_agency_dataset_entities,
     dataset_code,
     enrich_dataset_entities,
+    manifest_from_saved_series,
     manifest_from_series_entries,
     merge_dataset_entry_lists,
 )
@@ -33,8 +36,7 @@ def _series_entries() -> list[Entity]:
     ]
 
 
-@pytest.mark.asyncio
-async def test_build_agency_dataset_entities_only_updates_manifested_flows() -> None:
+def test_build_agency_dataset_entities_only_updates_manifested_flows() -> None:
     records = [
         DatasetRecord(dataset_id="YC", agency_id="ECB", title="Yield curve"),
         DatasetRecord(dataset_id="MIR", agency_id="ECB", title="Money market"),
@@ -43,7 +45,7 @@ async def test_build_agency_dataset_entities_only_updates_manifested_flows() -> 
         dataset_code("ECB", "YC"): manifest_from_series_entries(_series_entries()),
     }
 
-    entries = await build_agency_dataset_entities(records, manifests)
+    entries = build_agency_dataset_entities(records, manifests)
 
     assert len(entries) == 1
     assert entries[0].code == "ECB|YC"
@@ -84,3 +86,12 @@ def test_merge_dataset_entry_lists_upserts_by_code() -> None:
     merged = merge_dataset_entry_lists(existing, updates)
 
     assert {(e.code, e.title) for e in merged} == {("ECB|MIR", "Old title"), ("ECB|YC", "Yield curve")}
+
+
+def test_manifest_from_saved_series_reads_str_path() -> None:
+    """Regression: resume batches pass save_root as str, not Path."""
+    snapshot = Path("/tmp/parsimony-catalogs-v1/sdmx/sdmx_series_ecb_exr")
+    if not (snapshot / "entries.parquet").is_file():
+        pytest.skip("local ECB EXR snapshot not present")
+    manifest = manifest_from_saved_series(str(snapshot))
+    assert any(dim["id"] == "FREQ" for dim in manifest)

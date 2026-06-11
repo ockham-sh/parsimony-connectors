@@ -29,7 +29,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from parsimony.catalog.source import entities_from_raw
 from parsimony_test_support import assert_provenance_shape
 
 import parsimony_boj
@@ -54,10 +53,9 @@ pytestmark = pytest.mark.integration
 _BOUNDED_DB = ("FM01", "Financial Markets", "Uncollateralized Overnight Call Rate (Updated every business day)")
 
 
-@pytest.mark.asyncio
-async def test_boj_fetch_fx_rate_live() -> None:
+def test_boj_fetch_fx_rate_live() -> None:
     """FM08 / FXERD01 — BoJ USD/JPY spot rate — a stable public daily series."""
-    result = await boj_fetch(db="FM08", code="FXERD01")
+    result = boj_fetch(db="FM08", code="FXERD01")
 
     assert_provenance_shape(result, expected_source="boj_fetch", required_param_keys=["code"])
     df = result.data
@@ -76,15 +74,14 @@ async def test_boj_fetch_fx_rate_live() -> None:
     assert df["date"].notna().any(), "record dates all NaT"
 
 
-@pytest.mark.asyncio
-async def test_boj_fetch_ranged_window_live() -> None:
+def test_boj_fetch_ranged_window_live() -> None:
     """A bounded period window (YYYYMM) returns real, recent observations.
 
     The daily FX series accepts a ``YYYYMM`` period range; a year-only or
     YYYYMMDD form is rejected by the provider as a period-format mismatch (a
     real per-series rule), so the universal bounded form here is YYYYMM.
     """
-    result = await boj_fetch(db="FM08", code="FXERD01", start_date="202601", end_date="202606")
+    result = boj_fetch(db="FM08", code="FXERD01", start_date="202601", end_date="202606")
 
     df = result.data
     assert not df.empty, "ranged BoJ fetch returned empty"
@@ -93,10 +90,9 @@ async def test_boj_fetch_ranged_window_live() -> None:
     assert df["value"].notna().any(), "no real values in the window"
 
 
-@pytest.mark.asyncio
-async def test_boj_fetch_multi_series_single_request_live() -> None:
+def test_boj_fetch_multi_series_single_request_live() -> None:
     """Two real FX series fetched in one comma-joined request."""
-    result = await boj_fetch(db="FM08", code="FXERD01,FXERD04")
+    result = boj_fetch(db="FM08", code="FXERD01,FXERD04")
 
     df = result.data
     assert {"FXERD01", "FXERD04"}.issubset(set(df["code"])), f"missing series: {set(df['code'])}"
@@ -105,23 +101,21 @@ async def test_boj_fetch_multi_series_single_request_live() -> None:
         assert sub["value"].notna().any(), f"{serie} has no real values"
 
 
-@pytest.mark.asyncio
-async def test_boj_fetch_unknown_series_surfaces_provider_error_live() -> None:
+def test_boj_fetch_unknown_series_surfaces_provider_error_live() -> None:
     """BoJ returns HTTP 400 for an unknown series → typed ProviderError(400)."""
     from parsimony.errors import ProviderError
 
     with pytest.raises(ProviderError) as exc:
-        await boj_fetch(db="FM08", code="NO_SUCH_SERIES_XYZ")
+        boj_fetch(db="FM08", code="NO_SUCH_SERIES_XYZ")
     assert exc.value.status_code == 400
 
 
-@pytest.mark.asyncio
-async def test_enumerate_boj_bounded_single_db_live(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_enumerate_boj_bounded_single_db_live(monkeypatch: pytest.MonkeyPatch) -> None:
     """Crawl ONE real DB (FM01) to verify the live getMetadata shape + breadcrumb
     parsing without fanning out across all 50 databases."""
     monkeypatch.setattr(parsimony_boj, "_BOJ_DATABASES", (_BOUNDED_DB,))
 
-    result = await enumerate_boj()
+    result = enumerate_boj()
     df = result.data
 
     # @enumerator enforces an EXACT column match against the declared schema.
@@ -152,10 +146,9 @@ async def test_enumerate_boj_bounded_single_db_live(monkeypatch: pytest.MonkeyPa
     assert all(e.namespace == "boj" for e in entities)
 
 
-@pytest.mark.asyncio
-async def test_fetch_boj_enumeration_rows_for_db_live() -> None:
+def test_fetch_boj_enumeration_rows_for_db_live() -> None:
     """The single-DB metadata path returns a populated, schema-shaped frame."""
-    df = await fetch_boj_enumeration_rows_for_db("FM01")
+    df = fetch_boj_enumeration_rows_for_db("FM01")
 
     assert list(df.columns) == [c.name for c in BOJ_ENUMERATE_OUTPUT.columns]
     assert not df.empty
@@ -164,34 +157,32 @@ async def test_fetch_boj_enumeration_rows_for_db_live() -> None:
     assert series_rows["title"].astype(str).str.len().gt(0).all()
 
 
-async def _build_fixture_catalogs(tmp_path: Path) -> Path:
+def _build_fixture_catalogs(tmp_path: Path) -> Path:
     """Build a tiny BoJ catalog from ONE real DB and persist the multi-bundle
     layout (``boj_databases`` + ``boj_series_fm01``) under ``tmp_path``.
 
     Bounded by design: one real getMetadata fetch (FM01), no full 50-DB sweep
     and no published-snapshot download.
     """
-    df = await fetch_boj_enumeration_rows_for_db("FM01")
-    entries = entities_from_raw(df, BOJ_ENUMERATE_OUTPUT)
-    databases, series_by_db = split_enumerated_entries(entries)
+    df = fetch_boj_enumeration_rows_for_db("FM01")
+    databases, series_by_db = split_enumerated_entries(df)
 
-    db_catalog = await build_databases_catalog(databases)
-    await db_catalog.save(tmp_path / "boj_databases")
+    db_catalog = build_databases_catalog(databases)
+    db_catalog.save(tmp_path / "boj_databases")
 
     series_entries = series_by_db.get("FM01") or []
     assert series_entries, "no FM01 series entries to build a series catalog"
-    series_catalog = await build_series_catalog("FM01", series_entries)
-    await series_catalog.save(tmp_path / "boj_series_fm01")
+    series_catalog = build_series_catalog("FM01", series_entries)
+    series_catalog.save(tmp_path / "boj_series_fm01")
     return tmp_path
 
 
-@pytest.mark.asyncio
-async def test_boj_databases_search_over_fixture_catalog_live(tmp_path: Path) -> None:
+def test_boj_databases_search_over_fixture_catalog_live(tmp_path: Path) -> None:
     """Exercise ``boj_databases_search`` end-to-end over a small local catalog
     built from one real DB — never the published snapshot, never a full build."""
-    root = await _build_fixture_catalogs(tmp_path)
+    root = _build_fixture_catalogs(tmp_path)
 
-    result = await boj_databases_search(query="overnight call rate", limit=5, catalog_root=str(root))
+    result = boj_databases_search(query="overnight call rate", limit=5, catalog_root=str(root))
 
     assert_provenance_shape(result, expected_source="boj_databases_search", required_param_keys=["query"])
     df = result.data
@@ -203,14 +194,11 @@ async def test_boj_databases_search_over_fixture_catalog_live(tmp_path: Path) ->
     assert df["score"].notna().all(), "search scores not populated"
 
 
-@pytest.mark.asyncio
-async def test_boj_series_search_over_fixture_catalog_live(tmp_path: Path) -> None:
+def test_boj_series_search_over_fixture_catalog_live(tmp_path: Path) -> None:
     """Exercise ``boj_series_search`` (step 2) over the same local fixture."""
-    root = await _build_fixture_catalogs(tmp_path)
+    root = _build_fixture_catalogs(tmp_path)
 
-    result = await boj_series_search(
-        query="uncollateralized overnight call rate", db="FM01", limit=5, catalog_root=str(root)
-    )
+    result = boj_series_search(query="uncollateralized overnight call rate", db="FM01", limit=5, catalog_root=str(root))
 
     assert_provenance_shape(result, expected_source="boj_series_search", required_param_keys=["query"])
     df = result.data

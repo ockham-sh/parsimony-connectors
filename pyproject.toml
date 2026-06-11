@@ -6,14 +6,14 @@ requires-python = ">=3.11"
 dependencies = [
     "pyyaml>=6.0",
     "rank-bm25>=0.2",
-    # Pull parsimony-core's `standard` extra (faiss-cpu + sentence-transformers
+    # Pull parsimony-core's `catalog` extra (faiss-cpu + sentence-transformers
     # + huggingface_hub) into the workspace so catalog tests can build, save,
     # and search real Catalog instances. End-to-end catalog tests (e.g.
     # sdmx/test_search_structured) exercise the full hybrid-index stack and
     # cannot be served by stubs.
-    "parsimony-core[standard]",
+    "parsimony-core[catalog]",
     # Anchor for the CPU-only torch source pin below. sentence-transformers
-    # (transitive via `parsimony-core[standard]`) declares plain `torch`,
+    # (transitive via `parsimony-core[catalog]`) declares plain `torch`,
     # which otherwise resolves to the +cu* wheel (~2 GB + triton). We never
     # train/run torch directly — it's just the embedding backend — so CPU
     # torch is plenty. Direct dep here exists only so `[tool.uv.sources]`
@@ -25,7 +25,7 @@ dependencies = [
 members = ["packages/*", "test_support"]
 
 [tool.uv.sources]
-# The kernel pin is `parsimony-core>=0.6,<0.7` on PyPI. The editable
+# The kernel pin is `parsimony-core[catalog]>=0.7,<0.8` on PyPI. The editable
 # override below keeps local dev + CI wired against the sibling
 # `ockham-sh/parsimony` checkout at `../parsimony`, so the monorepo
 # can test against unreleased kernel changes. CI achieves this by

@@ -37,6 +37,7 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 
 import pandas as pd
+from parsimony import Namespace
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 
@@ -73,7 +74,7 @@ def _require(value: str, name: str) -> str:
 
 
 @connector(output=_SEARCH_OUTPUT, tags=["equities", "tool"], secrets=("api_key",))
-async def finnhub_search(query: str, api_key: str = "") -> pd.DataFrame:
+def finnhub_search(query: str, api_key: str = "") -> pd.DataFrame:
     """Search Finnhub for stocks, ETFs, and indices by name or ticker symbol.
     Returns symbol (the stable API identifier), description (company name),
     display_symbol, and type. Use symbol with finnhub_quote, finnhub_profile,
@@ -83,7 +84,7 @@ async def finnhub_search(query: str, api_key: str = "") -> pd.DataFrame:
     """
     q = _require(query, "query")
     http = _client(api_key)
-    data = await finnhub_get(http, path="/search", params={"q": q}, op_name="finnhub_search")
+    data = finnhub_get(http, path="/search", params={"q": q}, op_name="finnhub_search")
 
     if not isinstance(data, dict):
         raise ParseError(_PROVIDER, "search response was not a JSON object")
@@ -109,7 +110,7 @@ async def finnhub_search(query: str, api_key: str = "") -> pd.DataFrame:
 
 
 @connector(output=_QUOTE_OUTPUT, tags=["equities"], secrets=("api_key",))
-async def finnhub_quote(symbol: Annotated[str, "ns:finnhub_symbol"], api_key: str = "") -> pd.DataFrame:
+def finnhub_quote(symbol: Annotated[str, Namespace("finnhub_symbol")], api_key: str = "") -> pd.DataFrame:
     """Fetch real-time quote for a stock: current price, day high/low/open,
     previous close, and absolute/percent change vs prior close. Timestamp
     is day-granularity (last close time, not a tick timestamp). Use
@@ -117,7 +118,7 @@ async def finnhub_quote(symbol: Annotated[str, "ns:finnhub_symbol"], api_key: st
     """
     s = _require(symbol, "symbol")
     http = _client(api_key)
-    data = await finnhub_get(http, path="/quote", params={"symbol": s}, op_name="finnhub_quote")
+    data = finnhub_get(http, path="/quote", params={"symbol": s}, op_name="finnhub_quote")
 
     if not isinstance(data, dict):
         raise ParseError(_PROVIDER, "quote response was not a JSON object")
@@ -144,7 +145,7 @@ async def finnhub_quote(symbol: Annotated[str, "ns:finnhub_symbol"], api_key: st
 
 
 @connector(tags=["equities"], secrets=("api_key",))
-async def finnhub_profile(symbol: Annotated[str, "ns:finnhub_symbol"], api_key: str = "") -> dict[str, Any]:
+def finnhub_profile(symbol: Annotated[str, Namespace("finnhub_symbol")], api_key: str = "") -> dict[str, Any]:
     """Fetch company profile for a stock: name, exchange, country, currency,
     IPO date, industry, market cap (in millions USD), shares outstanding
     (millions), website, phone, and logo URL. Returns a single record (dict).
@@ -153,7 +154,7 @@ async def finnhub_profile(symbol: Annotated[str, "ns:finnhub_symbol"], api_key: 
     """
     s = _require(symbol, "symbol")
     http = _client(api_key)
-    data = await finnhub_get(http, path="/stock/profile2", params={"symbol": s}, op_name="finnhub_profile")
+    data = finnhub_get(http, path="/stock/profile2", params={"symbol": s}, op_name="finnhub_profile")
 
     if not isinstance(data, dict):
         raise ParseError(_PROVIDER, "profile response was not a JSON object")
@@ -163,14 +164,14 @@ async def finnhub_profile(symbol: Annotated[str, "ns:finnhub_symbol"], api_key: 
 
 
 @connector(output=_PEERS_OUTPUT, tags=["equities"], secrets=("api_key",))
-async def finnhub_peers(symbol: Annotated[str, "ns:finnhub_symbol"], api_key: str = "") -> pd.DataFrame:
+def finnhub_peers(symbol: Annotated[str, Namespace("finnhub_symbol")], api_key: str = "") -> pd.DataFrame:
     """Fetch peer/comparable companies for a stock. Returns a list of ticker
     symbols in the same industry and market cap range. Use finnhub_quote or
     finnhub_profile on returned symbols for further analysis.
     """
     s = _require(symbol, "symbol")
     http = _client(api_key)
-    data = await finnhub_get(http, path="/stock/peers", params={"symbol": s}, op_name="finnhub_peers")
+    data = finnhub_get(http, path="/stock/peers", params={"symbol": s}, op_name="finnhub_peers")
 
     if not isinstance(data, list):
         raise ParseError(_PROVIDER, "peers response was not a JSON array")
@@ -181,14 +182,14 @@ async def finnhub_peers(symbol: Annotated[str, "ns:finnhub_symbol"], api_key: st
 
 
 @connector(output=_RECOMMENDATION_OUTPUT, tags=["equities"], secrets=("api_key",))
-async def finnhub_recommendation(symbol: Annotated[str, "ns:finnhub_symbol"], api_key: str = "") -> pd.DataFrame:
+def finnhub_recommendation(symbol: Annotated[str, Namespace("finnhub_symbol")], api_key: str = "") -> pd.DataFrame:
     """Fetch analyst buy/hold/sell recommendation trends for a stock.
     Returns monthly aggregated counts: strong_buy, buy, hold, sell, strong_sell.
     Free tier returns approximately the last 4 months of data.
     """
     s = _require(symbol, "symbol")
     http = _client(api_key)
-    data = await finnhub_get(
+    data = finnhub_get(
         http,
         path="/stock/recommendation",
         params={"symbol": s},
@@ -215,14 +216,14 @@ async def finnhub_recommendation(symbol: Annotated[str, "ns:finnhub_symbol"], ap
 
 
 @connector(output=_EARNINGS_OUTPUT, tags=["equities"], secrets=("api_key",))
-async def finnhub_earnings(symbol: Annotated[str, "ns:finnhub_symbol"], api_key: str = "") -> pd.DataFrame:
+def finnhub_earnings(symbol: Annotated[str, Namespace("finnhub_symbol")], api_key: str = "") -> pd.DataFrame:
     """Fetch historical earnings per share (EPS) for a stock: actual EPS,
     consensus estimate, surprise, and surprise percent for the last ~4 quarters.
     For forward-looking earnings dates use finnhub_earnings_calendar.
     """
     s = _require(symbol, "symbol")
     http = _client(api_key)
-    data = await finnhub_get(http, path="/stock/earnings", params={"symbol": s}, op_name="finnhub_earnings")
+    data = finnhub_get(http, path="/stock/earnings", params={"symbol": s}, op_name="finnhub_earnings")
 
     if not isinstance(data, list):
         raise ParseError(_PROVIDER, "earnings response was not a JSON array")
@@ -245,9 +246,7 @@ async def finnhub_earnings(symbol: Annotated[str, "ns:finnhub_symbol"], api_key:
 
 
 @connector(tags=["equities"], secrets=("api_key",))
-async def finnhub_basic_financials(
-    symbol: Annotated[str, "ns:finnhub_symbol"], api_key: str = ""
-) -> dict[str, Any]:
+def finnhub_basic_financials(symbol: Annotated[str, Namespace("finnhub_symbol")], api_key: str = "") -> dict[str, Any]:
     """Fetch ~120 fundamental metrics for a stock: PE, EPS, beta, 52-week
     high/low, gross margin, ROE, dividend yield, market cap, and more.
     Also includes annual and quarterly time-series (going back to ~2007 for
@@ -257,7 +256,7 @@ async def finnhub_basic_financials(
     """
     s = _require(symbol, "symbol")
     http = _client(api_key)
-    data = await finnhub_get(
+    data = finnhub_get(
         http,
         path="/stock/metric",
         params={"symbol": s, "metric": "all"},
@@ -277,8 +276,8 @@ async def finnhub_basic_financials(
 
 
 @connector(output=_NEWS_OUTPUT, tags=["equities", "news"], secrets=("api_key",))
-async def finnhub_company_news(
-    symbol: Annotated[str, "ns:finnhub_symbol"],
+def finnhub_company_news(
+    symbol: Annotated[str, Namespace("finnhub_symbol")],
     from_date: str,
     to_date: str,
     api_key: str = "",
@@ -296,7 +295,7 @@ async def finnhub_company_news(
         raise InvalidParameterError(_PROVIDER, "from_date must not be after to_date")
 
     http = _client(api_key)
-    data = await finnhub_get(
+    data = finnhub_get(
         http,
         path="/company-news",
         params={"symbol": s, "from": f, "to": t},
@@ -312,7 +311,7 @@ async def finnhub_company_news(
 
 
 @connector(output=_NEWS_OUTPUT, tags=["news"], secrets=("api_key",))
-async def finnhub_market_news(
+def finnhub_market_news(
     category: Literal["general", "forex", "crypto", "merger"] = "general",
     api_key: str = "",
 ) -> pd.DataFrame:
@@ -322,7 +321,7 @@ async def finnhub_market_news(
     news). For company-specific articles use finnhub_company_news.
     """
     http = _client(api_key)
-    data = await finnhub_get(http, path="/news", params={"category": category}, op_name="finnhub_market_news")
+    data = finnhub_get(http, path="/news", params={"category": category}, op_name="finnhub_market_news")
 
     if not isinstance(data, list):
         raise ParseError(_PROVIDER, "market news response was not a JSON array")
@@ -357,7 +356,7 @@ def _news_rows(data: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 @connector(output=_EARNINGS_CAL_OUTPUT, tags=["equities", "calendars"], secrets=("api_key",))
-async def finnhub_earnings_calendar(
+def finnhub_earnings_calendar(
     from_date: str, to_date: str, symbol: str | None = None, api_key: str = ""
 ) -> pd.DataFrame:
     """Fetch upcoming or recent earnings release dates for all (or one) stock.
@@ -376,7 +375,7 @@ async def finnhub_earnings_calendar(
         req["symbol"] = symbol.strip()
 
     http = _client(api_key)
-    data = await finnhub_get(http, path="/calendar/earnings", params=req, op_name="finnhub_earnings_calendar")
+    data = finnhub_get(http, path="/calendar/earnings", params=req, op_name="finnhub_earnings_calendar")
 
     if not isinstance(data, dict):
         raise ParseError(_PROVIDER, "earnings calendar response was not a JSON object")
@@ -402,7 +401,7 @@ async def finnhub_earnings_calendar(
 
 
 @connector(output=_IPO_CAL_OUTPUT, tags=["equities", "calendars"], secrets=("api_key",))
-async def finnhub_ipo_calendar(from_date: str, to_date: str, api_key: str = "") -> pd.DataFrame:
+def finnhub_ipo_calendar(from_date: str, to_date: str, api_key: str = "") -> pd.DataFrame:
     """Fetch IPO calendar for a date range: company name, ticker, exchange,
     status (expected/priced/filed/withdrawn), price_range (the raw IPO price
     string — a single value or a range like '18.00-20.00'), number of shares,
@@ -415,7 +414,7 @@ async def finnhub_ipo_calendar(from_date: str, to_date: str, api_key: str = "") 
         raise InvalidParameterError(_PROVIDER, "from_date must not be after to_date")
 
     http = _client(api_key)
-    data = await finnhub_get(
+    data = finnhub_get(
         http,
         path="/calendar/ipo",
         params={"from": f, "to": t},
@@ -451,7 +450,7 @@ async def finnhub_ipo_calendar(from_date: str, to_date: str, api_key: str = "") 
 
 
 @enumerator(output=_ENUMERATE_OUTPUT, tags=["equities"], secrets=("api_key",))
-async def enumerate_finnhub(exchange: str = "US", api_key: str = "") -> pd.DataFrame:
+def enumerate_finnhub(exchange: str = "US", api_key: str = "") -> pd.DataFrame:
     """Enumerate all symbols from Finnhub for catalog indexing.
 
     Calls /stock/symbol — returns ~30 000 rows for exchange='US' with symbol,
@@ -462,7 +461,7 @@ async def enumerate_finnhub(exchange: str = "US", api_key: str = "") -> pd.DataF
     ex = _require(exchange, "exchange")
     # Longer timeout + the canonical error mapping (the old path had none).
     http = _client(api_key, timeout=_ENUMERATE_TIMEOUT)
-    data = await finnhub_get(
+    data = finnhub_get(
         http,
         path="/stock/symbol",
         params={"exchange": ex},

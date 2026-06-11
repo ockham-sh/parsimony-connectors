@@ -11,9 +11,8 @@ from __future__ import annotations
 import dataclasses
 
 import httpx
-import pytest
-
 import parsimony_shared as ps
+import pytest
 from parsimony_shared import (
     DESCRIPTION_CHAR_CAP,
     MetadataCrawlConfig,

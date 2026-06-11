@@ -43,10 +43,9 @@ pytestmark = pytest.mark.integration
 _BOUNDED_CHAPTERS = (("ti", "Interest Rates"),)
 
 
-@pytest.mark.asyncio
-async def test_bde_fetch_known_series_live() -> None:
+def test_bde_fetch_known_series_live() -> None:
     # D_1NBAF472 = One-year Euribor, a stable, high-traffic monthly BdE series.
-    result = await bde_fetch(key="D_1NBAF472")
+    result = bde_fetch(key="D_1NBAF472")
 
     assert_provenance_shape(result, expected_source="bde_fetch", required_param_keys=["key"])
     df = result.data
@@ -66,14 +65,13 @@ async def test_bde_fetch_known_series_live() -> None:
     assert df["date"].notna().any(), "record dates all NaT"
 
 
-@pytest.mark.asyncio
-async def test_bde_fetch_multi_series_single_request_live() -> None:
+def test_bde_fetch_multi_series_single_request_live() -> None:
     # Two real series of DIFFERENT frequencies (monthly Euribor + daily FX rate)
     # fetched in one comma-joined request. ``time_range`` is a year (the
     # universal form): BdE's ``30M``/``60M``/``MAX`` keywords are accepted only
     # for lower-frequency series and 412 on the daily FX series, but a year
     # works for both. See LESSONS — this is a real per-series provider rule.
-    result = await bde_fetch(key="D_1NBAF472,DTCCBCEUSDEUR.B", time_range="2024")
+    result = bde_fetch(key="D_1NBAF472,DTCCBCEUSDEUR.B", time_range="2024")
 
     df = result.data
     assert set(df["key"]) == {"D_1NBAF472", "DTCCBCEUSDEUR.B"}
@@ -83,13 +81,12 @@ async def test_bde_fetch_multi_series_single_request_live() -> None:
         assert sub["value"].notna().any(), f"{serie} has no real values"
 
 
-@pytest.mark.asyncio
-async def test_enumerate_bde_bounded_single_chapter_live(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_enumerate_bde_bounded_single_chapter_live(monkeypatch: pytest.MonkeyPatch) -> None:
     """Crawl ONE real chapter (Interest Rates ``ti``, ~50 series) to verify the
     live catalog CSV shape without pulling all seven chapters."""
     monkeypatch.setattr(enumerate_module, "CATALOG_CHAPTERS", _BOUNDED_CHAPTERS)
 
-    result = await enumerate_bde()
+    result = enumerate_bde()
     df = result.data
 
     # @enumerator enforces an EXACT column match against the declared schema.
@@ -116,8 +113,7 @@ async def test_enumerate_bde_bounded_single_chapter_live(monkeypatch: pytest.Mon
     assert entities[0].namespace == "bde"
 
 
-@pytest.mark.asyncio
-async def test_bde_search_over_bounded_catalog_live(tmp_path: Path) -> None:
+def test_bde_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     """Exercise ``bde_search`` end-to-end over a small, locally-built catalog.
 
     Bounded by design: a cold full ``build_bde_catalog()`` crawls all seven
@@ -179,11 +175,11 @@ async def test_bde_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     entries = entities_from_raw(df, BDE_ENUMERATE_OUTPUT)
     catalog = Catalog("bde", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
-    await catalog.build()
+    catalog.build()
     out_dir = tmp_path / "bde_catalog"
-    await catalog.save(out_dir)
+    catalog.save(out_dir)
 
-    result = await bde_search(query="one-year euribor", limit=5, catalog_url=str(out_dir))
+    result = bde_search(query="one-year euribor", limit=5, catalog_url=str(out_dir))
 
     assert_provenance_shape(result, expected_source="bde_search", required_param_keys=["query"])
     sdf = result.data
@@ -198,5 +194,5 @@ async def test_bde_search_over_bounded_catalog_live(tmp_path: Path) -> None:
 
     # Ranking actually discriminates: a different query surfaces a different
     # series as the top hit (not the same row regardless of query).
-    fx = await bde_search(query="dollar euro exchange rate", limit=5, catalog_url=str(out_dir))
+    fx = bde_search(query="dollar euro exchange rate", limit=5, catalog_url=str(out_dir))
     assert fx.data.iloc[0]["code"] == "DTCCBCEUSDEUR.B"

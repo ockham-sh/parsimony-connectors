@@ -15,20 +15,19 @@ fails fast with :class:`UnauthorizedError` naming the env var.
 
 from __future__ import annotations
 
-import os
 from typing import Annotated
 
 import pandas as pd
+from parsimony import Namespace
 from parsimony.connector import Connectors, connector
 from parsimony.errors import (
     EmptyDataError,
     InvalidParameterError,
     ParseError,
-    UnauthorizedError,
 )
 from parsimony.result import Column, ColumnRole, OutputConfig
 from parsimony.transport import HttpClient
-from parsimony.transport.helpers import fetch_json, make_http_client
+from parsimony.transport.helpers import fetch_json, make_http_client, require_key
 
 __all__ = ["CONNECTORS", "load"]
 
@@ -79,9 +78,7 @@ def _client(api_key: str) -> HttpClient:
     request; the transport layer redacts the key from logs. A missing key
     raises :class:`UnauthorizedError` before any network call.
     """
-    key = api_key or os.environ.get(_ENV_VAR, "")
-    if not key:
-        raise UnauthorizedError("fred", env_var=_ENV_VAR)
+    key = require_key(api_key, env_var=_ENV_VAR, provider="fred")
     return make_http_client(_BASE_URL, query_params={"api_key": key, "file_type": "json"})
 
 
@@ -91,7 +88,7 @@ def _client(api_key: str) -> HttpClient:
 
 
 @connector(output=SEARCH_OUTPUT, tags=["macro", "tool"], secrets=("api_key",))
-async def fred_search(search_text: str, api_key: str = "") -> pd.DataFrame:
+def fred_search(search_text: str, api_key: str = "") -> pd.DataFrame:
     """Keyword search for FRED economic time series.
 
     Returns series metadata (id, title, units, frequency). Use short,
@@ -102,7 +99,7 @@ async def fred_search(search_text: str, api_key: str = "") -> pd.DataFrame:
         raise InvalidParameterError("fred", "search_text must be non-empty")
 
     http = _client(api_key)
-    body = await fetch_json(
+    body = fetch_json(
         http,
         path="series/search",
         params={"search_text": query},
@@ -120,8 +117,8 @@ async def fred_search(search_text: str, api_key: str = "") -> pd.DataFrame:
 
 
 @connector(output=FETCH_OUTPUT, tags=["macro"], secrets=("api_key",))
-async def fred_fetch(
-    series_id: Annotated[str, "ns:fred"],
+def fred_fetch(
+    series_id: Annotated[str, Namespace("fred")],
     observation_start: str | None = None,
     observation_end: str | None = None,
     api_key: str = "",
@@ -137,7 +134,7 @@ async def fred_fetch(
         raise InvalidParameterError("fred", "series_id must be non-empty")
 
     http = _client(api_key)
-    obs_body = await fetch_json(
+    obs_body = fetch_json(
         http,
         path="series/observations",
         params={
@@ -155,7 +152,7 @@ async def fred_fetch(
     if not observations:
         raise EmptyDataError("fred", query_params={"series_id": sid})
 
-    meta_body = await fetch_json(
+    meta_body = fetch_json(
         http,
         path="series",
         params={"series_id": sid},

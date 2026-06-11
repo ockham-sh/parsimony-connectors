@@ -23,14 +23,13 @@ from parsimony_polymarket import polymarket_events, polymarket_market_prices, po
 pytestmark = pytest.mark.integration
 
 
-@pytest.mark.asyncio
-async def test_polymarket_markets_live() -> None:
-    result = await polymarket_markets(limit=5)
+def test_polymarket_markets_live() -> None:
+    result = polymarket_markets(limit=5)
 
     assert_provenance_shape(result, expected_source="polymarket_markets", required_param_keys=["limit"])
     df = result.data
     assert not df.empty, "Gamma /markets returned an empty DataFrame"
-    assert list(df.columns) == ["id", "question", "slug", "active"]
+    assert list(df.columns) == ["id", "question", "slug", "active", "clobTokenIds"]
     # Real content, not just column names: ids and questions must be populated.
     assert df["id"].astype(str).str.len().gt(0).all(), "blank market id"
     assert df["question"].astype(str).str.len().gt(0).any(), "no real market question text"
@@ -38,9 +37,8 @@ async def test_polymarket_markets_live() -> None:
     assert len(df) <= 5, "limit not respected"
 
 
-@pytest.mark.asyncio
-async def test_polymarket_events_live() -> None:
-    result = await polymarket_events(limit=5)
+def test_polymarket_events_live() -> None:
+    result = polymarket_events(limit=5)
 
     assert_provenance_shape(result, expected_source="polymarket_events", required_param_keys=["limit"])
     df = result.data
@@ -52,13 +50,12 @@ async def test_polymarket_events_live() -> None:
     assert len(df) <= 5, "limit not respected"
 
 
-@pytest.mark.asyncio
-async def test_polymarket_market_prices_live() -> None:
+def test_polymarket_market_prices_live() -> None:
     # Derive a real CLOB token id from a live market (the prices endpoint needs a
     # concrete clobTokenIds value — there is no static fixture id we can rely on).
-    token_id = await _live_clob_token_id()
+    token_id = _live_clob_token_id()
 
-    result = await polymarket_market_prices(token_id=token_id)
+    result = polymarket_market_prices(token_id=token_id)
 
     assert_provenance_shape(result, expected_source="polymarket_market_prices", required_param_keys=["token_id"])
     data = result.data
@@ -69,10 +66,10 @@ async def test_polymarket_market_prices_live() -> None:
     assert 0.0 <= price <= 1.0, f"CLOB price out of [0,1] range: {price}"
 
 
-async def _live_clob_token_id() -> str:
+def _live_clob_token_id() -> str:
     """Pull one real CLOB token id from a live, order-book-enabled market."""
-    async with httpx.AsyncClient(base_url="https://gamma-api.polymarket.com", timeout=15.0) as client:
-        resp = await client.get("/markets", params={"limit": 20, "active": "true"})
+    with httpx.Client(base_url="https://gamma-api.polymarket.com", timeout=15.0) as client:
+        resp = client.get("/markets", params={"limit": 20, "active": "true"})
         resp.raise_for_status()
         markets = resp.json()
 

@@ -54,7 +54,7 @@ class _FakeResponse:
 
 
 class _FakeSession:
-    """A fake curl_cffi ``AsyncSession`` driven by a ``{url: response}`` map.
+    """A fake curl_cffi ``Session`` driven by a ``{url: response}`` map.
 
     A value may also be an Exception instance/class — it is raised on GET to
     exercise the transport-error mapping path. A missing URL yields a 404.
@@ -64,13 +64,13 @@ class _FakeSession:
         self._routes = routes
         self.calls: list[str] = []
 
-    async def __aenter__(self) -> _FakeSession:
+    def __enter__(self) -> _FakeSession:
         return self
 
-    async def __aexit__(self, *exc: object) -> None:
+    def __exit__(self, *exc: object) -> None:
         return None
 
-    async def get(self, url: str, *, impersonate: str = "chrome", timeout: float = 60.0) -> _FakeResponse:
+    def get(self, url: str, *, impersonate: str = "chrome", timeout: float = 60.0) -> _FakeResponse:
         self.calls.append(url)
         value = self._routes.get(url)
         if value is None:
@@ -179,8 +179,7 @@ def test_no_dead_params_models_remain() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_rba_fetch_resolves_then_parses_csv(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_rba_fetch_resolves_then_parses_csv(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_session(
         monkeypatch,
         {
@@ -189,7 +188,7 @@ async def test_rba_fetch_resolves_then_parses_csv(monkeypatch: pytest.MonkeyPatc
         },
     )
 
-    result = await rba_fetch(table_id="f1-data")
+    result = rba_fetch(table_id="f1-data")
 
     assert result.provenance.source == "rba_fetch"
     assert result.provenance.params == {"table_id": "f1-data"}
@@ -200,8 +199,7 @@ async def test_rba_fetch_resolves_then_parses_csv(monkeypatch: pytest.MonkeyPatc
     assert df["value"].notna().any()
 
 
-@pytest.mark.asyncio
-async def test_rba_fetch_normalises_trailing_csv_suffix_and_case(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_rba_fetch_normalises_trailing_csv_suffix_and_case(monkeypatch: pytest.MonkeyPatch) -> None:
     """Inline validation lowercases and strips a stray ``.csv`` suffix
     (replaces the deleted RbaFetchParams normaliser)."""
     _install_session(
@@ -215,28 +213,25 @@ async def test_rba_fetch_normalises_trailing_csv_suffix_and_case(monkeypatch: py
     # Mixed case + a stray .csv suffix still resolves to f1-data and parses.
     # (Provenance records the verbatim call-time arg; the normalisation is
     # internal and surfaces in the resolved table_id stamped on the data.)
-    result = await rba_fetch(table_id="F1-DATA.csv")
+    result = rba_fetch(table_id="F1-DATA.csv")
     df = result.data
     assert set(df["table_id"]) == {"f1-data"}
     assert "FIRMMCRTD" in set(df["series_key"])
 
 
-@pytest.mark.asyncio
-async def test_rba_fetch_rejects_blank_table_id() -> None:
+def test_rba_fetch_rejects_blank_table_id() -> None:
     with pytest.raises(InvalidParameterError):
-        await rba_fetch(table_id="   ")
+        rba_fetch(table_id="   ")
 
 
-@pytest.mark.asyncio
-async def test_rba_fetch_raises_invalid_parameter_for_unknown_table(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_rba_fetch_raises_invalid_parameter_for_unknown_table(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_session(monkeypatch, {_TABLES_URL: _FakeResponse(200, text=_TABLES_HTML)})
 
     with pytest.raises(InvalidParameterError, match="not found"):
-        await rba_fetch(table_id="nonexistent-table")
+        rba_fetch(table_id="nonexistent-table")
 
 
-@pytest.mark.asyncio
-async def test_rba_fetch_raises_empty_data_on_dataless_csv(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_rba_fetch_raises_empty_data_on_dataless_csv(monkeypatch: pytest.MonkeyPatch) -> None:
     """A 200 CSV whose data section has no rows → EmptyDataError (with the
     query params that produced it, per §5)."""
     dataless = (
@@ -257,7 +252,7 @@ async def test_rba_fetch_raises_empty_data_on_dataless_csv(monkeypatch: pytest.M
     )
 
     with pytest.raises(EmptyDataError) as exc_info:
-        await rba_fetch(table_id="f1-data")
+        rba_fetch(table_id="f1-data")
     assert exc_info.value.query_params == {"table_id": "f1-data"}
 
 
@@ -266,8 +261,7 @@ async def test_rba_fetch_raises_empty_data_on_dataless_csv(monkeypatch: pytest.M
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_enumerate_rba_emits_description_table_id_unit_and_source(
+def test_enumerate_rba_emits_description_table_id_unit_and_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """One row per Series ID with the full Treasury-grade column set.
@@ -288,7 +282,7 @@ async def test_enumerate_rba_emits_description_table_id_unit_and_source(
         },
     )
 
-    df = (await enumerate_rba()).data
+    df = (enumerate_rba()).data
 
     # @enumerator enforces an EXACT column match against the declared schema.
     assert list(df.columns) == list(pkg._ENUMERATE_COLUMNS)
@@ -306,8 +300,7 @@ async def test_enumerate_rba_emits_description_table_id_unit_and_source(
     assert row["frequency"] == "Daily"
 
 
-@pytest.mark.asyncio
-async def test_enumerate_rba_compound_code_keeps_cross_table_series_id_collisions(
+def test_enumerate_rba_compound_code_keeps_cross_table_series_id_collisions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Series ids reused across tables (B13.1.x vs B13.2.x in the wild) must
@@ -324,7 +317,7 @@ async def test_enumerate_rba_compound_code_keeps_cross_table_series_id_collision
         },
     )
 
-    df = (await enumerate_rba()).data
+    df = (enumerate_rba()).data
 
     same_sid = df[df["series_id"] == "BFC5WDZ"]
     assert len(same_sid) == 2, "shared series_id must produce two distinct entries"
@@ -338,8 +331,7 @@ async def test_enumerate_rba_compound_code_keeps_cross_table_series_id_collision
     assert len(set(same_sid["description"])) == 2
 
 
-@pytest.mark.asyncio
-async def test_enumerate_rba_source_metadata_uniform(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_enumerate_rba_source_metadata_uniform(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every emitted row carries ``source='rba_csv'`` so an agent dispatching
     off a search hit knows which fetch connector to call without parsing
     the code prefix."""
@@ -353,12 +345,11 @@ async def test_enumerate_rba_source_metadata_uniform(monkeypatch: pytest.MonkeyP
         },
     )
 
-    df = (await enumerate_rba()).data
+    df = (enumerate_rba()).data
     assert set(df["source"]) == {"rba_csv"}
 
 
-@pytest.mark.asyncio
-async def test_enumerate_rba_swallows_per_csv_fetch_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_enumerate_rba_swallows_per_csv_fetch_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     """A single bad CSV (500) must not torpedo the whole crawl — the enumerator
     swallows per-fetch errors and keeps the surviving rows."""
     _install_session(
@@ -371,16 +362,15 @@ async def test_enumerate_rba_swallows_per_csv_fetch_errors(monkeypatch: pytest.M
         },
     )
 
-    df = (await enumerate_rba()).data
+    df = (enumerate_rba()).data
     assert "FIRMMCRTD" in set(df["series_id"])
 
 
-@pytest.mark.asyncio
-async def test_enumerate_rba_bounding_seam_limits_fan_out(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_enumerate_rba_bounding_seam_limits_fan_out(monkeypatch: pytest.MonkeyPatch) -> None:
     """``_discover_csv_links`` is the bounding seam — monkeypatching it to a
     single link reduces the CSV fan-out to one request (the live-test bound)."""
 
-    async def _one_link(_session: Any) -> list[str]:
+    def _one_link(_session: Any) -> list[str]:
         return ["/statistics/tables/csv/f1-data.csv"]
 
     monkeypatch.setattr(pkg, "_discover_csv_links", _one_link)
@@ -393,7 +383,7 @@ async def test_enumerate_rba_bounding_seam_limits_fan_out(monkeypatch: pytest.Mo
         },
     )
 
-    df = (await enumerate_rba()).data
+    df = (enumerate_rba()).data
     # Only f1-data was fetched (plus the index + historical-data page) — the
     # g1-data link advertised by the index was never requested.
     assert _csv_url("g1-data") not in session.calls
@@ -455,8 +445,7 @@ _TABLES_HTML_WITH_XLSX = """
 """
 
 
-@pytest.mark.asyncio
-async def test_enumerate_rba_pulls_xlsx_exclusive_sub_sheet(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_enumerate_rba_pulls_xlsx_exclusive_sub_sheet(monkeypatch: pytest.MonkeyPatch) -> None:
     """``a03.xlsx``'s Bond Purchase Program sheet holds series never
     republished as a CSV. The enumerator must pick them up tagged
     ``source='rba_xlsx'``; all other sheets are skipped to avoid duplicating
@@ -493,15 +482,13 @@ async def test_enumerate_rba_pulls_xlsx_exclusive_sub_sheet(monkeypatch: pytest.
         monkeypatch,
         {
             _TABLES_URL: _FakeResponse(200, text=_TABLES_HTML_WITH_XLSX),
-            _csv_url("a1-data"): _FakeResponse(
-                200, text=_F1_CSV.replace("F1 INTEREST RATES", "A1 RESERVE BANK")
-            ),
+            _csv_url("a1-data"): _FakeResponse(200, text=_F1_CSV.replace("F1 INTEREST RATES", "A1 RESERVE BANK")),
             "https://www.rba.gov.au/statistics/tables/xls/a03.xlsx": _FakeResponse(200, content=xlsx_data),
             _HIST_URL: _FakeResponse(200, text="<html></html>"),
         },
     )
 
-    df = (await enumerate_rba()).data
+    df = (enumerate_rba()).data
 
     bpp = df[df["series_id"] == "ALDBPPFVD"]
     assert len(bpp) == 1, "Bond Purchase Program series must be emitted exactly once"
@@ -516,8 +503,7 @@ async def test_enumerate_rba_pulls_xlsx_exclusive_sub_sheet(monkeypatch: pytest.
     assert "CSVDUP1" not in set(df["series_id"])
 
 
-@pytest.mark.asyncio
-async def test_enumerate_rba_pulls_xls_hist_discontinued_series(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_enumerate_rba_pulls_xls_hist_discontinued_series(monkeypatch: pytest.MonkeyPatch) -> None:
     """``xls-hist/*.xls`` legacy binaries expose discontinued series that
     dropped out of the live CSVs. They're catalogued with
     ``source='rba_xlsx_hist'``. We mock the inner parse function — the test
@@ -558,7 +544,7 @@ async def test_enumerate_rba_pulls_xls_hist_discontinued_series(monkeypatch: pyt
     )
 
     monkeypatch.setattr(pkg, "_parse_xls_hist", fake_parse)
-    df = (await enumerate_rba()).data
+    df = (enumerate_rba()).data
 
     hist_rows = df[df["source"] == "rba_xlsx_hist"]
     assert len(hist_rows) == 1
@@ -636,8 +622,7 @@ def test_parse_xlsx_exclusive_returns_empty_on_invalid_bytes() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_rba_fetch_raises_parse_error_on_unparseable_body(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_rba_fetch_raises_parse_error_on_unparseable_body(monkeypatch: pytest.MonkeyPatch) -> None:
     """If the CSV parser raises on a malformed/garbage 200 body, the connector
     surfaces it as ParseError (§5.8), never a crash or a fake status."""
 
@@ -654,7 +639,7 @@ async def test_rba_fetch_raises_parse_error_on_unparseable_body(monkeypatch: pyt
     monkeypatch.setattr(pkg, "_parse_rba_csv", _boom)
 
     with pytest.raises(ParseError):
-        await rba_fetch(table_id="f1-data")
+        rba_fetch(table_id="f1-data")
 
 
 # ---------------------------------------------------------------------------
@@ -663,8 +648,7 @@ async def test_rba_fetch_raises_parse_error_on_unparseable_body(monkeypatch: pyt
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_rba_fetch_maps_csv_500_to_provider_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_rba_fetch_maps_csv_500_to_provider_error(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_session(
         monkeypatch,
         {
@@ -673,12 +657,11 @@ async def test_rba_fetch_maps_csv_500_to_provider_error(monkeypatch: pytest.Monk
         },
     )
     with pytest.raises(ProviderError) as exc_info:
-        await rba_fetch(table_id="f1-data")
+        rba_fetch(table_id="f1-data")
     assert exc_info.value.status_code == 503
 
 
-@pytest.mark.asyncio
-async def test_rba_fetch_maps_csv_429_to_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_rba_fetch_maps_csv_429_to_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_session(
         monkeypatch,
         {
@@ -687,5 +670,5 @@ async def test_rba_fetch_maps_csv_429_to_rate_limit(monkeypatch: pytest.MonkeyPa
         },
     )
     with pytest.raises(RateLimitError) as exc_info:
-        await rba_fetch(table_id="f1-data")
+        rba_fetch(table_id="f1-data")
     assert exc_info.value.retry_after == 17.0

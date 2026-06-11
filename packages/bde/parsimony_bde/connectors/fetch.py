@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Annotated, Any
 
 import pandas as pd
+from parsimony import Namespace
 from parsimony.connector import connector
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 from parsimony.transport.helpers import fetch_json, make_http_client
@@ -74,8 +75,8 @@ def _parse_bde_response(json_data: list[dict[str, Any]]) -> pd.DataFrame:
 
 
 @connector(output=BDE_FETCH_OUTPUT, tags=["macro", "es"])
-async def bde_fetch(
-    key: Annotated[str, "ns:bde"],
+def bde_fetch(
+    key: Annotated[str, Namespace("bde")],
     time_range: str | None = None,
     lang: str = "en",
 ) -> pd.DataFrame:
@@ -100,7 +101,7 @@ async def bde_fetch(
         "series": ",".join(keys),
         "rango": resolved_range,
     }
-    body = await fetch_json(
+    body = fetch_json(
         make_http_client(BASE_URL, timeout=60.0),
         path="listaSeries",
         params=req_params,

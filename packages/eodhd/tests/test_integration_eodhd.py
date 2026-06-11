@@ -65,10 +65,9 @@ def _key() -> str:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_eodhd_search_apple() -> None:
+def test_eodhd_search_apple() -> None:
     key = _key()
-    result = await eodhd_search.bind(api_key=key)(query="apple")
+    result = eodhd_search.bind(api_key=key)(query="apple")
 
     assert_provenance_shape(result, expected_source="eodhd_search", required_param_keys=["query"])
     df = result.data
@@ -78,11 +77,10 @@ async def test_eodhd_search_apple() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_eodhd_search_type_filter() -> None:
+def test_eodhd_search_type_filter() -> None:
     # Facet coverage: a non-default type must use a VALID lowercase value.
     key = _key()
-    result = await eodhd_search.bind(api_key=key)(query="apple", type="etf")
+    result = eodhd_search.bind(api_key=key)(query="apple", type="etf")
 
     df = result.data
     assert not df.empty, "etf-filtered search returned no rows"
@@ -90,10 +88,9 @@ async def test_eodhd_search_type_filter() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_eodhd_exchanges() -> None:
+def test_eodhd_exchanges() -> None:
     key = _key()
-    result = await eodhd_exchanges.bind(api_key=key)()
+    result = eodhd_exchanges.bind(api_key=key)()
 
     assert_provenance_shape(result, expected_source="eodhd_exchanges")
     df = result.data
@@ -103,11 +100,10 @@ async def test_eodhd_exchanges() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_eodhd_exchange_symbols_us_bounded() -> None:
+def test_eodhd_exchange_symbols_us_bounded() -> None:
     # Large response (~50k US symbols) — bound the assertion to a head slice.
     key = _key()
-    result = await eodhd_exchange_symbols.bind(api_key=key)(exchange="US", type="common_stock")
+    result = eodhd_exchange_symbols.bind(api_key=key)(exchange="US", type="common_stock")
 
     assert_provenance_shape(result, expected_source="eodhd_exchange_symbols", required_param_keys=["exchange"])
     df = result.data
@@ -118,11 +114,10 @@ async def test_eodhd_exchange_symbols_us_bounded() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_eodhd_eod_aapl_window() -> None:
+def test_eodhd_eod_aapl_window() -> None:
     key = _key()
     # Free tier is limited to ~1 year; use a recent window.
-    result = await eodhd_eod.bind(api_key=key)(ticker="AAPL.US", from_date="2025-06-02", to_date="2025-06-06")
+    result = eodhd_eod.bind(api_key=key)(ticker="AAPL.US", from_date="2025-06-02", to_date="2025-06-06")
 
     assert_provenance_shape(result, expected_source="eodhd_eod", required_param_keys=["ticker"])
     df = result.data
@@ -132,10 +127,9 @@ async def test_eodhd_eod_aapl_window() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_eodhd_live_aapl() -> None:
+def test_eodhd_live_aapl() -> None:
     key = _key()
-    result = await eodhd_live.bind(api_key=key)(ticker="AAPL.US")
+    result = eodhd_live.bind(api_key=key)(ticker="AAPL.US")
 
     assert_provenance_shape(result, expected_source="eodhd_live", required_param_keys=["ticker"])
     df = result.data
@@ -145,10 +139,9 @@ async def test_eodhd_live_aapl() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_eodhd_dividends_aapl() -> None:
+def test_eodhd_dividends_aapl() -> None:
     key = _key()
-    result = await eodhd_dividends.bind(api_key=key)(ticker="AAPL.US", from_date="2020-01-01")
+    result = eodhd_dividends.bind(api_key=key)(ticker="AAPL.US", from_date="2020-01-01")
 
     assert_provenance_shape(result, expected_source="eodhd_dividends", required_param_keys=["ticker"])
     df = result.data
@@ -157,10 +150,9 @@ async def test_eodhd_dividends_aapl() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_eodhd_splits_aapl() -> None:
+def test_eodhd_splits_aapl() -> None:
     key = _key()
-    result = await eodhd_splits.bind(api_key=key)(ticker="AAPL.US", from_date="1980-01-01")
+    result = eodhd_splits.bind(api_key=key)(ticker="AAPL.US", from_date="1980-01-01")
 
     assert_provenance_shape(result, expected_source="eodhd_splits", required_param_keys=["ticker"])
     df = result.data
@@ -169,14 +161,13 @@ async def test_eodhd_splits_aapl() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_eodhd_news_aapl() -> None:
+def test_eodhd_news_aapl() -> None:
     # News is [Free+] (verified live). Accept PaymentRequiredError defensively
     # in case a key's plan revokes it.
     key = _key()
     bound = eodhd_news.bind(api_key=key)
     try:
-        result = await bound(ticker="AAPL.US", limit=3)
+        result = bound(ticker="AAPL.US", limit=3)
     except PaymentRequiredError as exc:
         assert exc.provider == "eodhd"
         assert key not in str(exc)
@@ -196,10 +187,10 @@ async def test_eodhd_news_aapl() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _content_or_payment_required(connector_fn, kwargs, source: str, key: str) -> None:
+def _content_or_payment_required(connector_fn, kwargs, source: str, key: str) -> None:
     bound = connector_fn.bind(api_key=key)
     try:
-        result = await bound(**kwargs)
+        result = bound(**kwargs)
     except PaymentRequiredError as exc:
         assert exc.provider == "eodhd", f"{source}: wrong provider on PaymentRequiredError"
         assert key not in str(exc), f"{source}: key leaked into PaymentRequiredError"
@@ -218,66 +209,52 @@ async def _content_or_payment_required(connector_fn, kwargs, source: str, key: s
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_eodhd_intraday_plan_gated() -> None:
-    await _content_or_payment_required(
-        eodhd_intraday, {"ticker": "AAPL.US", "interval": "5m"}, "eodhd_intraday", _key()
-    )
+def test_eodhd_intraday_plan_gated() -> None:
+    _content_or_payment_required(eodhd_intraday, {"ticker": "AAPL.US", "interval": "5m"}, "eodhd_intraday", _key())
 
 
-@pytest.mark.asyncio
-async def test_eodhd_bulk_eod_plan_gated_bounded() -> None:
+def test_eodhd_bulk_eod_plan_gated_bounded() -> None:
     # Whole-exchange response — verifies the corrected path (eod-bulk-last-day);
     # the free key returns 423 → PaymentRequiredError. Never asserts a full count.
-    await _content_or_payment_required(eodhd_bulk_eod, {"exchange": "US"}, "eodhd_bulk_eod", _key())
+    _content_or_payment_required(eodhd_bulk_eod, {"exchange": "US"}, "eodhd_bulk_eod", _key())
 
 
-@pytest.mark.asyncio
-async def test_eodhd_fundamentals_plan_gated() -> None:
-    await _content_or_payment_required(eodhd_fundamentals, {"ticker": "AAPL.US"}, "eodhd_fundamentals", _key())
+def test_eodhd_fundamentals_plan_gated() -> None:
+    _content_or_payment_required(eodhd_fundamentals, {"ticker": "AAPL.US"}, "eodhd_fundamentals", _key())
 
 
-@pytest.mark.asyncio
-async def test_eodhd_calendar_earnings_plan_gated() -> None:
-    await _content_or_payment_required(eodhd_calendar, {"type": "earnings"}, "eodhd_calendar", _key())
+def test_eodhd_calendar_earnings_plan_gated() -> None:
+    _content_or_payment_required(eodhd_calendar, {"type": "earnings"}, "eodhd_calendar", _key())
 
 
-@pytest.mark.asyncio
-async def test_eodhd_calendar_ipos_plan_gated() -> None:
+def test_eodhd_calendar_ipos_plan_gated() -> None:
     # Verifies the corrected IPO calendar type ("ipos", not "ipo" which 422s).
-    await _content_or_payment_required(eodhd_calendar, {"type": "ipos"}, "eodhd_calendar", _key())
+    _content_or_payment_required(eodhd_calendar, {"type": "ipos"}, "eodhd_calendar", _key())
 
 
-@pytest.mark.asyncio
-async def test_eodhd_macro_plan_gated() -> None:
-    await _content_or_payment_required(
-        eodhd_macro, {"country": "USA", "indicator": "gdp_current_usd"}, "eodhd_macro", _key()
-    )
+def test_eodhd_macro_plan_gated() -> None:
+    _content_or_payment_required(eodhd_macro, {"country": "USA", "indicator": "gdp_current_usd"}, "eodhd_macro", _key())
 
 
-@pytest.mark.asyncio
-async def test_eodhd_macro_bulk_plan_gated() -> None:
-    await _content_or_payment_required(
+def test_eodhd_macro_bulk_plan_gated() -> None:
+    _content_or_payment_required(
         eodhd_macro_bulk, {"country": "USA", "indicator": "gdp_current_usd"}, "eodhd_macro_bulk", _key()
     )
 
 
-@pytest.mark.asyncio
-async def test_eodhd_technical_plan_gated() -> None:
+def test_eodhd_technical_plan_gated() -> None:
     # Verifies the corrected path (technical/, not technicals/ which 404s).
-    await _content_or_payment_required(
+    _content_or_payment_required(
         eodhd_technical, {"ticker": "AAPL.US", "function": "sma", "period": 50}, "eodhd_technical", _key()
     )
 
 
-@pytest.mark.asyncio
-async def test_eodhd_insider_plan_gated() -> None:
-    await _content_or_payment_required(eodhd_insider, {"ticker": "AAPL.US", "limit": 5}, "eodhd_insider", _key())
+def test_eodhd_insider_plan_gated() -> None:
+    _content_or_payment_required(eodhd_insider, {"ticker": "AAPL.US", "limit": 5}, "eodhd_insider", _key())
 
 
-@pytest.mark.asyncio
-async def test_eodhd_screener_plan_gated() -> None:
-    await _content_or_payment_required(
+def test_eodhd_screener_plan_gated() -> None:
+    _content_or_payment_required(
         eodhd_screener,
         {"filters": [("market_capitalization", ">", "1000000000")], "limit": 5},
         "eodhd_screener",

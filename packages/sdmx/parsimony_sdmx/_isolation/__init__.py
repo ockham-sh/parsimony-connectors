@@ -33,6 +33,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 from parsimony_sdmx._isolation.layout import series_parquet
@@ -70,24 +71,12 @@ class FetchSeriesError(RuntimeError):
         self.outcome = outcome
 
 
-def fetch_series(
+def _read_series_table_from_child(
     agency_id: str,
     dataset_id: str,
-    timeout_s: float = FETCH_SERIES_DEFAULT_TIMEOUT_S,
-) -> list[SeriesRecord]:
-    """Run ``provider.list_series(dataset_id)`` in an isolated subprocess.
-
-    The child writes the series to a parquet file inside a fresh
-    :class:`tempfile.TemporaryDirectory`; the parent reads them back
-    after the child exits. The tmpdir is deleted on return, so there's
-    no on-disk state leaking into the caller's environment.
-
-    Raises
-    ------
-    FetchSeriesError
-        If the subprocess raised, timed out, or produced no parquet.
-        The underlying :class:`DatasetOutcome` is attached as ``.outcome``.
-    """
+    timeout_s: float,
+) -> pa.Table:
+    """Run the isolated fetch child and return the series Arrow table."""
     with tempfile.TemporaryDirectory(prefix="parsimony-sdmx-") as td:
         output_base = Path(td)
         try:
@@ -98,9 +87,6 @@ def fetch_series(
                 f"{agency_id}/{dataset_id}",
             )
         except ListDatasetsError as exc:
-            # ``run_in_child`` is shared with the listing path and raises its
-            # own error type; rewrap as FetchSeriesError so callers only need
-            # to handle one exception class per entry point.
             kind = FailureKind.TIMEOUT if exc.kind == "timeout" else FailureKind.UNKNOWN
             raise FetchSeriesError(
                 DatasetOutcome(
@@ -137,27 +123,60 @@ def fetch_series(
                     ),
                 )
             )
+        return pq.read_table(parquet_path)
 
-        table = pq.read_table(parquet_path)
-        records: list[SeriesRecord] = []
-        for row in table.to_pylist():
-            raw_dimensions = row.get("dimensions") or ()
-            records.append(
-                SeriesRecord(
-                    id=row["id"],
-                    dataset_id=row["dataset_id"],
-                    title=row["title"],
-                    dimensions=tuple(
-                        DimensionValue(
-                            id=str(dim["id"]),
-                            code=str(dim["code"]),
-                            label=str(dim["label"]) if dim.get("label") is not None else None,
-                        )
-                        for dim in raw_dimensions
-                    ),
-                )
+
+def fetch_series_table(
+    agency_id: str,
+    dataset_id: str,
+    timeout_s: float = FETCH_SERIES_DEFAULT_TIMEOUT_S,
+) -> pa.Table:
+    """Run ``provider.list_series(dataset_id)`` and return the series Arrow table.
+
+    Same subprocess isolation as :func:`fetch_series`, but avoids inflating
+    every row into :class:`~parsimony_sdmx.core.models.SeriesRecord` objects.
+    """
+    return _read_series_table_from_child(agency_id, dataset_id, timeout_s)
+
+
+def fetch_series(
+    agency_id: str,
+    dataset_id: str,
+    timeout_s: float = FETCH_SERIES_DEFAULT_TIMEOUT_S,
+) -> list[SeriesRecord]:
+    """Run ``provider.list_series(dataset_id)`` in an isolated subprocess.
+
+    The child writes the series to a parquet file inside a fresh
+    :class:`tempfile.TemporaryDirectory`; the parent reads them back
+    after the child exits. The tmpdir is deleted on return, so there's
+    no on-disk state leaking into the caller's environment.
+
+    Raises
+    ------
+    FetchSeriesError
+        If the subprocess raised, timed out, or produced no parquet.
+        The underlying :class:`DatasetOutcome` is attached as ``.outcome``.
+    """
+    table = _read_series_table_from_child(agency_id, dataset_id, timeout_s)
+    records: list[SeriesRecord] = []
+    for row in table.to_pylist():
+        raw_dimensions = row.get("dimensions") or ()
+        records.append(
+            SeriesRecord(
+                id=row["id"],
+                dataset_id=row["dataset_id"],
+                title=row["title"],
+                dimensions=tuple(
+                    DimensionValue(
+                        id=str(dim["id"]),
+                        code=str(dim["code"]),
+                        label=str(dim["label"]) if dim.get("label") is not None else None,
+                    )
+                    for dim in raw_dimensions
+                ),
             )
-        return records
+        )
+    return records
 
 
 def _fetch_series_child(
@@ -204,5 +223,6 @@ __all__ = [
     "LIST_DEFAULT_TIMEOUT_S",
     "ListDatasetsError",
     "fetch_series",
+    "fetch_series_table",
     "list_datasets",
 ]

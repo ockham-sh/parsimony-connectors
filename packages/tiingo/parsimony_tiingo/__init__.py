@@ -33,23 +33,22 @@ from __future__ import annotations
 
 import csv
 import io
-import os
 import re
 import zipfile
 from typing import Annotated, Any
 
 import httpx
 import pandas as pd
+from parsimony import Namespace
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import (
     EmptyDataError,
     InvalidParameterError,
     ParseError,
     PaymentRequiredError,
-    UnauthorizedError,
 )
 from parsimony.transport import HttpClient, map_http_error, map_timeout_error
-from parsimony.transport.helpers import fetch_json, make_http_client
+from parsimony.transport.helpers import fetch_json, make_http_client, require_key
 
 from parsimony_tiingo.outputs import (
     CRYPTO_PRICES_OUTPUT,
@@ -98,9 +97,7 @@ def _client(api_key: str) -> HttpClient:
     param), so the key never appears in a request URL / log line. A missing
     key raises :class:`UnauthorizedError` before any network call.
     """
-    key = api_key or os.environ.get(_ENV_VAR, "")
-    if not key:
-        raise UnauthorizedError(_PROVIDER, env_var=_ENV_VAR)
+    key = require_key(api_key, env_var=_ENV_VAR, provider=_PROVIDER)
     return make_http_client(_BASE_URL, headers={"Authorization": f"Token {key}"}, timeout=_TIMEOUT)
 
 
@@ -120,7 +117,7 @@ def _safe_ticker(ticker: str) -> str:
 
 
 @connector(output=SEARCH_OUTPUT, tags=["equities", "tool"], secrets=("api_key",))
-async def tiingo_search(query: str, limit: int = 25, api_key: str = "") -> pd.DataFrame:
+def tiingo_search(query: str, limit: int = 25, api_key: str = "") -> pd.DataFrame:
     """Search Tiingo for stocks, ETFs, mutual funds, and crypto by name or ticker.
 
     Returns ticker (the stable API identifier), name, asset_type (Stock, ETF,
@@ -135,7 +132,7 @@ async def tiingo_search(query: str, limit: int = 25, api_key: str = "") -> pd.Da
         raise InvalidParameterError(_PROVIDER, "limit must be between 1 and 100")
 
     http = _client(api_key)
-    data = await fetch_json(
+    data = fetch_json(
         http,
         path="tiingo/utilities/search",
         params={"query": q, "limit": limit},
@@ -169,8 +166,8 @@ async def tiingo_search(query: str, limit: int = 25, api_key: str = "") -> pd.Da
 
 
 @connector(output=EOD_OUTPUT, tags=["equities"], secrets=("api_key",))
-async def tiingo_eod(
-    ticker: Annotated[str, "ns:tiingo_ticker"],
+def tiingo_eod(
+    ticker: Annotated[str, Namespace("tiingo_ticker")],
     start_date: str | None = None,
     end_date: str | None = None,
     api_key: str = "",
@@ -185,7 +182,7 @@ async def tiingo_eod(
     req: dict[str, Any] = {"startDate": start_date, "endDate": end_date}
 
     http = _client(api_key)
-    data = await fetch_json(
+    data = fetch_json(
         http,
         path=f"tiingo/daily/{t}/prices",
         params=req,
@@ -227,7 +224,7 @@ async def tiingo_eod(
 
 
 @connector(output=IEX_OUTPUT, tags=["equities"], secrets=("api_key",))
-async def tiingo_iex(tickers: str, api_key: str = "") -> pd.DataFrame:
+def tiingo_iex(tickers: str, api_key: str = "") -> pd.DataFrame:
     """Fetch real-time IEX quotes for one or more stocks. Returns Tiingo's
     composite last price (tngo_last), OHLV for the day, previous close,
     mid/bid/ask prices and sizes. Timestamp is ISO 8601 UTC. Free tier
@@ -238,7 +235,7 @@ async def tiingo_iex(tickers: str, api_key: str = "") -> pd.DataFrame:
         raise InvalidParameterError(_PROVIDER, "tickers must be non-empty")
 
     http = _client(api_key)
-    data = await fetch_json(
+    data = fetch_json(
         http,
         path="iex/",
         params={"tickers": t},
@@ -278,8 +275,8 @@ async def tiingo_iex(tickers: str, api_key: str = "") -> pd.DataFrame:
 
 
 @connector(output=IEX_HIST_OUTPUT, tags=["equities"], secrets=("api_key",))
-async def tiingo_iex_historical(
-    ticker: Annotated[str, "ns:tiingo_ticker"],
+def tiingo_iex_historical(
+    ticker: Annotated[str, Namespace("tiingo_ticker")],
     start_date: str | None = None,
     end_date: str | None = None,
     resample_freq: str = "1hour",
@@ -297,7 +294,7 @@ async def tiingo_iex_historical(
     req: dict[str, Any] = {"resampleFreq": freq, "startDate": start_date, "endDate": end_date}
 
     http = _client(api_key)
-    data = await fetch_json(
+    data = fetch_json(
         http,
         path=f"iex/{t}/prices",
         params=req,
@@ -331,7 +328,7 @@ async def tiingo_iex_historical(
 
 
 @connector(tags=["equities"], secrets=("api_key",))
-async def tiingo_meta(ticker: Annotated[str, "ns:tiingo_ticker"], api_key: str = "") -> dict[str, Any]:
+def tiingo_meta(ticker: Annotated[str, Namespace("tiingo_ticker")], api_key: str = "") -> dict[str, Any]:
     """Fetch company metadata for a stock: ticker, name, description, exchange
     code, and listing start/end dates. Returns a single record (dict). Use
     tiingo_search to resolve ticker symbols. For sector/industry data use
@@ -340,7 +337,7 @@ async def tiingo_meta(ticker: Annotated[str, "ns:tiingo_ticker"], api_key: str =
     t = _safe_ticker(ticker)
 
     http = _client(api_key)
-    data = await fetch_json(
+    data = fetch_json(
         http,
         path=f"tiingo/daily/{t}",
         provider=_PROVIDER,
@@ -360,7 +357,7 @@ async def tiingo_meta(ticker: Annotated[str, "ns:tiingo_ticker"], api_key: str =
 
 
 @connector(tags=["equities"], secrets=("api_key",))
-async def tiingo_fundamentals_meta(tickers: str, api_key: str = "") -> list[dict[str, Any]]:
+def tiingo_fundamentals_meta(tickers: str, api_key: str = "") -> list[dict[str, Any]]:
     """Fetch fundamentals metadata for one or more stocks: sector, industry,
     SIC code/sector/industry, reporting currency, location, company website,
     SEC filing link, ADR flag, and data freshness timestamps. Returns a list
@@ -371,7 +368,7 @@ async def tiingo_fundamentals_meta(tickers: str, api_key: str = "") -> list[dict
         raise InvalidParameterError(_PROVIDER, "tickers must be non-empty")
 
     http = _client(api_key)
-    data = await fetch_json(
+    data = fetch_json(
         http,
         path="tiingo/fundamentals/meta",
         params={"tickers": t},
@@ -393,14 +390,14 @@ async def tiingo_fundamentals_meta(tickers: str, api_key: str = "") -> list[dict
 
 
 @connector(output=DEFINITIONS_OUTPUT, tags=["equities"], secrets=("api_key",))
-async def tiingo_fundamentals_definitions(api_key: str = "") -> pd.DataFrame:
+def tiingo_fundamentals_definitions(api_key: str = "") -> pd.DataFrame:
     """List all available fundamental metric definitions: data_code (metric ID),
     name, description, statement_type (overview/incomeStatement/balanceSheet/
     cashFlow), and units. Use data_codes to interpret fundamentals responses.
     Free tier supported.
     """
     http = _client(api_key)
-    data = await fetch_json(
+    data = fetch_json(
         http,
         path="tiingo/fundamentals/definitions",
         provider=_PROVIDER,
@@ -430,7 +427,7 @@ async def tiingo_fundamentals_definitions(api_key: str = "") -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-async def _fetch_news(http: HttpClient, params: dict[str, Any]) -> Any:
+def _fetch_news(http: HttpClient, params: dict[str, Any]) -> Any:
     """News GET with a custom 403 → PaymentRequiredError mapping.
 
     The News API is plan-gated (Power+). Tiingo returns **403** for THREE
@@ -444,7 +441,7 @@ async def _fetch_news(http: HttpClient, params: dict[str, Any]) -> Any:
     """
     clean = {k: v for k, v in params.items() if v is not None}
     try:
-        response = await http.request("GET", "tiingo/news", params=clean or None)
+        response = http.request("GET", "tiingo/news", params=clean or None)
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 403:
@@ -458,7 +455,7 @@ async def _fetch_news(http: HttpClient, params: dict[str, Any]) -> Any:
 
 
 @connector(output=NEWS_OUTPUT, tags=["equities", "news"], secrets=("api_key",))
-async def tiingo_news(
+def tiingo_news(
     tickers: str | None = None,
     source: str | None = None,
     start_date: str | None = None,
@@ -482,7 +479,7 @@ async def tiingo_news(
     }
 
     http = _client(api_key)
-    data = await _fetch_news(http, req)
+    data = _fetch_news(http, req)
 
     if not isinstance(data, list):
         raise ParseError(_PROVIDER, "news response was not a JSON array")
@@ -511,7 +508,7 @@ async def tiingo_news(
 
 
 @connector(output=CRYPTO_PRICES_OUTPUT, tags=["crypto"], secrets=("api_key",))
-async def tiingo_crypto_prices(
+def tiingo_crypto_prices(
     tickers: str,
     start_date: str | None = None,
     end_date: str | None = None,
@@ -537,7 +534,7 @@ async def tiingo_crypto_prices(
     }
 
     http = _client(api_key)
-    data = await fetch_json(
+    data = fetch_json(
         http,
         path="tiingo/crypto/prices",
         params=req,
@@ -578,7 +575,7 @@ async def tiingo_crypto_prices(
 
 
 @connector(output=CRYPTO_TOP_OUTPUT, tags=["crypto"], secrets=("api_key",))
-async def tiingo_crypto_top(tickers: str, api_key: str = "") -> pd.DataFrame:
+def tiingo_crypto_top(tickers: str, api_key: str = "") -> pd.DataFrame:
     """Fetch real-time top-of-book quotes for crypto pairs: last price, bid/ask
     prices and sizes, last trade size (notional), and exchange. Free tier
     supported. Comma-separate pairs; use lowercase, e.g. 'btcusd', 'ethusd'.
@@ -588,7 +585,7 @@ async def tiingo_crypto_top(tickers: str, api_key: str = "") -> pd.DataFrame:
         raise InvalidParameterError(_PROVIDER, "tickers must be non-empty")
 
     http = _client(api_key)
-    data = await fetch_json(
+    data = fetch_json(
         http,
         path="tiingo/crypto/top",
         params={"tickers": t},
@@ -629,7 +626,7 @@ async def tiingo_crypto_top(tickers: str, api_key: str = "") -> pd.DataFrame:
 
 
 @connector(output=FX_PRICES_OUTPUT, tags=["forex"], secrets=("api_key",))
-async def tiingo_fx_prices(
+def tiingo_fx_prices(
     tickers: str,
     start_date: str | None = None,
     end_date: str | None = None,
@@ -654,7 +651,7 @@ async def tiingo_fx_prices(
     }
 
     http = _client(api_key)
-    data = await fetch_json(
+    data = fetch_json(
         http,
         path="tiingo/fx/prices",
         params=req,
@@ -685,7 +682,7 @@ async def tiingo_fx_prices(
 
 
 @connector(output=FX_TOP_OUTPUT, tags=["forex"], secrets=("api_key",))
-async def tiingo_fx_top(tickers: str, api_key: str = "") -> pd.DataFrame:
+def tiingo_fx_top(tickers: str, api_key: str = "") -> pd.DataFrame:
     """Fetch real-time top-of-book forex quotes: mid, bid/ask prices and sizes.
     Free tier supported. Comma-separate pairs; use lowercase, e.g. 'eurusd',
     'gbpjpy'.
@@ -695,7 +692,7 @@ async def tiingo_fx_top(tickers: str, api_key: str = "") -> pd.DataFrame:
         raise InvalidParameterError(_PROVIDER, "tickers must be non-empty")
 
     http = _client(api_key)
-    data = await fetch_json(
+    data = fetch_json(
         http,
         path="tiingo/fx/top",
         params={"tickers": t},
@@ -728,10 +725,10 @@ async def tiingo_fx_top(tickers: str, api_key: str = "") -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-async def _download_supported_tickers(api_key: str) -> bytes:
+def _download_supported_tickers(api_key: str) -> bytes:
     """Download the supported-tickers zip via the package transport.
 
-    Routed through ``HttpClient`` (not a bare ``httpx.AsyncClient``) so CDN
+    Routed through ``HttpClient`` (not a bare ``httpx.Client``) so CDN
     failures map to typed kernel errors and the same redaction policy applies.
     The zip is served from a separate public CDN host, so a dedicated client
     (longer timeout, no auth header) is built for it. ``_client`` is still
@@ -741,7 +738,7 @@ async def _download_supported_tickers(api_key: str) -> bytes:
     _client(api_key)  # enforce the symmetric no-key fast-fail
     cdn = make_http_client(_TICKERS_CDN_BASE, timeout=_TICKERS_TIMEOUT)
     try:
-        response = await cdn.request("GET", _TICKERS_ZIP_PATH)
+        response = cdn.request("GET", _TICKERS_ZIP_PATH)
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         map_http_error(exc, provider=_PROVIDER, op_name="enumerate_tiingo")
@@ -785,14 +782,14 @@ def _parse_supported_tickers(content: bytes) -> pd.DataFrame:
 
 
 @enumerator(output=ENUMERATE_OUTPUT, tags=["equities"], secrets=("api_key",))
-async def enumerate_tiingo(api_key: str = "") -> pd.DataFrame:
+def enumerate_tiingo(api_key: str = "") -> pd.DataFrame:
     """Enumerate all supported tickers from Tiingo for catalog indexing.
 
     Downloads the supported_tickers.zip CSV from apimedia.tiingo.com — ~127 000
     rows with ticker, asset type, exchange, price currency, and start/end dates.
     The file is a static CDN snapshot; refresh at most once per day.
     """
-    content = await _download_supported_tickers(api_key)
+    content = _download_supported_tickers(api_key)
     return _parse_supported_tickers(content)
 
 

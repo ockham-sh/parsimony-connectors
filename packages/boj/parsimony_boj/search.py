@@ -45,7 +45,7 @@ def _clear_catalog_lru() -> None:
     _lru.clear()
 
 
-async def _get_or_load_catalog(namespace: str, *, catalog_root: str | None = None, build=None):
+def _get_or_load_catalog(namespace: str, *, catalog_root: str | None = None, build=None):
     root = resolved_catalog_url(
         PARSIMONY_BOJ_CATALOG_URL_ENV,
         DEFAULT_CATALOG_ROOT,
@@ -53,7 +53,7 @@ async def _get_or_load_catalog(namespace: str, *, catalog_root: str | None = Non
     )
     url = f"{root}/{namespace}"
     cache_path = lazy_catalog_dir("boj", namespace)
-    return await _lru.get_or_load(url, cache_path=cache_path, build=build)
+    return _lru.get_or_load(url, cache_path=cache_path, build=build)
 
 
 def _normalize_db(db: str) -> str:
@@ -82,7 +82,7 @@ class DatabasesSearchParams(BaseModel):
 
 
 @connector(output=DATABASES_SEARCH_OUTPUT, tags=["macro", "jp", "tool"])
-async def boj_databases_search(
+def boj_databases_search(
     query: str,
     limit: int = 10,
     catalog_root: str | None = None,
@@ -93,12 +93,12 @@ async def boj_databases_search(
     Chain: ``boj_databases_search`` → ``boj_series_search(db=...)`` → ``boj_fetch``.
     """
     params = DatabasesSearchParams(query=query, limit=limit, catalog_root=catalog_root)
-    catalog = await _get_or_load_catalog(
+    catalog = _get_or_load_catalog(
         DATABASES_NAMESPACE,
         catalog_root=params.catalog_root,
         build=build_boj_databases_catalog_from_enumeration,
     )
-    matches, _ = await catalog.search(params.query, limit=params.limit)
+    matches, _ = catalog.search(params.query, limit=params.limit)
     if not matches:
         raise EmptyDataError(
             provider="boj",
@@ -138,7 +138,7 @@ class SeriesSearchParams(BaseModel):
 
 
 @connector(output=SERIES_SEARCH_OUTPUT, tags=["macro", "jp", "tool"])
-async def boj_series_search(
+def boj_series_search(
     query: str,
     db: str,
     limit: int = 10,
@@ -151,11 +151,12 @@ async def boj_series_search(
     params = SeriesSearchParams(query=query, db=db, limit=limit, catalog_root=catalog_root)
     db_code = _normalize_db(params.db)
     namespace = series_namespace(db_code)
-    async def _build():
-        return await build_boj_series_catalog_for_db(db_code)
 
-    catalog = await _get_or_load_catalog(namespace, catalog_root=params.catalog_root, build=_build)
-    matches, _ = await catalog.search(params.query, limit=params.limit)
+    def _build():
+        return build_boj_series_catalog_for_db(db_code)
+
+    catalog = _get_or_load_catalog(namespace, catalog_root=params.catalog_root, build=_build)
+    matches, _ = catalog.search(params.query, limit=params.limit)
     if not matches:
         raise EmptyDataError(
             provider="boj",

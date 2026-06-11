@@ -41,7 +41,6 @@ DAILY_OUTPUT = OutputConfig(
         Column(
             name="symbol",
             role=ColumnRole.KEY,
-            param_key="symbol",
             namespace="alpha_vantage",
         ),
         Column(name="date", dtype="date", role=ColumnRole.DATA),
@@ -58,7 +57,6 @@ EARNINGS_OUTPUT = OutputConfig(
         Column(
             name="symbol",
             role=ColumnRole.KEY,
-            param_key="symbol",
             namespace="alpha_vantage",
         ),
         Column(name="fiscalDateEnding", dtype="date", role=ColumnRole.DATA),
@@ -180,7 +178,6 @@ INTRADAY_OUTPUT = OutputConfig(
         Column(
             name="symbol",
             role=ColumnRole.KEY,
-            param_key="symbol",
             namespace="alpha_vantage",
         ),
         Column(name="timestamp", dtype="datetime", role=ColumnRole.DATA),
@@ -220,7 +217,6 @@ TECHNICAL_OUTPUT = OutputConfig(
         Column(
             name="symbol",
             role=ColumnRole.KEY,
-            param_key="symbol",
             namespace="alpha_vantage",
         ),
         # `datetime` (not `date`) so intraday intervals (1min..60min) keep their
@@ -244,7 +240,6 @@ METAL_HISTORY_OUTPUT = OutputConfig(
         Column(
             name="symbol",
             role=ColumnRole.KEY,
-            param_key="symbol",
             namespace="alpha_vantage_metal",
         ),
         Column(name="date", dtype="date", role=ColumnRole.DATA),

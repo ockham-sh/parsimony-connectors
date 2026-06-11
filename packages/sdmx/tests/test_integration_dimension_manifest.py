@@ -70,8 +70,8 @@ def _catalog_entries_from_enumeration(agency: AgencyId, dataset_id: str, result)
     return entries
 
 
-async def _live_manifest(agency: AgencyId, dataset_id: str, *, fetch_timeout_s: float) -> LiveManifestResult:
-    result = await enumerate_sdmx_series(
+def _live_manifest(agency: AgencyId, dataset_id: str, *, fetch_timeout_s: float) -> LiveManifestResult:
+    result = enumerate_sdmx_series(
         agency=agency,
         dataset_id=dataset_id,
         fetch_timeout_s=fetch_timeout_s,
@@ -97,8 +97,7 @@ def _assert_manifest_is_searchable(result: LiveManifestResult) -> None:
 
     populated = [item for item in result.manifest if item["values"]]
     assert populated, (
-        f"{result.agency.value}/{result.dataset_id} manifest has no sample values; "
-        f"dimension ids={result.dim_codes!r}"
+        f"{result.agency.value}/{result.dataset_id} manifest has no sample values; dimension ids={result.dim_codes!r}"
     )
 
     for item in populated:
@@ -116,25 +115,23 @@ def _assert_manifest_is_searchable(result: LiveManifestResult) -> None:
 
 @pytest.mark.integration
 @pytest.mark.parametrize(("agency", "dataset_id"), _LIVE_FLOWS)
-@pytest.mark.asyncio
-async def test_live_endpoint_produces_searchable_dimension_manifest(
+def test_live_endpoint_produces_searchable_dimension_manifest(
     agency: AgencyId,
     dataset_id: str,
 ) -> None:
-    result = await _live_manifest(agency, dataset_id, fetch_timeout_s=_DEFAULT_FETCH_TIMEOUT_S)
+    result = _live_manifest(agency, dataset_id, fetch_timeout_s=_DEFAULT_FETCH_TIMEOUT_S)
     _assert_manifest_is_searchable(result)
 
 
 @pytest.mark.integration
 @pytest.mark.parametrize(("agency", "dataset_id"), _LIVE_FLOWS)
-@pytest.mark.asyncio
-async def test_live_manifest_matches_series_catalog_indexes(
+def test_live_manifest_matches_series_catalog_indexes(
     agency: AgencyId,
     dataset_id: str,
 ) -> None:
     """Manifest dimension ids must match the fields indexed for structured search."""
 
-    live = await _live_manifest(agency, dataset_id, fetch_timeout_s=_DEFAULT_FETCH_TIMEOUT_S)
+    live = _live_manifest(agency, dataset_id, fetch_timeout_s=_DEFAULT_FETCH_TIMEOUT_S)
     entries = sdmx_series_entries(live.raw_entries, live.dim_codes)
     indexed_dims = {field for field in sdmx_series_indexes(entries, live.dim_codes) if field != "title"}
 
@@ -144,17 +141,16 @@ async def test_live_manifest_matches_series_catalog_indexes(
 
 @pytest.mark.integration
 @pytest.mark.parametrize(("agency", "dataset_id"), _LIVE_FLOWS)
-@pytest.mark.asyncio
-async def test_live_manifest_surfaces_through_dataset_catalog_enrichment(
+def test_live_manifest_surfaces_through_dataset_catalog_enrichment(
     agency: AgencyId,
     dataset_id: str,
 ) -> None:
     """End-to-end: live enumeration → manifest → dataset catalog metadata."""
 
-    live = await _live_manifest(agency, dataset_id, fetch_timeout_s=_DEFAULT_FETCH_TIMEOUT_S)
+    live = _live_manifest(agency, dataset_id, fetch_timeout_s=_DEFAULT_FETCH_TIMEOUT_S)
     code = dataset_code(agency.value, dataset_id)
     records = [DatasetRecord(dataset_id=dataset_id, agency_id=agency.value, title=f"{agency.value} {dataset_id}")]
-    entries = await build_agency_dataset_entities(records, {code: live.manifest})
+    entries = build_agency_dataset_entities(records, {code: live.manifest})
 
     assert len(entries) == 1
     assert entries[0].metadata["dimensions"] == live.manifest
@@ -175,8 +171,7 @@ async def test_live_manifest_surfaces_through_dataset_catalog_enrichment(
 
 @pytest.mark.integration
 @pytest.mark.slow
-@pytest.mark.asyncio
-async def test_live_wb_wdi_manifest_when_endpoint_responds() -> None:
+def test_live_wb_wdi_manifest_when_endpoint_responds() -> None:
     """World Bank only exposes ``WDI``; the sweep can exceed several minutes.
 
     This test is opt-in via the ``slow`` marker. It validates WB when the data
@@ -185,7 +180,7 @@ async def test_live_wb_wdi_manifest_when_endpoint_responds() -> None:
     """
 
     try:
-        result = await _live_manifest(AgencyId.WB_WDI, "WDI", fetch_timeout_s=_WB_FETCH_TIMEOUT_S)
+        result = _live_manifest(AgencyId.WB_WDI, "WDI", fetch_timeout_s=_WB_FETCH_TIMEOUT_S)
     except Exception as exc:  # noqa: BLE001 — environment-dependent upstream behaviour.
         pytest.skip(f"WB WDI live sweep unavailable in this environment: {type(exc).__name__}: {exc}")
 

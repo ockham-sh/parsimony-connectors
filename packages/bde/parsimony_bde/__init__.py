@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from parsimony_bde.connectors import CONNECTORS
+from parsimony_bde.connectors import CONNECTORS, load
 
-__all__ = ["CONNECTORS"]
+__all__ = ["CONNECTORS", "load"]

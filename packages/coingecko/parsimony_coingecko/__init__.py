@@ -45,6 +45,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 import pandas as pd
+from parsimony import Namespace
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 
@@ -103,7 +104,7 @@ def _safe_coin_id(coin_id: str) -> str:
 
 
 @connector(output=SEARCH_OUTPUT, tags=["crypto", "tool"], secrets=("api_key",))
-async def coingecko_search(query: str, api_key: str = "") -> pd.DataFrame:
+def coingecko_search(query: str, api_key: str = "") -> pd.DataFrame:
     """Search CoinGecko for coins by name or symbol. Use this first to resolve
     CoinGecko coin IDs before calling coingecko_price, coingecko_markets, or
     coingecko_market_chart. Returns id (the stable identifier), name, symbol,
@@ -116,7 +117,7 @@ async def coingecko_search(query: str, api_key: str = "") -> pd.DataFrame:
         raise InvalidParameterError(_PROVIDER, "query must be non-empty")
 
     http = _client(api_key)
-    data = await _cg_fetch(http, path="search", params={"query": q}, op_name="coingecko_search")
+    data = _cg_fetch(http, path="search", params={"query": q}, op_name="coingecko_search")
 
     coins = data.get("coins", []) if isinstance(data, dict) else []
     rows = [
@@ -136,14 +137,14 @@ async def coingecko_search(query: str, api_key: str = "") -> pd.DataFrame:
 
 
 @connector(output=TRENDING_OUTPUT, tags=["crypto", "tool"], secrets=("api_key",))
-async def coingecko_trending(api_key: str = "") -> pd.DataFrame:
+def coingecko_trending(api_key: str = "") -> pd.DataFrame:
     """[Demo+] Fetch trending coins on CoinGecko in the last 24 hours.
     Returns the top 7 trending coins by search volume, with name, symbol,
     market_cap_rank, and a trending score. Use the coin id with coingecko_price
     or coingecko_market_chart for live data.
     """
     http = _client(api_key)
-    data = await _cg_fetch(http, path="search/trending", op_name="coingecko_trending")
+    data = _cg_fetch(http, path="search/trending", op_name="coingecko_trending")
 
     coins = data.get("coins", []) if isinstance(data, dict) else []
     rows = [
@@ -163,7 +164,7 @@ async def coingecko_trending(api_key: str = "") -> pd.DataFrame:
 
 
 @connector(output=GAINERS_LOSERS_OUTPUT, tags=["crypto", "tool"], secrets=("api_key",))
-async def coingecko_top_gainers_losers(
+def coingecko_top_gainers_losers(
     vs_currency: str = "usd",
     duration: Literal["1h", "24h", "7d", "14d", "30d", "60d", "1y"] = "24h",
     top_coins: Literal["300", "1000"] = "1000",
@@ -176,7 +177,7 @@ async def coingecko_top_gainers_losers(
     into historical performance.
     """
     http = _client(api_key)
-    data = await _cg_fetch(
+    data = _cg_fetch(
         http,
         path="coins/top_gainers_losers",
         params={"vs_currency": vs_currency, "duration": duration, "top_coins": top_coins},
@@ -209,7 +210,7 @@ async def coingecko_top_gainers_losers(
 
 
 @connector(output=PRICE_OUTPUT, tags=["crypto"], secrets=("api_key",))
-async def coingecko_price(
+def coingecko_price(
     ids: str,
     vs_currencies: str = "usd",
     include_market_cap: bool = True,
@@ -234,7 +235,7 @@ async def coingecko_price(
         "include_24hr_vol": str(include_24hr_vol).lower(),
         "include_24hr_change": str(include_24hr_change).lower(),
     }
-    data = await _cg_fetch(http, path="simple/price", params=req, op_name="coingecko_price")
+    data = _cg_fetch(http, path="simple/price", params=req, op_name="coingecko_price")
 
     if not isinstance(data, dict):
         raise ParseError(_PROVIDER, "price response was not a JSON object")
@@ -245,7 +246,7 @@ async def coingecko_price(
 
 
 @connector(output=MARKETS_OUTPUT, tags=["crypto"], secrets=("api_key",))
-async def coingecko_markets(
+def coingecko_markets(
     vs_currency: str = "usd",
     ids: str | None = None,
     order: Literal[
@@ -275,7 +276,7 @@ async def coingecko_markets(
         "sparkline": str(sparkline).lower(),
         "ids": ids.strip() if ids and ids.strip() else None,
     }
-    data = await _cg_fetch(http, path="coins/markets", params=req, op_name="coingecko_markets")
+    data = _cg_fetch(http, path="coins/markets", params=req, op_name="coingecko_markets")
 
     if not isinstance(data, list) or not data:
         raise EmptyDataError(_PROVIDER, query_params={"vs_currency": vs_currency})
@@ -283,8 +284,8 @@ async def coingecko_markets(
 
 
 @connector(tags=["crypto"], secrets=("api_key",))
-async def coingecko_coin_detail(
-    coin_id: Annotated[str, "ns:coingecko_coin"],
+def coingecko_coin_detail(
+    coin_id: Annotated[str, Namespace("coingecko_coin")],
     localization: bool = False,
     tickers: bool = False,
     market_data: bool = True,
@@ -307,7 +308,7 @@ async def coingecko_coin_detail(
         "community_data": str(community_data).lower(),
         "developer_data": str(developer_data).lower(),
     }
-    data = await _cg_fetch(http, path=f"coins/{c}", params=req, op_name="coingecko_coin_detail")
+    data = _cg_fetch(http, path=f"coins/{c}", params=req, op_name="coingecko_coin_detail")
 
     if not isinstance(data, dict) or "id" not in data:
         raise ParseError(_PROVIDER, f"unexpected coin detail response structure for {c!r}")
@@ -339,8 +340,8 @@ def _build_market_chart_df(data: Any, *, op_name: str) -> pd.DataFrame:
 
 
 @connector(output=MARKET_CHART_OUTPUT, tags=["crypto"], secrets=("api_key",))
-async def coingecko_market_chart(
-    coin_id: Annotated[str, "ns:coingecko_coin"],
+def coingecko_market_chart(
+    coin_id: Annotated[str, Namespace("coingecko_coin")],
     days: str,
     vs_currency: str = "usd",
     interval: Literal["5m", "hourly", "daily"] | None = None,
@@ -357,13 +358,13 @@ async def coingecko_market_chart(
 
     http = _client(api_key)
     req: dict[str, Any] = {"vs_currency": vs_currency, "days": days.strip(), "interval": interval}
-    data = await _cg_fetch(http, path=f"coins/{c}/market_chart", params=req, op_name="coingecko_market_chart")
+    data = _cg_fetch(http, path=f"coins/{c}/market_chart", params=req, op_name="coingecko_market_chart")
     return _build_market_chart_df(data, op_name="coingecko_market_chart")
 
 
 @connector(output=MARKET_CHART_OUTPUT, tags=["crypto"], secrets=("api_key",))
-async def coingecko_market_chart_range(
-    coin_id: Annotated[str, "ns:coingecko_coin"],
+def coingecko_market_chart_range(
+    coin_id: Annotated[str, Namespace("coingecko_coin")],
     from_date: str,
     to_date: str,
     vs_currency: str = "usd",
@@ -386,15 +387,13 @@ async def coingecko_market_chart_range(
         "from": _iso_to_unix(from_date),
         "to": _iso_to_unix(to_date),
     }
-    data = await _cg_fetch(
-        http, path=f"coins/{c}/market_chart/range", params=req, op_name="coingecko_market_chart_range"
-    )
+    data = _cg_fetch(http, path=f"coins/{c}/market_chart/range", params=req, op_name="coingecko_market_chart_range")
     return _build_market_chart_df(data, op_name="coingecko_market_chart_range")
 
 
 @connector(output=OHLC_OUTPUT, tags=["crypto"], secrets=("api_key",))
-async def coingecko_ohlc(
-    coin_id: Annotated[str, "ns:coingecko_coin"],
+def coingecko_ohlc(
+    coin_id: Annotated[str, Namespace("coingecko_coin")],
     vs_currency: str = "usd",
     days: Literal[1, 7, 14, 30, 90, 180, 365] = 30,
     api_key: str = "",
@@ -407,7 +406,7 @@ async def coingecko_ohlc(
 
     http = _client(api_key)
     req: dict[str, Any] = {"vs_currency": vs_currency, "days": days}
-    data = await _cg_fetch(http, path=f"coins/{c}/ohlc", params=req, op_name="coingecko_ohlc")
+    data = _cg_fetch(http, path=f"coins/{c}/ohlc", params=req, op_name="coingecko_ohlc")
 
     if not isinstance(data, list) or not data:
         raise EmptyDataError(_PROVIDER, query_params={"coin_id": c, "days": days})
@@ -423,7 +422,7 @@ async def coingecko_ohlc(
 
 
 @connector(output=ONCHAIN_PRICE_OUTPUT, tags=["crypto", "onchain"], secrets=("api_key",))
-async def coingecko_token_price_onchain(
+def coingecko_token_price_onchain(
     network: str,
     contract_addresses: str,
     vs_currencies: str = "usd",
@@ -445,9 +444,7 @@ async def coingecko_token_price_onchain(
 
     http = _client(api_key)
     path = f"onchain/simple/networks/{net}/token_price/{addrs}"
-    data = await _cg_fetch(
-        http, path=path, params={"vs_currencies": vs_currencies}, op_name="coingecko_token_price_onchain"
-    )
+    data = _cg_fetch(http, path=path, params={"vs_currencies": vs_currencies}, op_name="coingecko_token_price_onchain")
 
     if not isinstance(data, dict):
         raise ParseError(_PROVIDER, "unexpected on-chain price response structure")
@@ -465,7 +462,7 @@ async def coingecko_token_price_onchain(
 
 
 @enumerator(output=ENUMERATE_OUTPUT, tags=["crypto"], secrets=("api_key",))
-async def enumerate_coingecko(include_platform: bool = True, api_key: str = "") -> pd.DataFrame:
+def enumerate_coingecko(include_platform: bool = True, api_key: str = "") -> pd.DataFrame:
     """Enumerate all coins from CoinGecko for catalog indexing.
 
     Calls /coins/list — returns ~17 000 rows with id, name, symbol, and (when
@@ -475,7 +472,7 @@ async def enumerate_coingecko(include_platform: bool = True, api_key: str = "") 
     build surfaces as a typed connector error.
     """
     http = _client(api_key, timeout=_ENUMERATE_TIMEOUT)
-    data = await _cg_fetch(
+    data = _cg_fetch(
         http,
         path="coins/list",
         params={"include_platform": str(include_platform).lower()},

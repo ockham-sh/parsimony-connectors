@@ -47,7 +47,8 @@ ROSTER_END = "<!-- roster:end -->"
 # docs page is clickable from docs.parsimony.dev.
 GITHUB_BLOB_BASE = "https://github.com/ockham-sh/parsimony-connectors/blob/main"
 
-CONNECTOR_DECORATOR_RE = re.compile(r"@connector\s*\(([^)]*)\)", re.DOTALL)
+CONNECTOR_DECORATOR_RE = re.compile(r"@(connector|enumerator|loader)\s*\(([^)]*)\)", re.DOTALL)
+SEARCH_FACTORY_RE = re.compile(r"make_local_search_connector\s*\(", re.MULTILINE)
 TOOL_TAG_RE = re.compile(r'tags\s*=\s*\(?[^)]*["\']tool["\']')
 
 # Google's favicon service. More reliable than DDG for niche domains
@@ -124,7 +125,13 @@ def _count_connectors(module_dir: Path) -> tuple[int, int]:
         text = py.read_text(encoding="utf-8")
         for match in CONNECTOR_DECORATOR_RE.finditer(text):
             total += 1
-            if TOOL_TAG_RE.search(match.group(1)):
+            if TOOL_TAG_RE.search(match.group(2)):
+                tools += 1
+        for match in SEARCH_FACTORY_RE.finditer(text):
+            total += 1
+            start = match.start()
+            window = text[start : start + 800]
+            if TOOL_TAG_RE.search(window):
                 tools += 1
     return total, tools
 
@@ -226,7 +233,14 @@ def _rewrite_relative_links(markdown: str) -> str:
         target, fragment = match.group(1), match.group(2) or ""
         return f"]({GITHUB_BLOB_BASE}/{target}{fragment})"
 
-    return _RELATIVE_LINK_RE.sub(replace, markdown)
+    parts = re.split(r"(```[\s\S]*?```)", markdown)
+    rewritten: list[str] = []
+    for idx, part in enumerate(parts):
+        if idx % 2 == 1:
+            rewritten.append(part)
+        else:
+            rewritten.append(_RELATIVE_LINK_RE.sub(replace, part))
+    return "".join(rewritten)
 
 
 def _update_docs_index(readme_text: str) -> None:

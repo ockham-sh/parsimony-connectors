@@ -14,7 +14,6 @@ the per-dataset catalog namespace
 
 from __future__ import annotations
 
-import asyncio
 from typing import Annotated
 
 import pandas as pd
@@ -98,7 +97,7 @@ def _series_output_config(agency: AgencyId | str, dataset_id: str) -> OutputConf
     output=ENUMERATE_SERIES_OUTPUT,
     tags=["sdmx"],
 )
-async def enumerate_sdmx_series(
+def enumerate_sdmx_series(
     agency: AgencyId,
     dataset_id: str,
     fetch_timeout_s: float = FETCH_SERIES_DEFAULT_TIMEOUT_S,
@@ -116,8 +115,7 @@ async def enumerate_sdmx_series(
     as a failed bundle.
     """
     params = EnumerateSeriesParams(agency=agency, dataset_id=dataset_id)
-    records: list[SeriesRecord] = await asyncio.to_thread(
-        fetch_series,
+    records: list[SeriesRecord] = fetch_series(
         params.agency.value,
         params.dataset_id,
         fetch_timeout_s,

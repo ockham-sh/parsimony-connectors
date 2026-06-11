@@ -58,14 +58,14 @@ def _key() -> str:
     return str(require_env("ALPHA_VANTAGE_API_KEY")["ALPHA_VANTAGE_API_KEY"])
 
 
-async def _content_or_rate_limited(connector_fn, kwargs, source: str, key: str):
+def _content_or_rate_limited(connector_fn, kwargs, source: str, key: str):
     """Run a live call; accept real content, a RateLimitError (daily cap), or
     EmptyDataError as documented "no surprises" outcomes. Returns the Result on
     success, else None (the caller skips content asserts).
     """
     bound = connector_fn.bind(api_key=key)
     try:
-        result = await bound(**kwargs)
+        result = bound(**kwargs)
     except RateLimitError as exc:
         assert exc.provider == "alpha_vantage", f"{source}: wrong provider on RateLimitError"
         assert key not in str(exc), f"{source}: key leaked into RateLimitError"
@@ -84,10 +84,9 @@ async def _content_or_rate_limited(connector_fn, kwargs, source: str, key: str):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_search_apple_real_content() -> None:
+def test_search_apple_real_content() -> None:
     key = _key()
-    result = await _content_or_rate_limited(alpha_vantage_search, {"keywords": "apple"}, "alpha_vantage_search", key)
+    result = _content_or_rate_limited(alpha_vantage_search, {"keywords": "apple"}, "alpha_vantage_search", key)
     if result is None:
         pytest.skip("rate-limited (free 25/day cap) — documented outcome")
     df = result.data
@@ -98,10 +97,9 @@ async def test_search_apple_real_content() -> None:
     assert "api_key" not in result.provenance.params
 
 
-@pytest.mark.asyncio
-async def test_quote_ibm_real_content() -> None:
+def test_quote_ibm_real_content() -> None:
     key = _key()
-    result = await _content_or_rate_limited(alpha_vantage_quote, {"symbol": "IBM"}, "alpha_vantage_quote", key)
+    result = _content_or_rate_limited(alpha_vantage_quote, {"symbol": "IBM"}, "alpha_vantage_quote", key)
     if result is None:
         pytest.skip("rate-limited (free 25/day cap) — documented outcome")
     df = result.data
@@ -110,10 +108,9 @@ async def test_quote_ibm_real_content() -> None:
     assert df["price"].notna().any(), "price entirely NaN"
 
 
-@pytest.mark.asyncio
-async def test_daily_ibm_real_content() -> None:
+def test_daily_ibm_real_content() -> None:
     key = _key()
-    result = await _content_or_rate_limited(alpha_vantage_daily, {"symbol": "IBM"}, "alpha_vantage_daily", key)
+    result = _content_or_rate_limited(alpha_vantage_daily, {"symbol": "IBM"}, "alpha_vantage_daily", key)
     if result is None:
         pytest.skip("rate-limited (free 25/day cap) — documented outcome")
     df = result.data
@@ -123,10 +120,9 @@ async def test_daily_ibm_real_content() -> None:
     assert df["volume"].notna().any(), "volume entirely NaN"
 
 
-@pytest.mark.asyncio
-async def test_fx_rate_usd_eur_real_content() -> None:
+def test_fx_rate_usd_eur_real_content() -> None:
     key = _key()
-    result = await _content_or_rate_limited(
+    result = _content_or_rate_limited(
         alpha_vantage_fx_rate, {"from_currency": "USD", "to_currency": "EUR"}, "alpha_vantage_fx_rate", key
     )
     if result is None:
@@ -137,10 +133,9 @@ async def test_fx_rate_usd_eur_real_content() -> None:
     assert df["exchange_rate"].notna().any(), "exchange_rate entirely NaN"
 
 
-@pytest.mark.asyncio
-async def test_crypto_daily_btc_injects_symbol() -> None:
+def test_crypto_daily_btc_injects_symbol() -> None:
     key = _key()
-    result = await _content_or_rate_limited(
+    result = _content_or_rate_limited(
         alpha_vantage_crypto_daily, {"symbol": "BTC", "market": "USD"}, "alpha_vantage_crypto_daily", key
     )
     if result is None:
@@ -152,12 +147,9 @@ async def test_crypto_daily_btc_injects_symbol() -> None:
     assert df["close"].notna().any(), "close entirely NaN"
 
 
-@pytest.mark.asyncio
-async def test_enumerate_active_bounded_real_content() -> None:
+def test_enumerate_active_bounded_real_content() -> None:
     key = _key()
-    result = await _content_or_rate_limited(
-        enumerate_alpha_vantage, {"state": "active"}, "enumerate_alpha_vantage", key
-    )
+    result = _content_or_rate_limited(enumerate_alpha_vantage, {"state": "active"}, "enumerate_alpha_vantage", key)
     if result is None:
         pytest.skip("rate-limited (free 25/day cap) — documented outcome")
     df = result.data
@@ -177,12 +169,11 @@ async def test_enumerate_active_bounded_real_content() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_options_premium_gated() -> None:
+def test_options_premium_gated() -> None:
     key = _key()
     bound = alpha_vantage_options.bind(api_key=key)
     try:
-        result = await bound(symbol="IBM")
+        result = bound(symbol="IBM")
     except (PaymentRequiredError, RateLimitError) as exc:
         assert exc.provider == "alpha_vantage"
         assert key not in str(exc), "key leaked into premium/rate-limit error"

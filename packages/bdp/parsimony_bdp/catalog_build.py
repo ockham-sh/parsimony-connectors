@@ -11,12 +11,14 @@ from parsimony_bdp import BDP_ENUMERATE_OUTPUT, enumerate_bdp
 CATALOG_NAMESPACE = "bdp"
 
 
-async def build_bdp_catalog() -> Catalog:
-    result = await enumerate_bdp()
-    entries = entities_from_raw(result, BDP_ENUMERATE_OUTPUT)
+def build_bdp_catalog() -> Catalog:
+    result = enumerate_bdp()
+    # Enumeration can surface the same series code more than once; catalog entities are keyed by ``code``.
+    df = result.data.drop_duplicates(subset=["code"], keep="first")
+    entries = entities_from_raw(df, BDP_ENUMERATE_OUTPUT)
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
-    await catalog.build()
+    catalog.build()
     return catalog
 
 

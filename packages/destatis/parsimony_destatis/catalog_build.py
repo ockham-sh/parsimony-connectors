@@ -12,12 +12,12 @@ from parsimony_destatis.outputs import DESTATIS_ENUMERATE_OUTPUT
 CATALOG_NAMESPACE = "destatis"
 
 
-async def build_destatis_catalog() -> Catalog:
-    result = await enumerate_destatis()
+def build_destatis_catalog() -> Catalog:
+    result = enumerate_destatis()
     entries = entities_from_raw(result, DESTATIS_ENUMERATE_OUTPUT)
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
-    await catalog.build()
+    catalog.build()
     return catalog
 
 

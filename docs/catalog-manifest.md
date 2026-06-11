@@ -1,19 +1,16 @@
-# Catalog manifest (Wave 1 pre-warm + lazy build)
+# Catalog manifest
 
-Operator reference for which catalog bundles are **pre-warmed** under
-`/tmp/parsimony-catalogs/` versus **lazy-built** on first search. Pre-warming is
-optional; search connectors can build missing snapshots into
-`~/.cache/parsimony/connectors/<provider>/catalogs/<namespace>` when the
-configured URL (HF or `file://`) is absent.
+Operator reference for catalog bundles: which connectors ship hosted snapshots, how
+runtime load order works, and how to pre-warm locally before publishing to Hugging Face.
 
 ## Load order (runtime)
 
 1. In-memory `CatalogLRU` hit (per search connector process).
-2. Configured catalog URL (`PARSIMONY_<PROVIDER>_CATALOG_URL` or package default).
+2. Configured catalog URL (`PARSIMONY_<PROVIDER>_CATALOG_URL` or package default `hf://…`).
 3. Lazy disk cache under `parsimony.cache.connectors_dir(provider)`.
 4. Provider `build_catalog` callable → save to lazy cache.
 
-Point env vars at pre-warmed trees for zero cold-start during agent testing:
+Point env vars at local trees for zero cold-start during testing:
 
 ```bash
 export PARSIMONY_TREASURY_CATALOG_URL=file:///tmp/parsimony-catalogs/treasury
@@ -21,52 +18,45 @@ export PARSIMONY_SDMX_CATALOG_URL=file:///tmp/parsimony-catalogs/sdmx
 export PARSIMONY_BOJ_CATALOG_URL=file:///tmp/parsimony-catalogs/boj
 ```
 
-## Wave 1 — pre-warm locally (`/tmp/parsimony-catalogs/`)
+## Catalog-backed connectors (11)
 
-| Provider | Bundle / path | Build command |
-|----------|---------------|---------------|
-| treasury | `treasury/` | `cd packages/treasury && uv run python scripts/build_catalog.py --save /tmp/parsimony-catalogs/treasury` |
-| bdp | `bdp/` | `cd packages/bdp && uv run python scripts/build_catalog.py --save /tmp/parsimony-catalogs/bdp` |
-| snb | `snb/` | `cd packages/snb && uv run python scripts/build_catalog.py --save /tmp/parsimony-catalogs/snb` |
-| boc | `boc/` | `cd packages/boc && uv run python scripts/build_catalog.py --save /tmp/parsimony-catalogs/boc` |
-| bde | `bde/` | `cd packages/bde && uv run python scripts/build_catalog.py --save /tmp/parsimony-catalogs/bde` |
-| rba | `rba/` | `cd packages/rba && uv run python scripts/build_catalog.py --save /tmp/parsimony-catalogs/rba` |
-| destatis | `destatis/` | `cd packages/destatis && uv run python scripts/build_catalog.py --save /tmp/parsimony-catalogs/destatis` |
-| riksbank | `riksbank/` | `cd packages/riksbank && uv run python scripts/build_catalog.py --save /tmp/parsimony-catalogs/riksbank` |
-| bdf | `bdf/` (requires `BDF_API_KEY`) | `cd packages/bdf && uv run python scripts/build_catalog.py --save /tmp/parsimony-catalogs/bdf` |
-| boj | `boj/boj_databases/` | `cd packages/boj && uv run python scripts/build_catalog.py --catalog databases --save-root /tmp/parsimony-catalogs/boj` |
-| sdmx | `sdmx/sdmx_datasets_ecb/` | `cd packages/sdmx && uv run python scripts/build_catalog.py --catalog agency --agency ECB --save-root /tmp/parsimony-catalogs/sdmx` |
-| sdmx | `sdmx/sdmx_series_ecb_<flow>/` (13 flows) | See ECB curated flows below |
+All flat macros, BoJ, and SDMX publish `schema_version: 1` snapshots. Rebuild and
+republish before release — stale `parsimony-dev/*` artifacts from earlier dev builds are
+not loadable.
 
-### ECB curated series flows (Wave 1)
+| Provider | Default HF root | Local build |
+|----------|-----------------|-------------|
+| treasury | `hf://parsimony-dev/treasury` | `packages/treasury/scripts/build_catalog.py` |
+| bdp | `hf://parsimony-dev/bdp` | `packages/bdp/scripts/build_catalog.py` |
+| snb | `hf://parsimony-dev/snb` | `packages/snb/scripts/build_catalog.py` |
+| boc | `hf://parsimony-dev/boc` | `packages/boc/scripts/build_catalog.py` |
+| bde | `hf://parsimony-dev/bde` | `packages/bde/scripts/build_catalog.py` |
+| rba | `hf://parsimony-dev/rba` | `packages/rba/scripts/build_catalog.py` |
+| destatis | `hf://parsimony-dev/destatis` | `packages/destatis/scripts/build_catalog.py` |
+| riksbank | `hf://parsimony-dev/riksbank` | `packages/riksbank/scripts/build_catalog.py` |
+| bdf | `hf://parsimony-dev/bdf` | `packages/bdf/scripts/build_catalog.py` (needs `BDF_API_KEY`) |
+| boj | `hf://parsimony-dev/boj` | `packages/boj/scripts/build_catalog.py` (multi-bundle) |
+| sdmx | `hf://parsimony-dev/sdmx` | `packages/sdmx/scripts/build_catalog.py` |
 
-Pre-warm one series bundle per flow (namespace `sdmx_series_ecb_<flow_lower>`):
+### SDMX agency footprint
 
-`EXR`, `ICP`, `BSI`, `FM`, `IRS`, `YC`, `MIR`, `BLS`, `BOP`, `GFS`, `STS`, `RPP`, `CISS`
+| Agency | Datasets catalog | Series catalogs |
+|--------|------------------|-----------------|
+| ECB | all non-derived flows (~103) | prebuild all |
+| ESTAT | recall-fixed macro subset (~3,467) | prebuild high-value core; lazy-build long tail |
+| IMF_DATA | all flows (193) | prebuild all |
+| WB_WDI | single flow | prebuild |
 
-```bash
-cd packages/sdmx
-for flow in EXR ICP BSI FM IRS YC MIR BLS BOP GFS STS RPP CISS; do
-  uv run python scripts/build_catalog.py --catalog series \
-    --agency ECB --dataset-id "$flow" \
-    --save-root /tmp/parsimony-catalogs/sdmx
-done
-```
+### BoJ bundles
 
-## Lazy by default (no Wave 1 pre-warm)
-
-| Provider | Behavior |
-|----------|----------|
-| boj series | Per-DB `boj_series_<db>` builds on first `boj_series_search` for that DB |
-| sdmx ESTAT | Dataset + series catalogs build on first search (large; avoid bulk pre-warm) |
-| sdmx IMF_DATA / WB_WDI | Wave 2 optional pre-warm; lazy until then |
-| Any flat macro | Missing HF snapshot → lazy build via `build_<provider>_catalog()` |
+- `boj_databases` — database discovery
+- `boj_series_<db>` — per-database series catalogs (lazy on first search if not prebuilt)
 
 ## Indexing policy
 
 Flat macros: `parsimony.catalog.policy.discovery_indexes()` (code BM25; title/description
-hybrid when unique values &lt; 1,000). SDMX/BoJ keep provider-specific policies with the
-same threshold for dimension/structured fields.
+hybrid when unique values < 1,000). SDMX/BoJ use provider-specific policies with the same
+threshold for high-cardinality fields.
 
 ## Summary script
 
@@ -75,4 +65,4 @@ uv run python scripts/catalog_manifest_summary.py
 uv run python scripts/catalog_manifest_summary.py --catalog-root /tmp/parsimony-catalogs
 ```
 
-See [catalog-operations.md](catalog-operations.md) for validation and HF push steps.
+See [catalog-operations.md](catalog-operations.md) for validation and HF publish steps.

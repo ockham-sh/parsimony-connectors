@@ -33,15 +33,12 @@ _APPLE_CIK = "320193"
 _APPLE_CIK_PADDED = "0000320193"
 
 
-@pytest.mark.asyncio
-async def test_find_company_apple() -> None:
+def test_find_company_apple() -> None:
     require_env("SEC_EDGAR_USER_AGENT")
 
-    result = await sec_edgar_find_company(identifier="AAPL")
+    result = sec_edgar_find_company(identifier="AAPL")
 
-    assert_provenance_shape(
-        result, expected_source="sec_edgar_find_company", required_param_keys=["identifier"]
-    )
+    assert_provenance_shape(result, expected_source="sec_edgar_find_company", required_param_keys=["identifier"])
     df = result.data
     assert not df.empty, "sec_edgar_find_company('AAPL') returned empty DataFrame"
     assert list(df.columns) == ["cik", "title", "ticker"]
@@ -52,11 +49,10 @@ async def test_find_company_apple() -> None:
     assert "APPLE" in aapl.iloc[0]["title"].upper(), "title is not Apple's company name"
 
 
-@pytest.mark.asyncio
-async def test_submissions_apple() -> None:
+def test_submissions_apple() -> None:
     require_env("SEC_EDGAR_USER_AGENT")
 
-    result = await sec_edgar_submissions(cik=_APPLE_CIK, limit=10)
+    result = sec_edgar_submissions(cik=_APPLE_CIK, limit=10)
 
     assert_provenance_shape(result, expected_source="sec_edgar_submissions", required_param_keys=["cik"])
     df = result.data
@@ -69,11 +65,10 @@ async def test_submissions_apple() -> None:
     assert df["filingDate"].astype(str).str.match(r"\d{4}-\d{2}-\d{2}").any(), "no real filing date"
 
 
-@pytest.mark.asyncio
-async def test_company_facts_apple() -> None:
+def test_company_facts_apple() -> None:
     require_env("SEC_EDGAR_USER_AGENT")
 
-    result = await sec_edgar_company_facts(cik=_APPLE_CIK)
+    result = sec_edgar_company_facts(cik=_APPLE_CIK)
 
     assert_provenance_shape(result, expected_source="sec_edgar_company_facts", required_param_keys=["cik"])
     facts = result.data
@@ -86,16 +81,15 @@ async def test_company_facts_apple() -> None:
     assert "Assets" in us_gaap or len(us_gaap) > 10, "us-gaap facts look unpopulated"
 
 
-@pytest.mark.asyncio
-async def test_fetch_filing_apple_latest() -> None:
+def test_fetch_filing_apple_latest() -> None:
     require_env("SEC_EDGAR_USER_AGENT")
 
     # Resolve a real, recent accession from the live submissions feed rather
     # than hardcoding one (filings roll forward over time).
-    subs = await sec_edgar_submissions(cik=_APPLE_CIK, limit=20)
+    subs = sec_edgar_submissions(cik=_APPLE_CIK, limit=20)
     accession = str(subs.data.iloc[0]["accessionNumber"])
 
-    result = await sec_edgar_fetch_filing(cik=_APPLE_CIK, accession_number=accession)
+    result = sec_edgar_fetch_filing(cik=_APPLE_CIK, accession_number=accession)
 
     assert_provenance_shape(
         result, expected_source="sec_edgar_fetch_filing", required_param_keys=["cik", "accession_number"]
@@ -108,10 +102,9 @@ async def test_fetch_filing_apple_latest() -> None:
     assert len(data["content"]) > 100, f"filing content too short ({len(data['content'])} chars)"
 
 
-@pytest.mark.asyncio
-async def test_find_company_no_match_raises_empty() -> None:
+def test_find_company_no_match_raises_empty() -> None:
     require_env("SEC_EDGAR_USER_AGENT")
 
     # A ticker that does not exist exercises the live EmptyDataError path.
     with pytest.raises(EmptyDataError):
-        await sec_edgar_find_company(identifier="ZZZZZ_NO_SUCH_TICKER_XYZ")
+        sec_edgar_find_company(identifier="ZZZZZ_NO_SUCH_TICKER_XYZ")

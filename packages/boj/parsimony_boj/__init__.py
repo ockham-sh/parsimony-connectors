@@ -13,12 +13,12 @@ None-param drop in one call). The enumerator keeps the shared
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Annotated, Any, cast
 
 import httpx
 import pandas as pd
+from parsimony import Namespace
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 from parsimony.result import (
@@ -41,8 +41,7 @@ _MAX_CODES = 250
 # (The single-shot ``getDataCode`` data endpoint does not need the browser UA
 # from every probed network, but we send it there too for symmetry / safety.)
 _BROWSER_USER_AGENT = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 _METADATA_CRAWL = MetadataCrawlConfig(
     concurrency=2,
@@ -198,7 +197,7 @@ BOJ_ENUMERATE_OUTPUT = OutputConfig(
 
 BOJ_FETCH_OUTPUT = OutputConfig(
     columns=[
-        Column(name="code", role=ColumnRole.KEY, param_key="code", namespace="boj"),
+        Column(name="code", role=ColumnRole.KEY, namespace="boj"),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="date", dtype="datetime", role=ColumnRole.DATA),
         Column(name="value", dtype="numeric", role=ColumnRole.DATA),
@@ -268,11 +267,11 @@ def _validate_codes(code: str) -> str:
     return ",".join(codes)
 
 
-async def _fetch_metadata(fetcher: ThrottledJsonFetcher, db: str) -> dict[str, Any] | None:
+def _fetch_metadata(fetcher: ThrottledJsonFetcher, db: str) -> dict[str, Any] | None:
     """Fetch one DB's metadata via the shared throttled fetcher."""
     return cast(
         dict[str, Any] | None,
-        await fetcher.get_json(
+        fetcher.get_json(
             f"{_BASE_URL}/getMetadata",
             params={"db": db, "lang": "en"},
             label=db,
@@ -399,11 +398,7 @@ def _emit_rows_for_db(
         series_code = (series.get("SERIES_CODE") or "").strip()
         breadcrumb = section_titles.get(ordinal, "") if ordinal is not None else ""
 
-        title = (
-            series.get("NAME_OF_TIME_SERIES")
-            or series.get("NAME_OF_TIME_SERIES_J")
-            or series_code
-        )
+        title = series.get("NAME_OF_TIME_SERIES") or series.get("NAME_OF_TIME_SERIES_J") or series_code
         unit = (series.get("UNIT") or "").strip()
         frequency = _normalize_frequency(series.get("FREQUENCY") or "")
         category = (series.get("CATEGORY") or db_category).strip()
@@ -474,9 +469,9 @@ def _emit_rows_for_db(
 
 
 @connector(output=BOJ_FETCH_OUTPUT, tags=["macro", "jp"])
-async def boj_fetch(
+def boj_fetch(
     db: str,
-    code: Annotated[str, "ns:boj"],
+    code: Annotated[str, Namespace("boj")],
     start_date: str | None = None,
     end_date: str | None = None,
     lang: str = "en",
@@ -502,7 +497,7 @@ async def boj_fetch(
         "startDate": start_date or None,
         "endDate": end_date or None,
     }
-    body = await fetch_json(
+    body = fetch_json(
         make_http_client(_BASE_URL, headers={"User-Agent": _BROWSER_USER_AGENT}, timeout=60.0),
         path="getDataCode",
         params=req_params,
@@ -573,12 +568,12 @@ def _resolve_boj_database(db_code: str) -> tuple[str, str, str]:
     raise InvalidParameterError("boj", f"Unknown BoJ database {db_code!r}")
 
 
-async def fetch_boj_enumeration_rows_for_db(db_code: str) -> pd.DataFrame:
+def fetch_boj_enumeration_rows_for_db(db_code: str) -> pd.DataFrame:
     """Fetch catalog discovery rows for one BoJ database (no full 50-DB sweep)."""
     db_code, db_category, db_title = _resolve_boj_database(db_code)
-    async with httpx.AsyncClient(timeout=60.0, headers={"User-Agent": _BROWSER_USER_AGENT}) as client:
+    with httpx.Client(timeout=60.0, headers={"User-Agent": _BROWSER_USER_AGENT}) as client:
         fetcher = ThrottledJsonFetcher(client, provider="boj", config=_METADATA_CRAWL, logger=logger)
-        payload = await _fetch_metadata(fetcher, db_code)
+        payload = _fetch_metadata(fetcher, db_code)
     if payload is None:
         logger.warning("BoJ enumerate: metadata fetch failed for db=%s", db_code)
         return pd.DataFrame(columns=list(_ENUMERATE_COLUMNS))
@@ -592,7 +587,7 @@ async def fetch_boj_enumeration_rows_for_db(db_code: str) -> pd.DataFrame:
 
 
 @enumerator(output=BOJ_ENUMERATE_OUTPUT, tags=["macro", "jp"])
-async def enumerate_boj() -> pd.DataFrame:
+def enumerate_boj() -> pd.DataFrame:
     """Enumerate BoJ series by fetching metadata for each canonical database.
 
     Emits one series row per discovered series plus one synthetic ``db:<code>``
@@ -604,16 +599,13 @@ async def enumerate_boj() -> pd.DataFrame:
     rows: list[dict[str, str]] = []
     failed_dbs: list[str] = []
 
-    async with httpx.AsyncClient(timeout=60.0, headers={"User-Agent": _BROWSER_USER_AGENT}) as client:
+    with httpx.Client(timeout=60.0, headers={"User-Agent": _BROWSER_USER_AGENT}) as client:
         fetcher = ThrottledJsonFetcher(client, provider="boj", config=_METADATA_CRAWL, logger=logger)
-        # asyncio.gather preserves order, so the published catalog is
+        # Parallel per-db builds preserve submission order, so the published catalog is
         # deterministic across runs even when individual DBs interleave
         # under the concurrency cap.
-        tasks = [
-            _fetch_metadata(fetcher, db_code)
-            for db_code, _category, _title in _BOJ_DATABASES
-        ]
-        payloads = await asyncio.gather(*tasks)
+        tasks = [_fetch_metadata(fetcher, db_code) for db_code, _category, _title in _BOJ_DATABASES]
+        payloads = tasks
 
     for (db_code, db_category, db_title), payload in zip(_BOJ_DATABASES, payloads, strict=True):
         if payload is None:

@@ -56,10 +56,9 @@ def _key() -> str:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_tiingo_search_apple_returns_aapl() -> None:
+def test_tiingo_search_apple_returns_aapl() -> None:
     key = _key()
-    result = await tiingo_search.bind(api_key=key)(query="apple")
+    result = tiingo_search.bind(api_key=key)(query="apple")
 
     assert_provenance_shape(result, expected_source="tiingo_search", required_param_keys=["query"])
     df = result.data
@@ -75,10 +74,9 @@ async def test_tiingo_search_apple_returns_aapl() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_tiingo_eod_aapl_window() -> None:
+def test_tiingo_eod_aapl_window() -> None:
     key = _key()
-    result = await tiingo_eod.bind(api_key=key)(ticker="AAPL", start_date="2024-01-02", end_date="2024-01-10")
+    result = tiingo_eod.bind(api_key=key)(ticker="AAPL", start_date="2024-01-02", end_date="2024-01-10")
 
     assert_provenance_shape(result, expected_source="tiingo_eod", required_param_keys=["ticker"])
     df = result.data
@@ -93,10 +91,9 @@ async def test_tiingo_eod_aapl_window() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_tiingo_iex_aapl_realtime() -> None:
+def test_tiingo_iex_aapl_realtime() -> None:
     key = _key()
-    result = await tiingo_iex.bind(api_key=key)(tickers="AAPL")
+    result = tiingo_iex.bind(api_key=key)(tickers="AAPL")
 
     assert_provenance_shape(result, expected_source="tiingo_iex", required_param_keys=["tickers"])
     df = result.data
@@ -107,10 +104,9 @@ async def test_tiingo_iex_aapl_realtime() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_tiingo_iex_historical_aapl() -> None:
+def test_tiingo_iex_historical_aapl() -> None:
     key = _key()
-    result = await tiingo_iex_historical.bind(api_key=key)(ticker="AAPL", resample_freq="1hour")
+    result = tiingo_iex_historical.bind(api_key=key)(ticker="AAPL", resample_freq="1hour")
 
     assert_provenance_shape(result, expected_source="tiingo_iex_historical", required_param_keys=["ticker"])
     df = result.data
@@ -120,10 +116,9 @@ async def test_tiingo_iex_historical_aapl() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_tiingo_meta_aapl() -> None:
+def test_tiingo_meta_aapl() -> None:
     key = _key()
-    result = await tiingo_meta.bind(api_key=key)(ticker="AAPL")
+    result = tiingo_meta.bind(api_key=key)(ticker="AAPL")
 
     assert_provenance_shape(result, expected_source="tiingo_meta", required_param_keys=["ticker"])
     data = result.data
@@ -139,10 +134,9 @@ async def test_tiingo_meta_aapl() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_tiingo_fundamentals_meta_aapl() -> None:
+def test_tiingo_fundamentals_meta_aapl() -> None:
     key = _key()
-    result = await tiingo_fundamentals_meta.bind(api_key=key)(tickers="AAPL")
+    result = tiingo_fundamentals_meta.bind(api_key=key)(tickers="AAPL")
 
     assert_provenance_shape(result, expected_source="tiingo_fundamentals_meta", required_param_keys=["tickers"])
     data = result.data
@@ -154,10 +148,9 @@ async def test_tiingo_fundamentals_meta_aapl() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_tiingo_fundamentals_definitions() -> None:
+def test_tiingo_fundamentals_definitions() -> None:
     key = _key()
-    result = await tiingo_fundamentals_definitions.bind(api_key=key)()
+    result = tiingo_fundamentals_definitions.bind(api_key=key)()
 
     assert_provenance_shape(result, expected_source="tiingo_fundamentals_definitions")
     df = result.data
@@ -172,12 +165,11 @@ async def test_tiingo_fundamentals_definitions() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_tiingo_news_power_plan_or_payment_required() -> None:
+def test_tiingo_news_power_plan_or_payment_required() -> None:
     key = _key()
     bound = tiingo_news.bind(api_key=key)
     try:
-        result = await bound(limit=5)
+        result = bound(limit=5)
     except PaymentRequiredError as exc:
         # Documented free-tier outcome: 403 "no permission to access News API".
         assert exc.provider == "tiingo"
@@ -197,10 +189,9 @@ async def test_tiingo_news_power_plan_or_payment_required() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_tiingo_crypto_prices_btcusd_window() -> None:
+def test_tiingo_crypto_prices_btcusd_window() -> None:
     key = _key()
-    result = await tiingo_crypto_prices.bind(api_key=key)(
+    result = tiingo_crypto_prices.bind(api_key=key)(
         tickers="btcusd", start_date="2024-01-01", end_date="2024-01-10", resample_freq="1day"
     )
 
@@ -213,10 +204,9 @@ async def test_tiingo_crypto_prices_btcusd_window() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_tiingo_crypto_top_btcusd() -> None:
+def test_tiingo_crypto_top_btcusd() -> None:
     key = _key()
-    result = await tiingo_crypto_top.bind(api_key=key)(tickers="btcusd")
+    result = tiingo_crypto_top.bind(api_key=key)(tickers="btcusd")
 
     assert_provenance_shape(result, expected_source="tiingo_crypto_top", required_param_keys=["tickers"])
     df = result.data
@@ -231,10 +221,9 @@ async def test_tiingo_crypto_top_btcusd() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_tiingo_fx_prices_eurusd_window() -> None:
+def test_tiingo_fx_prices_eurusd_window() -> None:
     key = _key()
-    result = await tiingo_fx_prices.bind(api_key=key)(
+    result = tiingo_fx_prices.bind(api_key=key)(
         tickers="eurusd", start_date="2024-01-01", end_date="2024-01-10", resample_freq="1day"
     )
 
@@ -246,10 +235,9 @@ async def test_tiingo_fx_prices_eurusd_window() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_tiingo_fx_top_eurusd() -> None:
+def test_tiingo_fx_top_eurusd() -> None:
     key = _key()
-    result = await tiingo_fx_top.bind(api_key=key)(tickers="eurusd")
+    result = tiingo_fx_top.bind(api_key=key)(tickers="eurusd")
 
     assert_provenance_shape(result, expected_source="tiingo_fx_top", required_param_keys=["tickers"])
     df = result.data
@@ -265,10 +253,9 @@ async def test_tiingo_fx_top_eurusd() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_enumerate_tiingo_bounded() -> None:
+def test_enumerate_tiingo_bounded() -> None:
     key = _key()
-    result = await enumerate_tiingo.bind(api_key=key)()
+    result = enumerate_tiingo.bind(api_key=key)()
 
     assert_provenance_shape(result, expected_source="enumerate_tiingo")
     df = result.data

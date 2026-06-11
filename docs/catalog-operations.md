@@ -54,6 +54,21 @@ that produces those remote artifacts. The plugin runtime never imports them.
 HF endpoints are always parameterized (`--push`, `--push-root`, `--catalog-url`).
 Defaults may point at `parsimony-dev` repos; use staging repos while iterating.
 
+## v1 bulk publish (gated)
+
+After local schema-v1 snapshots exist under `/tmp/parsimony-catalogs-v1/`,
+maintainers with `HF_TOKEN` (or `hf auth login`) run:
+
+```bash
+cd parsimony-connectors
+export HF_TOKEN=...   # never commit; load from ockham/.env locally
+./scripts/publish_v1_catalogs.sh
+PARSIMONY_RUN_REMOTE_CATALOGS=1 uv run pytest tests/test_remote_catalogs.py -m remote_catalog
+```
+
+`bdf` is skipped unless `BDF_API_KEY` was used for a local build. SDMX and BoJ
+push every namespace subdirectory under their multi-bundle roots.
+
 ## One catalog at a time
 
 For each catalog:

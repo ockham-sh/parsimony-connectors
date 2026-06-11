@@ -27,8 +27,7 @@ from parsimony_shared.cb_enumerate import MetadataCrawlConfig, ThrottledJsonFetc
 # every call avoids the redirect round-trip (treasury 301-avoidance lesson).
 BASE_URL = "https://genesis.destatis.de/genesis/api/rest"
 BROWSER_USER_AGENT = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 HEADERS = {
     "User-Agent": BROWSER_USER_AGENT,
@@ -46,14 +45,14 @@ def make_client(timeout: float = 60.0) -> HttpClient:
     return HttpClient(BASE_URL, timeout=timeout, headers=HEADERS)
 
 
-async def get_path_json(fetcher: ThrottledJsonFetcher, path: str) -> dict[str, Any] | list[Any] | None:
+def get_path_json(fetcher: ThrottledJsonFetcher, path: str) -> dict[str, Any] | list[Any] | None:
     """GET ``{BASE_URL}{path}`` via the shared throttled fetcher.
 
     The ``/statistics`` index returns a JSON **list**; the per-statistic
     ``/information`` and ``/tables`` endpoints return dicts/lists. Return the
     raw decoded payload (dict or list) so the caller can normalise it.
     """
-    payload = await fetcher.get_json(f"{BASE_URL}{path}", label=path)
+    payload = fetcher.get_json(f"{BASE_URL}{path}", label=path)
     if isinstance(payload, (dict, list)):
         return payload
     return None

@@ -11,12 +11,12 @@ from parsimony_treasury import TREASURY_ENUMERATE_OUTPUT, enumerate_treasury
 CATALOG_NAMESPACE = "treasury"
 
 
-async def build_treasury_catalog() -> Catalog:
-    result = await enumerate_treasury()
+def build_treasury_catalog() -> Catalog:
+    result = enumerate_treasury()
     entries = entities_from_raw(result, TREASURY_ENUMERATE_OUTPUT)
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
-    await catalog.build()
+    catalog.build()
     return catalog
 
 

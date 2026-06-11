@@ -49,8 +49,7 @@ def test_load_binds_api_key_and_hides_from_exposed_signature() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fred_search_returns_series_metadata() -> None:
+def test_fred_search_returns_series_metadata() -> None:
     respx.get("https://api.stlouisfed.org/fred/series/search").mock(
         return_value=httpx.Response(
             200,
@@ -72,7 +71,7 @@ async def test_fred_search_returns_series_metadata() -> None:
     )
 
     bound = fred_search.bind(api_key="test-key")
-    result = await bound(search_text="unemployment")
+    result = bound(search_text="unemployment")
 
     assert result.provenance.source == "fred_search"
     df = result.data
@@ -80,8 +79,7 @@ async def test_fred_search_returns_series_metadata() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fred_search_raises_empty_data_when_no_matches() -> None:
+def test_fred_search_raises_empty_data_when_no_matches() -> None:
     from parsimony.errors import EmptyDataError
 
     respx.get("https://api.stlouisfed.org/fred/series/search").mock(
@@ -90,7 +88,7 @@ async def test_fred_search_raises_empty_data_when_no_matches() -> None:
 
     bound = fred_search.bind(api_key="test-key")
     with pytest.raises(EmptyDataError):
-        await bound(search_text="nonexistent")
+        bound(search_text="nonexistent")
 
 
 # ---------------------------------------------------------------------------
@@ -99,8 +97,7 @@ async def test_fred_search_raises_empty_data_when_no_matches() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fred_fetch_raises_empty_data_when_no_observations() -> None:
+def test_fred_fetch_raises_empty_data_when_no_observations() -> None:
     from parsimony.errors import EmptyDataError
 
     respx.get("https://api.stlouisfed.org/fred/series/observations").mock(
@@ -109,12 +106,11 @@ async def test_fred_fetch_raises_empty_data_when_no_observations() -> None:
 
     bound = fred_fetch.bind(api_key="test-key")
     with pytest.raises(EmptyDataError):
-        await bound(series_id="UNRATE")
+        bound(series_id="UNRATE")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fred_fetch_raises_parse_error_when_observations_key_missing() -> None:
+def test_fred_fetch_raises_parse_error_when_observations_key_missing() -> None:
     from parsimony.errors import ParseError
 
     respx.get("https://api.stlouisfed.org/fred/series/observations").mock(
@@ -123,12 +119,11 @@ async def test_fred_fetch_raises_parse_error_when_observations_key_missing() -> 
 
     bound = fred_fetch.bind(api_key="test-key")
     with pytest.raises(ParseError):
-        await bound(series_id="UNRATE")
+        bound(series_id="UNRATE")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fred_fetch_returns_observations_with_metadata() -> None:
+def test_fred_fetch_returns_observations_with_metadata() -> None:
     respx.get("https://api.stlouisfed.org/fred/series/observations").mock(
         return_value=httpx.Response(
             200,
@@ -162,7 +157,7 @@ async def test_fred_fetch_returns_observations_with_metadata() -> None:
     )
 
     bound = fred_fetch.bind(api_key="test-key")
-    result = await bound(series_id="UNRATE")
+    result = bound(series_id="UNRATE")
 
     assert result.provenance.source == "fred_fetch"
     df = result.data
@@ -176,35 +171,31 @@ async def test_fred_fetch_returns_observations_with_metadata() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_fred_fetch_rejects_empty_series_id() -> None:
+def test_fred_fetch_rejects_empty_series_id() -> None:
     bound = fred_fetch.bind(api_key="test-key")
     with pytest.raises(InvalidParameterError, match="series_id"):
-        await bound(series_id="   ")
+        bound(series_id="   ")
 
 
-@pytest.mark.asyncio
-async def test_fred_search_rejects_empty_search_text() -> None:
+def test_fred_search_rejects_empty_search_text() -> None:
     bound = fred_search.bind(api_key="test-key")
     with pytest.raises(InvalidParameterError, match="search_text"):
-        await bound(search_text="   ")
+        bound(search_text="   ")
 
 
-@pytest.mark.asyncio
-async def test_fred_fetch_raises_unauthorized_when_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fred_fetch_raises_unauthorized_when_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
     # No bound key and no env fallback → fail fast with the env-var hint, no network.
     monkeypatch.delenv("FRED_API_KEY", raising=False)
     with pytest.raises(UnauthorizedError) as exc_info:
-        await fred_fetch(series_id="UNRATE")
+        fred_fetch(series_id="UNRATE")
     assert exc_info.value.env_var == "FRED_API_KEY"
     assert exc_info.value.provider == "fred"
 
 
-@pytest.mark.asyncio
-async def test_fred_search_raises_unauthorized_when_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fred_search_raises_unauthorized_when_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
     # Both verbs share _client(); assert the symmetric no-key fast-fail for search too.
     monkeypatch.delenv("FRED_API_KEY", raising=False)
     with pytest.raises(UnauthorizedError) as exc_info:
-        await fred_search(search_text="unemployment")
+        fred_search(search_text="unemployment")
     assert exc_info.value.env_var == "FRED_API_KEY"
     assert exc_info.value.provider == "fred"

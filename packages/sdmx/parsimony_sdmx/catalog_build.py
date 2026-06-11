@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Sequence
 from pathlib import Path
 
+import pyarrow as pa
 from parsimony.catalog import Catalog, Entity
 from parsimony.catalog.source import entities_from_raw
 from parsimony.catalog.storage import ENTRIES_FILENAME, _read_parquet
 
 from parsimony_sdmx._isolation import ListDatasetsError, list_datasets
 from parsimony_sdmx.catalog_policy import (
+    CODE_SUFFIX,
+    LABEL_SUFFIX,
     discover_dim_codes,
     sdmx_datasets_indexes,
     sdmx_dimension_manifest,
@@ -96,9 +98,68 @@ def manifest_from_series_entries(entries: Sequence[Entity]) -> list[dict[str, ob
     return sdmx_dimension_manifest(entries, dim_codes)
 
 
-async def manifest_from_saved_series(path: str | Path) -> list[dict[str, object]]:
-    entries = await asyncio.to_thread(_read_parquet, Path(path) / ENTRIES_FILENAME)
+def manifest_from_saved_series(path: str | Path) -> list[dict[str, object]]:
+    entries = _read_parquet(Path(path) / ENTRIES_FILENAME)
     return manifest_from_series_entries(entries)
+
+
+def entities_from_series_arrow_table(
+    table: pa.Table,
+    *,
+    agency: AgencyId,
+    dataset_id: str,
+) -> tuple[list[Entity], list[dict[str, object]]]:
+    """Project an isolated series parquet table to augmented entities + manifest.
+
+    Single-pass over Arrow record batches — avoids the intermediate
+    ``SeriesRecord`` / DataFrame / raw-Entity copies used by the runtime
+    connector path.
+    """
+    namespace = series_namespace(agency, dataset_id)
+    agency_id = agency.value
+    dim_codes: set[str] = set()
+    entries: list[Entity] = []
+
+    for batch in table.to_batches(max_chunksize=10_000):
+        columns = batch.to_pydict()
+        row_count = len(columns["id"])
+        for row_idx in range(row_count):
+            metadata: dict[str, str] = {
+                "agency": agency_id,
+                "dataset_id": dataset_id,
+            }
+            label_parts: list[tuple[str, str]] = []
+            for dim in columns["dimensions"][row_idx] or ():
+                dim_id = str(dim["id"])
+                code = str(dim["code"])
+                label = str(dim["label"]) if dim.get("label") is not None else ""
+                metadata[f"{dim_id}{CODE_SUFFIX}"] = code
+                if label:
+                    metadata[f"{dim_id}{LABEL_SUFFIX}"] = label
+                    dim_codes.add(dim_id)
+                    label_parts.append((dim_id, label))
+
+            title = columns["title"][row_idx]
+            composite = "; ".join(f"{name}: {value}" for name, value in label_parts)
+            augmented_title = title
+            if composite and composite not in title:
+                augmented_title = f"{title} | {composite}"
+
+            for dim_id, label in label_parts:
+                metadata[dim_id] = label
+
+            entries.append(
+                Entity(
+                    namespace=namespace,
+                    code=columns["id"][row_idx],
+                    title=augmented_title,
+                    metadata=metadata,
+                )
+            )
+
+    sorted_dims = sorted(dim_codes)
+    manifest = sdmx_dimension_manifest(entries, sorted_dims)
+    return entries, manifest
 
 
 def merge_dataset_entry_lists(
@@ -113,7 +174,7 @@ def merge_dataset_entry_lists(
     return list(merged.values())
 
 
-async def collect_manifests_from_save_root(
+def collect_manifests_from_save_root(
     save_root: str | Path,
     *,
     agency: AgencyId | None = None,
@@ -133,7 +194,7 @@ async def collect_manifests_from_save_root(
         if not (sub / "meta.json").exists():
             continue
         try:
-            entries = await asyncio.to_thread(_read_parquet, sub / ENTRIES_FILENAME)
+            entries = _read_parquet(sub / ENTRIES_FILENAME)
         except Exception:  # noqa: BLE001 — skip unreadable snapshots during enrichment scans.
             logger.warning("Skipping unreadable series snapshot at %s", sub)
             continue
@@ -150,7 +211,7 @@ async def collect_manifests_from_save_root(
     return manifests
 
 
-async def build_datasets_catalog(
+def build_datasets_catalog(
     entries: Sequence[Entity],
     *,
     agency: AgencyId | str | None = None,
@@ -160,16 +221,22 @@ async def build_datasets_catalog(
 
     merged_entries = list(entries)
     if existing_path is not None and Path(existing_path).joinpath("meta.json").exists():
-        existing = await Catalog.load(existing_path)
-        merged_entries = merge_dataset_entry_lists(existing.entities, entries)
+        try:
+            existing = Catalog.load(existing_path)
+            merged_entries = merge_dataset_entry_lists(existing.entities, entries)
+        except Exception:
+            # A corrupt prior snapshot (e.g. truncated meta.json from an
+            # interrupted write) must not block the rebuild. Rebuild fresh from
+            # the freshly derived entries instead of merging.
+            logger.warning("Existing datasets snapshot at %s unreadable; rebuilding fresh", existing_path)
 
     catalog = datasets_catalog(merged_entries, agency=agency)
     catalog.set_entities(merged_entries)
-    await catalog.build()
+    catalog.build()
     return catalog
 
 
-async def build_agency_dataset_entities(
+def build_agency_dataset_entities(
     records: Sequence[DatasetRecord],
     manifests: dict[str, list[dict[str, object]]],
 ) -> list[Entity]:
@@ -183,7 +250,7 @@ async def build_agency_dataset_entities(
     return enrich_dataset_entities(dataset_entities_from_records(selected), manifests)
 
 
-async def enrich_datasets_from_enumeration(
+def enrich_datasets_from_enumeration(
     enumeration_result,
     manifests: dict[str, list[dict[str, object]]],
     *,
@@ -194,14 +261,12 @@ async def enrich_datasets_from_enumeration(
     from parsimony_sdmx.connectors.enumerate_datasets import SDMX_DATASETS_ENUM_OUTPUT
 
     all_entries = entities_from_raw(enumeration_result, SDMX_DATASETS_ENUM_OUTPUT)
-    agency_entries = [
-        entry for entry in all_entries if str(entry.metadata.get("agency", "")).strip() == agency_id
-    ]
+    agency_entries = [entry for entry in all_entries if str(entry.metadata.get("agency", "")).strip() == agency_id]
     entries = enrich_dataset_entities(agency_entries, manifests)
-    return await build_datasets_catalog(entries, agency=agency, existing_path=existing_path)
+    return build_datasets_catalog(entries, agency=agency, existing_path=existing_path)
 
 
-async def build_series_catalog(
+def build_series_catalog(
     agency: AgencyId,
     dataset_id: str,
     *,
@@ -210,7 +275,7 @@ async def build_series_catalog(
     """Build one per-flow SDMX series catalog from live enumeration."""
     from parsimony_sdmx.connectors.enumerate_series import _series_output_config
 
-    result = await enumerate_sdmx_series(agency=agency, dataset_id=dataset_id, fetch_timeout_s=fetch_timeout_s)
+    result = enumerate_sdmx_series(agency=agency, dataset_id=dataset_id, fetch_timeout_s=fetch_timeout_s)
     schema = _series_output_config(agency, dataset_id)
     raw_entries = entities_from_raw(result, schema)
     dim_codes = discover_dim_codes(raw_entries)
@@ -218,22 +283,22 @@ async def build_series_catalog(
     catalog = Catalog(series_namespace(agency, dataset_id))
     catalog.set_entities(entries)
     catalog.set_indexes(sdmx_series_indexes(entries, dim_codes))
-    await catalog.build()
+    catalog.build()
     return catalog
 
 
-async def build_agency_datasets_catalog(
+def build_agency_datasets_catalog(
     agency: AgencyId,
     *,
     fetch_timeout_s: float = LISTING_TIMEOUT_S,
 ) -> Catalog:
     """Build the per-agency SDMX datasets discovery catalog from live listing."""
     try:
-        records = await asyncio.to_thread(list_datasets, agency.value, fetch_timeout_s)
+        records = list_datasets(agency.value, fetch_timeout_s)
     except ListDatasetsError as exc:
         raise ValueError(f"Could not list datasets for {agency.value}: {exc.message}") from exc
     entries = dataset_entities_from_records(records)
-    return await build_datasets_catalog(entries, agency=agency)
+    return build_datasets_catalog(entries, agency=agency)
 
 
 __all__ = [
@@ -245,6 +310,7 @@ __all__ = [
     "dataset_code",
     "dataset_entities_from_records",
     "datasets_catalog",
+    "entities_from_series_arrow_table",
     "enrich_dataset_entities",
     "enrich_datasets_from_enumeration",
     "manifest_from_saved_series",

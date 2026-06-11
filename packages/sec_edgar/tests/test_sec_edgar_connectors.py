@@ -9,7 +9,7 @@ unset).
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pandas as pd
@@ -68,29 +68,25 @@ def test_blank_user_agent_raises() -> None:
         _user_agent()
 
 
-@pytest.mark.asyncio
-async def test_find_company_no_user_agent_raises() -> None:
+def test_find_company_no_user_agent_raises() -> None:
     # The fast-fail fires before any network call, so no HTTP mock is needed.
     with patch.dict("os.environ", {}, clear=True), pytest.raises(UnauthorizedError):
-        await sec_edgar_find_company(identifier="AAPL")
+        sec_edgar_find_company(identifier="AAPL")
 
 
-@pytest.mark.asyncio
-async def test_submissions_no_user_agent_raises() -> None:
+def test_submissions_no_user_agent_raises() -> None:
     with patch.dict("os.environ", {}, clear=True), pytest.raises(UnauthorizedError):
-        await sec_edgar_submissions(cik="320193")
+        sec_edgar_submissions(cik="320193")
 
 
-@pytest.mark.asyncio
-async def test_company_facts_no_user_agent_raises() -> None:
+def test_company_facts_no_user_agent_raises() -> None:
     with patch.dict("os.environ", {}, clear=True), pytest.raises(UnauthorizedError):
-        await sec_edgar_company_facts(cik="320193")
+        sec_edgar_company_facts(cik="320193")
 
 
-@pytest.mark.asyncio
-async def test_fetch_filing_no_user_agent_raises() -> None:
+def test_fetch_filing_no_user_agent_raises() -> None:
     with patch.dict("os.environ", {}, clear=True), pytest.raises(UnauthorizedError):
-        await sec_edgar_fetch_filing(cik="320193", accession_number="0000320193-24-000123")
+        sec_edgar_fetch_filing(cik="320193", accession_number="0000320193-24-000123")
 
 
 # ---------------------------------------------------------------------------
@@ -98,17 +94,16 @@ async def test_fetch_filing_no_user_agent_raises() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_find_company_returns_match_by_ticker() -> None:
+def test_find_company_returns_match_by_ticker() -> None:
     tickers = [
         {"cik_str": 789, "ticker": "EX", "title": "Example Inc"},
         {"cik_str": 42, "ticker": "OTH", "title": "Other Corp"},
     ]
     with (
         patch.dict("os.environ", _UA),
-        patch("parsimony_sec_edgar._load_company_tickers", new=AsyncMock(return_value=tickers)),
+        patch("parsimony_sec_edgar._load_company_tickers", new=MagicMock(return_value=tickers)),
     ):
-        result = await sec_edgar_find_company(identifier="ex")
+        result = sec_edgar_find_company(identifier="ex")
 
     assert result.provenance.source == "sec_edgar_find_company"
     df = result.data
@@ -118,45 +113,41 @@ async def test_find_company_returns_match_by_ticker() -> None:
     assert df.iloc[0]["title"] == "Example Inc"
 
 
-@pytest.mark.asyncio
-async def test_find_company_matches_by_cik() -> None:
+def test_find_company_matches_by_cik() -> None:
     tickers = [{"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc"}]
     with (
         patch.dict("os.environ", _UA),
-        patch("parsimony_sec_edgar._load_company_tickers", new=AsyncMock(return_value=tickers)),
+        patch("parsimony_sec_edgar._load_company_tickers", new=MagicMock(return_value=tickers)),
     ):
-        result = await sec_edgar_find_company(identifier="320193")
+        result = sec_edgar_find_company(identifier="320193")
 
     assert result.data.iloc[0]["ticker"] == "AAPL"
 
 
-@pytest.mark.asyncio
-async def test_find_company_blank_identifier_raises() -> None:
+def test_find_company_blank_identifier_raises() -> None:
     with patch.dict("os.environ", _UA), pytest.raises(InvalidParameterError):
-        await sec_edgar_find_company(identifier="   ")
+        sec_edgar_find_company(identifier="   ")
 
 
-@pytest.mark.asyncio
-async def test_find_company_no_match_raises_empty() -> None:
+def test_find_company_no_match_raises_empty() -> None:
     with (
         patch.dict("os.environ", _UA),
-        patch("parsimony_sec_edgar._load_company_tickers", new=AsyncMock(return_value=[])),
+        patch("parsimony_sec_edgar._load_company_tickers", new=MagicMock(return_value=[])),
         pytest.raises(EmptyDataError) as exc,
     ):
-        await sec_edgar_find_company(identifier="NOPE")
+        sec_edgar_find_company(identifier="NOPE")
     assert exc.value.query_params == {"identifier": "NOPE"}
 
 
-@pytest.mark.asyncio
-async def test_load_company_tickers_bad_shape_raises_parse() -> None:
+def test_load_company_tickers_bad_shape_raises_parse() -> None:
     from parsimony_sec_edgar import _load_company_tickers
 
     with (
         patch.dict("os.environ", _UA),
-        patch("parsimony_sec_edgar.fetch_json", new=AsyncMock(return_value=["not", "a", "dict"])),
+        patch("parsimony_sec_edgar.fetch_json", new=MagicMock(return_value=["not", "a", "dict"])),
         pytest.raises(ParseError),
     ):
-        await _load_company_tickers()
+        _load_company_tickers()
 
 
 # ---------------------------------------------------------------------------
@@ -177,13 +168,12 @@ def _submissions_payload(n: int = 1) -> dict:
     }
 
 
-@pytest.mark.asyncio
-async def test_submissions_returns_rows() -> None:
+def test_submissions_returns_rows() -> None:
     with (
         patch.dict("os.environ", _UA),
-        patch("parsimony_sec_edgar.fetch_json", new=AsyncMock(return_value=_submissions_payload(3))),
+        patch("parsimony_sec_edgar.fetch_json", new=MagicMock(return_value=_submissions_payload(3))),
     ):
-        result = await sec_edgar_submissions(cik="789")
+        result = sec_edgar_submissions(cik="789")
 
     df = result.data
     assert isinstance(df, pd.DataFrame)
@@ -192,41 +182,37 @@ async def test_submissions_returns_rows() -> None:
     assert len(df) == 3
 
 
-@pytest.mark.asyncio
-async def test_submissions_respects_limit() -> None:
+def test_submissions_respects_limit() -> None:
     with (
         patch.dict("os.environ", _UA),
-        patch("parsimony_sec_edgar.fetch_json", new=AsyncMock(return_value=_submissions_payload(50))),
+        patch("parsimony_sec_edgar.fetch_json", new=MagicMock(return_value=_submissions_payload(50))),
     ):
-        result = await sec_edgar_submissions(cik="789", limit=5)
+        result = sec_edgar_submissions(cik="789", limit=5)
     assert len(result.data) == 5
 
 
-@pytest.mark.asyncio
-async def test_submissions_empty_recent_raises() -> None:
+def test_submissions_empty_recent_raises() -> None:
     with (
         patch.dict("os.environ", _UA),
-        patch("parsimony_sec_edgar.fetch_json", new=AsyncMock(return_value={"filings": {"recent": {}}})),
+        patch("parsimony_sec_edgar.fetch_json", new=MagicMock(return_value={"filings": {"recent": {}}})),
         pytest.raises(EmptyDataError) as exc,
     ):
-        await sec_edgar_submissions(cik="789")
+        sec_edgar_submissions(cik="789")
     assert exc.value.query_params == {"cik": "0000000789"}
 
 
-@pytest.mark.asyncio
-async def test_submissions_non_object_raises_parse() -> None:
+def test_submissions_non_object_raises_parse() -> None:
     with (
         patch.dict("os.environ", _UA),
-        patch("parsimony_sec_edgar.fetch_json", new=AsyncMock(return_value=["unexpected"])),
+        patch("parsimony_sec_edgar.fetch_json", new=MagicMock(return_value=["unexpected"])),
         pytest.raises(ParseError),
     ):
-        await sec_edgar_submissions(cik="789")
+        sec_edgar_submissions(cik="789")
 
 
-@pytest.mark.asyncio
-async def test_submissions_bad_cik_raises_invalid_param() -> None:
+def test_submissions_bad_cik_raises_invalid_param() -> None:
     with patch.dict("os.environ", _UA), pytest.raises(InvalidParameterError):
-        await sec_edgar_submissions(cik="abc")
+        sec_edgar_submissions(cik="abc")
 
 
 # ---------------------------------------------------------------------------
@@ -234,35 +220,32 @@ async def test_submissions_bad_cik_raises_invalid_param() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_company_facts_returns_dict() -> None:
+def test_company_facts_returns_dict() -> None:
     facts = {"cik": 320193, "entityName": "Apple Inc.", "facts": {"us-gaap": {"Assets": {}}}}
     with (
         patch.dict("os.environ", _UA),
-        patch("parsimony_sec_edgar.fetch_json", new=AsyncMock(return_value=facts)),
+        patch("parsimony_sec_edgar.fetch_json", new=MagicMock(return_value=facts)),
     ):
-        result = await sec_edgar_company_facts(cik="320193")
+        result = sec_edgar_company_facts(cik="320193")
 
     assert result.provenance.source == "sec_edgar_company_facts"
     assert result.data["entityName"] == "Apple Inc."
     assert "us-gaap" in result.data["facts"]
 
 
-@pytest.mark.asyncio
-async def test_company_facts_empty_raises() -> None:
+def test_company_facts_empty_raises() -> None:
     with (
         patch.dict("os.environ", _UA),
-        patch("parsimony_sec_edgar.fetch_json", new=AsyncMock(return_value={"cik": 1, "facts": {}})),
+        patch("parsimony_sec_edgar.fetch_json", new=MagicMock(return_value={"cik": 1, "facts": {}})),
         pytest.raises(EmptyDataError) as exc,
     ):
-        await sec_edgar_company_facts(cik="1")
+        sec_edgar_company_facts(cik="1")
     assert exc.value.query_params == {"cik": "0000000001"}
 
 
-@pytest.mark.asyncio
-async def test_company_facts_bad_cik_raises_invalid_param() -> None:
+def test_company_facts_bad_cik_raises_invalid_param() -> None:
     with patch.dict("os.environ", _UA), pytest.raises(InvalidParameterError):
-        await sec_edgar_company_facts(cik="--")
+        sec_edgar_company_facts(cik="--")
 
 
 # ---------------------------------------------------------------------------
@@ -271,8 +254,7 @@ async def test_company_facts_bad_cik_raises_invalid_param() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fetch_filing_resolves_primary_document() -> None:
+def test_fetch_filing_resolves_primary_document() -> None:
     respx.get("https://data.sec.gov/submissions/CIK0000320193.json").mock(
         return_value=httpx.Response(
             200,
@@ -288,12 +270,12 @@ async def test_fetch_filing_resolves_primary_document() -> None:
     )
     # The document MUST be fetched from www.sec.gov — data.sec.gov 404s the
     # /Archives path. Mocking only the www host asserts the correct host.
-    doc_route = respx.get(
-        "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/aapl-20240928.htm"
-    ).mock(return_value=httpx.Response(200, text="<html>10-K body</html>"))
+    doc_route = respx.get("https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/aapl-20240928.htm").mock(
+        return_value=httpx.Response(200, text="<html>10-K body</html>")
+    )
 
     with patch.dict("os.environ", _UA):
-        result = await sec_edgar_fetch_filing(cik="320193", accession_number="0000320193-24-000123")
+        result = sec_edgar_fetch_filing(cik="320193", accession_number="0000320193-24-000123")
 
     data = result.data
     assert data["cik"] == "0000320193"
@@ -303,17 +285,16 @@ async def test_fetch_filing_resolves_primary_document() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fetch_filing_explicit_document_skips_submissions() -> None:
+def test_fetch_filing_explicit_document_skips_submissions() -> None:
     sub_route = respx.get(url__startswith="https://data.sec.gov/submissions/").mock(
         return_value=httpx.Response(200, json={})
     )
-    doc_route = respx.get(
-        "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/custom.htm"
-    ).mock(return_value=httpx.Response(200, text="body"))
+    doc_route = respx.get("https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/custom.htm").mock(
+        return_value=httpx.Response(200, text="body")
+    )
 
     with patch.dict("os.environ", _UA):
-        result = await sec_edgar_fetch_filing(
+        result = sec_edgar_fetch_filing(
             cik="320193",
             accession_number="0000320193-24-000123",
             document="custom.htm",
@@ -326,8 +307,7 @@ async def test_fetch_filing_explicit_document_skips_submissions() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fetch_filing_falls_back_to_dashed_txt() -> None:
+def test_fetch_filing_falls_back_to_dashed_txt() -> None:
     respx.get("https://data.sec.gov/submissions/CIK0000320193.json").mock(
         return_value=httpx.Response(200, json={"filings": {"recent": {}}})
     )
@@ -337,19 +317,17 @@ async def test_fetch_filing_falls_back_to_dashed_txt() -> None:
     ).mock(return_value=httpx.Response(200, text="raw"))
 
     with patch.dict("os.environ", _UA):
-        result = await sec_edgar_fetch_filing(cik="320193", accession_number="0000320193-24-000123")
+        result = sec_edgar_fetch_filing(cik="320193", accession_number="0000320193-24-000123")
 
     assert result.data["document"] == "0000320193-24-000123.txt"
     assert doc_route.called
 
 
-@pytest.mark.asyncio
-async def test_fetch_filing_blank_accession_raises() -> None:
+def test_fetch_filing_blank_accession_raises() -> None:
     with patch.dict("os.environ", _UA), pytest.raises(InvalidParameterError):
-        await sec_edgar_fetch_filing(cik="320193", accession_number="  -- ")
+        sec_edgar_fetch_filing(cik="320193", accession_number="  -- ")
 
 
-@pytest.mark.asyncio
-async def test_fetch_filing_bad_cik_raises() -> None:
+def test_fetch_filing_bad_cik_raises() -> None:
     with patch.dict("os.environ", _UA), pytest.raises(InvalidParameterError):
-        await sec_edgar_fetch_filing(cik="xyz", accession_number="0000320193-24-000123")
+        sec_edgar_fetch_filing(cik="xyz", accession_number="0000320193-24-000123")

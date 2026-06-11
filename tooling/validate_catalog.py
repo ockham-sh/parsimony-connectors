@@ -7,7 +7,6 @@ Maintainer tooling only — not part of any connector plugin surface.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import logging
 import sys
@@ -40,7 +39,7 @@ def _default_queries_file(provider: str | None) -> Path | None:
     return None
 
 
-async def _async_main(args: argparse.Namespace) -> int:
+def _main(args: argparse.Namespace) -> int:
     catalog_url = args.catalog_url or _default_url(args.provider)
     if catalog_url is None:
         raise SystemExit("Provide --catalog-url or --provider")
@@ -52,7 +51,7 @@ async def _async_main(args: argparse.Namespace) -> int:
     if args.write_queries:
         from parsimony.catalog import Catalog
 
-        catalog = await Catalog.load(catalog_url)
+        catalog = Catalog.load(catalog_url)
         probes = generate_probes(catalog, catalog_url=catalog_url, sample_size=args.sample_size, seed=args.seed)
         payload = probes_to_yaml(catalog_url=catalog_url, probes=probes)
         out = Path(args.write_queries)
@@ -61,7 +60,7 @@ async def _async_main(args: argparse.Namespace) -> int:
         print(json.dumps(inspect_snapshot(catalog, catalog_url=catalog_url), indent=2))
         return 0
 
-    report = await validate_catalog(
+    report = validate_catalog(
         catalog_url,
         query_set,
         allow_missing=args.allow_missing_remote,
@@ -72,7 +71,7 @@ async def _async_main(args: argparse.Namespace) -> int:
     if args.inspect:
         from parsimony.catalog import Catalog
 
-        catalog = await Catalog.load(catalog_url)
+        catalog = Catalog.load(catalog_url)
         print(json.dumps(inspect_snapshot(catalog, catalog_url=catalog_url), indent=2))
 
     if report.skipped:
@@ -97,7 +96,7 @@ def main() -> None:
         if default_q and default_q.exists():
             args.queries_file = str(default_q)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    raise SystemExit(asyncio.run(_async_main(args)))
+    raise SystemExit(_main(args))
 
 
 if __name__ == "__main__":

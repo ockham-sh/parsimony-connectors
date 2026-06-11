@@ -37,8 +37,7 @@ def test_connectors_collection_exposes_expected_names() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eia_fetch_returns_rows() -> None:
+def test_eia_fetch_returns_rows() -> None:
     respx.get("https://api.eia.gov/v2/petroleum/pri/spt/data").mock(
         return_value=httpx.Response(
             200,
@@ -55,7 +54,7 @@ async def test_eia_fetch_returns_rows() -> None:
     )
 
     bound = eia_fetch.bind(api_key=_KEY)
-    result = await bound(route="petroleum/pri/spt")
+    result = bound(route="petroleum/pri/spt")
 
     assert result.provenance.source == "eia_fetch"
     assert len(result.data) == 2
@@ -63,41 +62,38 @@ async def test_eia_fetch_returns_rows() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eia_fetch_maps_401_without_leaking_key() -> None:
+def test_eia_fetch_maps_401_without_leaking_key() -> None:
     respx.get("https://api.eia.gov/v2/petroleum/pri/spt/data").mock(
         return_value=httpx.Response(401, text="invalid api key")
     )
 
     bound = eia_fetch.bind(api_key=_KEY)
     with pytest.raises(UnauthorizedError) as exc_info:
-        await bound(route="petroleum/pri/spt")
+        bound(route="petroleum/pri/spt")
     assert _KEY not in str(exc_info.value)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eia_fetch_maps_429_without_leaking_key() -> None:
+def test_eia_fetch_maps_429_without_leaking_key() -> None:
     respx.get("https://api.eia.gov/v2/petroleum/pri/spt/data").mock(
         return_value=httpx.Response(429, headers={"Retry-After": "30"}, text="too many")
     )
 
     bound = eia_fetch.bind(api_key=_KEY)
     with pytest.raises(RateLimitError) as exc_info:
-        await bound(route="petroleum/pri/spt")
+        bound(route="petroleum/pri/spt")
     assert _KEY not in str(exc_info.value)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_eia_fetch_raises_empty_data_when_no_records() -> None:
+def test_eia_fetch_raises_empty_data_when_no_records() -> None:
     respx.get("https://api.eia.gov/v2/petroleum/pri/spt/data").mock(
         return_value=httpx.Response(200, json={"response": {"data": []}})
     )
 
     bound = eia_fetch.bind(api_key=_KEY)
     with pytest.raises(EmptyDataError):
-        await bound(route="petroleum/pri/spt")
+        bound(route="petroleum/pri/spt")
 
 
 # ---------------------------------------------------------------------------
@@ -106,8 +102,7 @@ async def test_eia_fetch_raises_empty_data_when_no_records() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_eia_returns_routes() -> None:
+def test_enumerate_eia_returns_routes() -> None:
     respx.get("https://api.eia.gov/v2/").mock(
         return_value=httpx.Response(
             200,
@@ -123,7 +118,7 @@ async def test_enumerate_eia_returns_routes() -> None:
     )
 
     bound = enumerate_eia.bind(api_key=_KEY)
-    result = await bound()
+    result = bound()
 
     df = result.data
     assert list(df.columns) == ["route", "title", "description"]
@@ -136,27 +131,24 @@ async def test_enumerate_eia_returns_routes() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_eia_fetch_rejects_empty_route() -> None:
+def test_eia_fetch_rejects_empty_route() -> None:
     bound = eia_fetch.bind(api_key=_KEY)
     with pytest.raises(InvalidParameterError, match="route"):
-        await bound(route="   ")
+        bound(route="   ")
 
 
-@pytest.mark.asyncio
-async def test_eia_fetch_raises_unauthorized_when_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_eia_fetch_raises_unauthorized_when_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EIA_API_KEY", raising=False)
     with pytest.raises(UnauthorizedError) as exc_info:
-        await eia_fetch(route="petroleum/pri/spt")
+        eia_fetch(route="petroleum/pri/spt")
     assert exc_info.value.env_var == "EIA_API_KEY"
     assert exc_info.value.provider == "eia"
 
 
-@pytest.mark.asyncio
-async def test_enumerate_eia_raises_unauthorized_when_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_enumerate_eia_raises_unauthorized_when_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
     # Both verbs share _client(); assert the symmetric no-key fast-fail for the enumerator too.
     monkeypatch.delenv("EIA_API_KEY", raising=False)
     with pytest.raises(UnauthorizedError) as exc_info:
-        await enumerate_eia()
+        enumerate_eia()
     assert exc_info.value.env_var == "EIA_API_KEY"
     assert exc_info.value.provider == "eia"

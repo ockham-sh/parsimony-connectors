@@ -41,7 +41,7 @@ pytestmark = pytest.mark.integration
 
 # Two small, stable real BoC groups used to bound the live enumerate fan-out.
 # FX_RATES_DAILY (~27 members) + FX_RATES_MONTHLY are the canonical FX panels.
-async def _bounded_groups(client: Any) -> dict[str, dict[str, Any]]:
+def _bounded_groups(client: Any) -> dict[str, dict[str, Any]]:
     """Return ONLY two tiny real groups — bounds the per-group fan-out."""
     return {
         "FX_RATES_DAILY": {
@@ -55,10 +55,9 @@ async def _bounded_groups(client: Any) -> dict[str, dict[str, Any]]:
     }
 
 
-@pytest.mark.asyncio
-async def test_boc_fetch_usd_cad_fx_live() -> None:
+def test_boc_fetch_usd_cad_fx_live() -> None:
     """FXUSDCAD — USD/CAD daily close — is one of BoC's oldest stable series."""
-    result = await boc_fetch(series_name="FXUSDCAD", start_date="2024-01-01", end_date="2024-03-31")
+    result = boc_fetch(series_name="FXUSDCAD", start_date="2024-01-01", end_date="2024-03-31")
 
     assert_provenance_shape(result, expected_source="boc_fetch", required_param_keys=["series_name"])
     df = result.data
@@ -76,10 +75,9 @@ async def test_boc_fetch_usd_cad_fx_live() -> None:
     assert df["date"].notna().any(), "observation dates all NaT"
 
 
-@pytest.mark.asyncio
-async def test_boc_fetch_multi_series_single_request_live() -> None:
+def test_boc_fetch_multi_series_single_request_live() -> None:
     """Two real series fetched in one comma-joined request (multi-entity)."""
-    result = await boc_fetch(
+    result = boc_fetch(
         series_name="FXUSDCAD,FXEURCAD",
         start_date="2024-01-01",
         end_date="2024-03-31",
@@ -91,10 +89,9 @@ async def test_boc_fetch_multi_series_single_request_live() -> None:
         assert sub["value"].notna().any(), f"{serie} has no real values"
 
 
-@pytest.mark.asyncio
-async def test_boc_fetch_group_panel_live() -> None:
+def test_boc_fetch_group_panel_live() -> None:
     """``group:`` syntax fetches a whole real panel in one request."""
-    result = await boc_fetch(series_name="group:FX_RATES_DAILY", start_date="2024-03-01", end_date="2024-03-31")
+    result = boc_fetch(series_name="group:FX_RATES_DAILY", start_date="2024-03-01", end_date="2024-03-31")
     df = result.data
     assert not df.empty
     # The daily-FX group holds many currency pairs; expect well over one series.
@@ -102,8 +99,7 @@ async def test_boc_fetch_group_panel_live() -> None:
     assert df["value"].notna().any()
 
 
-@pytest.mark.asyncio
-async def test_enumerate_boc_bounded_groups_live(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_enumerate_boc_bounded_groups_live(monkeypatch: pytest.MonkeyPatch) -> None:
     """Crawl TWO real tiny groups to verify the live Valet shape without the
     full ~2,400-request fan-out. A request counter asserts the bound held."""
     monkeypatch.setattr(parsimony_boc, "_list_groups", _bounded_groups)
@@ -114,13 +110,13 @@ async def test_enumerate_boc_bounded_groups_live(monkeypatch: pytest.MonkeyPatch
     real_request = HttpClient.request
     calls: list[str] = []
 
-    async def _counting_request(self: Any, method: str, path: str, *args: Any, **kwargs: Any) -> Any:
+    def _counting_request(self: Any, method: str, path: str, *args: Any, **kwargs: Any) -> Any:
         calls.append(path)
-        return await real_request(self, method, path, *args, **kwargs)
+        return real_request(self, method, path, *args, **kwargs)
 
     monkeypatch.setattr(HttpClient, "request", _counting_request)
 
-    result = await enumerate_boc()
+    result = enumerate_boc()
     df = result.data
 
     # The bound held: 1 series list + 2 group-membership fetches. Generous
@@ -153,8 +149,7 @@ async def test_enumerate_boc_bounded_groups_live(monkeypatch: pytest.MonkeyPatch
     assert entities[0].namespace == "boc"
 
 
-@pytest.mark.asyncio
-async def test_boc_search_over_bounded_catalog_live(tmp_path: Path) -> None:
+def test_boc_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     """Exercise ``boc_search`` end-to-end over a small, locally-built catalog.
 
     Bounded by design: a cold full ``build_boc_catalog()`` runs the expensive
@@ -199,11 +194,11 @@ async def test_boc_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     entries = entities_from_raw(df, BOC_ENUMERATE_OUTPUT)
     catalog = Catalog("boc", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
-    await catalog.build()
+    catalog.build()
     out_dir = tmp_path / "boc_catalog"
-    await catalog.save(out_dir)
+    catalog.save(out_dir)
 
-    result = await boc_search(query="US dollar Canadian dollar exchange rate", limit=5, catalog_url=str(out_dir))
+    result = boc_search(query="US dollar Canadian dollar exchange rate", limit=5, catalog_url=str(out_dir))
 
     assert_provenance_shape(result, expected_source="boc_search", required_param_keys=["query"])
     sdf = result.data
@@ -216,5 +211,5 @@ async def test_boc_search_over_bounded_catalog_live(tmp_path: Path) -> None:
 
     # Ranking actually discriminates: a different query surfaces a different
     # series as the top hit (not the same row regardless of query).
-    inflation = await boc_search(query="consumer price index inflation", limit=5, catalog_url=str(out_dir))
+    inflation = boc_search(query="consumer price index inflation", limit=5, catalog_url=str(out_dir))
     assert inflation.data.iloc[0]["code"] == "V41690973"

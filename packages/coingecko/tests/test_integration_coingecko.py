@@ -63,10 +63,9 @@ def _key() -> str:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_coingecko_search_bitcoin() -> None:
+def test_coingecko_search_bitcoin() -> None:
     key = _key()
-    result = await coingecko_search.bind(api_key=key)(query="bitcoin")
+    result = coingecko_search.bind(api_key=key)(query="bitcoin")
 
     assert_provenance_shape(result, expected_source="coingecko_search", required_param_keys=["query"])
     df = result.data
@@ -76,10 +75,9 @@ async def test_coingecko_search_bitcoin() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_coingecko_trending() -> None:
+def test_coingecko_trending() -> None:
     key = _key()
-    result = await coingecko_trending.bind(api_key=key)()
+    result = coingecko_trending.bind(api_key=key)()
 
     assert_provenance_shape(result, expected_source="coingecko_trending")
     df = result.data
@@ -90,12 +88,11 @@ async def test_coingecko_trending() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_coingecko_top_gainers_losers_pro_only_or_payment_required() -> None:
+def test_coingecko_top_gainers_losers_pro_only_or_payment_required() -> None:
     key = _key()
     bound = coingecko_top_gainers_losers.bind(api_key=key)
     try:
-        result = await bound()
+        result = bound()
     except PaymentRequiredError as exc:
         # Documented Demo-tier outcome: this endpoint is PRO-only.
         assert exc.provider == "coingecko"
@@ -115,10 +112,9 @@ async def test_coingecko_top_gainers_losers_pro_only_or_payment_required() -> No
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_coingecko_price_btc_eth() -> None:
+def test_coingecko_price_btc_eth() -> None:
     key = _key()
-    result = await coingecko_price.bind(api_key=key)(ids="bitcoin,ethereum")
+    result = coingecko_price.bind(api_key=key)(ids="bitcoin,ethereum")
 
     assert_provenance_shape(result, expected_source="coingecko_price", required_param_keys=["ids"])
     df = result.data
@@ -129,10 +125,9 @@ async def test_coingecko_price_btc_eth() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_coingecko_markets_top_ranked() -> None:
+def test_coingecko_markets_top_ranked() -> None:
     key = _key()
-    result = await coingecko_markets.bind(api_key=key)(per_page=5)
+    result = coingecko_markets.bind(api_key=key)(per_page=5)
 
     assert_provenance_shape(result, expected_source="coingecko_markets")
     df = result.data
@@ -143,10 +138,9 @@ async def test_coingecko_markets_top_ranked() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_coingecko_coin_detail_bitcoin() -> None:
+def test_coingecko_coin_detail_bitcoin() -> None:
     key = _key()
-    result = await coingecko_coin_detail.bind(api_key=key)(coin_id="bitcoin")
+    result = coingecko_coin_detail.bind(api_key=key)(coin_id="bitcoin")
 
     assert_provenance_shape(result, expected_source="coingecko_coin_detail", required_param_keys=["coin_id"])
     data = result.data
@@ -163,10 +157,9 @@ async def test_coingecko_coin_detail_bitcoin() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_coingecko_market_chart_btc_1d() -> None:
+def test_coingecko_market_chart_btc_1d() -> None:
     key = _key()
-    result = await coingecko_market_chart.bind(api_key=key)(coin_id="bitcoin", days="1")
+    result = coingecko_market_chart.bind(api_key=key)(coin_id="bitcoin", days="1")
 
     assert_provenance_shape(result, expected_source="coingecko_market_chart", required_param_keys=["coin_id"])
     df = result.data
@@ -176,13 +169,12 @@ async def test_coingecko_market_chart_btc_1d() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_coingecko_market_chart_range_recent_or_payment_required() -> None:
+def test_coingecko_market_chart_range_recent_or_payment_required() -> None:
     key = _key()
     bound = coingecko_market_chart_range.bind(api_key=key)
     try:
         # A recent (< 365-day) window — allowed on the Demo plan.
-        result = await bound(coin_id="bitcoin", from_date="2026-05-01", to_date="2026-05-20")
+        result = bound(coin_id="bitcoin", from_date="2026-05-01", to_date="2026-05-20")
     except PaymentRequiredError as exc:
         # If the recent window were somehow gated, accept the documented outcome.
         assert exc.provider == "coingecko"
@@ -196,21 +188,19 @@ async def test_coingecko_market_chart_range_recent_or_payment_required() -> None
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_coingecko_market_chart_range_over_365d_is_payment_required() -> None:
+def test_coingecko_market_chart_range_over_365d_is_payment_required() -> None:
     key = _key()
     bound = coingecko_market_chart_range.bind(api_key=key)
     # >365 days back on the Demo plan → error_code 10012 → PaymentRequiredError.
     with pytest.raises(PaymentRequiredError) as exc_info:
-        await bound(coin_id="bitcoin", from_date="2020-01-01", to_date="2020-06-01")
+        bound(coin_id="bitcoin", from_date="2020-01-01", to_date="2020-06-01")
     assert exc_info.value.provider == "coingecko"
     assert key not in str(exc_info.value)
 
 
-@pytest.mark.asyncio
-async def test_coingecko_ohlc_btc() -> None:
+def test_coingecko_ohlc_btc() -> None:
     key = _key()
-    result = await coingecko_ohlc.bind(api_key=key)(coin_id="bitcoin", days=7)
+    result = coingecko_ohlc.bind(api_key=key)(coin_id="bitcoin", days=7)
 
     assert_provenance_shape(result, expected_source="coingecko_ohlc", required_param_keys=["coin_id"])
     df = result.data
@@ -225,10 +215,9 @@ async def test_coingecko_ohlc_btc() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_coingecko_token_price_onchain_usdt() -> None:
+def test_coingecko_token_price_onchain_usdt() -> None:
     key = _key()
-    result = await coingecko_token_price_onchain.bind(api_key=key)(network="eth", contract_addresses=_USDT)
+    result = coingecko_token_price_onchain.bind(api_key=key)(network="eth", contract_addresses=_USDT)
 
     assert_provenance_shape(
         result, expected_source="coingecko_token_price_onchain", required_param_keys=["network", "contract_addresses"]
@@ -248,10 +237,9 @@ async def test_coingecko_token_price_onchain_usdt() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_enumerate_coingecko_bounded() -> None:
+def test_enumerate_coingecko_bounded() -> None:
     key = _key()
-    result = await enumerate_coingecko.bind(api_key=key)()
+    result = enumerate_coingecko.bind(api_key=key)()
 
     assert_provenance_shape(result, expected_source="enumerate_coingecko")
     df = result.data

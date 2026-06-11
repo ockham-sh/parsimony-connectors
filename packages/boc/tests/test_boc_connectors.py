@@ -46,15 +46,12 @@ def test_enumerate_output_schema_routes_description_as_metadata() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_boc_fetch_single_series_returns_observations() -> None:
+def test_boc_fetch_single_series_returns_observations() -> None:
     respx.get("https://www.bankofcanada.ca/valet/observations/FXUSDCAD/json").mock(
         return_value=httpx.Response(
             200,
             json={
-                "seriesDetail": {
-                    "FXUSDCAD": {"label": "USD/CAD", "description": "US dollar to Canadian dollar"}
-                },
+                "seriesDetail": {"FXUSDCAD": {"label": "USD/CAD", "description": "US dollar to Canadian dollar"}},
                 "observations": [
                     {"d": "2026-04-17", "FXUSDCAD": {"v": "1.3852"}},
                     {"d": "2026-04-18", "FXUSDCAD": {"v": "1.3840"}},
@@ -63,7 +60,7 @@ async def test_boc_fetch_single_series_returns_observations() -> None:
         )
     )
 
-    result = await boc_fetch(series_name="FXUSDCAD")
+    result = boc_fetch(series_name="FXUSDCAD")
 
     assert result.provenance.source == "boc_fetch"
     df = result.data
@@ -78,8 +75,7 @@ async def test_boc_fetch_single_series_returns_observations() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_boc_fetch_group_syntax_uses_group_endpoint() -> None:
+def test_boc_fetch_group_syntax_uses_group_endpoint() -> None:
     respx.get("https://www.bankofcanada.ca/valet/observations/group/FX_RATES_DAILY/json").mock(
         return_value=httpx.Response(
             200,
@@ -99,7 +95,7 @@ async def test_boc_fetch_group_syntax_uses_group_endpoint() -> None:
         )
     )
 
-    result = await boc_fetch(series_name="group:FX_RATES_DAILY")
+    result = boc_fetch(series_name="group:FX_RATES_DAILY")
 
     assert result.provenance.source == "boc_fetch"
     df = result.data
@@ -109,8 +105,7 @@ async def test_boc_fetch_group_syntax_uses_group_endpoint() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_boc_fetch_passes_date_window_params() -> None:
+def test_boc_fetch_passes_date_window_params() -> None:
     """``start_date``/``end_date`` reach the wire; ``None`` values are dropped."""
     route = respx.get("https://www.bankofcanada.ca/valet/observations/FXUSDCAD/json").mock(
         return_value=httpx.Response(
@@ -122,7 +117,7 @@ async def test_boc_fetch_passes_date_window_params() -> None:
         )
     )
 
-    await boc_fetch(series_name="FXUSDCAD", start_date="2024-01-01", end_date="2024-01-10")
+    boc_fetch(series_name="FXUSDCAD", start_date="2024-01-01", end_date="2024-01-10")
 
     sent = route.calls.last.request
     assert "start_date=2024-01-01" in str(sent.url)
@@ -130,42 +125,36 @@ async def test_boc_fetch_passes_date_window_params() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_boc_fetch_raises_parse_error_on_non_dict_body() -> None:
+def test_boc_fetch_raises_parse_error_on_non_dict_body() -> None:
     """A 200 whose body is not a JSON object → ParseError (not a crash)."""
     respx.get("https://www.bankofcanada.ca/valet/observations/FXUSDCAD/json").mock(
         return_value=httpx.Response(200, json=["unexpected", "list"])
     )
 
     with pytest.raises(ParseError):
-        await boc_fetch(series_name="FXUSDCAD")
+        boc_fetch(series_name="FXUSDCAD")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_boc_fetch_raises_empty_data_when_no_observations() -> None:
+def test_boc_fetch_raises_empty_data_when_no_observations() -> None:
     respx.get("https://www.bankofcanada.ca/valet/observations/XX/json").mock(
-        return_value=httpx.Response(
-            200, json={"seriesDetail": {"XX": {"label": "x"}}, "observations": []}
-        )
+        return_value=httpx.Response(200, json={"seriesDetail": {"XX": {"label": "x"}}, "observations": []})
     )
 
     with pytest.raises(EmptyDataError):
-        await boc_fetch(series_name="XX")
+        boc_fetch(series_name="XX")
 
 
-@pytest.mark.asyncio
-async def test_fetch_rejects_empty_series_name() -> None:
+def test_fetch_rejects_empty_series_name() -> None:
     """Blank ``series_name`` is rejected inline before any network call."""
     with pytest.raises(InvalidParameterError):
-        await boc_fetch(series_name="   ")
+        boc_fetch(series_name="   ")
 
 
-@pytest.mark.asyncio
-async def test_fetch_rejects_empty_group_name() -> None:
+def test_fetch_rejects_empty_group_name() -> None:
     """A bare ``group:`` with no name is rejected inline."""
     with pytest.raises(InvalidParameterError):
-        await boc_fetch(series_name="group:")
+        boc_fetch(series_name="group:")
 
 
 # ---------------------------------------------------------------------------
@@ -191,19 +180,18 @@ def _mock_enumerate_endpoints(
     respx.get("https://www.bankofcanada.ca/valet/lists/groups/json").mock(
         return_value=httpx.Response(200, json=groups_payload)
     )
-    for group_name in (groups_payload.get("groups") or {}):
+    for group_name in groups_payload.get("groups") or {}:
         details = group_membership.get(
             group_name,
             {"name": group_name, "groupSeries": {}},
         )
-        respx.get(
-            f"https://www.bankofcanada.ca/valet/groups/{group_name}/json"
-        ).mock(return_value=httpx.Response(200, json={"groupDetails": details}))
+        respx.get(f"https://www.bankofcanada.ca/valet/groups/{group_name}/json").mock(
+            return_value=httpx.Response(200, json={"groupDetails": details})
+        )
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_boc_emits_one_row_per_series_with_description_and_source() -> None:
+def test_enumerate_boc_emits_one_row_per_series_with_description_and_source() -> None:
     """The upstream ``description`` field must populate metadata, and every row must
     carry ``source='valet'`` for dispatch."""
     _mock_enumerate_endpoints(
@@ -243,7 +231,7 @@ async def test_enumerate_boc_emits_one_row_per_series_with_description_and_sourc
         },
     )
 
-    result = await enumerate_boc()
+    result = enumerate_boc()
     df = _enumerate_dataframe(result)
 
     # Per-series rows are emitted alongside group rows (groups are
@@ -265,8 +253,7 @@ async def test_enumerate_boc_emits_one_row_per_series_with_description_and_sourc
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_boc_group_metadata_is_group_id_not_description() -> None:
+def test_enumerate_boc_group_metadata_is_group_id_not_description() -> None:
     """The ``group`` column carries the upstream group identifier (e.g.
     ``FX_RATES_DAILY``), not the upstream description text. The
     description goes in the ``description`` column."""
@@ -292,7 +279,7 @@ async def test_enumerate_boc_group_metadata_is_group_id_not_description() -> Non
         },
     )
 
-    df = _enumerate_dataframe(await enumerate_boc())
+    df = _enumerate_dataframe(enumerate_boc())
     row = df[df["series_name"] == "FXUSDCAD"].iloc[0]
 
     assert row["group"] == "FX_RATES_DAILY"
@@ -302,8 +289,7 @@ async def test_enumerate_boc_group_metadata_is_group_id_not_description() -> Non
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_boc_series_with_no_group_membership_has_empty_group() -> None:
+def test_enumerate_boc_series_with_no_group_membership_has_empty_group() -> None:
     """Series that aren't members of any catalogued group end up with an
     empty ``group`` field rather than missing/None — keeps the column
     rectangular for downstream consumers."""
@@ -329,7 +315,7 @@ async def test_enumerate_boc_series_with_no_group_membership_has_empty_group() -
         },
     )
 
-    df = _enumerate_dataframe(await enumerate_boc())
+    df = _enumerate_dataframe(enumerate_boc())
     row = df[df["series_name"] == "ORPHAN_SERIES"].iloc[0]
     assert row["group"] == ""
     assert row["group_label"] == ""
@@ -338,8 +324,7 @@ async def test_enumerate_boc_series_with_no_group_membership_has_empty_group() -
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_boc_keeps_first_group_when_series_in_multiple_groups() -> None:
+def test_enumerate_boc_keeps_first_group_when_series_in_multiple_groups() -> None:
     """Multi-group membership is rare. When it occurs, the first group
     encountered (in the order BoC returns groups in /lists/groups/json)
     wins. Tests the deterministic tie-break."""
@@ -371,15 +356,14 @@ async def test_enumerate_boc_keeps_first_group_when_series_in_multiple_groups() 
         },
     )
 
-    df = _enumerate_dataframe(await enumerate_boc())
+    df = _enumerate_dataframe(enumerate_boc())
     row = df[df["series_name"] == "FXUSDCAD"].iloc[0]
     assert row["group"] == "FX_RATES_DAILY"
     assert row["group_label"] == "Daily exchange rates"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_boc_tolerates_failing_group_endpoint() -> None:
+def test_enumerate_boc_tolerates_failing_group_endpoint() -> None:
     """A flaky /groups/{name}/json call must not fail the whole sweep —
     the group's series simply lose their membership info, but every other
     row is preserved. BoC has been known to leave dead group IDs in the
@@ -403,11 +387,9 @@ async def test_enumerate_boc_tolerates_failing_group_endpoint() -> None:
             json={"groups": {"DEAD_GROUP": {"label": "Retired group"}}},
         )
     )
-    respx.get("https://www.bankofcanada.ca/valet/groups/DEAD_GROUP/json").mock(
-        return_value=httpx.Response(503)
-    )
+    respx.get("https://www.bankofcanada.ca/valet/groups/DEAD_GROUP/json").mock(return_value=httpx.Response(503))
 
-    df = _enumerate_dataframe(await enumerate_boc())
+    df = _enumerate_dataframe(enumerate_boc())
     # Series rows: one (FXUSDCAD). Plus a group row for DEAD_GROUP — the
     # group enumeration is independent of the per-group membership
     # fan-out, so a 503 on /groups/{name}/json strips membership info
@@ -422,8 +404,7 @@ async def test_enumerate_boc_tolerates_failing_group_endpoint() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_boc_emits_one_row_per_group_with_group_prefix_key() -> None:
+def test_enumerate_boc_emits_one_row_per_group_with_group_prefix_key() -> None:
     """Groups are addressable entities (via ``boc_fetch(series_name='group:NAME')``)
     and should appear in the catalog as their own rows so agents can
     discover whole panels via group-level descriptions (e.g.
@@ -455,7 +436,7 @@ async def test_enumerate_boc_emits_one_row_per_group_with_group_prefix_key() -> 
         },
     )
 
-    df = _enumerate_dataframe(await enumerate_boc())
+    df = _enumerate_dataframe(enumerate_boc())
 
     group_rows = df[df["entity_type"] == "group"]
     assert set(group_rows["series_name"]) == {
@@ -478,8 +459,7 @@ async def test_enumerate_boc_emits_one_row_per_group_with_group_prefix_key() -> 
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_boc_emits_columns_required_for_catalog_entries() -> None:
+def test_enumerate_boc_emits_columns_required_for_catalog_entries() -> None:
     """The Result returned by the enumerator must carry catalog entries
     with exactly one KEY (series_name), one TITLE (title), and METADATA
     columns for source/group/group_label.
@@ -506,7 +486,7 @@ async def test_enumerate_boc_emits_columns_required_for_catalog_entries() -> Non
         },
     )
 
-    result = await enumerate_boc()
+    result = enumerate_boc()
     entries = BOC_ENUMERATE_OUTPUT.build_entities(result.data)
     # One series row plus one group row. Groups are catalogued as their
     # own discoverable entities so agents can find them via group-level
@@ -530,8 +510,7 @@ async def test_enumerate_boc_emits_columns_required_for_catalog_entries() -> Non
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_boc_columns_exactly_match_declared_schema() -> None:
+def test_enumerate_boc_columns_exactly_match_declared_schema() -> None:
     """The emitted DataFrame columns exactly match the declared @enumerator
     schema (enumerators drop unmapped columns then require an exact match)."""
     _mock_enumerate_endpoints(
@@ -545,19 +524,16 @@ async def test_enumerate_boc_columns_exactly_match_declared_schema() -> None:
         },
     )
 
-    df = _enumerate_dataframe(await enumerate_boc())
+    df = _enumerate_dataframe(enumerate_boc())
     assert list(df.columns) == [c.name for c in BOC_ENUMERATE_OUTPUT.columns]
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_boc_maps_http_error_on_failed_list_endpoint() -> None:
+def test_enumerate_boc_maps_http_error_on_failed_list_endpoint() -> None:
     """A non-200 on a list endpoint surfaces a typed ProviderError (not raw httpx)."""
     from parsimony.errors import ProviderError
 
-    respx.get("https://www.bankofcanada.ca/valet/lists/series/json").mock(
-        return_value=httpx.Response(503)
-    )
+    respx.get("https://www.bankofcanada.ca/valet/lists/series/json").mock(return_value=httpx.Response(503))
 
     with pytest.raises(ProviderError):
-        await enumerate_boc()
+        enumerate_boc()

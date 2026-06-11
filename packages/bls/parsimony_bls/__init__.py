@@ -11,10 +11,12 @@ secret and stripped from provenance.
 
 from __future__ import annotations
 
+import os
 from typing import Annotated, Any
 
 import httpx
 import pandas as pd
+from parsimony import Namespace
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import (
     ConnectorError,
@@ -31,6 +33,8 @@ from parsimony.transport.helpers import fetch_json, make_http_client
 __all__ = ["CONNECTORS", "load"]
 
 _BASE_URL = "https://api.bls.gov/publicAPI/v2"
+_ENV_VAR = "BLS_API_KEY"
+
 
 # ---------------------------------------------------------------------------
 # Output schemas
@@ -60,9 +64,7 @@ BLS_FETCH_OUTPUT = OutputConfig(
 # ---------------------------------------------------------------------------
 
 
-async def _post_json(
-    http: HttpClient, path: str, payload: dict[str, Any], *, provider: str, op_name: str
-) -> Any:
+def _post_json(http: HttpClient, path: str, payload: dict[str, Any], *, provider: str, op_name: str) -> Any:
     """POST a JSON body and return parsed JSON, mapping transport failures to typed errors.
 
     The canonical POST helper: `fetch_json` is GET-only, so POST connectors use
@@ -70,7 +72,7 @@ async def _post_json(
     not retried by the transport retry policy (non-idempotent), by design.
     """
     try:
-        response = await http.request("POST", path, json=payload)
+        response = http.request("POST", path, json=payload)
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         map_http_error(exc, provider=provider, op_name=op_name)
@@ -134,8 +136,8 @@ def _validate_year(value: str, label: str) -> str:
 
 
 @connector(output=BLS_FETCH_OUTPUT, tags=["macro", "us"], secrets=("api_key",))
-async def bls_fetch(
-    series_id: Annotated[str, "ns:bls"],
+def bls_fetch(
+    series_id: Annotated[str, Namespace("bls")],
     start_year: str,
     end_year: str,
     api_key: str = "",
@@ -157,11 +159,12 @@ async def bls_fetch(
         "endyear": end,
         "catalog": True,
     }
-    if api_key:
-        payload["registrationkey"] = api_key
+    resolved_key = api_key or os.environ.get(_ENV_VAR, "")
+    if resolved_key:
+        payload["registrationkey"] = resolved_key
 
     http = make_http_client(_BASE_URL, timeout=60.0)
-    body = await _post_json(http, "/timeseries/data/", payload, provider="bls", op_name="timeseries/data")
+    body = _post_json(http, "/timeseries/data/", payload, provider="bls", op_name="timeseries/data")
 
     # BLS reports logical failure in the body (HTTP 200 + a non-success status).
     status = body.get("status", "")
@@ -170,7 +173,9 @@ async def bls_fetch(
         text = "; ".join(messages) or status
         if any(("threshold" in m.lower() or "daily" in m.lower()) for m in messages):
             raise RateLimitError(
-                "bls", retry_after=3600.0, quota_exhausted=True,
+                "bls",
+                retry_after=3600.0,
+                quota_exhausted=True,
                 message=f"BLS query threshold reached: {text}",
             )
         raise ParseError("bls", f"BLS request not processed ({status}): {text}")
@@ -207,31 +212,32 @@ async def bls_fetch(
 
 
 @enumerator(output=BLS_ENUMERATE_OUTPUT, tags=["macro", "us"], secrets=("api_key",))
-async def enumerate_bls(survey: str = "", api_key: str = "") -> pd.DataFrame:
+def enumerate_bls(survey: str = "", api_key: str = "") -> pd.DataFrame:
     """Enumerate popular BLS series, optionally limited to one survey code (e.g. 'CE').
 
     With no `survey`, crawls every survey's popular-series list (a large fan-out
     for catalog building). With a `survey` code, fetches just that survey — cheap.
     """
-    query = {"registrationkey": api_key} if api_key else None
+    resolved_key = api_key or os.environ.get(_ENV_VAR, "")
+    query = {"registrationkey": resolved_key} if resolved_key else None
     http = make_http_client(_BASE_URL, query_params=query, timeout=60.0)
 
     if survey.strip():
         surveys: list[tuple[str, str]] = [(survey.strip(), survey.strip())]
     else:
-        surveys_body = await fetch_json(http, path="surveys", provider="bls", op_name="surveys")
+        surveys_body = fetch_json(http, path="surveys", provider="bls", op_name="surveys")
         surveys = [
             (s.get("survey_abbreviation", ""), s.get("survey_name", ""))
             for s in surveys_body.get("Results", {}).get("survey", [])
         ]
 
     rows: list[dict[str, str]] = []
-    async with pooled_client(http) as shared:
+    with pooled_client(http) as shared:
         for code, name in surveys:
             if not code:
                 continue
             try:
-                popular = await fetch_json(
+                popular = fetch_json(
                     shared,
                     path="timeseries/popular",
                     params={"survey": code},

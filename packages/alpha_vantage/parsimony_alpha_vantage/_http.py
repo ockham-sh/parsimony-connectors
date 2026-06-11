@@ -42,7 +42,6 @@ connector) keeps it out of provenance; the two mechanisms are independent.
 from __future__ import annotations
 
 import io
-import os
 from typing import Any
 
 import httpx
@@ -50,10 +49,9 @@ import pandas as pd
 from parsimony.errors import (
     PaymentRequiredError,
     RateLimitError,
-    UnauthorizedError,
 )
 from parsimony.transport import HttpClient, map_http_error, map_timeout_error
-from parsimony.transport.helpers import fetch_json, make_http_client
+from parsimony.transport.helpers import fetch_json, make_http_client, require_key
 
 _PROVIDER: str = "alpha_vantage"
 _BASE_URL: str = "https://www.alphavantage.co"
@@ -89,9 +87,7 @@ def _client(api_key: str, *, timeout: float = _DEFAULT_TIMEOUT_SECONDS) -> HttpC
     :func:`make_http_client` with an explicit ``query_params`` for symmetry with
     the rest of the fleet and to keep the param name explicit.
     """
-    key = api_key or os.environ.get(_ENV_VAR, "")
-    if not key:
-        raise UnauthorizedError(_PROVIDER, env_var=_ENV_VAR)
+    key = require_key(api_key, env_var=_ENV_VAR, provider=_PROVIDER)
     return make_http_client(
         _BASE_URL,
         query_params={"apikey": key},
@@ -159,7 +155,7 @@ def _raise_for_information(info: str, op_name: str) -> None:
     raise ParseError(_PROVIDER, f"alpha_vantage returned an unexpected notice for '{op_name}'")
 
 
-async def av_fetch(
+def av_fetch(
     http: HttpClient,
     *,
     function: str,
@@ -176,12 +172,12 @@ async def av_fetch(
     req_params: dict[str, Any] = {"function": function}
     if params:
         req_params.update(params)
-    body = await fetch_json(http, path="query", params=req_params, provider=_PROVIDER, op_name=op_name)
+    body = fetch_json(http, path="query", params=req_params, provider=_PROVIDER, op_name=op_name)
     raise_for_in_body_error(body, op_name)
     return body
 
 
-async def av_fetch_csv(
+def av_fetch_csv(
     http: HttpClient,
     *,
     function: str,
@@ -200,7 +196,7 @@ async def av_fetch_csv(
         req_params.update(params)
 
     try:
-        response = await http.request("GET", "/query", params=req_params)
+        response = http.request("GET", "/query", params=req_params)
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         map_http_error(exc, provider=_PROVIDER, op_name=op_name)

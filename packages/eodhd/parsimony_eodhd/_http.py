@@ -33,13 +33,12 @@ never parses an error body — it branches on the HTTP status alone.
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import httpx
-from parsimony.errors import PaymentRequiredError, UnauthorizedError
+from parsimony.errors import PaymentRequiredError
 from parsimony.transport import HttpClient, map_http_error, map_timeout_error
-from parsimony.transport.helpers import make_http_client
+from parsimony.transport.helpers import make_http_client, require_key
 
 _PROVIDER = "eodhd"
 _BASE_URL = "https://eodhd.com/api"
@@ -67,9 +66,7 @@ def _client(api_key: str, *, timeout: float = _DEFAULT_TIMEOUT_SECONDS) -> HttpC
     ``query_params`` rather than ``make_api_key_client`` (which can set only the
     key and hardcodes ``apikey``).
     """
-    key = api_key or os.environ.get(_ENV_VAR, "")
-    if not key:
-        raise UnauthorizedError(_PROVIDER, env_var=_ENV_VAR)
+    key = require_key(api_key, env_var=_ENV_VAR, provider=_PROVIDER)
     return make_http_client(
         _BASE_URL,
         query_params={"api_token": key, "fmt": "json"},
@@ -77,7 +74,7 @@ def _client(api_key: str, *, timeout: float = _DEFAULT_TIMEOUT_SECONDS) -> HttpC
     )
 
 
-async def eodhd_get(
+def eodhd_get(
     http: HttpClient,
     *,
     path: str,
@@ -98,7 +95,7 @@ async def eodhd_get(
     """
     filtered = {k: v for k, v in (params or {}).items() if v is not None}
     try:
-        response = await http.request("GET", f"/{path.lstrip('/')}", params=filtered or None)
+        response = http.request("GET", f"/{path.lstrip('/')}", params=filtered or None)
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code in _PLAN_RESTRICTION_STATUSES:

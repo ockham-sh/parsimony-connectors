@@ -57,12 +57,11 @@ _KNOWN_KEY = "EXR.M.USD.EUR.SP00.E"
 _BOUNDED_DATASET = "EXR"
 
 
-@pytest.mark.asyncio
-async def test_bdf_fetch_known_series_live() -> None:
+def test_bdf_fetch_known_series_live() -> None:
     creds = require_env("BDF_API_KEY")
     bound = bdf_fetch.bind(api_key=creds["BDF_API_KEY"])
 
-    result = await bound(key=_KNOWN_KEY, start_period="2020-01-01", end_period="2023-12-31")
+    result = bound(key=_KNOWN_KEY, start_period="2020-01-01", end_period="2023-12-31")
 
     assert_provenance_shape(result, expected_source="bdf_fetch", required_param_keys=["key"])
     df = result.data
@@ -84,13 +83,12 @@ async def test_bdf_fetch_known_series_live() -> None:
     assert_no_secret_leak(result, secret=creds["BDF_API_KEY"])
 
 
-@pytest.mark.asyncio
-async def test_enumerate_bdf_bounded_single_dataset_live(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_enumerate_bdf_bounded_single_dataset_live(monkeypatch: pytest.MonkeyPatch) -> None:
     """Crawl ONE real dataset to verify the live series-export shape without
     pulling all 45 datasets (~41K series)."""
     creds = require_env("BDF_API_KEY")
 
-    async def _one_dataset(_fetcher: Any) -> list[dict[str, Any]]:
+    def _one_dataset(_fetcher: Any) -> list[dict[str, Any]]:
         return [
             {
                 "dataset_id": _BOUNDED_DATASET,
@@ -101,7 +99,7 @@ async def test_enumerate_bdf_bounded_single_dataset_live(monkeypatch: pytest.Mon
 
     monkeypatch.setattr(parsimony_bdf, "_list_datasets", _one_dataset)
 
-    result = await enumerate_bdf.bind(api_key=creds["BDF_API_KEY"])()
+    result = enumerate_bdf.bind(api_key=creds["BDF_API_KEY"])()
     df = result.data
 
     # @enumerator enforces an EXACT column match against the declared schema.
@@ -127,8 +125,7 @@ async def test_enumerate_bdf_bounded_single_dataset_live(monkeypatch: pytest.Mon
     assert_no_secret_leak(result, secret=creds["BDF_API_KEY"])
 
 
-@pytest.mark.asyncio
-async def test_bdf_search_over_bounded_catalog_live(tmp_path: Path) -> None:
+def test_bdf_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     """Exercise ``bdf_search`` end-to-end over a small, locally-built catalog.
 
     Bounded by design: a cold full build crawls all 45 datasets and embeds
@@ -176,11 +173,11 @@ async def test_bdf_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     entries = entities_from_raw(df, BDF_ENUMERATE_OUTPUT)
     catalog = Catalog("bdf", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
-    await catalog.build()
+    catalog.build()
     out_dir = tmp_path / "bdf_catalog"
-    await catalog.save(out_dir)
+    catalog.save(out_dir)
 
-    result = await bdf_search(query="dollar euro exchange rate", limit=5, catalog_url=str(out_dir))
+    result = bdf_search(query="dollar euro exchange rate", limit=5, catalog_url=str(out_dir))
 
     assert_provenance_shape(result, expected_source="bdf_search", required_param_keys=["query"])
     sdf = result.data
@@ -191,7 +188,5 @@ async def test_bdf_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     assert sdf["score"].notna().all(), "search scores not populated"
 
     # Ranking discriminates: a different query surfaces a different top hit.
-    infl = await bdf_search(
-        query="consumer prices annual rate of change", limit=5, catalog_url=str(out_dir)
-    )
+    infl = bdf_search(query="consumer prices annual rate of change", limit=5, catalog_url=str(out_dir))
     assert infl.data.iloc[0]["code"] == "ICP.M.FR.N.000000.4.ANR"

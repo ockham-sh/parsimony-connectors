@@ -79,45 +79,45 @@ def series_indexes(entries: Sequence[Entity]) -> dict[str, CatalogIndex]:
     }
 
 
-async def build_databases_catalog(entries: Sequence[Entity]) -> Catalog:
+def build_databases_catalog(entries: Sequence[Entity]) -> Catalog:
     catalog = Catalog(DATABASES_NAMESPACE, default_field="title")
     catalog.set_entities(list(entries))
     catalog.set_indexes(databases_indexes(entries))
-    await catalog.build()
+    catalog.build()
     return catalog
 
 
-async def build_series_catalog(db_code: str, entries: Sequence[Entity]) -> Catalog:
+def build_series_catalog(db_code: str, entries: Sequence[Entity]) -> Catalog:
     namespace = series_namespace(db_code)
     catalog = Catalog(namespace, default_field="title")
     catalog.set_entities(list(entries))
     catalog.set_indexes(series_indexes(entries))
-    await catalog.build()
+    catalog.build()
     return catalog
 
 
-async def build_boj_databases_catalog_from_enumeration() -> Catalog:
+def build_boj_databases_catalog_from_enumeration() -> Catalog:
     """Enumerate all BoJ databases and build the databases catalog."""
     from parsimony_boj import BOJ_ENUMERATE_OUTPUT, enumerate_boj
 
-    result = await enumerate_boj()
+    result = enumerate_boj()
     entries = entities_from_raw(result, BOJ_ENUMERATE_OUTPUT)
     databases, _ = split_enumerated_entries(entries)
-    return await build_databases_catalog(databases)
+    return build_databases_catalog(databases)
 
 
-async def build_boj_series_catalog_for_db(db_code: str) -> Catalog:
+def build_boj_series_catalog_for_db(db_code: str) -> Catalog:
     """Fetch one BoJ database and build its per-database series catalog."""
     from parsimony_boj import BOJ_ENUMERATE_OUTPUT, fetch_boj_enumeration_rows_for_db
 
     normalized = db_code.strip().upper()
-    df = await fetch_boj_enumeration_rows_for_db(normalized)
+    df = fetch_boj_enumeration_rows_for_db(normalized)
     entries = entities_from_raw(df, BOJ_ENUMERATE_OUTPUT)
     _, series_by_db = split_enumerated_entries(entries)
     rows = series_by_db.get(normalized) or series_by_db.get(db_code.strip()) or []
     if not rows:
         raise ValueError(f"No series rows for db={db_code!r} after enumeration")
-    return await build_series_catalog(normalized, rows)
+    return build_series_catalog(normalized, rows)
 
 
 __all__ = [

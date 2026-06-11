@@ -1,7 +1,7 @@
 """``sdmx_fetch`` — live SDMX retrieval connector.
 
 Performs strict param validation against a closed agency allowlist,
-budgets the SDMX round-trip with a single outer ``asyncio.timeout``,
+budgets the SDMX round-trip with a thread-pool timeout,
 and applies bounded retries on transient transport failures.
 
 The body imports ``sdmx`` and ``pandas`` lazily so that just importing
@@ -11,9 +11,9 @@ process — guarded by ``tests/test_listing.py::test_plugin_surface_import_does_
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import random
+import time
 from typing import Annotated, Any
 
 from parsimony.catalog import code_token, normalize_namespace
@@ -96,7 +96,6 @@ def _sdmx_fetch_output(namespace: str, dimension_ids: list[str]) -> OutputConfig
         Column(
             name="series_key",
             role=ColumnRole.KEY,
-            param_key="series_key",
             namespace=namespace,
         ),
         Column(name="title", role=ColumnRole.TITLE),
@@ -129,9 +128,9 @@ def _is_retryable(exc: BaseException) -> bool:
 
 
 @connector(tags=["sdmx"])
-async def sdmx_fetch(
-    dataset_key: str,
-    series_key: str,
+def sdmx_fetch(
+    dataset_ref: str,
+    series_ref: str,
     start_period: str | None = None,
     end_period: str | None = None,
 ) -> Any:
@@ -151,8 +150,8 @@ async def sdmx_fetch(
     surface when this tool is exposed to LLM agents.
     """
     params = SdmxFetchParams(
-        dataset_key=dataset_key,
-        series_key=series_key,
+        dataset_key=dataset_ref,
+        series_key=series_ref,
         start_period=start_period,
         end_period=end_period,
     )
@@ -160,8 +159,15 @@ async def sdmx_fetch(
     while True:
         attempt += 1
         try:
-            async with asyncio.timeout(_FETCH_TIMEOUT_SEC):
-                return await _do_sdmx_fetch(params)
+            from concurrent.futures import ThreadPoolExecutor
+            from concurrent.futures import TimeoutError as FuturesTimeoutError
+
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(_do_sdmx_fetch, params)
+                try:
+                    return future.result(timeout=_FETCH_TIMEOUT_SEC)
+                except FuturesTimeoutError as exc:
+                    raise TimeoutError from exc
         except (ProviderError, EmptyDataError, ParseError):
             raise
         except TimeoutError as exc:
@@ -183,7 +189,7 @@ async def sdmx_fetch(
                     delay,
                     exc,
                 )
-                await asyncio.sleep(delay)
+                time.sleep(delay)
                 continue
             status = 0
             if isinstance(exc, HTTPError):
@@ -195,7 +201,7 @@ async def sdmx_fetch(
             ) from exc
 
 
-async def _do_sdmx_fetch(params: SdmxFetchParams) -> Any:
+def _do_sdmx_fetch(params: SdmxFetchParams) -> Any:
     """Inner fetch — performs SDMX I/O and shapes the observation table.
 
     Imports ``sdmx`` / ``pandas`` and the provider helpers function-locally
@@ -230,8 +236,7 @@ async def _do_sdmx_fetch(params: SdmxFetchParams) -> Any:
                     message=f"Dataflow {dataset_id!r} missing from structure response.",
                 ) from exc
             dsd = resolve_dsd(client, structure_msg, dataflow, dataset_id)
-            data_msg = await asyncio.to_thread(
-                client.get,
+            data_msg = client.get(
                 resource_type="data",
                 resource_id=dataset_id,
                 key=params.series_key,

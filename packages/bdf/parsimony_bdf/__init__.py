@@ -34,20 +34,18 @@ the daily cap.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-import os
 from typing import Annotated, Any, cast
 
 import httpx
 import pandas as pd
+from parsimony import Namespace
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import (
     EmptyDataError,
     InvalidParameterError,
     ParseError,
-    UnauthorizedError,
 )
 from parsimony.result import (
     Column,
@@ -55,7 +53,7 @@ from parsimony.result import (
     OutputConfig,
 )
 from parsimony.transport import HttpClient
-from parsimony.transport.helpers import fetch_json, make_http_client
+from parsimony.transport.helpers import fetch_json, make_http_client, require_key
 from parsimony_shared.cb_enumerate import (
     MetadataCrawlConfig,
     ThrottledJsonFetcher,
@@ -92,9 +90,7 @@ def _resolve_key(api_key: str) -> str:
     A missing key raises :class:`UnauthorizedError` naming the env var so the
     agent gets the exact variable to export. ``env_var`` is keyword-only.
     """
-    key = api_key or os.environ.get(_ENV_VAR, "")
-    if not key:
-        raise UnauthorizedError("bdf", env_var=_ENV_VAR)
+    key = require_key(api_key, env_var=_ENV_VAR, provider="bdf")
     return key
 
 
@@ -160,7 +156,7 @@ BDF_ENUMERATE_OUTPUT = OutputConfig(
 
 BDF_FETCH_OUTPUT = OutputConfig(
     columns=[
-        Column(name="key", role=ColumnRole.KEY, param_key="key", namespace="bdf"),
+        Column(name="key", role=ColumnRole.KEY, namespace="bdf"),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="date", dtype="datetime", role=ColumnRole.DATA),
         Column(name="value", dtype="numeric", role=ColumnRole.DATA),
@@ -273,8 +269,8 @@ def _series_description(
 
 
 @connector(output=BDF_FETCH_OUTPUT, tags=["macro", "fr"], secrets=("api_key",))
-async def bdf_fetch(
-    key: Annotated[str, "ns:bdf"],
+def bdf_fetch(
+    key: Annotated[str, Namespace("bdf")],
     start_period: str | None = None,
     end_period: str | None = None,
     api_key: str = "",
@@ -298,13 +294,12 @@ async def bdf_fetch(
     if end_period:
         where += f" and time_period_start<=date'{end_period}'"
 
-    payload = await fetch_json(
+    payload = fetch_json(
         http,
         path="observations/exports/json",
         params={
             "select": (
-                "series_key,title_en,title_fr,time_period,"
-                "time_period_start,time_period_end,obs_value,obs_status"
+                "series_key,title_en,title_fr,time_period,time_period_start,time_period_end,obs_value,obs_status"
             ),
             "where": where,
             "order_by": "time_period_start",
@@ -330,12 +325,7 @@ async def bdf_fetch(
             value = float(raw_value) if raw_value is not None else None
         except (ValueError, TypeError):
             value = None
-        title = (
-            row.get("title_en")
-            or row.get("title_fr")
-            or row.get("series_key")
-            or series_key
-        )
+        title = row.get("title_en") or row.get("title_fr") or row.get("series_key") or series_key
         rows.append(
             {
                 "key": str(row.get("series_key") or series_key),
@@ -356,7 +346,7 @@ async def bdf_fetch(
 # ---------------------------------------------------------------------------
 
 
-async def _list_datasets(
+def _list_datasets(
     fetcher: ThrottledJsonFetcher,
 ) -> list[dict[str, Any]]:
     """Return every BdF dataset (45 entries) in a single request.
@@ -368,19 +358,16 @@ async def _list_datasets(
     """
     url = f"{_BASE_URL}/webstat-datasets/exports/json"
     params = {
-        "select": (
-            "dataset_id,description_en,description_fr,"
-            "series_count,last_observation_date"
-        ),
+        "select": ("dataset_id,description_en,description_fr,series_count,last_observation_date"),
         "order_by": "dataset_id",
     }
-    payload = await fetcher.get_json(url, params=params)
+    payload = fetcher.get_json(url, params=params)
     if not isinstance(payload, list):
         return []
     return [d for d in payload if isinstance(d, dict)]
 
 
-async def _list_series(
+def _list_series(
     fetcher: ThrottledJsonFetcher,
     dataset_id: str,
 ) -> list[dict[str, Any]] | None:
@@ -401,7 +388,7 @@ async def _list_series(
         ),
         "refine": f"dataset_id:{dataset_id}",
     }
-    payload = await fetcher.get_json(url, params=params, label=dataset_id)
+    payload = fetcher.get_json(url, params=params, label=dataset_id)
     if payload is None:
         return None
     if not isinstance(payload, list):
@@ -506,7 +493,7 @@ def _emit_rows_for_dataset(
 
 
 @enumerator(output=BDF_ENUMERATE_OUTPUT, tags=["macro", "fr"], secrets=("api_key",))
-async def enumerate_bdf(*, api_key: str = "") -> pd.DataFrame:
+def enumerate_bdf(*, api_key: str = "") -> pd.DataFrame:
     """Enumerate every BdF series with parent dataset context.
 
     Pull dataset list, then per-dataset series exports; emit dataset stubs
@@ -518,31 +505,31 @@ async def enumerate_bdf(*, api_key: str = "") -> pd.DataFrame:
     rows: list[dict[str, str]] = []
     failed_datasets: list[str] = []
 
-    async with httpx.AsyncClient(
+    with httpx.Client(
         timeout=_HTTP_TIMEOUT,
         headers=_auth_headers(key),
         follow_redirects=True,
     ) as client:
         fetcher = ThrottledJsonFetcher(client, provider="bdf", config=_METADATA_CRAWL, logger=logger)
-        datasets = await _list_datasets(fetcher)
+        datasets = _list_datasets(fetcher)
         if not datasets:
             logger.warning("BdF enumerate: dataset list fetch failed; emitting empty catalog")
             return pd.DataFrame(columns=list(_ENUMERATE_COLUMNS))
 
         logger.info("BdF enumerate: discovered %d datasets", len(datasets))
 
-        async def _crawl_one(dataset: dict[str, Any]) -> list[dict[str, str]]:
+        def _crawl_one(dataset: dict[str, Any]) -> list[dict[str, str]]:
             dataset_id = str(dataset.get("dataset_id") or "").strip()
             if not dataset_id:
                 return []
-            series_rows = await _list_series(fetcher, dataset_id)
+            series_rows = _list_series(fetcher, dataset_id)
             if series_rows is None:
                 # Transport failure — emit dataset stub only, log warning.
                 failed_datasets.append(dataset_id)
                 series_rows = []
             return _emit_rows_for_dataset(dataset=dataset, series_rows=series_rows)
 
-        per_dataset_rows = await asyncio.gather(*[_crawl_one(d) for d in datasets])
+        per_dataset_rows = [_crawl_one(d) for d in datasets]
         for batch in per_dataset_rows:
             rows.extend(batch)
 
@@ -568,6 +555,9 @@ from parsimony_bdf.search import bdf_search  # noqa: E402  (after public decorat
 CONNECTORS = Connectors([bdf_fetch, enumerate_bdf, bdf_search])
 
 
-def load(*, api_key: str) -> Connectors:
-    """Return :data:`CONNECTORS` with ``api_key`` bound on every connector that accepts it."""
-    return CONNECTORS.bind(api_key=api_key)
+def load(*, api_key: str, catalog_url: str | None = None) -> Connectors:
+    """Return :data:`CONNECTORS` with ``api_key`` and optional catalog URL bound."""
+    bound = CONNECTORS.bind(api_key=api_key)
+    if catalog_url is None:
+        return bound
+    return bound.bind(catalog_url=catalog_url)

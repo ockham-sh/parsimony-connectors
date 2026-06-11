@@ -20,24 +20,25 @@ _SMALL_AGENCY_THRESHOLD = 80
 
 _MACRO_TITLE_RE = re.compile(
     r"\b("
-    r"gdp|inflation|cpi|hicp|price|employment|unemployment|wage|interest|yield|"
+    r"gdp|gross value|value added|gva|inflation|cpi|hicp|price\w*|employment|unemployment|wage|interest|yield|"
     r"exchange|fx|money|credit|loan|debt|fiscal|budget|trade|balance|payment|"
     r"current account|financial|monetary|bank|reserve|deposit|bond|security|"
-    r"rate|index|production|industrial|retail|confidence|pmi|forecast|"
-    r"national account|government|tax|revenue|expenditure|import|export|"
+    r"rate\w*|index|production|industrial|retail|confidence|pmi|forecast|"
+    r"national account|government|tax|revenue|expenditure|import\w*|export\w*|"
     r"labour|labor|housing|mortgage|equity|stock|market|commodity|energy|"
-    r"macro|economic|finance|financial"
+    r"macro|economic|finance|financial|indicator|survey|turnover|investment|"
+    r"capital formation|sentiment|productivity|iip|fdi"
     r")\b",
     re.IGNORECASE,
 )
 
 _NON_MACRO_TITLE_RE = re.compile(
     r"\b("
-    r"regional|municipal|nace|agriculture|forestry|fishery|fishing|livestock|"
+    r"regional|municipal|agriculture|forestry|fishery|fishing|livestock|"
     r"tourism|hotel|restaurant|culture|sport|environment|waste|water|air|"
     r"health care|hospital|education|school|research|patent|"
     r"transport equipment|vehicle registration|road accident|"
-    r"energy balance|electricity generation by fuel"
+    r"energy balance|electricity generation by fuel|migration|time[- ]use"
     r")\b",
     re.IGNORECASE,
 )
@@ -100,7 +101,58 @@ def select_series_records(
     return [r for r in candidates if should_build_series_catalog(agency, r, total_flows=total)]
 
 
+# High-value ESTAT macro families to prebuild first when a build is time-boxed.
+# Everything not prebuilt still lazy-builds on first ``sdmx_series_search``.
+_ESTAT_PRIORITY_PREFIXES: tuple[str, ...] = (
+    "NAMA_",  # annual national accounts
+    "NAMQ_",  # quarterly national accounts
+    "NASA_",  # sector accounts
+    "NASQ_",
+    "GOV_",  # government finance / debt
+    "PRC_HICP",  # harmonised inflation
+    "PRC_PPI",  # producer prices
+    "STS_",  # short-term business statistics
+    "IRT_",  # interest rates
+    "EI_",  # economic indicators (BCS etc.)
+    "BOP_",  # balance of payments
+    "BPM6",
+    "EXT_",  # external trade
+    "LFSI_",  # labour force main indicators
+    "LFSA_",
+    "UNE_",  # unemployment
+    "EI_LMHR",
+    "TIPS",  # principal European economic indicators
+    "TEINA",  # short-term indicators (Eurostat "tein*" tables)
+    "TIPSGO",
+)
+
+
+def _estat_priority_rank(record: DatasetRecord) -> int:
+    upper = record.dataset_id.upper()
+    for rank, prefix in enumerate(_ESTAT_PRIORITY_PREFIXES):
+        if upper.startswith(prefix):
+            return rank
+    return len(_ESTAT_PRIORITY_PREFIXES)
+
+
+def prioritize_series_records(
+    agency: AgencyId,
+    records: list[DatasetRecord],
+) -> list[DatasetRecord]:
+    """Stable-sort *records* so the highest-value flows build first.
+
+    Only ESTAT has a meaningful priority order (its selection is huge and
+    time-boxed builds want the macro core first). Other agencies build their
+    full bounded selection, so order is preserved.
+    """
+
+    if agency is not AgencyId.ESTAT:
+        return list(records)
+    return sorted(records, key=_estat_priority_rank)
+
+
 __all__ = [
+    "prioritize_series_records",
     "select_series_records",
     "should_build_series_catalog",
 ]

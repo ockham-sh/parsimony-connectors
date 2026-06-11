@@ -62,9 +62,8 @@ def mock_fetch_series(monkeypatch: pytest.MonkeyPatch):
     return _fake
 
 
-@pytest.mark.asyncio
-async def test_enumerates_one_dataset(mock_fetch_series) -> None:
-    result = await enumerate_sdmx_series(agency=AgencyId.ECB, dataset_id="YC")
+def test_enumerates_one_dataset(mock_fetch_series) -> None:
+    result = enumerate_sdmx_series(agency=AgencyId.ECB, dataset_id="YC")
     schema = _series_output_config(AgencyId.ECB, "YC")
     entries = schema.build_entities(result.data)
     by_code = {entry.code: entry for entry in entries}
@@ -80,8 +79,7 @@ async def test_enumerates_one_dataset(mock_fetch_series) -> None:
     assert {entry.metadata["dataset_id"] for entry in entries} == {"YC"}
 
 
-@pytest.mark.asyncio
-async def test_empty_live_response_raises_emptydata(
+def test_empty_live_response_raises_emptydata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from parsimony.errors import EmptyDataError
@@ -95,18 +93,16 @@ async def test_empty_live_response_raises_emptydata(
     )
 
     with pytest.raises(EmptyDataError, match="zero series"):
-        await enumerate_sdmx_series(agency=AgencyId.ECB, dataset_id="EMPTY")
+        enumerate_sdmx_series(agency=AgencyId.ECB, dataset_id="EMPTY")
 
 
-@pytest.mark.asyncio
-async def test_accepts_lowercase_agency_from_namespace_parsing() -> None:
+def test_accepts_lowercase_agency_from_namespace_parsing() -> None:
     """Build-script namespace parsing may pass ``agency="ecb"``."""
     params = EnumerateSeriesParams(agency="ecb", dataset_id="YC")  # type: ignore[arg-type]
     assert params.agency is AgencyId.ECB
 
 
-@pytest.mark.asyncio
-async def test_subprocess_failure_propagates(
+def test_subprocess_failure_propagates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A FetchSeriesError from the subprocess must surface to the caller.
@@ -130,7 +126,7 @@ async def test_subprocess_failure_propagates(
         _raise,
     )
     with pytest.raises(FetchSeriesError, match="fake failure"):
-        await enumerate_sdmx_series(agency=AgencyId.ECB, dataset_id="YC")
+        enumerate_sdmx_series(agency=AgencyId.ECB, dataset_id="YC")
 
 
 def test_series_namespace_lowercases_agency_and_dataset() -> None:

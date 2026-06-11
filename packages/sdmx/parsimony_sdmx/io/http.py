@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import socket as _socket
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -59,6 +60,17 @@ class HttpConfig:
 RETRY_STATUS_FORCELIST = (429, 500, 502, 503, 504)
 RETRY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
+# TCP keepalive: detect CLOSE-WAIT connections (remote sent FIN mid-transfer)
+# that the read_timeout never catches, because EOF is not a timeout event.
+# After TCP_KEEPIDLE seconds idle the kernel probes; after TCP_KEEPCNT failed
+# probes it raises ETIMEDOUT → requests surfaces ConnectionError → retry.
+_KEEPALIVE_SOCKET_OPTIONS = [
+    (_socket.SOL_SOCKET, _socket.SO_KEEPALIVE, 1),
+    (_socket.IPPROTO_TCP, _socket.TCP_KEEPIDLE, 30),  # idle before first probe
+    (_socket.IPPROTO_TCP, _socket.TCP_KEEPINTVL, 10),  # interval between probes
+    (_socket.IPPROTO_TCP, _socket.TCP_KEEPCNT, 3),  # probes before giving up
+]
+
 
 def build_session(config: HttpConfig | None = None) -> requests.Session:
     """Construct a configured ``requests.Session`` for this subprocess.
@@ -70,6 +82,9 @@ def build_session(config: HttpConfig | None = None) -> requests.Session:
     * ``User-Agent`` set for upstream identification.
     * Only ``https://`` is mounted — ``http://`` calls via
       :func:`bounded_get` are rejected at the wrapper.
+    * TCP keepalive so CLOSE-WAIT sockets (remote FIN mid-transfer) are
+      detected within ~60 s and surfaced as ``ConnectionError`` rather than
+      hanging until the subprocess-level timeout fires.
     """
     cfg = config or HttpConfig()
     retry = Retry(
@@ -88,6 +103,7 @@ def build_session(config: HttpConfig | None = None) -> requests.Session:
         pool_maxsize=cfg.pool_maxsize,
         max_retries=retry,
     )
+    adapter.poolmanager.connection_pool_kw["socket_options"] = _KEEPALIVE_SOCKET_OPTIONS
     session = requests.Session()
     session.mount("https://", adapter)
     session.headers.update({"User-Agent": cfg.user_agent})
