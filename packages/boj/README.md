@@ -37,15 +37,10 @@ No environment variables required. The BoJ API is unauthenticated.
 ## Quick start
 
 ```python
-import asyncio
 from parsimony_boj import CONNECTORS
 
-async def main():
-    connectors = CONNECTORS
-    result = await connectors["boj_fetch"](db="FM08", code="FXERD01")
-    print(result.data.head())
-
-asyncio.run(main())
+result = CONNECTORS["boj_fetch"](db="FM08", code="FXERD01")
+print(result.data.head())
 ```
 
 For multi-plugin composition:

@@ -10,8 +10,8 @@ Transport:
   ``make_http_client`` + ``fetch_json`` — GET + ``raise_for_status`` +
   ``map_http_error`` / ``map_timeout_error`` + ``json()`` + ``None``-param
   dropping, all in one call (Valet is JSON, so ``fetch_json`` fits).
-* ``enumerate_boc`` keeps its own hand-rolled, concurrency-capped group
-  fan-out (it does NOT use ``parsimony_shared``), but builds the client via
+* ``enumerate_boc`` keeps its own hand-rolled group walk (it does NOT use
+  ``parsimony_shared``), but builds the client via
   ``make_http_client`` + ``pooled_client`` and maps errors/timeouts through
   the kernel helpers. The list endpoints map through ``fetch_json``; the
   best-effort per-group membership fetch swallows transient errors by design
@@ -29,7 +29,6 @@ Endpoints used:
 from __future__ import annotations
 
 import logging
-import threading
 from typing import Annotated, Any
 
 import httpx
@@ -49,13 +48,6 @@ logger = logging.getLogger(__name__)
 
 
 _BASE_URL = "https://www.bankofcanada.ca/valet"
-
-#: Concurrency cap for the per-group fan-out used to build the
-#: series→group map. BoC's Valet endpoint is unauthenticated and
-#: tolerates moderate concurrency; 16 keeps total enumeration time at
-#: ~1 minute for the ~2,400 groups while staying well under any sensible
-#: rate limit.
-_GROUP_FETCH_CONCURRENCY = 16
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +183,6 @@ def _list_groups(client: HttpClient) -> dict[str, dict[str, Any]]:
 def _fetch_group_membership(
     client: HttpClient,
     group_name: str,
-    semaphore: threading.Semaphore,
 ) -> tuple[str, list[str]]:
     """Fetch a single group's series-membership list.
 
@@ -201,17 +192,16 @@ def _fetch_group_membership(
     and BoC does occasionally retire group endpoints while leaving them
     in the index.
     """
-    with semaphore:
-        try:
-            resp = client.request("GET", f"/groups/{group_name}/json")
-            resp.raise_for_status()
-            body = resp.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            # Best-effort: a transport failure OR a 200-with-non-JSON body
-            # (BoC sometimes serves an HTML stub for a retired-but-indexed
-            # group) treats this group as empty so the sweep continues.
-            logger.warning("BoC group fetch failed for %r: %s", group_name, exc)
-            return group_name, []
+    try:
+        resp = client.request("GET", f"/groups/{group_name}/json")
+        resp.raise_for_status()
+        body = resp.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        # Best-effort: a transport failure OR a 200-with-non-JSON body
+        # (BoC sometimes serves an HTML stub for a retired-but-indexed
+        # group) treats this group as empty so the sweep continues.
+        logger.warning("BoC group fetch failed for %r: %s", group_name, exc)
+        return group_name, []
 
     if not isinstance(body, dict):
         return group_name, []
@@ -233,11 +223,10 @@ def _build_series_to_group_map(
     group wins. Iteration order is the order BoC returns groups in
     ``/lists/groups/json``, which is stable across requests.
 
-    Connections are pooled across the fan-out via :func:`pooled_client`.
+    Connections are pooled across the walk via :func:`pooled_client`.
     """
-    semaphore = threading.Semaphore(_GROUP_FETCH_CONCURRENCY)
     with pooled_client(client) as shared:
-        results = [_fetch_group_membership(shared, group_name, semaphore) for group_name in groups_index]
+        results = [_fetch_group_membership(shared, group_name) for group_name in groups_index]
 
     series_to_group: dict[str, tuple[str, str]] = {}
     for group_name, members in results:
@@ -308,8 +297,8 @@ def enumerate_boc() -> pd.DataFrame:
     series, so series-level keys are the right unit (~15k rows) — plus one
     row per group (keyed ``group:NAME``) so whole panels are discoverable.
 
-    Pipeline: /lists/series/json and /lists/groups/json, then a concurrent
-    /groups/{name}/json fan-out (one request per group) for series
+    Pipeline: /lists/series/json and /lists/groups/json, then a serial
+    /groups/{name}/json walk (one request per group) for series
     membership.
     """
     client = make_http_client(_BASE_URL, timeout=60.0)

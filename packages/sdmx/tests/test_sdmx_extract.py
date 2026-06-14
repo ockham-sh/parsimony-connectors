@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import Any
 
 from parsimony_sdmx.providers.sdmx_extract import (
     clean_text,
@@ -171,9 +172,15 @@ class TestExtractRawCodelists:
 
 
 class TestExtractSeriesDimValues:
-    def _sk(self, values: dict[str, str]) -> SimpleNamespace:
+    class _FakeSeriesKey:
+        __slots__ = ("values",)
+
+        def __init__(self, values: dict[str, SimpleNamespace]) -> None:
+            self.values = values
+
+    def _sk(self, values: dict[str, str]) -> _FakeSeriesKey:
         kvs = {dim: SimpleNamespace(id=dim, value=code) for dim, code in values.items()}
-        return SimpleNamespace(values=kvs)
+        return self._FakeSeriesKey(kvs)
 
     def test_dict_input(self) -> None:
         sks = {
@@ -198,3 +205,22 @@ class TestExtractSeriesDimValues:
         sks = [SimpleNamespace(values={})]
         out = list(extract_series_dim_values(sks))
         assert out == [{}]
+
+    def test_generic_data_series_key_dict(self) -> None:
+        sk = self._sk({"freq": "M", "geo": "DE"})
+        sks: dict[Any, list[object]] = {sk: []}
+        out = list(extract_series_dim_values(sks))
+        assert out == [{"freq": "M", "geo": "DE"}]
+
+
+class TestSeriesKeysFromDataMessage:
+    def test_list_shaped_data_merges_series(self) -> None:
+        sk = TestExtractSeriesDimValues._FakeSeriesKey(
+            {"FREQ": SimpleNamespace(id="FREQ", value="M")}
+        )
+        ds = SimpleNamespace(series={sk: []})
+        msg = SimpleNamespace(data=[ds])
+        from parsimony_sdmx.providers.sdmx_extract import series_keys_from_data_message
+
+        merged = series_keys_from_data_message(msg)
+        assert sk in merged

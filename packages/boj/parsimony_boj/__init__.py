@@ -34,17 +34,15 @@ logger = logging.getLogger(__name__)
 _BASE_URL = "https://www.stat-search.boj.or.jp/api/v1"
 _MAX_CODES = 250
 
-# BoJ's stat_search endpoints sit behind Akamai, which can block both the
-# default httpx User-Agent and high-concurrency fan-outs. Empirically a
-# concurrency cap of 2, a small inter-request delay, and a browser UA are
-# enough to keep the metadata crawl stable; higher concurrency triggers 403s.
+# BoJ's stat_search endpoints sit behind Akamai, which can block the default
+# httpx User-Agent. Empirically a browser UA plus a small inter-request delay
+# on the serial metadata crawl are enough to keep it stable; bursts trigger 403s.
 # (The single-shot ``getDataCode`` data endpoint does not need the browser UA
 # from every probed network, but we send it there too for symmetry / safety.)
 _BROWSER_USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 _METADATA_CRAWL = MetadataCrawlConfig(
-    concurrency=2,
     inter_request_delay_s=0.5,
     retry_statuses=frozenset({403, 429, 500, 502, 503, 504}),
 )
@@ -592,8 +590,8 @@ def enumerate_boj() -> pd.DataFrame:
 
     Emits one series row per discovered series plus one synthetic ``db:<code>``
     row per database, with breadcrumb + coverage metadata for catalog
-    discovery. The crawl is Akamai-throttled (bounded concurrency, browser UA,
-    retries on 403/429/5xx); per-DB failures are logged and skipped so a
+    discovery. The serial crawl is Akamai-throttled (browser UA, inter-request
+    delay, retries on 403/429/5xx); per-DB failures are logged and skipped so a
     partial catalog is still produced.
     """
     rows: list[dict[str, str]] = []
@@ -601,11 +599,9 @@ def enumerate_boj() -> pd.DataFrame:
 
     with httpx.Client(timeout=60.0, headers={"User-Agent": _BROWSER_USER_AGENT}) as client:
         fetcher = ThrottledJsonFetcher(client, provider="boj", config=_METADATA_CRAWL, logger=logger)
-        # Parallel per-db builds preserve submission order, so the published catalog is
-        # deterministic across runs even when individual DBs interleave
-        # under the concurrency cap.
-        tasks = [_fetch_metadata(fetcher, db_code) for db_code, _category, _title in _BOJ_DATABASES]
-        payloads = tasks
+        # Serial per-DB crawl; iteration order matches _BOJ_DATABASES, so the
+        # published catalog is deterministic across runs.
+        payloads = [_fetch_metadata(fetcher, db_code) for db_code, _category, _title in _BOJ_DATABASES]
 
     for (db_code, db_category, db_title), payload in zip(_BOJ_DATABASES, payloads, strict=True):
         if payload is None:

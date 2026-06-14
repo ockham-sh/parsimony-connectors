@@ -36,15 +36,10 @@ export RIKSBANK_API_KEY="<your-key>"   # optional
 ## Quick start
 
 ```python
-import asyncio
 from parsimony_riksbank import CONNECTORS
 
-async def main():
-    connectors = CONNECTORS
-    result = await connectors["riksbank_fetch"](series_id="SEKEURPMI")
-    print(result.data.head())
-
-asyncio.run(main())
+result = CONNECTORS["riksbank_fetch"](series_id="SEKEURPMI")
+print(result.data.head())
 ```
 
 For multi-plugin composition:

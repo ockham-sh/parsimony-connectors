@@ -117,7 +117,8 @@ uv run python scripts/validate_catalog.py --provider riksbank --allow-missing-re
 | `structured_field` | metadata/dimension field indexed | `agency: ECB`, `REF_AREA: France` |
 
 Do **not** add semantic-style probes when the build policy chose BM25-only
-(high cardinality). SDMX series catalogs often use structured dimension probes only.
+(high cardinality). SDMX codelist catalogs use hybrid label search; dataset catalogs
+use structured code probes and optional title probes.
 
 ### Curated probe file format
 
@@ -231,13 +232,15 @@ uv run python ../../scripts/validate_catalog.py --provider boj \
 
 Root: `hf://parsimony-dev/sdmx` (override: `PARSIMONY_SDMX_CATALOG_URL`).
 
-Layout: ``sdmx_datasets_<agency>`` + ``sdmx_series_<agency>_<flow>`` for selected macro flows.
-``sdmx_datasets_search`` requires ``agency`` (no cross-agency catalog).
+Layout: ``sdmx_datasets_<agency>`` + deduplicated ``sdmx_codelist_<agency>_<codelist_id>`` catalogs.
+``sdmx_datasets_search`` accepts optional ``agency`` (fans out across all agency dataset catalogs when omitted).
+
+Agent path: **datasets search → codelist search → scoped discovery → fetch**.
 
 ```bash
 cd packages/sdmx
 
-# Full portfolio (all agencies, selected series per agency heuristics)
+# Full portfolio (all agencies, structure + codelist catalogs)
 uv run python scripts/build_catalog.py --catalog portfolio \
   --save-root /tmp/parsimony-catalogs/sdmx \
   --push-root hf://parsimony-dev/sdmx \
@@ -280,10 +283,10 @@ configs:
     data_files:
       - split: train
         path: sdmx_datasets_ecb/entries.parquet
-  - config_name: sdmx_series_ecb_yc
+  - config_name: sdmx_codelist_ecb_cl_freq
     data_files:
       - split: train
-        path: sdmx_series_ecb_yc/entries.parquet
+        path: sdmx_codelist_ecb_cl_freq/entries.parquet
 ```
 
 Publish or refresh the dataset card (README only — no snapshot rebuild):

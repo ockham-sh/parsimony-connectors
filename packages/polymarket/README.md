@@ -31,21 +31,17 @@ No environment variables required — Polymarket's Gamma and CLOB read APIs are 
 ## Quick start
 
 ```python
-import asyncio
 from parsimony_polymarket import CONNECTORS
 
-async def main():
-    markets = await CONNECTORS["polymarket_markets"](limit=5, active=True)
-    print(markets.data.head())
+markets = CONNECTORS["polymarket_markets"](limit=5, active=True)
+print(markets.data.head())
 
-    events = await CONNECTORS["polymarket_events"](limit=5)
-    print(events.data.head())
+events = CONNECTORS["polymarket_events"](limit=5)
+print(events.data.head())
 
-    # token_id comes from a market's `clobTokenIds` field on the Gamma API.
-    price = await CONNECTORS["polymarket_market_prices"](token_id="<clob-token-id>")
-    print(price.data)
-
-asyncio.run(main())
+# token_id comes from a market's `clobTokenIds` field on the Gamma API.
+price = CONNECTORS["polymarket_market_prices"](token_id="<clob-token-id>")
+print(price.data)
 ```
 
 For multi-plugin composition:

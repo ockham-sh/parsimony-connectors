@@ -15,7 +15,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PUSH="$ROOT/tooling/push_catalog.sh"
 SRC="${PARSIMONY_CATALOG_SRC:-/tmp/parsimony-catalogs-v1}"
 
-if [[ -z "${HF_TOKEN:-}" ]] && ! uv tool run hf whoami &>/dev/null; then
+if [[ -z "${HF_TOKEN:-}" ]] && ! uv tool run hf auth whoami &>/dev/null; then
   echo "Set HF_TOKEN or run 'hf auth login' before publishing." >&2
   exit 1
 fi
@@ -49,7 +49,7 @@ if [[ -d "$SRC/boj/boj_databases" ]]; then
     "$PUSH" "hf://parsimony-dev/boj/$name" "$ns" "schema v1 rebuild"
   done
   PARSIMONY_CATALOG_ROOT="$SRC/boj" PARSIMONY_UPDATE_DATASET_CARD=1 \
-    uv run python "$ROOT/scripts/publish_catalog_dataset_card.py" \
+    uv run python "$ROOT/tooling/publish_catalog_dataset_card.py" \
       --repo-id parsimony-dev/boj \
       --from-local "$SRC/boj" \
       --preserve-body \
@@ -64,7 +64,7 @@ if [[ -d "$SRC/sdmx" ]]; then
     "$PUSH" "hf://parsimony-dev/sdmx/$name" "$ns" "schema v1 rebuild"
   done
   PARSIMONY_CATALOG_ROOT="$SRC/sdmx" PARSIMONY_UPDATE_DATASET_CARD=1 \
-    uv run python "$ROOT/scripts/publish_catalog_dataset_card.py" \
+    uv run python "$ROOT/tooling/publish_catalog_dataset_card.py" \
       --repo-id parsimony-dev/sdmx \
       --from-local "$SRC/sdmx" \
       --preserve-body \

@@ -3,7 +3,6 @@
 Layout contract for SDMX catalog builders:
 
     outputs/{AGENCY}/datasets.parquet
-    outputs/{AGENCY}/series/{DATASET}.parquet
 
 Writes land in ``outputs/{AGENCY}/.tmp/`` first, are flushed and fsynced,
 then ``os.replace()``-d into the canonical path. A killed writer leaves
@@ -15,13 +14,13 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from parsimony_sdmx.core.models import DatasetRecord, SeriesRecord
+from parsimony_sdmx.core.models import DatasetRecord
 from parsimony_sdmx.io.paths import ensure_within, safe_filename
 
 logger = logging.getLogger(__name__)
@@ -34,28 +33,6 @@ DATASETS_SCHEMA = pa.schema(
     ]
 )
 
-SERIES_SCHEMA = pa.schema(
-    [
-        pa.field("id", pa.string(), nullable=False),
-        pa.field("dataset_id", pa.string(), nullable=False),
-        pa.field("title", pa.string(), nullable=False),
-        pa.field(
-            "dimensions",
-            pa.list_(
-                pa.struct(
-                    [
-                        pa.field("id", pa.string(), nullable=False),
-                        pa.field("code", pa.string(), nullable=False),
-                        pa.field("label", pa.string(), nullable=True),
-                    ]
-                )
-            ),
-            nullable=False,
-        ),
-    ]
-)
-
-DEFAULT_BATCH_SIZE = 50_000
 TMP_SUBDIR = ".tmp"
 COMPRESSION = "zstd"
 
@@ -68,7 +45,7 @@ def _atomic_write(
     """Run ``writer_fn`` against a temp path, fsync, then ``os.replace``.
 
     Temp files live at ``{agency_dir}/.tmp/`` so the orchestrator's
-    orphan sweep in T11 can find and reap them per agency.
+    orphan sweep can find and reap them per agency.
     """
     ensure_within(agency_dir, final_path.parent)
     final_path.parent.mkdir(parents=True, exist_ok=True)
@@ -122,91 +99,6 @@ def write_datasets(
 
     _atomic_write(agency_dir, final_path, _do_write)
     return final_path
-
-
-def write_series(
-    records: Iterable[SeriesRecord],
-    output_base: Path,
-    agency_id: str,
-    dataset_id: str,
-    batch_size: int = DEFAULT_BATCH_SIZE,
-) -> Path:
-    """Stream ``records`` into ``outputs/{agency}/series/{dataset}.parquet`` atomically.
-
-    Uses a ``ParquetWriter`` with batched ``RecordBatch`` flushes so peak
-    memory is bounded by ``batch_size`` regardless of total row count.
-    Asserts each series ``id`` is unique within the file and that every
-    record's ``dataset_id`` matches the expected value.
-    """
-    safe_agency = safe_filename(agency_id)
-    safe_dataset = safe_filename(dataset_id)
-    agency_dir = output_base / safe_agency
-    final_path = agency_dir / "series" / f"{safe_dataset}.parquet"
-
-    def _do_write(tmp_path: Path) -> None:
-        _write_series_batched(
-            records=records,
-            out_path=tmp_path,
-            dataset_id=dataset_id,
-            batch_size=batch_size,
-        )
-
-    _atomic_write(agency_dir, final_path, _do_write)
-    return final_path
-
-
-def _write_series_batched(
-    records: Iterable[SeriesRecord],
-    out_path: Path,
-    dataset_id: str,
-    batch_size: int,
-) -> None:
-    writer = pq.ParquetWriter(out_path, SERIES_SCHEMA, compression=COMPRESSION)
-    seen_ids: set[str] = set()
-    try:
-        for batch_rows in _chunked(records, batch_size):
-            ids: list[str] = []
-            dsids: list[str] = []
-            titles: list[str] = []
-            dimensions: list[list[dict[str, str | None]]] = []
-            for rec in batch_rows:
-                if rec.dataset_id != dataset_id:
-                    raise ValueError(
-                        f"SeriesRecord.dataset_id={rec.dataset_id!r} does not match expected {dataset_id!r}"
-                    )
-                if rec.id in seen_ids:
-                    raise ValueError(f"Duplicate series id in dataset {dataset_id!r}: {rec.id!r}")
-                seen_ids.add(rec.id)
-                ids.append(rec.id)
-                dsids.append(rec.dataset_id)
-                titles.append(rec.title)
-                dimensions.append([{"id": dim.id, "code": dim.code, "label": dim.label} for dim in rec.dimensions])
-            if ids:
-                batch = pa.RecordBatch.from_pydict(
-                    {
-                        "id": ids,
-                        "dataset_id": dsids,
-                        "title": titles,
-                        "dimensions": dimensions,
-                    },
-                    schema=SERIES_SCHEMA,
-                )
-                writer.write_batch(batch)
-    finally:
-        writer.close()
-
-
-def _chunked(records: Iterable[SeriesRecord], n: int) -> Iterator[list[SeriesRecord]]:
-    if n <= 0:
-        raise ValueError(f"batch_size must be > 0, got {n}")
-    buf: list[SeriesRecord] = []
-    for rec in records:
-        buf.append(rec)
-        if len(buf) >= n:
-            yield buf
-            buf = []
-    if buf:
-        yield buf
 
 
 def _assert_unique_datasets(rows: list[DatasetRecord]) -> None:

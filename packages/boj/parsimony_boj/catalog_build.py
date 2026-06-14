@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Sequence
+from typing import Any
 
 from parsimony.catalog import BM25Index, Catalog, CatalogIndex, Entity
-from parsimony.catalog.source import entities_from_raw
+from parsimony.catalog.source import _dataframe_from_raw, entities_from_raw
 
-from parsimony_boj.catalog_policy import hybrid_field_index, macro_discovery_indexes
+from parsimony_boj.catalog_policy import adaptive_field_index, discovery_indexes
 
 DATABASES_NAMESPACE = "boj_databases"
 DEFAULT_CATALOG_ROOT = "hf://parsimony-dev/boj"
@@ -19,6 +20,32 @@ def series_namespace(db_code: str) -> str:
     """Canonical namespace for one BoJ statistics database's series catalog."""
 
     return f"boj_series_{db_code.strip().lower()}"
+
+
+def entities_from_boj_enumeration(raw: Any) -> list[Entity]:
+    """Project enumerate output to entities, partitioned by database.
+
+    BoJ series codes are unique within a database but may repeat across
+    databases with different descriptions; building from the flat combined
+    table would violate the entity-metadata invariant. Within a database,
+    duplicate codes with conflicting metadata are collapsed (first wins).
+    """
+    from parsimony_boj import BOJ_ENUMERATE_OUTPUT
+
+    df = _dataframe_from_raw(raw)
+    entries: list[Entity] = []
+
+    db_df = df.loc[df["entity_type"] == "db"]
+    if not db_df.empty:
+        db_df = db_df.drop_duplicates(subset=["code"], keep="first")
+        entries.extend(entities_from_raw(db_df.reset_index(drop=True), BOJ_ENUMERATE_OUTPUT))
+
+    series_df = df.loc[df["entity_type"] == "series"]
+    for _, group in series_df.groupby("db", sort=True):
+        deduped = group.drop_duplicates(subset=["code"], keep="first")
+        entries.extend(entities_from_raw(deduped.reset_index(drop=True), BOJ_ENUMERATE_OUTPUT))
+
+    return entries
 
 
 def _database_entry(entry: Entity) -> Entity:
@@ -68,14 +95,14 @@ def split_enumerated_entries(
 
 
 def databases_indexes(entries: Sequence[Entity]) -> dict[str, CatalogIndex]:
-    return macro_discovery_indexes(entries, include_description=True)
+    return discovery_indexes(entries, include_description=True)
 
 
 def series_indexes(entries: Sequence[Entity]) -> dict[str, CatalogIndex]:
     return {
         "code": BM25Index(),
-        "title": hybrid_field_index("title", entries),
-        "description": hybrid_field_index("description", entries),
+        "title": adaptive_field_index("title", entries),
+        "description": adaptive_field_index("description", entries),
     }
 
 
@@ -98,10 +125,10 @@ def build_series_catalog(db_code: str, entries: Sequence[Entity]) -> Catalog:
 
 def build_boj_databases_catalog_from_enumeration() -> Catalog:
     """Enumerate all BoJ databases and build the databases catalog."""
-    from parsimony_boj import BOJ_ENUMERATE_OUTPUT, enumerate_boj
+    from parsimony_boj import enumerate_boj
 
     result = enumerate_boj()
-    entries = entities_from_raw(result, BOJ_ENUMERATE_OUTPUT)
+    entries = entities_from_boj_enumeration(result)
     databases, _ = split_enumerated_entries(entries)
     return build_databases_catalog(databases)
 
@@ -128,6 +155,7 @@ __all__ = [
     "build_databases_catalog",
     "build_series_catalog",
     "databases_indexes",
+    "entities_from_boj_enumeration",
     "series_indexes",
     "series_namespace",
     "split_enumerated_entries",

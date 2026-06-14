@@ -38,15 +38,10 @@ python -c "from parsimony import discover; print([p.name for p in discover.iter_
 ## Quick start
 
 ```python
-import asyncio
 from parsimony_fred import CONNECTORS
 
-async def main():
-    connectors = CONNECTORS
-    result = await connectors["fred_fetch"](series_id="UNRATE")
-    print(result.data.head())
-
-asyncio.run(main())
+result = CONNECTORS["fred_fetch"](series_id="UNRATE")
+print(result.data.head())
 ```
 
 For multi-plugin composition:

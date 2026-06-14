@@ -7,9 +7,9 @@ from parsimony_sdmx.connectors import (
     enumerate_sdmx_datasets,
     enumerate_sdmx_series,
     load,
+    sdmx_codelist_search,
     sdmx_datasets_search,
     sdmx_fetch,
-    sdmx_series_search,
 )
 
 __all__ = [
@@ -17,7 +17,7 @@ __all__ = [
     "enumerate_sdmx_datasets",
     "enumerate_sdmx_series",
     "load",
+    "sdmx_codelist_search",
     "sdmx_datasets_search",
     "sdmx_fetch",
-    "sdmx_series_search",
 ]

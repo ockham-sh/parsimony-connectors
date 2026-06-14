@@ -38,14 +38,10 @@ If it is unset, the connectors fail fast with `UnauthorizedError` naming the env
 ## Quick start
 
 ```python
-import asyncio
 from parsimony_sec_edgar import CONNECTORS
 
-async def main():
-    result = await CONNECTORS["sec_edgar_find_company"](identifier="AAPL")
-    print(result.data.head())
-
-asyncio.run(main())
+result = CONNECTORS["sec_edgar_find_company"](identifier="AAPL")
+print(result.data.head())
 ```
 
 For multi-plugin composition:

@@ -24,7 +24,7 @@ The ``value`` array (the actual observations) is unavoidable — neither
 without dropping the series stubs entirely. We accept the bandwidth cost
 (~40 KB / page) and ignore the values after parsing.
 
-WAF posture: Akamai-fronted; conservative throttling (concurrency=4,
+WAF posture: Akamai-fronted; conservative throttling (serial crawl,
 0.25 s inter-request delay, browser User-Agent, 1/2/4 s backoff on
 429/5xx) keeps enumeration stable.
 
@@ -75,7 +75,6 @@ _HEADERS = {
     "Referer": "https://bpstat.bportugal.pt/",
 }
 _METADATA_CRAWL = MetadataCrawlConfig(
-    concurrency=4,
     inter_request_delay_s=0.25,
     retry_statuses=frozenset({403, 429, 500, 502, 503, 504}),
 )
@@ -691,7 +690,7 @@ def _emit_rows_for_dataset(
 def enumerate_bdp() -> pd.DataFrame:
     """Enumerate Banco de Portugal domains, datasets, and paginated series.
 
-    Walks leaf domains and dataset pages with bounded concurrency; retries
+    Walks leaf domains and dataset pages serially; retries
     transient 403/429/5xx responses before skipping a failed dataset. Returns
     the exact ``BDP_ENUMERATE_OUTPUT`` column set (synthetic ``domain:`` /
     ``dataset:`` parent rows plus ``{domain}:{dataset}:{series}`` series rows).
@@ -752,7 +751,7 @@ def enumerate_bdp() -> pd.DataFrame:
                 }
             )
 
-        # Discover datasets per leaf domain (concurrent fan-out).
+        # Discover datasets per leaf domain.
         def _discover(domain: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             did = domain.get("id", "")
             stubs = _list_datasets(fetcher, did)
@@ -760,9 +759,8 @@ def enumerate_bdp() -> pd.DataFrame:
 
         domain_results = [_discover(d) for d in leaf_domains]
 
-        # Flatten to a list of (domain, dataset_stub) work items so we
-        # can run the per-dataset crawl concurrency-capped without
-        # nesting semaphores.
+        # Flatten to a list of (domain, dataset_stub) work items for the
+        # per-dataset crawl.
         work_items: list[tuple[dict[str, Any], dict[str, Any]]] = []
         for domain, stubs in domain_results:
             for stub in stubs:
@@ -770,8 +768,7 @@ def enumerate_bdp() -> pd.DataFrame:
 
         logger.info("BdP enumerate: discovered %d datasets across leaf domains", len(work_items))
 
-        # Per-dataset crawl. Each task internally serializes the page walk
-        # but the global semaphore caps total in-flight HTTP at 4.
+        # Per-dataset crawl: walk each dataset's series pages in turn.
         def _crawl_one(
             domain: dict[str, Any],
             stub: dict[str, Any],

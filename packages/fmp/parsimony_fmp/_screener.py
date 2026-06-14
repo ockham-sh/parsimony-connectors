@@ -13,7 +13,6 @@ from __future__ import annotations
 import difflib
 import logging
 import re
-import threading
 from typing import Any
 
 import pandas as pd
@@ -23,14 +22,6 @@ from parsimony.transport import HttpClient
 from parsimony_fmp._http import fmp_get, pooled_client
 
 logger = logging.getLogger(__name__)
-
-
-# Single cap for concurrent FMP enrichment requests per screener invocation.
-# FMP rate-limits on a per-account basis; 10 is a conservative steady-state
-# ceiling that exercises connection pooling without triggering 429. A single
-# shared semaphore (rather than one-per-endpoint) correctly represents the
-# shared upstream rate budget.
-DEFAULT_ENRICHMENT_CONCURRENCY: int = 10
 
 
 # ---------------------------------------------------------------------------
@@ -268,19 +259,16 @@ def _collect_enrichment(results: list[Any]) -> pd.DataFrame:
 
 
 def _fetch_enrichment_df(
-    semaphore: threading.Semaphore,
     http: HttpClient,
     path: str,
     symbol: str,
 ) -> pd.DataFrame:
     """Fetch one enrichment endpoint for one symbol, return a DataFrame.
 
-    Runs inside the shared semaphore to respect the per-invocation
-    concurrency cap. Returns an empty DataFrame for genuinely empty
-    responses so ``_collect_enrichment`` can distinguish those from errors.
+    Returns an empty DataFrame for genuinely empty responses so
+    ``_collect_enrichment`` can distinguish those from errors.
     """
-    with semaphore:
-        data = fmp_get(http, path=path, params={"symbol": symbol}, op_name=f"fmp_screener:{path}")
+    data = fmp_get(http, path=path, params={"symbol": symbol}, op_name=f"fmp_screener:{path}")
     if not data:
         return pd.DataFrame()
     df = pd.json_normalize(data if isinstance(data, list) else [data])
@@ -389,22 +377,21 @@ def execute(
         need_ratios,
     )
 
-    # Step 3: Enrichment fan-out with a single shared semaphore and a
-    # single pooled httpx.Client. One semaphore correctly models the
-    # shared upstream rate budget across metrics+ratios endpoints.
+    # Step 3: Enrichment over a single pooled httpx.Client. Failures are
+    # captured per symbol rather than raised so one bad symbol can't sink
+    # the whole screen.
     metrics_df = pd.DataFrame(columns=["symbol"])
     ratios_df = pd.DataFrame(columns=["symbol"])
 
     if need_metrics or need_ratios:
-        semaphore = threading.Semaphore(DEFAULT_ENRICHMENT_CONCURRENCY)
         with pooled_client(http) as enrich_http:
             gathered_metrics: list[Any] = []
             gathered_ratios: list[Any] = []
 
             def _safe_enrich(endpoint: str, symbol: str) -> pd.DataFrame | BaseException:
                 try:
-                    return _fetch_enrichment_df(semaphore, enrich_http, endpoint, symbol)
-                except BaseException as exc:  # noqa: BLE001 — mirror gather(return_exceptions=True)
+                    return _fetch_enrichment_df(enrich_http, endpoint, symbol)
+                except BaseException as exc:  # noqa: BLE001 — capture per-symbol failure, don't raise
                     return exc
 
             if need_metrics:
@@ -483,6 +470,5 @@ def execute(
 
 
 __all__ = [
-    "DEFAULT_ENRICHMENT_CONCURRENCY",
     "execute",
 ]

@@ -31,16 +31,11 @@ No configuration required — the BPstat API is open and unauthenticated.
 ## Quick start
 
 ```python
-import asyncio
 from parsimony_bdp import CONNECTORS
 
-async def main():
-    connectors = CONNECTORS
-    # Discover available datasets first via enumerate_bdp, then fetch:
-    result = await connectors["bdp_fetch"](domain_id=1, dataset_id="<dataset_id>")
-    print(result.data.head())
-
-asyncio.run(main())
+# Discover available datasets first via enumerate_bdp, then fetch:
+result = CONNECTORS["bdp_fetch"](domain_id=1, dataset_id="<dataset_id>")
+print(result.data.head())
 ```
 
 For multi-plugin composition (autoloads everything installed):

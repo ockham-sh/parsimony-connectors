@@ -1,11 +1,12 @@
-"""``sdmx_series_search`` and ``sdmx_datasets_search`` — MCP-facing tools.
+"""``sdmx_datasets_search`` and ``sdmx_codelist_search`` — MCP-facing tools.
 
-**Expected usage (structured search first):**
+**Expected usage:**
 
-1. ``sdmx_datasets_search(agency=..., query=...)`` on ``sdmx_datasets_<agency>``.
-2. Read ``dimensions`` for flows with published series catalogs.
-3. ``sdmx_series_search(flow_id='AGENCY/FLOW', ...)``.
-4. ``sdmx_fetch``.
+1. ``sdmx_datasets_search(query=..., agency=...)`` on ``sdmx_datasets_<agency>`` (agency optional).
+2. Read ``dsd`` summary for the chosen flow (dimension order + codelist refs).
+3. ``sdmx_codelist_search(agency=..., codelist_id=..., query=...)`` to resolve codes.
+4. ``enumerate_sdmx_series(agency=..., dataset_id=..., key_pattern=...)`` for populated combos.
+5. ``sdmx_fetch``.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import os
 from typing import Annotated
 
 import pandas as pd
-from parsimony.catalog import Catalog
+from parsimony.catalog import Catalog, CatalogMatch
 from parsimony.catalog.search import CatalogLRU, resolved_catalog_url
 from parsimony.catalog.source import lazy_catalog_dir
 from parsimony.connector import connector
@@ -23,16 +24,16 @@ from parsimony.errors import ConnectorError, EmptyDataError, InvalidParameterErr
 from parsimony.result import Column, ColumnRole, OutputConfig
 from pydantic import BaseModel, Field
 
-from parsimony_sdmx.catalog_build import build_agency_datasets_catalog, build_series_catalog
-from parsimony_sdmx.connectors._agencies import AgencyId
+from parsimony_sdmx.catalog_build import build_agency_datasets_catalog, build_codelist_catalog_from_structure
+from parsimony_sdmx.connectors._agencies import ALL_AGENCIES, AgencyId
+from parsimony_sdmx.connectors.codelist_namespace import codelist_namespace
 from parsimony_sdmx.connectors.enumerate_datasets import datasets_namespace
-from parsimony_sdmx.connectors.enumerate_series import series_namespace
 
 logger = logging.getLogger(__name__)
 
 PARSIMONY_SDMX_CATALOG_URL_ENV = "PARSIMONY_SDMX_CATALOG_URL"
 DEFAULT_CATALOG_ROOT = "hf://parsimony-dev/sdmx"
-DEFAULT_LRU_SIZE = 4
+DEFAULT_LRU_SIZE = 8
 
 
 def _lru_size_from_env() -> int:
@@ -87,114 +88,10 @@ def _parse_agency(agency: str) -> AgencyId:
         ) from None
 
 
-def _resolve_datasets_namespace(*, agency: AgencyId | str | None) -> str:
-    """Map *agency* to ``sdmx_datasets_<agency>`` (agency is required)."""
-
-    if agency is None:
-        raise ConnectorError(
-            "sdmx_datasets_search requires agency (e.g. agency='ECB'). DO NOT retry without it.",
-            provider="sdmx",
-        )
-    parsed = _parse_agency(agency) if isinstance(agency, str) else agency
-    return datasets_namespace(parsed)
-
-
-def _parse_series_flow(flow_id: str) -> tuple[AgencyId, str]:
-    """Return ``(agency, dataset_id)`` from ``AGENCY/FLOW`` or a series namespace."""
-    raw = flow_id.strip()
-    if not raw:
-        raise ConnectorError(
-            "flow_id must be non-empty in 'AGENCY/FLOW' form (e.g. 'ECB/HICP').",
-            provider="sdmx",
-        )
-    if raw.lower().startswith("sdmx_series_"):
-        token = raw.lower().removeprefix("sdmx_series_")
-        for agency in AgencyId:
-            prefix = f"{agency.value.lower()}_"
-            if token.startswith(prefix):
-                return agency, token[len(prefix) :]
-        raise ConnectorError(f"Could not parse series namespace {flow_id!r}.", provider="sdmx")
-    for sep in ("/", "-"):
-        if sep in raw:
-            agency_raw, dataset_id = raw.split(sep, 1)
-            dataset_id = dataset_id.strip()
-            if not dataset_id:
-                raise ConnectorError(
-                    f"flow_id {flow_id!r} missing dataset id after {sep!r}.",
-                    provider="sdmx",
-                )
-            return _parse_agency(agency_raw), dataset_id
-    raise ConnectorError(
-        f"flow_id {flow_id!r} must include agency and dataset (e.g. 'ECB/HICP').",
-        provider="sdmx",
-    )
-
-
-def _resolve_series_namespace(flow_id: str) -> str:
-    """Map ``AGENCY/FLOW`` (or namespace pass-through) to a series catalog namespace."""
-    agency, dataset_id = _parse_series_flow(flow_id)
-    return series_namespace(agency, dataset_id)
-
-
-SERIES_SEARCH_OUTPUT = OutputConfig(
-    columns=[
-        Column(name="series_key", role=ColumnRole.KEY),
-        Column(name="title", role=ColumnRole.TITLE),
-        Column(name="score", role=ColumnRole.DATA),
-        Column(name="namespace", role=ColumnRole.METADATA),
-    ]
-)
-
-
-class SeriesSearchParams(BaseModel):
-    query: Annotated[str, Field(min_length=1, max_length=512)]
-    flow_id: Annotated[str, Field(min_length=1, max_length=128)]
-    limit: int = Field(default=10, ge=1, le=50)
-    catalog_root: str | None = None
-
-
-@connector(output=SERIES_SEARCH_OUTPUT, tags=["sdmx", "tool"])
-def sdmx_series_search(
-    query: str,
-    flow_id: str,
-    limit: int = 10,
-    catalog_root: str | None = None,
-) -> pd.DataFrame:
-    """Search a per-flow SDMX series catalog (structured queries preferred).
-
-    ``flow_id`` must be ``AGENCY/FLOW`` (e.g. ``ECB/YC``). Chain:
-    ``sdmx_datasets_search(agency=...)`` → ``sdmx_series_search`` → ``sdmx_fetch``.
-    """
-    params = SeriesSearchParams(query=query, flow_id=flow_id, limit=limit, catalog_root=catalog_root)
-    agency, dataset_id = _parse_series_flow(params.flow_id)
-    namespace = series_namespace(agency, dataset_id)
-
-    def _build() -> Catalog:
-        return build_series_catalog(agency, dataset_id)
-
-    catalog = _get_or_load_catalog(namespace, catalog_root=params.catalog_root, build=_build)
-    matches, _ = catalog.search(params.query, limit=params.limit)
-
-    if not matches:
-        raise EmptyDataError(
-            provider="sdmx",
-            message=(
-                f"No matches for query={params.query!r} in flow_id={params.flow_id!r} "
-                f"(namespace={namespace}). Try sdmx_datasets_search first."
-            ),
-        )
-
-    return pd.DataFrame(
-        [
-            {
-                "series_key": m.code,
-                "title": m.title,
-                "score": round(m.score, 6),
-                "namespace": m.namespace,
-            }
-            for m in matches
-        ]
-    )
+def _agencies_for_search(agency: str | None) -> list[AgencyId]:
+    if agency is None or not agency.strip():
+        return list(ALL_AGENCIES)
+    return [_parse_agency(agency)]
 
 
 DATASETS_SEARCH_OUTPUT = OutputConfig(
@@ -205,9 +102,9 @@ DATASETS_SEARCH_OUTPUT = OutputConfig(
         Column(name="agency", role=ColumnRole.METADATA),
         Column(name="dataset_id", role=ColumnRole.METADATA),
         Column(
-            name="dimensions",
+            name="dsd",
             role=ColumnRole.METADATA,
-            description="Dimension manifest when a series catalog exists for this flow.",
+            description="Summarized DSD (dimension order, codelist refs, samples).",
         ),
     ]
 )
@@ -215,7 +112,7 @@ DATASETS_SEARCH_OUTPUT = OutputConfig(
 
 class DatasetsSearchParams(BaseModel):
     query: Annotated[str, Field(min_length=1, max_length=512)]
-    agency: Annotated[str, Field(min_length=1, max_length=32, description="SDMX agency, e.g. ECB.")]
+    agency: Annotated[str | None, Field(default=None, max_length=32, description="SDMX agency (optional).")]
     limit: int = Field(default=10, ge=1, le=50)
     catalog_root: str | None = None
 
@@ -223,43 +120,50 @@ class DatasetsSearchParams(BaseModel):
 @connector(output=DATASETS_SEARCH_OUTPUT, tags=["sdmx", "tool"])
 def sdmx_datasets_search(
     query: str,
-    agency: str,
+    agency: str | None = None,
     limit: int = 10,
     catalog_root: str | None = None,
 ) -> pd.DataFrame:
-    """Discover SDMX flows within one agency's dataset catalog.
+    """Discover SDMX flows within one or all agency dataset catalogs.
 
-    ``agency`` is required (e.g. ``ECB``). Searches ``sdmx_datasets_<agency>``.
-    Use structured ``code: AGENCY|FLOW`` or plain title text. Returns ``dimensions``
-    only for flows with a published series catalog.
+    When ``agency`` is omitted, searches every ``sdmx_datasets_<agency>`` catalog
+    and merges ranked matches. Returns a summarized ``dsd`` for each hit.
     """
     params = DatasetsSearchParams(query=query, agency=agency, limit=limit, catalog_root=catalog_root)
-    parsed_agency = _parse_agency(params.agency)
-    namespace = datasets_namespace(parsed_agency)
+    agencies = _agencies_for_search(params.agency)
 
-    def _build() -> Catalog:
-        return build_agency_datasets_catalog(parsed_agency)
+    all_matches: list[tuple[float, CatalogMatch]] = []
+    for parsed_agency in agencies:
+        namespace = datasets_namespace(parsed_agency)
 
-    catalog = _get_or_load_catalog(namespace, catalog_root=params.catalog_root, build=_build)
-    matches, _ = catalog.search(params.query, limit=params.limit)
+        def _build(agency=parsed_agency) -> Catalog:
+            return build_agency_datasets_catalog(agency)
 
-    if not matches:
+        catalog = _get_or_load_catalog(namespace, catalog_root=params.catalog_root, build=_build)
+        matches, _ = catalog.search(params.query, limit=params.limit)
+        all_matches.extend((m.score, m) for m in matches)
+
+    if not all_matches:
+        scope = params.agency or "all agencies"
         raise EmptyDataError(
             provider="sdmx",
             message=(
-                f"No flow matches for query={params.query!r} in agency={params.agency!r}. "
+                f"No flow matches for query={params.query!r} in {scope!r}. "
                 "Try a broader title query or code: AGENCY|FLOW."
             ),
         )
 
+    all_matches.sort(key=lambda item: item[0], reverse=True)
+    top = all_matches[: params.limit]
+
     rows: list[dict[str, object]] = []
-    for m in matches:
+    for _, m in top:
         row_agency = str(m.metadata.get("agency", "") if m.metadata else "")
         dataset_id = str(m.metadata.get("dataset_id", "") if m.metadata else "")
         flow_id = f"{row_agency}/{dataset_id}" if row_agency and dataset_id else m.code
-        dimensions = m.metadata.get("dimensions", []) if m.metadata else []
-        if not isinstance(dimensions, list):
-            dimensions = []
+        dsd = m.metadata.get("dsd", []) if m.metadata else []
+        if not isinstance(dsd, list):
+            dsd = []
         rows.append(
             {
                 "flow_id": flow_id,
@@ -267,21 +171,111 @@ def sdmx_datasets_search(
                 "score": round(m.score, 6),
                 "agency": row_agency,
                 "dataset_id": dataset_id,
-                "dimensions": dimensions,
+                "dsd": dsd,
             }
         )
     return pd.DataFrame(rows)
 
 
+CODELIST_SEARCH_OUTPUT = OutputConfig(
+    columns=[
+        Column(name="code", role=ColumnRole.KEY),
+        Column(name="label", role=ColumnRole.TITLE),
+        Column(name="score", role=ColumnRole.DATA),
+        Column(name="codelist_id", role=ColumnRole.METADATA),
+        Column(name="namespace", role=ColumnRole.METADATA),
+    ]
+)
+
+
+class CodelistSearchParams(BaseModel):
+    query: Annotated[str, Field(min_length=1, max_length=512)]
+    agency: Annotated[str, Field(min_length=1, max_length=32, description="SDMX agency, e.g. ECB.")]
+    codelist_id: Annotated[str, Field(min_length=1, max_length=128)]
+    dataset_id_hint: Annotated[
+        str | None,
+        Field(default=None, max_length=128, description="Flow id for lazy codelist build when catalog missing."),
+    ]
+    limit: int = Field(default=10, ge=1, le=50)
+    catalog_root: str | None = None
+
+
+def _normalize_codelist_query(query: str) -> str:
+    """Route natural-language probes to the hybrid ``label`` index."""
+    stripped = query.strip()
+    if ":" not in stripped:
+        return f"label: {stripped}"
+    return stripped
+
+
+@connector(output=CODELIST_SEARCH_OUTPUT, tags=["sdmx", "tool"])
+def sdmx_codelist_search(
+    query: str,
+    agency: str,
+    codelist_id: str,
+    dataset_id_hint: str | None = None,
+    limit: int = 10,
+    catalog_root: str | None = None,
+) -> pd.DataFrame:
+    """Search a deduplicated SDMX codelist catalog for concept->code resolution."""
+    params = CodelistSearchParams(
+        query=query,
+        agency=agency,
+        codelist_id=codelist_id,
+        dataset_id_hint=dataset_id_hint,
+        limit=limit,
+        catalog_root=catalog_root,
+    )
+    parsed_agency = _parse_agency(params.agency)
+    namespace = codelist_namespace(parsed_agency, params.codelist_id)
+
+    def _build() -> Catalog:
+        if not params.dataset_id_hint:
+            raise ConnectorError(
+                "Codelist catalog missing and no dataset_id_hint for lazy build. "
+                "Pass dataset_id_hint from sdmx_datasets_search dsd entry.",
+                provider="sdmx",
+            )
+        return build_codelist_catalog_from_structure(
+            parsed_agency,
+            params.codelist_id,
+            dataset_id_hint=params.dataset_id_hint,
+        )
+
+    catalog = _get_or_load_catalog(namespace, catalog_root=params.catalog_root, build=_build)
+    search_query = _normalize_codelist_query(params.query)
+    matches, _ = catalog.search(search_query, limit=params.limit)
+
+    if not matches:
+        raise EmptyDataError(
+            provider="sdmx",
+            message=(
+                f"No codelist matches for query={params.query!r} in {params.codelist_id!r} "
+                f"(agency={params.agency!r}, namespace={namespace})."
+            ),
+        )
+
+    return pd.DataFrame(
+        [
+            {
+                "code": m.code,
+                "label": m.title,
+                "score": round(m.score, 6),
+                "codelist_id": params.codelist_id,
+                "namespace": m.namespace,
+            }
+            for m in matches
+        ]
+    )
+
+
 __all__ = [
     "DEFAULT_CATALOG_ROOT",
+    "CodelistSearchParams",
     "DatasetsSearchParams",
     "PARSIMONY_SDMX_CATALOG_URL_ENV",
-    "SeriesSearchParams",
     "_clear_catalog_lru",
-    "_resolve_datasets_namespace",
-    "_resolve_series_namespace",
+    "sdmx_codelist_search",
     "sdmx_datasets_search",
-    "sdmx_series_search",
     "set_catalog_lru_size",
 ]

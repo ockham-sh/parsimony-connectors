@@ -10,8 +10,8 @@ Run explicitly with::
 
     uv run pytest packages/boj -m integration
 
-**Bounded crawls only.** ``enumerate_boj`` normally fans out a ``getMetadata``
-request to all 50 canonical BoJ databases behind Akamai (concurrency-capped,
+**Bounded crawls only.** ``enumerate_boj`` normally walks a ``getMetadata``
+request across all 50 canonical BoJ databases behind Akamai (serial,
 browser UA, retries). The live enumerate test monkeypatches ``_BOJ_DATABASES``
 down to a single small DB so the crawl fires exactly one request. The catalog
 search tests build a tiny local fixture catalog and point ``catalog_root`` at

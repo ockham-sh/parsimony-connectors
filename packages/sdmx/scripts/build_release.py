@@ -1,19 +1,8 @@
 """Ledger-driven release catalog build orchestrator.
 
-One flow = one short-lived ``build_catalog.py --catalog series`` child.
+One flow = one short-lived ``build_catalog.py --catalog structure`` child.
 State lives in append-only JSONL ledgers under the save root; the parent
 process stays small and never imports pandas/sdmx/faiss.
-
-Usage::
-
-    # Resume ESTAT (seeds ``built`` from existing snapshots on first run)
-    python scripts/build_release.py run --agency ESTAT --save-root /tmp/parsimony-catalogs-v1/sdmx
-
-    # Status
-    python scripts/build_release.py status --save-root /tmp/parsimony-catalogs-v1/sdmx
-
-    # Enrich agency dataset catalog after series sweep
-    python scripts/build_release.py enrich --agency ESTAT --save-root /tmp/parsimony-catalogs-v1/sdmx
 """
 
 from __future__ import annotations
@@ -35,9 +24,13 @@ from pathlib import Path
 
 from parsimony_sdmx._isolation import LIST_DEFAULT_TIMEOUT_S, ListDatasetsError, list_datasets
 from parsimony_sdmx.connectors._agencies import ALL_AGENCIES, AgencyId
-from parsimony_sdmx.connectors.enumerate_series import series_namespace
 from parsimony_sdmx.core.models import DatasetRecord
-from parsimony_sdmx.series_selection import prioritize_series_records, select_series_records
+
+
+# Import structure marker helper from build script path at runtime in child only;
+# duplicate minimal namespace helper here to avoid importing build_catalog in parent.
+def structure_marker_namespace(agency: AgencyId, dataset_id: str) -> str:
+    return f"sdmx_structure_{agency.value.lower()}_{dataset_id.lower()}"
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +39,10 @@ PACKAGE_ROOT = SCRIPT_DIR.parent
 DEFAULT_SAVE_ROOT = "/tmp/parsimony-catalogs-v1/sdmx"
 DEFAULT_STATUS_DIR = "/tmp/parsimony-catalog-build"
 
-FETCH_TIMEOUTS_S: tuple[float, ...] = (600.0, 1800.0)
+FETCH_TIMEOUTS_S: tuple[float, ...] = (120.0, 300.0)
 MIN_AVAIL_KB = 1_500_000
 RLIMIT_AS_BYTES = 6 * 1024**3
-INDEX_BUFFER_S = 900.0
-WB_WDI_FETCH_TIMEOUT_S = 43_200.0
-WB_WDI_WALL_TIMEOUT_S = WB_WDI_FETCH_TIMEOUT_S + INDEX_BUFFER_S
+INDEX_BUFFER_S = 120.0
 
 TERMINAL_STATES = frozenset({"built", "lazy", "skipped"})
 
@@ -187,8 +178,8 @@ def _wait_for_network() -> None:
         time.sleep(60)
 
 
-def count_series_on_disk(save_root: Path, agency: AgencyId) -> int:
-    prefix = f"sdmx_series_{agency.value.lower()}_"
+def count_structures_on_disk(save_root: Path, agency: AgencyId) -> int:
+    prefix = f"sdmx_structure_{agency.value.lower()}_"
     if not save_root.is_dir():
         return 0
     return sum(
@@ -201,7 +192,6 @@ def count_series_on_disk(save_root: Path, agency: AgencyId) -> int:
 def selected_flows(
     agency: AgencyId,
     *,
-    build_all_series: bool,
     skip_ids: set[str],
 ) -> list[DatasetRecord]:
     if agency is AgencyId.WB_WDI:
@@ -210,18 +200,13 @@ def selected_flows(
         records = list_datasets(agency.value, LIST_DEFAULT_TIMEOUT_S)
     except ListDatasetsError as exc:
         raise ValueError(f"Could not list datasets for {agency.value}: {exc.message}") from exc
-    if build_all_series:
-        selected = [r for r in records if "$" not in r.dataset_id]
-    else:
-        selected = select_series_records(agency, records)
-    return [r for r in selected if r.dataset_id.upper() not in skip_ids]
+    return [r for r in records if "$" not in r.dataset_id and r.dataset_id.upper() not in skip_ids]
 
 
 def seed_ledger(
     save_root: Path,
     agency: AgencyId,
     *,
-    build_all_series: bool,
     skip_ids: set[str],
 ) -> dict[str, LedgerEvent]:
     path = ledger_path(save_root, agency)
@@ -229,11 +214,10 @@ def seed_ledger(
     if existing:
         return existing
 
-    candidates = selected_flows(agency, build_all_series=build_all_series, skip_ids=skip_ids)
-    flows = prioritize_series_records(agency, candidates)
+    flows = selected_flows(agency, skip_ids=skip_ids)
     state: dict[str, LedgerEvent] = {}
     for record in flows:
-        namespace = series_namespace(agency, record.dataset_id)
+        namespace = structure_marker_namespace(agency, record.dataset_id)
         ts = _now_iso()
         if record.dataset_id.upper() in skip_ids:
             event = LedgerEvent(namespace=namespace, dataset_id=record.dataset_id, state="skipped", attempt=0, ts=ts)
@@ -278,14 +262,14 @@ def run_flow_child(
     fetch_timeout_s: float,
     log_dir: Path,
 ) -> tuple[bool, int | None, float, str | None]:
-    namespace = series_namespace(agency, dataset_id)
+    namespace = structure_marker_namespace(agency, dataset_id)
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"{namespace}.log"
     cmd = [
         python,
         str(SCRIPT_DIR / "build_catalog.py"),
         "--catalog",
-        "series",
+        "structure",
         "--agency",
         agency.value,
         "--dataset-id",
@@ -294,7 +278,6 @@ def run_flow_child(
         str(save_root),
         "--fetch-timeout-s",
         str(fetch_timeout_s),
-        "--no-datasets-merge",
     ]
     env = os.environ.copy()
     env.setdefault("HF_HUB_OFFLINE", "1")
@@ -330,8 +313,6 @@ def next_attempt(event: LedgerEvent) -> int:
 
 
 def fetch_timeout_for_attempt(attempt: int, agency: AgencyId) -> float | None:
-    if agency is AgencyId.WB_WDI:
-        return WB_WDI_FETCH_TIMEOUT_S if attempt <= len(FETCH_TIMEOUTS_S) else None
     if attempt <= 0:
         return FETCH_TIMEOUTS_S[0]
     if attempt <= len(FETCH_TIMEOUTS_S):
@@ -462,7 +443,7 @@ def write_status_file(
         counts[event.state] = counts.get(event.state, 0) + 1
 
     def _agency_line(a: AgencyId) -> str:
-        return f"{count_series_on_disk(save_root, a)}"
+        return f"{count_structures_on_disk(save_root, a)}"
 
     lines = [
         f"updated={_now_iso()}",
@@ -475,10 +456,10 @@ def write_status_file(
         f"built={counts.get('built', 0)}",
         f"lazy={counts.get('lazy', 0)}",
         f"skipped={counts.get('skipped', 0)}",
-        f"ecb_series={_agency_line(AgencyId.ECB)}/101",
-        f"imf_series={_agency_line(AgencyId.IMF_DATA)}/193",
-        f"wb_series={_agency_line(AgencyId.WB_WDI)}/1",
-        f"estat_series={_agency_line(AgencyId.ESTAT)}",
+        f"ecb_structures={_agency_line(AgencyId.ECB)}",
+        f"imf_structures={_agency_line(AgencyId.IMF_DATA)}",
+        f"wb_structures={_agency_line(AgencyId.WB_WDI)}",
+        f"estat_structures={_agency_line(AgencyId.ESTAT)}",
         f"mem_avail_mb={mem_available_kb() // 1024}",
     ]
     tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -498,9 +479,9 @@ def cmd_status(args: argparse.Namespace) -> None:
     for agency in agencies:
         states = load_ledger(ledger_path(save_root, agency))
         if not states:
-            states = seed_ledger(save_root, agency, build_all_series=args.build_all_series, skip_ids=_skip_ids(args))
+            states = seed_ledger(save_root, agency, skip_ids=_skip_ids(args))
         counts = summarize_ledger(states)
-        disk = count_series_on_disk(save_root, agency)
+        disk = count_structures_on_disk(save_root, agency)
         print(
             f"{agency.value}: disk={disk} pending={counts.get('pending', 0)} "
             f"built={counts.get('built', 0)} lazy={counts.get('lazy', 0)} "
@@ -549,13 +530,12 @@ def run_agency(
     save_root: Path,
     agency: AgencyId,
     parallel: int,
-    build_all_series: bool,
     skip_ids: set[str],
     status_dir: Path,
     log_dir: Path,
 ) -> dict[str, LedgerEvent]:
     ledger_file = ledger_path(save_root, agency)
-    states = seed_ledger(save_root, agency, build_all_series=build_all_series, skip_ids=skip_ids)
+    states = seed_ledger(save_root, agency, skip_ids=skip_ids)
     _normalize_running_states(ledger_file, states)
     states = load_ledger(ledger_file)
 
@@ -634,13 +614,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     agencies = [args.agency] if args.agency else list(ALL_AGENCIES)
     exit_code = 0
     for agency in agencies:
-        logger.info("=== %s series sweep ===", agency.value)
+        logger.info("=== %s structure sweep ===", agency.value)
         final = run_agency(
             python=python,
             save_root=save_root,
             agency=agency,
             parallel=args.parallel,
-            build_all_series=args.build_all_series,
             skip_ids=skip_ids,
             status_dir=status_dir,
             log_dir=log_dir,
@@ -670,10 +649,10 @@ def cmd_run(args: argparse.Namespace) -> int:
             [
                 f"finished={_now_iso()}",
                 "orchestrator=build_release.py",
-                f"ecb_series={count_series_on_disk(save_root, AgencyId.ECB)}",
-                f"imf_series={count_series_on_disk(save_root, AgencyId.IMF_DATA)}",
-                f"estat_series={count_series_on_disk(save_root, AgencyId.ESTAT)}",
-                f"wb_series={'yes' if snapshot_exists(save_root, 'sdmx_series_wb_wdi_wdi') else 'no'}",
+                f"ecb_structures={count_structures_on_disk(save_root, AgencyId.ECB)}",
+                f"imf_structures={count_structures_on_disk(save_root, AgencyId.IMF_DATA)}",
+                f"estat_structures={count_structures_on_disk(save_root, AgencyId.ESTAT)}",
+                f"wb_structures={count_structures_on_disk(save_root, AgencyId.WB_WDI)}",
             ]
         )
         + "\n",
@@ -704,7 +683,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
     for agency in [args.agency] if args.agency else list(ALL_AGENCIES):
         states = load_ledger(ledger_path(save_root, agency))
         if not states:
-            states = seed_ledger(save_root, agency, build_all_series=args.build_all_series, skip_ids=_skip_ids(args))
+            states = seed_ledger(save_root, agency, skip_ids=_skip_ids(args))
         for event in states.values():
             if event.state == "built" and not snapshot_exists(save_root, event.namespace):
                 issues.append(f"{event.namespace}: ledger=built but meta.json missing")
@@ -728,7 +707,6 @@ def _add_common_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--python", help="Python executable for child builds")
     parser.add_argument("--agency", type=AgencyId)
     parser.add_argument("--parallel", type=int, default=1)
-    parser.add_argument("--build-all-series", action="store_true")
     parser.add_argument("--skip-dataset-id", action="append", default=[])
 
 

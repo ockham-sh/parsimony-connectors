@@ -1,0 +1,19 @@
+catalog_url: hf://parsimony-dev/boc
+
+queries:
+  - id: code_ces_electronic
+    query: "code: CES_C10B_NEXT_ELECTRONIC_L"
+    expected_code: CES_C10B_NEXT_ELECTRONIC_L
+    mode: code
+    required: true
+    why: "Direct lookup on indexed code field"
+
+  - id: title_ces_electronic
+    query: "Next six months electronic high school"
+    expected_code: CES_C10B_NEXT_ELECTRONIC_L
+    mode: title_bm25
+    required: true
+    why: "Lexical title probe"
+
+thresholds:
+  min_required_recall: 1.0

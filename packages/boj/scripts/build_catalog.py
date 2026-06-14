@@ -17,13 +17,12 @@ import argparse
 import logging
 from pathlib import Path
 
-from parsimony.catalog.source import entities_from_raw
-
-from parsimony_boj import BOJ_ENUMERATE_OUTPUT, enumerate_boj
+from parsimony_boj import enumerate_boj
 from parsimony_boj.catalog_build import (
     DATABASES_NAMESPACE,
     build_databases_catalog,
     build_series_catalog,
+    entities_from_boj_enumeration,
     split_enumerated_entries,
 )
 
@@ -49,7 +48,7 @@ def _publish(catalog, *, save_root: str | None, push_root: str | None) -> None:
 
 def build_all(*, save_root: str | None, push_root: str | None, db_filter: set[str] | None) -> None:
     result = enumerate_boj()
-    entries = entities_from_raw(result, BOJ_ENUMERATE_OUTPUT)
+    entries = entities_from_boj_enumeration(result)
     databases, series_by_db = split_enumerated_entries(entries)
     logger.info(
         "BoJ enumerate split: %d databases, %d series namespaces",
@@ -74,7 +73,7 @@ def build_all(*, save_root: str | None, push_root: str | None, db_filter: set[st
 
 def build_databases_only(*, save_root: str | None, push_root: str | None) -> None:
     result = enumerate_boj()
-    entries = entities_from_raw(result, BOJ_ENUMERATE_OUTPUT)
+    entries = entities_from_boj_enumeration(result)
     databases, _ = split_enumerated_entries(entries)
     catalog = build_databases_catalog(databases)
     _publish(catalog, save_root=save_root, push_root=push_root)
@@ -88,7 +87,7 @@ def build_one_series(
     push_root: str | None,
 ) -> None:
     result = enumerate_boj()
-    entries = entities_from_raw(result, BOJ_ENUMERATE_OUTPUT)
+    entries = entities_from_boj_enumeration(result)
     _, series_by_db = split_enumerated_entries(entries)
     rows = series_by_db.get(db_code.upper()) or series_by_db.get(db_code)
     if not rows:

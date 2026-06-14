@@ -1,0 +1,19 @@
+catalog_url: hf://parsimony-dev/bdp
+
+queries:
+  - id: code_trade_payables_food
+    query: "code: 170:1e2c4732d70e81e931db92220ba4e54b:12635141"
+    expected_code: "170:1e2c4732d70e81e931db92220ba4e54b:12635141"
+    mode: code
+    required: true
+    why: "Direct lookup on indexed code field"
+
+  - id: title_trade_payables_food
+    query: "Trade payables Food manufact Prepared animal feeds"
+    expected_code: "170:1e2c4732d70e81e931db92220ba4e54b:12635141"
+    mode: title_bm25
+    required: true
+    why: "Lexical title probe"
+
+thresholds:
+  min_required_recall: 1.0

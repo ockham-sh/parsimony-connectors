@@ -40,12 +40,14 @@ not loadable.
 
 ### SDMX agency footprint
 
-| Agency | Datasets catalog | Series catalogs |
-|--------|------------------|-----------------|
-| ECB | all non-derived flows (~103) | prebuild all |
-| ESTAT | recall-fixed macro subset (~3,467) | prebuild high-value core; lazy-build long tail |
-| IMF_DATA | all flows (193) | prebuild all |
-| WB_WDI | single flow | prebuild |
+| Agency | Datasets catalog | Codelist catalogs |
+|--------|------------------|-------------------|
+| ECB | all non-derived flows (~103) | deduplicated from DSD structure (~hundreds) |
+| ESTAT | all recall-fixed macro flows (~3,467) | deduplicated from DSD structure |
+| IMF_DATA | all flows (193) | deduplicated from DSD structure |
+| WB_WDI | single flow | deduplicated from DSD structure |
+
+Series discovery is **on-demand** via scoped keys-only requests (`enumerate_sdmx_series`) — no per-flow series catalogs.
 
 ### BoJ bundles
 

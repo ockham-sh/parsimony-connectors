@@ -30,16 +30,22 @@ fi
 
 # hf://org/repo[/subpath]
 REST="${CATALOG_URL#hf://}"
-REPO_ID="${REST%%/*}"
+IFS='/' read -ra PARTS <<< "$REST"
+if ((${#PARTS[@]} < 2)); then
+  echo "Invalid hf catalog URL (expected hf://org/repo[/subpath]): $CATALOG_URL" >&2
+  exit 1
+fi
+REPO_ID="${PARTS[0]}/${PARTS[1]}"
 SUBPATH=""
-if [[ "$REST" == */* ]]; then
-  SUBPATH="${REST#*/}"
+if ((${#PARTS[@]} > 2)); then
+  SUBPATH="${PARTS[2]}"
+  for ((i = 3; i < ${#PARTS[@]}; i++)); do
+    SUBPATH+="/${PARTS[i]}"
+  done
 fi
 
 HF=(uv tool run hf)
-if [[ -n "${HF_TOKEN:-}" ]]; then
-  HF+=(--token "$HF_TOKEN")
-fi
+# HF_TOKEN is read from the environment by huggingface_hub; the CLI has no global --token flag.
 
 echo "Creating dataset repo (if needed): $REPO_ID"
 "${HF[@]}" repos create "$REPO_ID" --repo-type dataset --exist-ok
@@ -57,7 +63,7 @@ else
 fi
 
 echo "Done. Validate with:"
-echo "  uv run python scripts/validate_catalog.py --catalog-url $CATALOG_URL"
+echo "  uv run python tooling/validate_catalog.py --catalog-url $CATALOG_URL"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [[ -z "$SUBPATH" ]] || [[ "${PARSIMONY_UPDATE_DATASET_CARD:-}" == "1" ]]; then
@@ -66,7 +72,7 @@ if [[ -z "$SUBPATH" ]] || [[ "${PARSIMONY_UPDATE_DATASET_CARD:-}" == "1" ]]; the
     CARD_ROOT="${PARSIMONY_CATALOG_ROOT}"
   fi
   echo "Updating dataset card README for $REPO_ID"
-  uv run python "$REPO_ROOT/scripts/publish_catalog_dataset_card.py" \
+  uv run python "$REPO_ROOT/tooling/publish_catalog_dataset_card.py" \
     --repo-id "$REPO_ID" \
     --from-local "$CARD_ROOT" \
     --preserve-body \

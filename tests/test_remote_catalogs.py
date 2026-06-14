@@ -81,6 +81,23 @@ def test_sdmx_agency_datasets_catalog_schema() -> None:
     assert report.entry_count > 0
 
 
+def test_sdmx_codelist_catalog_schema() -> None:
+    skip_unless_remote_catalogs()
+    _, _, _, validate_catalog = import_catalog_validate()
+    root = catalog_url_override("hf://parsimony-dev/sdmx")
+    url = f"{root}/sdmx_codelist_ecb_cl_freq"
+    report = validate_catalog(
+        url,
+        None,
+        allow_missing=allow_missing_remote(),
+        catalog_root=root,
+    )
+    if report.skipped:
+        pytest.skip(report.skip_reason)
+    assert report.schema_ok
+    assert report.entry_count > 0
+
+
 def test_remote_catalog_marker_registered() -> None:
     """Sanity: remote catalog suite is opt-in."""
     assert not remote_catalogs_enabled()

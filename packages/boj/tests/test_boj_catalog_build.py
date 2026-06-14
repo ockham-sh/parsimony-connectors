@@ -12,11 +12,12 @@ from parsimony.catalog.source import entities_from_raw
 from parsimony_boj import BOJ_ENUMERATE_OUTPUT, catalog_build
 from parsimony_boj.catalog_build import (
     DATABASES_NAMESPACE,
+    entities_from_boj_enumeration,
     series_indexes,
     series_namespace,
     split_enumerated_entries,
 )
-from parsimony_boj.catalog_policy import macro_discovery_indexes
+from parsimony_boj.catalog_policy import discovery_indexes
 
 
 def _flat_rows() -> pd.DataFrame:
@@ -55,6 +56,57 @@ def test_series_namespace_is_lowercase() -> None:
     assert series_namespace("FM08") == "boj_series_fm08"
 
 
+def test_entities_from_boj_enumeration_dedupes_duplicate_codes_within_db() -> None:
+    blank = {
+        "title": "Shared series",
+        "db_title": "",
+        "frequency": "",
+        "unit": "",
+        "category": "",
+        "breadcrumb": "",
+        "start_date": "",
+        "end_date": "",
+        "last_update": "",
+        "source": "stat_search",
+    }
+    df = pd.DataFrame(
+        [
+            {"code": "SAME", "db": "PR01", "entity_type": "series", "description": "first", **blank},
+            {"code": "SAME", "db": "PR01", "entity_type": "series", "description": "second", **blank},
+        ]
+    )
+    entries = entities_from_boj_enumeration(df)
+    _, series_by_db = split_enumerated_entries(entries)
+    assert len(series_by_db["PR01"]) == 1
+    assert series_by_db["PR01"][0].metadata["description"] == "first"
+
+
+def test_entities_from_boj_enumeration_allows_duplicate_codes_across_dbs() -> None:
+    blank = {
+        "title": "Shared series",
+        "db_title": "",
+        "frequency": "",
+        "unit": "",
+        "category": "",
+        "breadcrumb": "",
+        "start_date": "",
+        "end_date": "",
+        "last_update": "",
+        "source": "stat_search",
+    }
+    df = pd.DataFrame(
+        [
+            {"code": "SAME", "db": "FM08", "entity_type": "series", "description": "FX context", **blank},
+            {"code": "SAME", "db": "PR01", "entity_type": "series", "description": "Prices context", **blank},
+        ]
+    )
+    entries = entities_from_boj_enumeration(df)
+    _, series_by_db = split_enumerated_entries(entries)
+    assert set(series_by_db) == {"FM08", "PR01"}
+    assert series_by_db["FM08"][0].metadata["description"] == "FX context"
+    assert series_by_db["PR01"][0].metadata["description"] == "Prices context"
+
+
 def test_split_enumerated_entries_partitions_databases_and_series() -> None:
     databases, series_by_db = split_enumerated_entries(_flat_entries())
 
@@ -72,7 +124,7 @@ def test_split_enumerated_entries_partitions_databases_and_series() -> None:
 
 def test_databases_indexes_use_hybrid_title_and_description() -> None:
     databases, _ = split_enumerated_entries(_flat_entries())
-    indexes = macro_discovery_indexes(databases, include_description=True)
+    indexes = discovery_indexes(databases, include_description=True)
     assert isinstance(indexes["code"], BM25Index)
     assert isinstance(indexes["title"], HybridIndex)
     assert isinstance(indexes["description"], HybridIndex)

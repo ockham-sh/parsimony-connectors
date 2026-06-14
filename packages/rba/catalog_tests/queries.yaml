@@ -1,0 +1,19 @@
+catalog_url: hf://parsimony-dev/rba
+
+queries:
+  - id: code_aus_gov_bond_3y
+    query: "code: f2-data#FCMYGBAG3D"
+    expected_code: f2-data#FCMYGBAG3D
+    mode: code
+    required: true
+    why: "Direct lookup on indexed code field"
+
+  - id: title_aus_gov_bond_3y
+    query: "Australian Government 3 year bond"
+    expected_code: f2-data#FCMYGBAG3D
+    mode: title_bm25
+    required: true
+    why: "Lexical title probe"
+
+thresholds:
+  min_required_recall: 1.0

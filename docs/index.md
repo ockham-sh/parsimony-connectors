@@ -14,18 +14,14 @@ pip install parsimony-core parsimony-fred parsimony-sdmx
 ```
 
 ```python
-import asyncio
 from parsimony import discover
 
-async def main():
-    connectors = discover.load_all()
-    fred = await connectors["fred_fetch"](series_id="UNRATE")
-    ecb = await connectors["sdmx_fetch"](
-        dataset_key="ECB-ICP",
-        series_key="M.U2.N.000000.4.ANR",
-    )
-
-asyncio.run(main())
+connectors = discover.load_all()
+fred = connectors["fred_fetch"](series_id="UNRATE")
+ecb = connectors["sdmx_fetch"](
+    dataset_key="ECB-ICP",
+    series_key="M.U2.N.000000.4.ANR",
+)
 ```
 
 The kernel finds every installed `parsimony-*` package through Python entry-points. Add another connector and it shows up in `connectors`; remove it and it disappears. There is no central registry.
@@ -105,7 +101,7 @@ catalog, BLS surveys, Treasury fiscal data, central-bank macro
 indicators, ...) include a provider-owned `scripts/build_catalog.py`.
 Building is an operator workflow: the user-facing package surface remains
 `CONNECTORS`, while the script enumerates rows, builds indexes, and
-optionally calls ``await catalog.save(...)`` for local paths or ``hf://...`` uploads.
+optionally calls ``catalog.save(...)`` for local paths or ``hf://...`` uploads.
 
 | Platform | Default location |
 |---|---|

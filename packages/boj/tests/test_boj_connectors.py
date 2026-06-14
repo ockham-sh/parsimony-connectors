@@ -21,7 +21,9 @@ import pytest
 import respx
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 from parsimony.result import ColumnRole
+from parsimony_shared.cb_enumerate import MetadataCrawlConfig
 
+import parsimony_boj
 from parsimony_boj import (
     BOJ_ENUMERATE_OUTPUT,
     CONNECTORS,
@@ -31,6 +33,26 @@ from parsimony_boj import (
 
 _DATA_URL = "https://www.stat-search.boj.or.jp/api/v1/getDataCode"
 _META_URL = "https://www.stat-search.boj.or.jp/api/v1/getMetadata"
+
+
+@pytest.fixture(autouse=True)
+def _instant_metadata_crawl(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Strip the Akamai-throttle waits for offline tests.
+
+    The production crawl is serial across ~40 databases with a 0.5s
+    inter-request delay and 1/2/4s retry backoffs — minutes of real
+    ``time.sleep`` under respx. Zeroing the delays keeps every retry and
+    backoff branch on the code path while making the suite instant.
+    """
+    monkeypatch.setattr(
+        parsimony_boj,
+        "_METADATA_CRAWL",
+        MetadataCrawlConfig(
+            inter_request_delay_s=0.0,
+            retry_statuses=parsimony_boj._METADATA_CRAWL.retry_statuses,
+            retry_backoffs_s=(0.0, 0.0, 0.0),
+        ),
+    )
 
 _ENUMERATE_COLS = [
     "code",

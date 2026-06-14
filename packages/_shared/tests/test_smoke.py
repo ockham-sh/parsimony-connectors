@@ -42,10 +42,10 @@ def test_enumerate_descriptions_joins_and_caps() -> None:
 
 def test_metadata_crawl_config_defaults_are_frozen() -> None:
     cfg = MetadataCrawlConfig()
-    assert cfg.concurrency >= 1
+    assert cfg.inter_request_delay_s >= 0
     assert 429 in cfg.retry_statuses
     with pytest.raises(dataclasses.FrozenInstanceError):
-        cfg.concurrency = 99  # type: ignore[misc]
+        cfg.inter_request_delay_s = 99.0  # type: ignore[misc]
 
 
 def test_parse_retry_after() -> None:

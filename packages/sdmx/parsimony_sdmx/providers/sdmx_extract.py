@@ -66,6 +66,19 @@ def extract_dsd_dim_order(dsd: Any, exclude_time: bool = True) -> list[str]:
     return result
 
 
+def extract_dimension_codelist_ids(dsd: Any, exclude_time: bool = True) -> dict[str, str | None]:
+    """Return ``{dim_id: codelist_id}`` for each DSD dimension."""
+    result: dict[str, str | None] = {}
+    for dim in dsd.dimensions:
+        dim_id = getattr(dim, "id", None)
+        if not dim_id:
+            continue
+        if exclude_time and dim_id == TIME_DIM:
+            continue
+        result[str(dim_id)] = _find_codelist_id(dim)
+    return result
+
+
 def extract_raw_codelists(
     dsd: Any,
     msg: Any,
@@ -96,13 +109,37 @@ def extract_raw_codelists(
 def extract_series_dim_values(series_keys: Any) -> Iterator[dict[str, str]]:
     """Yield one ``{dim_id: code}`` dict per ``SeriesKey``.
 
-    Accepts either a dict-like (keyed by series id) or a plain iterable
-    of ``SeriesKey`` objects — both shapes are returned by different
-    ``sdmx1`` call paths.
+    Accepts:
+
+    * ``GenericDataSet.series`` — ``{SeriesKey: [observations]}`` (ESTAT/IMF keys-only)
+    * dict-like keyed by series id with ``SeriesKey`` values
+    * plain iterables of ``SeriesKey`` objects (``sdmx1.series_keys`` stream)
     """
+    if not series_keys:
+        return
+    if isinstance(series_keys, dict):
+        for key, item in series_keys.items():
+            candidate = key if hasattr(key, "values") else item
+            if hasattr(candidate, "values"):
+                yield _series_key_to_dict(candidate)
+        return
     items = series_keys.values() if hasattr(series_keys, "values") else series_keys
     for sk in items:
         yield _series_key_to_dict(sk)
+
+
+def series_keys_from_data_message(data_msg: Any) -> dict[Any, Any]:
+    """Merge ``series`` maps from a ``DataMessage`` (handles list-shaped ``.data``)."""
+    data = getattr(data_msg, "data", None)
+    if data is None:
+        return {}
+    datasets = data if isinstance(data, list) else [data]
+    merged: dict[Any, Any] = {}
+    for ds in datasets:
+        series = getattr(ds, "series", None) or {}
+        if isinstance(series, dict):
+            merged.update(series)
+    return merged
 
 
 def _series_key_to_dict(sk: Any) -> dict[str, str]:

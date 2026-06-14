@@ -1,0 +1,19 @@
+catalog_url: hf://parsimony-dev/destatis
+
+queries:
+  - id: code_energy_tax
+    query: "code: 73431-0001"
+    expected_code: 73431-0001
+    mode: code
+    required: true
+    why: "Direct lookup on indexed code field"
+
+  - id: title_energy_tax
+    query: "Taxed energy products Germany"
+    expected_code: 73431-0001
+    mode: title_bm25
+    required: true
+    why: "Lexical title probe"
+
+thresholds:
+  min_required_recall: 1.0

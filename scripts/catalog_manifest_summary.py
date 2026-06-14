@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Report which Wave 1 catalog bundles exist under a local pre-warm root."""
+"""Report which catalog bundles exist under a local pre-warm root."""
 
 from __future__ import annotations
 
@@ -14,24 +14,8 @@ if str(_REPO / "tooling") not in sys.path:
 
 from catalog_validate.registry import MACRO_CATALOG_PROVIDER_IDS, PROVIDER_SPECS
 
-DEFAULT_ROOT = Path("/tmp/parsimony-catalogs")
-
-# Wave 1 ECB series flows (see docs/catalog-manifest.md).
-ECB_WAVE1_FLOWS: tuple[str, ...] = (
-    "EXR",
-    "ICP",
-    "BSI",
-    "FM",
-    "IRS",
-    "YC",
-    "MIR",
-    "BLS",
-    "BOP",
-    "GFS",
-    "STS",
-    "RPP",
-    "CISS",
-)
+DEFAULT_ROOT = Path("/tmp/parsimony-catalogs-v1")
+SDMX_DATASET_AGENCIES = ("ecb", "estat", "imf_data", "wb_wdi")
 
 
 def _has_meta(path: Path) -> bool:
@@ -80,23 +64,14 @@ def main() -> None:
         }
     )
 
-    rows.append(
-        {
-            "provider": "sdmx",
-            "bundle": "sdmx_datasets_ecb",
-            "expected": "hf://parsimony-dev/sdmx/sdmx_datasets_ecb",
-            "status": _status(root, "sdmx/sdmx_datasets_ecb"),
-        }
-    )
-
-    for flow in ECB_WAVE1_FLOWS:
-        ns = f"sdmx_series_ecb_{flow.lower()}"
+    for agency in SDMX_DATASET_AGENCIES:
+        bundle = f"sdmx_datasets_{agency.lower()}"
         rows.append(
             {
                 "provider": "sdmx",
-                "bundle": ns,
-                "expected": f"hf://parsimony-dev/sdmx/{ns}",
-                "status": _status(root, f"sdmx/{ns}"),
+                "bundle": bundle,
+                "expected": f"hf://parsimony-dev/sdmx/{bundle}",
+                "status": _status(root, f"sdmx/{bundle}"),
             }
         )
 

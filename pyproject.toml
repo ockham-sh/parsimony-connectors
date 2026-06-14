@@ -64,7 +64,6 @@ disable_error_code = ["import-untyped", "unused-ignore"]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib -m 'not integration and not slow and not eval'"
-asyncio_mode = "auto"
 pythonpath = ["tooling"]
 markers = [
     "integration: hits live APIs (may be slow, requires env vars)",

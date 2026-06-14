@@ -1,15 +1,8 @@
-"""``enumerate_sdmx_series`` — live per-dataset series enumerator.
+"""``enumerate_sdmx_series`` — scoped keys-only series discovery.
 
-Hits the live SDMX agency endpoint for one ``(agency, dataset_id)`` via
-:func:`parsimony_sdmx._isolation.fetch_series`. sdmx1's module-scope
-cache is unbounded and can only be flushed by process death, so every
-call spawns a fresh child (see :mod:`parsimony_sdmx._isolation` for the
-full rationale).
-
-The provider build script wraps this enumerator for catalog building and stamps
-the per-dataset catalog namespace
-(``sdmx_series_<agency_lower>_<dataset_id_lower>``) onto the returned
-``Result`` schema before converting it with ``entries_from_result``.
+Hits the live SDMX agency endpoint for one ``(agency, dataset_id, partial_key)``
+and returns matching series keys with labeled dimensions — no observations.
+This is the agent feedback loop replacing prebuilt per-flow series catalogs.
 """
 
 from __future__ import annotations
@@ -18,42 +11,33 @@ from typing import Annotated
 
 import pandas as pd
 from parsimony.connector import connector
-from parsimony.errors import EmptyDataError
+from parsimony.errors import ConnectorError, EmptyDataError, InvalidParameterError
 from parsimony.result import Column, ColumnRole, OutputConfig
 from pydantic import BaseModel, Field, field_validator
 
-from parsimony_sdmx._isolation import (
-    FETCH_SERIES_DEFAULT_TIMEOUT_S,
-    fetch_series,
-)
 from parsimony_sdmx.connectors._agencies import AgencyId
 from parsimony_sdmx.core.models import DimensionValue, SeriesRecord
 
-
-def series_namespace(agency: AgencyId | str, dataset_id: str) -> str:
-    """Compose the canonical per-dataset series namespace string.
-
-    ``AgencyId.ECB`` + ``"YC"`` → ``"sdmx_series_ecb_yc"``. Used by
-    the provider build script when round-tripping a namespace string back
-    to an ``(agency, dataset_id)`` pair.
-    """
-    raw = agency.value if isinstance(agency, AgencyId) else str(agency)
-    return f"sdmx_series_{raw.lower()}_{dataset_id.lower()}"
+MAX_DISCOVERY_RESULTS = 200
+_SERIES_KEY_PATTERN = r"^[A-Za-z0-9._+\-]*(?:\.[A-Za-z0-9._+\-]*){0,31}$"
 
 
 class EnumerateSeriesParams(BaseModel):
-    """Parameters for per-dataset series enumeration.
-
-    Accepts both uppercase (``"ECB"``) and lowercase (``"ecb"``) agency
-    inputs so build-script namespace parsing flows through without extra
-    casing gymnastics on the caller side.
-    """
-
     agency: Annotated[AgencyId, Field(description="SDMX source ID (ECB, ESTAT, IMF_DATA, WB_WDI)")]
     dataset_id: Annotated[
         str,
         Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._\-]*$"),
     ]
+    key_pattern: Annotated[
+        str,
+        Field(
+            min_length=1,
+            max_length=256,
+            pattern=_SERIES_KEY_PATTERN,
+            description="Partial dot-key in DSD order (empty positions = wildcard).",
+        ),
+    ]
+    limit: int = Field(default=MAX_DISCOVERY_RESULTS, ge=1, le=MAX_DISCOVERY_RESULTS)
 
     @field_validator("agency", mode="before")
     @classmethod
@@ -65,32 +49,11 @@ class EnumerateSeriesParams(BaseModel):
 
 ENUMERATE_SERIES_OUTPUT = OutputConfig(
     columns=[
-        Column(
-            name="code",
-            role=ColumnRole.KEY,
-            description="SDMX series key (dot-separated dimension values).",
-        ),
+        Column(name="code", role=ColumnRole.KEY, description="SDMX series key (dot-separated dimension values)."),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="*", role=ColumnRole.METADATA),
     ]
 )
-
-
-def _series_output_config(agency: AgencyId | str, dataset_id: str) -> OutputConfig:
-    """Per-call output schema with the dataset-specific KEY namespace stamped."""
-    ns = series_namespace(agency, dataset_id)
-    return OutputConfig(
-        columns=[
-            Column(
-                name="code",
-                role=ColumnRole.KEY,
-                namespace=ns,
-                description="SDMX series key (dot-separated dimension values).",
-            ),
-            Column(name="title", role=ColumnRole.TITLE),
-            Column(name="*", role=ColumnRole.METADATA),
-        ]
-    )
 
 
 @connector(
@@ -100,35 +63,58 @@ def _series_output_config(agency: AgencyId | str, dataset_id: str) -> OutputConf
 def enumerate_sdmx_series(
     agency: AgencyId,
     dataset_id: str,
-    fetch_timeout_s: float = FETCH_SERIES_DEFAULT_TIMEOUT_S,
+    key_pattern: str,
+    limit: int = MAX_DISCOVERY_RESULTS,
 ) -> pd.DataFrame:
-    """List every series inside one SDMX dataset, hitting the live agency endpoint.
+    """Discover matching series for a partial SDMX key (keys-only, no observations).
 
-    Projects one row per series into the declared OutputConfig schema
-    (KEY=code, TITLE=title, METADATA=(agency, dataset_id, dynamic
-    ``<DIM>_code`` / ``<DIM>_label`` fields)). The per-dataset KEY
-    namespace is stamped on each call before ``build_entities``.
-
-    ``fetch_timeout_s`` bounds the subprocess wall-clock; a timeout or
-    other subprocess failure raises :class:`~parsimony_sdmx._isolation.FetchSeriesError`
-    which the kernel's publish loop catches per-namespace and reports
-    as a failed bundle.
+    Returns labeled dimension metadata columns ``{dim}_code`` / ``{dim}_label``.
+    When the upstream result exceeds *limit*, raises :class:`ConnectorError` with a
+    per-dimension distinct-value summary so the agent can pin more dimensions.
     """
-    params = EnumerateSeriesParams(agency=agency, dataset_id=dataset_id)
-    records: list[SeriesRecord] = fetch_series(
-        params.agency.value,
-        params.dataset_id,
-        fetch_timeout_s,
-    )
+    params = EnumerateSeriesParams(agency=agency, dataset_id=dataset_id, key_pattern=key_pattern, limit=limit)
+    from parsimony_sdmx.providers.registry import get_provider
+
+    try:
+        provider = get_provider(params.agency.value)
+        records = provider.discover_series_keys(params.dataset_id, params.key_pattern)
+    except InvalidParameterError:
+        raise
+    except Exception as exc:
+        raise ConnectorError(
+            f"Scoped series discovery failed for {params.agency.value}/{params.dataset_id}: {type(exc).__name__}.",
+            provider="sdmx",
+        ) from exc
 
     if not records:
         raise EmptyDataError(
             provider="sdmx",
-            message=f"Live SDMX returned zero series for {params.agency.value}/{params.dataset_id}",
+            message=(
+                f"No series match key pattern {params.key_pattern!r} in {params.agency.value}/{params.dataset_id}. "
+                "Pin fewer dimensions or verify the key order against the dataset DSD."
+            ),
         )
 
-    df = _series_frame(records, agency=params.agency.value, dataset_id=params.dataset_id)
-    return df
+    if len(records) > params.limit:
+        summary = _dimension_summary(records)
+        raise ConnectorError(
+            (
+                f"Key pattern {params.key_pattern!r} matched {len(records)} series (limit {params.limit}). "
+                f"Pin more dimensions. Distinct values: {summary}"
+            ),
+            provider="sdmx",
+        )
+
+    return _series_frame(records, agency=params.agency.value, dataset_id=params.dataset_id)
+
+
+def _dimension_summary(records: list[SeriesRecord]) -> str:
+    values: dict[str, set[str]] = {}
+    for record in records:
+        for dim in record.dimensions:
+            values.setdefault(dim.id, set()).add(f"{dim.code} ({dim.label or dim.code})")
+    parts = [f"{dim_id}: {', '.join(sorted(vals))}" for dim_id, vals in sorted(values.items())]
+    return " | ".join(parts)
 
 
 def _series_frame(records: list[SeriesRecord], *, agency: str, dataset_id: str) -> pd.DataFrame:
@@ -152,3 +138,6 @@ def _dimension_metadata(dimensions: tuple[DimensionValue, ...]) -> dict[str, str
         if dimension.label:
             metadata[f"{dimension.id}_label"] = dimension.label
     return metadata
+
+
+__all__ = ["MAX_DISCOVERY_RESULTS", "enumerate_sdmx_series"]

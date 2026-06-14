@@ -34,10 +34,10 @@ HEADERS = {
     "Accept": "application/json",
 }
 
-# Concurrency for the per-statistic fan-out. Destatis is happy at 4 parallel
-# clients with a 0.25s inter-request delay; bumping concurrency triggers
-# 429s and (rarely) 503s.
-METADATA_CRAWL = MetadataCrawlConfig(concurrency=4, inter_request_delay_s=0.25)
+# Throttling for the per-statistic crawl. Destatis is happy with a serial
+# walk at a 0.25s inter-request delay; faster bursts trigger 429s and
+# (rarely) 503s.
+METADATA_CRAWL = MetadataCrawlConfig(inter_request_delay_s=0.25)
 
 
 def make_client(timeout: float = 60.0) -> HttpClient:

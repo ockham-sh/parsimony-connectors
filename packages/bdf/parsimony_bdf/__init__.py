@@ -69,10 +69,10 @@ _BASE_URL = "https://webstat.banque-france.fr/api/explore/v2.1/catalog/datasets"
 _ENV_VAR = "BDF_API_KEY"
 
 # Conservative throttling. The Opendatasoft endpoint is rate-limited
-# globally at 10K requests/day and per-IP at a modest QPS; concurrency=4
+# globally at 10K requests/day and per-IP at a modest QPS; a serial crawl
 # with a 0.25s inter-request delay keeps enumeration smooth without
 # tripping the WAF.
-_METADATA_CRAWL = MetadataCrawlConfig(concurrency=4, inter_request_delay_s=0.25)
+_METADATA_CRAWL = MetadataCrawlConfig(inter_request_delay_s=0.25)
 
 # Series payloads can be 1.6MB+ (the full series listing for big
 # datasets); allow long reads.
@@ -497,7 +497,7 @@ def enumerate_bdf(*, api_key: str = "") -> pd.DataFrame:
     """Enumerate every BdF series with parent dataset context.
 
     Pull dataset list, then per-dataset series exports; emit dataset stubs
-    and series rows. Concurrency capped at 4 with backoff on 429/5xx; failed
+    and series rows. Serial crawl with backoff on 429/5xx; failed
     datasets log WARNING and skip series rows. About 46 requests total.
     """
     key = _resolve_key(api_key)

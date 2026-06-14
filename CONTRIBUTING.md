@@ -104,8 +104,8 @@ Scaffold `packages/foo/` by copying an existing small plugin (e.g.
   catalog)* — operator driver that calls the enumerator, converts with
   `entries_from_result`, configures one top-level index per field (use
   `HybridIndex` to fuse BM25 + vector within a field), sets
-  `default_field`, calls `await catalog.build()`, then
-  `await catalog.save(...)` for local paths or `hf://...` uploads.
+  `default_field`, calls `catalog.build()`, then
+  `catalog.save(...)` for local paths or `hf://...` uploads.
 
 Before opening a PR:
 

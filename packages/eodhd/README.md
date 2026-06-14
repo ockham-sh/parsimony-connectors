@@ -55,17 +55,13 @@ Get a key at https://eodhd.com/register.
 ## Quick start
 
 ```python
-import asyncio
 import os
 from parsimony_eodhd import load
 
-async def main():
-    # load() binds the API key off the call surface (and out of provenance).
-    connectors = load(api_key=os.environ["EODHD_API_KEY"])
-    result = await connectors["eodhd_eod"](ticker="AAPL.US")
-    print(result.data.head())
-
-asyncio.run(main())
+# load() binds the API key off the call surface (and out of provenance).
+connectors = load(api_key=os.environ["EODHD_API_KEY"])
+result = connectors["eodhd_eod"](ticker="AAPL.US")
+print(result.data.head())
 ```
 
 For multi-plugin composition:

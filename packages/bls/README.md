@@ -36,20 +36,15 @@ Register for a free key at https://data.bls.gov/registrationEngine/.
 ## Quick start
 
 ```python
-import asyncio
 from parsimony_bls import CONNECTORS
 
-async def main():
-    connectors = CONNECTORS
-    # LNS14000000 = US unemployment rate (seasonally adjusted)
-    result = await connectors["bls_fetch"](
-        series_id="LNS14000000",
-        start_year="2020",
-        end_year="2024",
-    )
-    print(result.data.head())
-
-asyncio.run(main())
+# LNS14000000 = US unemployment rate (seasonally adjusted)
+result = CONNECTORS["bls_fetch"](
+    series_id="LNS14000000",
+    start_year="2020",
+    end_year="2024",
+)
+print(result.data.head())
 ```
 
 For multi-plugin composition (autoloads everything installed):

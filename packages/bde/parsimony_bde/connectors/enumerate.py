@@ -1,8 +1,8 @@
 """BdE catalog enumeration connector.
 
 Discovers BdE statistical series by crawling the seven published catalog CSV
-chapters concurrently. The crawl uses the shared ``ThrottledJsonFetcher``
-(throttled, retrying fan-out over a raw ``httpx.Client``) — the re-base of
+chapters in turn. The crawl uses the shared ``ThrottledJsonFetcher``
+(throttled, retrying GET over a raw ``httpx.Client``) — the re-base of
 ``_shared`` onto core transport is a separate cross-cutting step, so this code
 keeps using ``_shared`` for now and only owns the BdE-side parsing + framing.
 
@@ -28,7 +28,7 @@ from parsimony_bde.outputs import BDE_ENUMERATE_OUTPUT, ENUMERATE_COLUMNS
 
 logger = logging.getLogger(__name__)
 
-METADATA_CRAWL = MetadataCrawlConfig(concurrency=4, inter_request_delay_s=0.25)
+METADATA_CRAWL = MetadataCrawlConfig(inter_request_delay_s=0.25)
 
 
 def _fetch_catalog_chapter(

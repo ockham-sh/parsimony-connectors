@@ -1,8 +1,9 @@
-# Curated probes for SDMX multi-bundle catalogs (structured search first).
+# Curated probes for SDMX DSD/codelist catalogs.
 #
 # Workflow:
-#   sdmx_datasets_search(agency=ECB, ...)
-#   -> sdmx_series_search(flow_id=ECB/YC, ...)
+#   sdmx_datasets_search(query=...)
+#   -> sdmx_codelist_search(agency=..., codelist_id=..., query=...)
+#   -> enumerate_sdmx_series(agency=..., dataset_id=..., key_pattern=...)
 #   -> sdmx_fetch
 
 catalog_root: hf://parsimony-dev/sdmx
@@ -24,29 +25,21 @@ queries:
     optional: true
     why: "Title probe on ECB agency dataset catalog"
 
-  - id: series_ecb_yc_spot
-    query: "SR_10Y"
-    namespace: sdmx_series_ecb_yc
-    expected_code: B.U2.EUR.4F.G_N_C.SV_C_YM.SR_10Y
-    mode: title_bm25
-    required: true
-    why: "Title-index lookup on ECB/YC series catalog"
-
-  - id: series_ecb_exr_ron_eur
-    query: "CURRENCY: Romanian leu"
-    namespace: sdmx_series_ecb_exr
-    expected_code: Q.RON.EUR.SP00.E
-    mode: structured_field
-    required: true
-    why: "Structured dimension probe on ECB/EXR series catalog"
-
-  - id: series_estat_hicp_france
-    query: "geo: France"
-    namespace: sdmx_series_estat_prc_hicp_manr
-    expected_code: M.RCH_A.CP00.FR
-    mode: structured_field
+  - id: codelist_geo_germany
+    query: "Germany"
+    namespace: sdmx_codelist_estat_cl_geo
+    expected_code: DE
+    mode: label_semantic
     optional: true
-    why: "Per-flow dimension label search when ESTAT/HICP bundle is built"
+    why: "Codelist label search for geo dimension"
+
+  - id: codelist_freq_monthly
+    query: "monthly"
+    namespace: sdmx_codelist_ecb_cl_freq
+    expected_code: M
+    mode: label_semantic
+    optional: true
+    why: "Shared frequency codelist"
 
 thresholds:
   min_required_recall: 1.0

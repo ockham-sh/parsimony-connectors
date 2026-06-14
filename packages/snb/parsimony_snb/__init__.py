@@ -11,8 +11,8 @@ Transport:
   ``raise_for_status`` + ``map_http_error`` / ``map_timeout_error`` → text).
   The CSV is parsed separately; a malformed / non-CSV 200 body raises
   ``ParseError`` (§5.8), an empty-but-valid result raises ``EmptyDataError``.
-* ``enumerate_snb`` keeps its bespoke, concurrency-capped per-cube probe
-  fan-out (it does NOT use ``parsimony_shared``), but builds the client via
+* ``enumerate_snb`` keeps its bespoke, serial per-cube probe
+  crawl (it does NOT use ``parsimony_shared``), but builds the client via
   ``make_http_client`` + ``pooled_client`` and maps transport errors through
   the kernel helpers. Per-cube probe failures are swallowed by design (SNB
   leaves retired cube IDs reachable but empty); ``_KNOWN_CUBES`` is a module
@@ -26,7 +26,6 @@ import io
 import json
 import logging
 import re
-import threading
 from itertools import product
 from typing import Annotated, Any
 
@@ -46,12 +45,6 @@ from parsimony.transport.helpers import make_http_client
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://data.snb.ch"
-
-#: Concurrency cap for the per-cube probe fan-out in ``enumerate_snb``. At
-#: ~237 cubes × two requests each, an unbounded fan-out saturates the SNB
-#: CDN's per-IP connection pool and trips transient 429s; 20 keeps wall-time
-#: near the latency floor while staying under the WAF radar.
-_PROBE_CONCURRENCY = 20
 
 
 # SNB cube registry, harvested from the data portal's own navigation tree
@@ -273,12 +266,12 @@ _KNOWN_CUBES: tuple[tuple[str, str], ...] = (
     ("pubfin", "Public finances"),
     (
         "rendeiduebd",
-        "Spot interest rates on Swiss Confederation bonds, euro area government bonds and CHF bond issues for various borrower categories – Day",
-    ),  # noqa: E501
+        "Spot interest rates on Swiss Confederation bonds, euro area government bonds and CHF bond issues for various borrower categories – Day",  # noqa: E501
+    ),
     (
         "rendeiduebm",
-        "Spot interest rates on Swiss Confederation bonds, euro area government bonds and CHF bond issues for various borrower categories – Month",
-    ),  # noqa: E501
+        "Spot interest rates on Swiss Confederation bonds, euro area government bonds and CHF bond issues for various borrower categories – Month",  # noqa: E501
+    ),
     ("rendoblid", "Yields on bond issues ‒ 2002 methodology (up to July 2025) (Day)"),
     ("rendoblim", "Yields on bond issues ‒ 2002 methodology (up to July 2025) (Month)"),
     ("rendoeid", "Yields to maturity and residual maturities of individual Swiss Confederation bond issues"),
@@ -738,7 +731,6 @@ def snb_fetch(
 def _probe_cube(
     client: HttpClient,
     cube_id: str,
-    sem: threading.Semaphore,
 ) -> tuple[dict[str, Any] | None, str]:
     """Fetch ``/dimensions/en`` and a frequency hint for ``cube_id``.
 
@@ -752,20 +744,19 @@ def _probe_cube(
     ``TimeoutException`` through the canonical helpers — but cataloguing is a
     best-effort sweep, so the resulting typed :class:`ConnectorError` is
     caught and the cube is treated as retired rather than failing the whole
-    enumeration. ``sem`` caps in-flight probes (see :data:`_PROBE_CONCURRENCY`).
+    enumeration.
     """
     dim_payload: dict[str, Any] | None = None
     frequency = "Unknown"
 
-    def _gated_text(path: str, params: dict[str, str] | None = None) -> str | None:
-        with sem:
-            try:
-                return _get_text(client, path, op_name="cube/probe", params=params)
-            except ConnectorError as exc:
-                logger.debug("SNB probe failed for %s (%s): %s", cube_id, path, exc)
-                return None
+    def _probe_text(path: str, params: dict[str, str] | None = None) -> str | None:
+        try:
+            return _get_text(client, path, op_name="cube/probe", params=params)
+        except ConnectorError as exc:
+            logger.debug("SNB probe failed for %s (%s): %s", cube_id, path, exc)
+            return None
 
-    dim_text = _gated_text(f"/api/cube/{cube_id}/dimensions/en")
+    dim_text = _probe_text(f"/api/cube/{cube_id}/dimensions/en")
     if dim_text is not None:
         try:
             payload = json.loads(dim_text)
@@ -775,7 +766,7 @@ def _probe_cube(
             dim_payload = payload
 
     # Frequency inference is best-effort; sample one CSV page.
-    data_text = _gated_text(f"/api/cube/{cube_id}/data/csv/en", {"fromDate": "2020"})
+    data_text = _probe_text(f"/api/cube/{cube_id}/data/csv/en", {"fromDate": "2020"})
     if data_text is not None:
         sep = ";" if ";" in data_text else ","
         dates: list[str] = []
@@ -795,13 +786,12 @@ def enumerate_snb() -> pd.DataFrame:
     Compound codes are ``cube_id#leaf_path`` so agents can route hits to
     ``snb_fetch`` without reparsing cube metadata. The crawl probes every
     cube in :data:`_KNOWN_CUBES` (read at call time, so a test can shrink it
-    to bound the fan-out); per-cube failures are skipped, not fatal.
+    to bound the crawl); per-cube failures are skipped, not fatal.
     """
     rows: list[dict[str, str]] = []
-    sem = threading.Semaphore(_PROBE_CONCURRENCY)
     base = _snb_http()
     with pooled_client(base) as client:
-        probes = [_probe_cube(client, cid, sem) for cid, _ in _KNOWN_CUBES]
+        probes = [_probe_cube(client, cid) for cid, _ in _KNOWN_CUBES]
 
     for (cube_id, cube_title), (dim_payload, frequency) in zip(_KNOWN_CUBES, probes, strict=True):
         if dim_payload is None:

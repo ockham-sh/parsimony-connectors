@@ -1,0 +1,19 @@
+catalog_url: hf://parsimony-dev/bde
+
+queries:
+  - id: code_cfee_cash
+    query: "code: DMZ10S1100M.Q"
+    expected_code: DMZ10S1100M.Q
+    mode: code
+    required: true
+    why: "Direct lookup on indexed code field"
+
+  - id: title_cfee_cash
+    query: "CFEE SEC2010 Efectivo Seguros"
+    expected_code: DMZ10S1100M.Q
+    mode: title_bm25
+    required: true
+    why: "Lexical title probe"
+
+thresholds:
+  min_required_recall: 1.0

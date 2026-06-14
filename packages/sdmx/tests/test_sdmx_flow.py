@@ -6,7 +6,11 @@ import pytest
 
 from parsimony_sdmx.core.errors import SdmxFetchError
 from parsimony_sdmx.core.models import DatasetRecord, DimensionValue, SeriesRecord
-from parsimony_sdmx.providers.sdmx_flow import list_datasets_flow, list_series_flow
+from parsimony_sdmx.providers.sdmx_flow import (
+    discover_series_keys_flow,
+    list_datasets_flow,
+    list_series_flow,
+)
 
 
 def _named(locs: dict[str, str]) -> SimpleNamespace:
@@ -74,6 +78,49 @@ class TestListDatasetsFlow:
         client = MagicMock()
         client.dataflow.return_value = SimpleNamespace(dataflow={})
         assert list(list_datasets_flow(client, "ECB")) == []
+
+
+class TestListStructureFlow:
+    def _build_msg(
+        self,
+        dataset_id: str,
+        dsd_id: str = "DSD_YC",
+        dims: list[tuple[str, str | None]] | None = None,
+        codelists: dict[str, list[SimpleNamespace]] | None = None,
+    ) -> SimpleNamespace:
+        dims = dims or [("FREQ", "CL_FREQ"), ("REF_AREA", "CL_AREA"), ("TIME_PERIOD", None)]
+        codelists = codelists or {
+            "CL_FREQ": [_code("A", "Annual"), _code("M", "Monthly")],
+            "CL_AREA": [_code("U2", "Euro area")],
+        }
+        flow = SimpleNamespace(
+            id=dataset_id,
+            name=_named({"en": "Yield curve"}),
+            description=_named({}),
+            structure=SimpleNamespace(id=dsd_id),
+        )
+        dsd = SimpleNamespace(
+            id=dsd_id,
+            dimensions=[_dim(did, cid) for did, cid in dims],
+        )
+        return SimpleNamespace(
+            dataflow={dataset_id: flow},
+            structure={dsd_id: dsd},
+            codelist=codelists,
+        )
+
+    def test_structure_record_shape(self) -> None:
+        from parsimony_sdmx.providers.sdmx_flow import list_structure_flow
+
+        client = MagicMock()
+        client.dataflow.return_value = self._build_msg("YC")
+        record = list_structure_flow(client, "ECB", "YC")
+        assert record.dataset_id == "YC"
+        assert record.dsd_order == ("FREQ", "REF_AREA")
+        cl_ids = {cl.codelist_id for cl in record.codelists}
+        assert "CL_FREQ" in cl_ids
+        assert "CL_AREA" in cl_ids
+        assert record.dimensions[0].sample[0].code == "A"
 
 
 class TestListSeriesFlow:
@@ -192,3 +239,34 @@ class TestListSeriesFlow:
         client.series_keys.return_value = [_sk({"FREQ": "A", "REF_AREA": "U2"})]
         list(list_series_flow(client, "ECB", "YC"))
         assert call_count == 2
+
+
+class TestDiscoverSeriesKeysFlow(TestListSeriesFlow):
+    def test_404_keysonly_treated_as_no_match(self) -> None:
+        """ECB answers an empty-but-valid key with HTTP 404; we surface it as
+        an empty result so the connector raises the actionable EmptyDataError."""
+        client = MagicMock()
+        client.dataflow.return_value = self._build_msg("YC")
+        err = SdmxFetchError("404 Not Found")
+        err.response = SimpleNamespace(status_code=404)  # type: ignore[attr-defined]
+        client.get.side_effect = err
+        assert discover_series_keys_flow(client, "ECB", "YC", "M.U2") == []
+
+    def test_non_404_keysonly_error_wrapped(self) -> None:
+        client = MagicMock()
+        client.dataflow.return_value = self._build_msg("YC")
+        err = RuntimeError("503 upstream")
+        err.response = SimpleNamespace(status_code=503)  # type: ignore[attr-defined]
+        client.get.side_effect = err
+        with pytest.raises(SdmxFetchError, match="Failed scoped keys-only fetch"):
+            discover_series_keys_flow(client, "ECB", "YC", "M.U2")
+
+    def test_404_in_cause_chain_treated_as_no_match(self) -> None:
+        client = MagicMock()
+        client.dataflow.return_value = self._build_msg("YC")
+        inner = RuntimeError("boom")
+        inner.response = SimpleNamespace(status_code=404)  # type: ignore[attr-defined]
+        outer = SdmxFetchError("wrapped")
+        outer.__cause__ = inner
+        client.get.side_effect = outer
+        assert discover_series_keys_flow(client, "ECB", "YC", "M.U2") == []

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -47,14 +46,13 @@ def parse_retry_after(response: httpx.Response) -> float | None:
 class MetadataCrawlConfig:
     """Throttling and retry policy for metadata enumeration crawls."""
 
-    concurrency: int = 4
     inter_request_delay_s: float = 0.25
     retry_statuses: frozenset[int] = field(default_factory=lambda: DEFAULT_RETRY_STATUSES)
     retry_backoffs_s: tuple[float, ...] = DEFAULT_RETRY_BACKOFFS_S
 
 
 class ThrottledJsonFetcher:
-    """Async JSON GET helper with semaphore throttling, delay, and retries."""
+    """Synchronous JSON GET helper with inter-request delay and retries."""
 
     def __init__(
         self,
@@ -69,7 +67,6 @@ class ThrottledJsonFetcher:
         self._provider = provider
         self._config = config or MetadataCrawlConfig()
         self._logger = logger or logging.getLogger(__name__)
-        self._semaphore = threading.Semaphore(self._config.concurrency)
         self._accept_non_json = accept_non_json
 
     @property
@@ -85,48 +82,47 @@ class ThrottledJsonFetcher:
     ) -> httpx.Response | None:
         """GET *url* with throttling and retries; ``None`` after exhausted attempts."""
         log_target = label or url
-        with self._semaphore:
-            time.sleep(self._config.inter_request_delay_s)
-            last_status: int | None = None
-            last_error: str | None = None
-            for attempt, backoff in enumerate((*self._config.retry_backoffs_s, None)):
-                try:
-                    response = self._client.get(url, params=params)
-                except httpx.HTTPError as exc:
-                    last_error = f"{type(exc).__name__}: {exc}"
-                    if backoff is None:
-                        break
-                    time.sleep(backoff)
-                    continue
+        time.sleep(self._config.inter_request_delay_s)
+        last_status: int | None = None
+        last_error: str | None = None
+        for attempt, backoff in enumerate((*self._config.retry_backoffs_s, None)):
+            try:
+                response = self._client.get(url, params=params)
+            except httpx.HTTPError as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+                if backoff is None:
+                    break
+                time.sleep(backoff)
+                continue
 
-                if response.status_code == 200:
-                    if self._accept_non_json is not None and not self._accept_non_json(response):
-                        return None
-                    return response
+            if response.status_code == 200:
+                if self._accept_non_json is not None and not self._accept_non_json(response):
+                    return None
+                return response
 
-                last_status = response.status_code
-                if response.status_code in self._config.retry_statuses and backoff is not None:
-                    wait = parse_retry_after(response) or backoff
-                    self._logger.info(
-                        "%s %s returned %s (attempt %d); retrying in %.1fs",
-                        self._provider,
-                        log_target,
-                        response.status_code,
-                        attempt + 1,
-                        wait,
-                    )
-                    time.sleep(wait)
-                    continue
-                break
+            last_status = response.status_code
+            if response.status_code in self._config.retry_statuses and backoff is not None:
+                wait = parse_retry_after(response) or backoff
+                self._logger.info(
+                    "%s %s returned %s (attempt %d); retrying in %.1fs",
+                    self._provider,
+                    log_target,
+                    response.status_code,
+                    attempt + 1,
+                    wait,
+                )
+                time.sleep(wait)
+                continue
+            break
 
-            self._logger.warning(
-                "%s fetch failed for %s after retries (last_status=%s, last_error=%s)",
-                self._provider,
-                log_target,
-                last_status,
-                last_error,
-            )
-            return None
+        self._logger.warning(
+            "%s fetch failed for %s after retries (last_status=%s, last_error=%s)",
+            self._provider,
+            log_target,
+            last_status,
+            last_error,
+        )
+        return None
 
     def get_json(
         self,

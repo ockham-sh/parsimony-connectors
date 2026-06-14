@@ -20,16 +20,25 @@ from typing import Any
 
 from parsimony_sdmx.core.codelists import resolve_codelists
 from parsimony_sdmx.core.errors import SdmxFetchError
-from parsimony_sdmx.core.models import DatasetRecord, SeriesRecord
+from parsimony_sdmx.core.models import (
+    CodelistCode,
+    CodelistRecord,
+    DatasetRecord,
+    DimensionStructure,
+    SeriesRecord,
+    StructureRecord,
+)
 from parsimony_sdmx.core.projection import (
     SeriesTitleProvider,
     project_series,
 )
 from parsimony_sdmx.providers.sdmx_extract import (
+    extract_dimension_codelist_ids,
     extract_dsd_dim_order,
     extract_flow_title,
     extract_raw_codelists,
     extract_series_dim_values,
+    series_keys_from_data_message,
 )
 
 TitleDecorator = Callable[[str, str], str]
@@ -62,6 +71,159 @@ def list_datasets_flow(
             dataset_id=flow_id,
             agency_id=agency_id,
             title=title,
+        )
+
+
+def structure_from_message(
+    msg: Any,
+    client: Any,
+    *,
+    agency_id: str,
+    dataset_id: str,
+    language_prefs: Sequence[str] = ("en",),
+    max_sample_codes: int = 5,
+) -> StructureRecord:
+    """Build a :class:`StructureRecord` from an already-fetched structure message."""
+    try:
+        dataflow = msg.dataflow[dataset_id]
+    except (KeyError, AttributeError, TypeError) as exc:
+        raise SdmxFetchError(f"Dataflow {dataset_id!r} missing from response for {agency_id}") from exc
+
+    title = extract_flow_title(dataflow, language_prefs)
+    dsd = resolve_dsd(client, msg, dataflow, dataset_id)
+    dsd_order = tuple(extract_dsd_dim_order(dsd, exclude_time=True))
+    dim_cl_ids = extract_dimension_codelist_ids(dsd, exclude_time=True)
+    raw_codelists = extract_raw_codelists(dsd, msg)
+    labels = resolve_codelists(raw_codelists, language_prefs)
+
+    dimensions: list[DimensionStructure] = []
+    codelists_by_id: dict[str, list[CodelistCode]] = {}
+
+    for dim_id in dsd_order:
+        cl_id = dim_cl_ids.get(dim_id)
+        dim_labels = labels.get(dim_id, {})
+        codes = sorted(dim_labels.items())
+        sample = tuple(CodelistCode(code=c, label=lab) for c, lab in codes[:max_sample_codes])
+        dimensions.append(
+            DimensionStructure(
+                dimension_id=dim_id,
+                codelist_id=cl_id,
+                name=dim_id,
+                code_count=len(codes),
+                sample=sample,
+            )
+        )
+        if cl_id and dim_labels:
+            bucket = codelists_by_id.setdefault(cl_id, [])
+            seen = {item.code for item in bucket}
+            for code, label in codes:
+                if code not in seen:
+                    bucket.append(CodelistCode(code=code, label=label))
+                    seen.add(code)
+
+    codelist_records = tuple(
+        CodelistRecord(codelist_id=cl_id, codes=tuple(entries)) for cl_id, entries in sorted(codelists_by_id.items())
+    )
+
+    return StructureRecord(
+        dataset_id=dataset_id,
+        agency_id=agency_id,
+        title=title,
+        dsd_order=dsd_order,
+        dimensions=tuple(dimensions),
+        codelists=codelist_records,
+    )
+
+
+def list_structure_flow(
+    client: Any,
+    agency_id: str,
+    dataset_id: str,
+    language_prefs: Sequence[str] = ("en",),
+    *,
+    max_sample_codes: int = 5,
+) -> StructureRecord:
+    """Fetch DSD + codelists for one dataflow — no ``series_keys`` call."""
+    msg = fetch_dataflow_with_structure(client, dataset_id)
+    return structure_from_message(
+        msg,
+        client,
+        agency_id=agency_id,
+        dataset_id=dataset_id,
+        language_prefs=language_prefs,
+        max_sample_codes=max_sample_codes,
+    )
+
+
+def discover_series_keys_flow(
+    client: Any,
+    agency_id: str,
+    dataset_id: str,
+    partial_key: str,
+    language_prefs: Sequence[str] = ("en",),
+) -> list[SeriesRecord]:
+    """Fetch matching series keys for a partial SDMX key — no observations."""
+    msg = fetch_dataflow_with_structure(client, dataset_id)
+    try:
+        dataflow = msg.dataflow[dataset_id]
+    except (KeyError, AttributeError, TypeError) as exc:
+        raise SdmxFetchError(f"Dataflow {dataset_id!r} missing from response for {agency_id}") from exc
+
+    dsd = resolve_dsd(client, msg, dataflow, dataset_id)
+    dsd_order = extract_dsd_dim_order(dsd, exclude_time=True)
+    validate_partial_key(partial_key, dsd_order)
+
+    raw_codelists = extract_raw_codelists(dsd, msg)
+    labels = resolve_codelists(raw_codelists, language_prefs)
+
+    try:
+        data_msg = client.get(
+            resource_type="data",
+            resource_id=dataset_id,
+            key=partial_key,
+            params={"detail": "serieskeysonly"},
+        )
+    except Exception as exc:
+        # ECB's SDMX API answers a syntactically valid key that matches zero
+        # series with HTTP 404 (ESTAT/IMF return an empty 200). Treat that as
+        # "no series match" so the connector surfaces the actionable
+        # EmptyDataError instead of an opaque transport failure.
+        if _is_no_data_404(exc):
+            return []
+        raise SdmxFetchError(f"Failed scoped keys-only fetch for {dataset_id}/{partial_key}: {exc}") from exc
+
+    series_keys = series_keys_from_data_message(data_msg)
+    dim_values = list(extract_series_dim_values(series_keys))
+    return list(
+        project_series(
+            dataset_id=dataset_id,
+            series_dim_values=dim_values,
+            dsd_order=dsd_order,
+            labels=labels,
+        )
+    )
+
+
+def _is_no_data_404(exc: BaseException) -> bool:
+    """True if *exc* is an HTTP 404 — SDMX agencies (notably ECB) use 404 to
+    signal "this key pattern matches no series", not a real transport error."""
+    for err in (exc, getattr(exc, "__cause__", None), getattr(exc, "__context__", None)):
+        if err is None:
+            continue
+        status = getattr(getattr(err, "response", None), "status_code", None)
+        if status == 404:
+            return True
+    return False
+
+
+def validate_partial_key(partial_key: str, dsd_order: list[str]) -> None:
+    from parsimony.errors import InvalidParameterError
+
+    positions = partial_key.split(".")
+    if len(positions) != len(dsd_order):
+        raise InvalidParameterError(
+            "sdmx",
+            f"expected {len(dsd_order)} positions in order {dsd_order}, got {len(positions)} for key {partial_key!r}",
         )
 
 

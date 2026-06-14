@@ -21,7 +21,7 @@ Per-connector reference for credentials and how users discover series before fet
 | parsimony-polymarket | keyless | — | enumerate only |
 | parsimony-rba | keyless | — | catalog search |
 | parsimony-riksbank | optional key (quota) | `RIKSBANK_API_KEY` | catalog search |
-| parsimony-sdmx | keyless | — | catalog search (`sdmx_datasets_search`, `sdmx_series_search`) |
+| parsimony-sdmx | keyless | — | catalog search (`sdmx_datasets_search`, `sdmx_codelist_search`) + scoped discovery (`enumerate_sdmx_series`) |
 | parsimony-sec-edgar | User-Agent required | `SEC_EDGAR_USER_AGENT` | tool connectors only |
 | parsimony-snb | keyless | — | catalog search |
 | parsimony-tiingo | required key | `TIINGO_API_KEY` | native search |

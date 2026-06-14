@@ -51,7 +51,6 @@ import csv
 import io
 import logging
 import re
-import threading
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any
 from xml.etree import ElementTree as ET
@@ -94,13 +93,6 @@ _XLS_HIST_LINK_PATTERN = re.compile(r'href="/statistics/tables/xls-hist/([^"]+)\
 #: impersonates a recent Chrome TLS fingerprint (``impersonate="chrome"``) so
 #: Akamai lets the request through; older fingerprints have started to 403.
 _TIMEOUT = 60.0
-
-#: Concurrency cap for the enumerator's ~250-fetch fan-out across the CSV
-#: index + XLSX-exclusive + xls-hist passes. RBA is unauthenticated but
-#: Akamai-fronted; a bounded fan-out (one shared curl_cffi session reused
-#: across all requests) keeps us well under any rate-limit / WAF radar while
-#: staying far faster than the old fresh-session-per-request crawl.
-_ENUMERATE_CONCURRENCY = 8
 
 # Allow-list of ``xls/<stem>.xlsx`` sub-sheets whose series are NOT
 # republished in any CSV. Key = xlsx filename stem; value = tuple of
@@ -778,13 +770,12 @@ def enumerate_rba() -> pd.DataFrame:
     """Discover RBA series from CSV index, XLSX sheets, and xls-hist files.
 
     Compound catalog keys use ``table_id#series_id`` so duplicate series ids
-    across tables remain addressable without losing descriptions. The crawl
-    reuses one curl_cffi session across all ~250 requests (Akamai-impersonated
-    pooling) and caps concurrency; per-fetch failures are skipped, not fatal.
+    across tables remain addressable without losing descriptions. The serial
+    crawl reuses one curl_cffi session across all ~250 requests
+    (Akamai-impersonated pooling); per-fetch failures are skipped, not fatal.
     """
     all_rows: list[dict[str, str]] = []
     seen: set[str] = set()
-    sem = threading.Semaphore(_ENUMERATE_CONCURRENCY)
 
     with _make_session() as session:
         # Step 1: discover the three link sets via module-global seams. Each is
@@ -802,15 +793,14 @@ def enumerate_rba() -> pd.DataFrame:
 
         def _fetch_csv(link: str) -> list[dict[str, str]]:
             url = f"{_BASE_URL}{link}"
-            with sem:
-                try:
-                    text = _curl_get(session, url, op_name="csv_metadata")
-                    assert isinstance(text, str)
-                    return _parse_csv_metadata(text, url)
-                except Exception:
-                    return []
+            try:
+                text = _curl_get(session, url, op_name="csv_metadata")
+                assert isinstance(text, str)
+                return _parse_csv_metadata(text, url)
+            except Exception:
+                return []
 
-        # Step 2: CSV pass (concurrent, bounded by the semaphore).
+        # Step 2: CSV pass.
         for rows in [_fetch_csv(link) for link in csv_links]:
             for row in rows:
                 code = row["code"]
@@ -823,13 +813,12 @@ def enumerate_rba() -> pd.DataFrame:
         # CSV content.
         def _fetch_xlsx(stem: str, sheets: tuple[str, ...]) -> list[dict[str, str]]:
             url = f"{_BASE_URL}/statistics/tables/xls/{stem}.xlsx"
-            with sem:
-                try:
-                    data = _curl_get(session, url, op_name="xlsx", binary=True)
-                    assert isinstance(data, bytes)
-                    return _parse_xlsx_exclusive(data, stem, sheets)
-                except Exception:
-                    return []
+            try:
+                data = _curl_get(session, url, op_name="xlsx", binary=True)
+                assert isinstance(data, bytes)
+                return _parse_xlsx_exclusive(data, stem, sheets)
+            except Exception:
+                return []
 
         xlsx_targets = [(stem, sheets) for stem, sheets in _XLSX_EXCLUSIVE_SHEETS.items() if stem in xlsx_stems]
         for rows in [_fetch_xlsx(stem, sheets) for stem, sheets in xlsx_targets]:
@@ -845,13 +834,12 @@ def enumerate_rba() -> pd.DataFrame:
 
         def _fetch_xls_hist(stem: str) -> list[dict[str, str]]:
             url = f"{_BASE_URL}/statistics/tables/xls-hist/{stem}.xls"
-            with sem:
-                try:
-                    data = _curl_get(session, url, op_name="xls_hist", binary=True)
-                    assert isinstance(data, bytes)
-                    return _parse_xls_hist(data, stem)
-                except Exception:
-                    return []
+            try:
+                data = _curl_get(session, url, op_name="xls_hist", binary=True)
+                assert isinstance(data, bytes)
+                return _parse_xls_hist(data, stem)
+            except Exception:
+                return []
 
         # Skip obvious "period range" workbooks (``1983-1986.xls``, etc.)
         # whose sheets lack Series ID rows — they return empty and cost a

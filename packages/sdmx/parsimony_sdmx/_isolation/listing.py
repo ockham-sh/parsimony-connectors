@@ -8,9 +8,8 @@ receives only picklable ``DatasetRecord`` tuples.
 Motivation: ``sdmx1`` caches structure messages at module scope with
 no public invalidation hook. A long-lived parent that imports it pays
 that cache-retention cost for the whole run, monotonically, until
-OOM. Spawning for every listing call — and for every per-dataset
-series sweep (see :mod:`parsimony_sdmx._isolation.worker`) — is the
-only working knob to flush that cache.
+OOM. Spawning a fresh child for every listing call is the only
+working knob to flush that cache.
 """
 
 from __future__ import annotations

@@ -1,0 +1,19 @@
+catalog_url: hf://parsimony-dev/bdf
+
+queries:
+  - id: code_hicp
+    query: "code: dataset:HICP"
+    expected_code: dataset:HICP
+    mode: code
+    required: true
+    why: "Direct lookup on indexed code field"
+
+  - id: title_hicp
+    query: "Harmonised Indices of Consumer Prices"
+    expected_code: dataset:HICP
+    mode: title_bm25
+    required: true
+    why: "Lexical title probe"
+
+thresholds:
+  min_required_recall: 1.0

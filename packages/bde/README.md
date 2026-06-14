@@ -35,15 +35,10 @@ variable, or pass `catalog_url=` at call time.
 ## Quick start
 
 ```python
-import asyncio
 from parsimony_bde import CONNECTORS
 
-async def main():
-    connectors = CONNECTORS
-    result = await connectors["bde_fetch"](key="D_1NBAF472")
-    print(result.data.head())
-
-asyncio.run(main())
+result = CONNECTORS["bde_fetch"](key="D_1NBAF472")
+print(result.data.head())
 ```
 
 For multi-plugin composition (autoloads everything installed):

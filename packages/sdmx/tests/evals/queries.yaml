@@ -1,10 +1,4 @@
 # Quality probes for parsimony-sdmx catalog search (keyword / semantic only).
-#
-# Every probe must return ``expected`` within ``recall_limit`` (see thresholds).
-# Probes that fail retrieval entirely live in ``queries_negative.yaml``.
-#
-# Required probes gate CI when SDMX_RUN_EVALS=1. Optional probes are reported
-# for human review only.
 
 dataset_title_nl:
   - id: wb_gdp
@@ -12,21 +6,19 @@ dataset_title_nl:
     namespace: sdmx_datasets_wb_wdi
     expected: "WB_WDI|WDI"
 
-series_title_nl:
-  - id: hicp_france_headline
-    query: "France all items HICP annual inflation rate"
-    namespace: sdmx_series_estat_prc_hicp_manr
-    expected: "M.RCH_A.CP00.FR"
-  - id: ecb_10y_spot_nl
-    query: "yield curve spot rate 10-year maturity euro area"
-    namespace: sdmx_series_ecb_yc
-    expected: "B.U2.EUR.4F.G_N_C.SV_C_YM.SR_10Y"
+codelist_label_nl:
+  - id: geo_germany
+    query: "Germany"
+    namespace: sdmx_codelist_estat_cl_geo
+    expected: "DE"
     optional: true
-    notes: "In top-30 but not top-10; SR_10Y10M often ranks above SR_10Y."
-
-series_dimension_label: []
+  - id: freq_monthly
+    query: "monthly"
+    namespace: sdmx_codelist_ecb_cl_freq
+    expected: "M"
+    optional: true
 
 thresholds:
   recall_limit: 10
   min_dataset_title_nl_required: 1.0
-  min_series_title_nl_required: 1.0
+  min_codelist_label_nl_required: 0.0

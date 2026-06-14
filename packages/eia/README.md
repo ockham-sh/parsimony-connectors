@@ -36,15 +36,10 @@ Get a free key at https://www.eia.gov/opendata/register.php.
 ## Quick start
 
 ```python
-import asyncio
 from parsimony_eia import CONNECTORS
 
-async def main():
-    connectors = CONNECTORS
-    result = await connectors["eia_fetch"](route="petroleum/pri/spt", frequency="monthly")
-    print(result.data.head())
-
-asyncio.run(main())
+result = CONNECTORS["eia_fetch"](route="petroleum/pri/spt", frequency="monthly")
+print(result.data.head())
 ```
 
 For multi-plugin composition:
