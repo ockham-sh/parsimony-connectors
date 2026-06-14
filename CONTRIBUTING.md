@@ -81,12 +81,13 @@ Scaffold `packages/foo/` by copying an existing small plugin (e.g.
 - `pyproject.toml` — pin `parsimony-core>=0.7,<0.8` (or `parsimony-core[catalog]>=0.7,<0.8` for catalog-backed packages), declare a
   `[project.entry-points."parsimony.providers"]` line, and set
   `[project.urls] Homepage`. See the kernel's
-  [`docs/guide-new-plugin.md`](https://github.com/ockham-sh/parsimony/blob/main/docs/guide-new-plugin.md)
+  [`docs/contract.md`](https://github.com/ockham-sh/parsimony/blob/main/docs/contract.md)
+  and [docs/plugins/authoring.md](https://github.com/ockham-sh/parsimony/blob/main/docs/plugins/authoring.md)
   for the canonical template.
 - `parsimony_foo/__init__.py` — the connector module. Must export
   `CONNECTORS`. Catalog build workflows belong in provider-owned scripts,
   not in the user-facing module.
-  Define plain async connector functions and keep any auth/env fallback
+  Define plain synchronous connector functions (`def`, not `async def`) and keep any auth/env fallback
   inside the connector implementation. Use `.bind(...)` in operator code
   when a credential or other fixed value should be hidden from the public
   call surface. Providers may optionally expose a side-effect-light
@@ -215,7 +216,7 @@ for the full policy.
 
 ---
 
-## 8. Getting help
+## 10. Getting help
 
 - Open a discussion on GitHub Discussions
 - Ask in the parsimony issue tracker
