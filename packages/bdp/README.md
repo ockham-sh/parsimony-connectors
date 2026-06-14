@@ -1,6 +1,7 @@
 # parsimony-bdp
 
-Banco de Portugal connector — Portuguese macroeconomic, monetary, and financial time series via the BPstat API.
+Banco de Portugal connector — Portuguese macroeconomic, monetary, financial, and
+external time series via the BPstat (JSON-stat) API.
 
 Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connectors) monorepo. Distributed standalone on PyPI as `parsimony-bdp`.
 
@@ -8,9 +9,9 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 
 | Name | Kind | Description |
 |---|---|---|
-| `bdp_fetch` | fetch | Fetch a Banco de Portugal time series by domain ID + dataset ID (with optional series filter and date range). |
-| `enumerate_bdp` | enumerator | Enumerate BdP domains, datasets, and paginated series across all 65 leaf domains. |
-| `bdp_search` | tool | Semantic-search the published BdP BPstat catalog snapshot for series/dataset/domain codes. |
+| `bdp_fetch` | connector | Fetch Banco de Portugal observations by `domain_id` + `dataset_id` (optional `series_ids` filter and date window). |
+| `enumerate_bdp` | enumerator | Crawl the full BPstat universe (~72 K series across 212 datasets / 65 leaf domains) for catalog discovery. |
+| `bdp_search` | connector | Semantic-search the published BdP catalog snapshot; returns ranked series codes. |
 
 ## Install
 
@@ -28,13 +29,23 @@ python -c "from parsimony import discover; print([p.name for p in discover.iter_
 
 No configuration required — the BPstat API is open and unauthenticated.
 
+`bdp_search` reads a published catalog snapshot (default `hf://parsimony-dev/bdp`).
+Override the snapshot location with the `PARSIMONY_BDP_CATALOG_URL` environment
+variable, or pass `catalog_url=` at call time.
+
 ## Quick start
 
 ```python
 from parsimony_bdp import CONNECTORS
 
-# Discover available datasets first via enumerate_bdp, then fetch:
-result = CONNECTORS["bdp_fetch"](domain_id=1, dataset_id="<dataset_id>")
+# Discover via bdp_search, then fetch. A search hit's code splits as
+# domain_id:dataset_id:series_id.
+hits = CONNECTORS["bdp_search"](query="economic activity coincident indicator")
+code = hits.data.iloc[0]["code"]          # e.g. "48:aea9…:12099329"
+domain_id, dataset_id, series_id = code.split(":")
+result = CONNECTORS["bdp_fetch"](
+    domain_id=int(domain_id), dataset_id=dataset_id, series_ids=series_id
+)
 print(result.data.head())
 ```
 
@@ -44,6 +55,20 @@ For multi-plugin composition (autoloads everything installed):
 from parsimony import discover
 connectors = discover.load_all()
 ```
+
+## Catalogs
+
+BPstat has no flat "list all series" endpoint, so `enumerate_bdp` walks the
+`domain → dataset → series` hierarchy. Two things make the crawl both complete
+and cheap: it **paginates the datasets list** (domains with >10 datasets would
+otherwise lose series), and it crawls each dataset at `page_size=100&obs_last_n=1`
+(100 series per page with a one-point observation array) — about 720 lean pages
+for the whole universe. Each dataset is self-checked against its declared series
+count. Maintainers then run a bilingual `/series/` enrichment pass (English +
+Portuguese descriptions folded into the catalog `description` for cross-language
+recall), build a `Catalog` snapshot (`scripts/build_catalog.py`), and push it to
+the snapshot URL `bdp_search` reads — the build runs offline as a publish job,
+never at query time.
 
 ## Provider
 

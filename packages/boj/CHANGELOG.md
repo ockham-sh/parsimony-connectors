@@ -4,6 +4,48 @@ All notable changes to `parsimony-boj` will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] — 2026-06-09
+
+Re-run through the full connector guidebook process and **live-verified** against
+the production BOJ Time-Series Data Search API (universe = **326,466 series**
+across the 50 databases).
+
+### Fixed
+
+- **`boj_fetch` silent truncation (data loss).** `/getDataCode` caps each request
+  at 250 series codes **and 60,000 data points** `(series × periods)`; over the
+  point cap it returns HTTP 200 `"Successfully completed"` with only the first
+  *K* series and a `NEXTPOSITION` cursor. The previous `boj_fetch` ignored
+  `NEXTPOSITION`, so a multi-series request **silently dropped its tail** (22
+  daily FX series → only 5 returned). It now paginates on `NEXTPOSITION`
+  (`startPosition=…`), accumulating series across pages with a non-advancement
+  guard, so the full result is always returned. Single-series fetches are
+  unaffected (no BoJ series exceeds the point cap).
+
+### Added
+
+- **`scripts/harvest_databases.py`** — regenerates the frozen 50-DB registry from
+  BoJ's machine-readable `api_tool.xlsx` `DB_Name` sheet (`--diff` checks for
+  drift). The archetype-C "commit the harvester" discipline; the registry is
+  cross-validated against both the manual §II.3.(2) and the XLSX (zero diff).
+- `tests/test_public_surface.py` and a registry floor/shape test (pins `len == 50`,
+  asserts the historical phantom `BP02` is absent).
+
+### Changed
+
+- **Package restructured** into `_http` / `outputs` / `databases` / `connectors/
+  {fetch,enumerate}` / `search` / `catalog_build`; the monolithic 655-line
+  `__init__.py` is now a thin facade. No change to the connector surface
+  (`boj_fetch`, `enumerate_boj`, `boj_databases_search`, `boj_series_search`) or
+  the multi-bundle catalog schema.
+- DB titles/categories regenerated from the canonical `api_tool.xlsx` `DB_Name`
+  sheet (e.g. FM01 now reads "…Call Rate (average)…").
+- Completeness re-verified live: `getMetadata` is **uncapped** (returns every
+  series per DB in one call, proven across all 50 — `CO`/TANKAN alone is 166,513
+  series), so each per-DB series catalog is complete; every series is fetchable
+  by `(db, code)`. The enumerate fan-out now parses + releases each DB payload as
+  it arrives (the giant `CO` response is ~99 MB).
+
 ## [0.5.0] — 2026-05-06
 ### Changed
 

@@ -1,6 +1,6 @@
 [project]
 name = "parsimony-boc"
-version = "0.7.0"
+version = "0.8.0"
 description = "Bank of Canada connector for the parsimony framework"
 authors = [{ name = "Ockham.sh", email = "team@ockham.sh" }]
 license = "Apache-2.0"

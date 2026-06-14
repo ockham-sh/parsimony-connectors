@@ -1,28 +1,32 @@
-"""Build the Banque de France catalog snapshot."""
+"""Build the Banque de France catalog snapshot.
+
+Maintainer tooling, not part of the plugin contract: ``enumerate_bdf`` streams
+the full ``series`` universe, the rows become catalog entities, and the catalog
+is indexed and built. Titles are already bilingual at the source (English short
+title with a French / breadcrumb fallback in ``description``), so — unlike BdE —
+no separate enrichment pass is needed.
+"""
 
 from __future__ import annotations
-
-import os
 
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
 from parsimony.catalog.source import entities_from_raw
-from parsimony.errors import ConnectorError
 
-from parsimony_bdf import BDF_ENUMERATE_OUTPUT, enumerate_bdf
+from parsimony_bdf.connectors.enumerate import enumerate_bdf
+from parsimony_bdf.outputs import BDF_ENUMERATE_OUTPUT
 
 CATALOG_NAMESPACE = "bdf"
-_BDF_API_KEY_ENV = "BDF_API_KEY"
 
 
 def build_bdf_catalog(*, api_key: str | None = None) -> Catalog:
-    key = (api_key or os.environ.get(_BDF_API_KEY_ENV, "")).strip()
-    if not key:
-        raise ConnectorError(
-            f"BdF catalog build requires {_BDF_API_KEY_ENV} or api_key.",
-            provider="bdf",
-        )
-    result = enumerate_bdf(api_key=key)
+    """Enumerate the full BdF universe and build a searchable catalog snapshot.
+
+    ``api_key`` falls back to ``BDF_API_KEY`` inside ``enumerate_bdf`` (and
+    fast-fails with :class:`~parsimony.errors.UnauthorizedError` if neither is
+    set), so the snapshot can be built straight from the environment.
+    """
+    result = enumerate_bdf(api_key=(api_key or "").strip())
     entries = entities_from_raw(result, BDF_ENUMERATE_OUTPUT)
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)

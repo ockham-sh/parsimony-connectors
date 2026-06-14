@@ -47,7 +47,19 @@ connectors = discover.load_all()
 
 ## Catalogs
 
-This plugin ships a `treasury` catalog driven by `enumerate_treasury`. `treasury_search` loads a published snapshot (overridable via the `PARSIMONY_TREASURY_CATALOG_URL` env var) and falls back to building one in-process when no snapshot is reachable. Maintainers build and push the snapshot with `scripts/build_catalog.py`.
+This plugin ships a `treasury` catalog (~914 entries) driven by `enumerate_treasury`. `treasury_search` loads a published snapshot (overridable via the `PARSIMONY_TREASURY_CATALOG_URL` env var) and falls back to building one in-process when no snapshot is reachable. Maintainers build and push the snapshot with `scripts/build_catalog.py`.
+
+Two enumeration sources:
+
+- **Fiscal Data — self-tracking (archetype A).** The live `/services/dtg/metadata/` JSON (the same source the fiscaldata.treasury.gov site consumes) lists every dataset → endpoint → field in one call: **879 measure fields across 180 fetchable endpoints / 53 datasets** (live count, 2026-06-09). A new dataset appears in the catalog automatically on the next build.
+- **Office of Debt Management rate feeds — curated registry (archetype D).** The 5 daily interest-rate feeds (par yield curve, real yield curve, bill rates, long-term, real long-term) are not in the metadata endpoint; their feed set is the stable interest-rate-statistics dropdown. `scripts/harvest_rate_feeds.py` cross-validates the registry's benchmark maturities against the live feed columns.
+
+## Coverage
+
+Catalog covers ALL: **yes** (the metadata endpoint is the authoritative, self-tracking enumeration). Connectors cover ALL accessible data: **partial by design** — two documented exclusions:
+
+- **3 static-file-only datasets** — *Monthly Treasury Disbursements*, *Combined Statement*, and *Account of Receipts and Expenditures* carry no queryable API endpoint (no `endpoint_txt`); they are published only as static files, so there is nothing to fetch via the JSON API.
+- **Treasury Coupon Issues + HQM Corporate Bond Yield Curve** — a separate product distributed as binary `.xls` 5-year archives (monthly, for Pension-Protection-Act actuarial use), not part of the daily XML feed family. The HQM spot-rate series are already available through the `parsimony-fred` connector (`HQMCB20YR`, etc.), so this connector defers to FRED for them.
 
 ## Provider
 

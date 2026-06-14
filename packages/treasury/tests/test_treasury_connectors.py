@@ -344,7 +344,9 @@ def test_enumerate_treasury_emits_one_row_per_measure_field() -> None:
     total_pub = fiscal[fiscal["field"] == "tot_pub_debt_out_amt"].iloc[0]
     assert total_pub["title"] == "Total Public Debt Outstanding — Debt to the Penny"
     assert total_pub["endpoint"] == "v2/accounting/od/debt_to_penny"
-    assert total_pub["definition"] == "All federal debt."
+    # The upstream Fiscal Data ``definition`` field text is carried in our indexed
+    # ``description`` column (named so discovery_indexes actually indexes it).
+    assert total_pub["description"] == "All federal debt."
     assert total_pub["data_type"] == "CURRENCY"
     assert total_pub["frequency"] == "Daily"
     assert total_pub["earliest_date"] == "1993-04-01"
@@ -463,7 +465,7 @@ def test_enumerate_treasury_appends_office_of_debt_management_rates() -> None:
     par_10y_row = par_10y.iloc[0]
     assert par_10y_row["dataset"] == "Daily Treasury Par Yield Curve Rates"
     assert par_10y_row["title"] == "10 Year — Daily Treasury Par Yield Curve Rates"
-    assert "constant-maturity" in par_10y_row["definition"]
+    assert "constant-maturity" in par_10y_row["description"]
     assert par_10y_row["frequency"] == "Daily"
     assert par_10y_row["source"] == "treasury_rates"
 
@@ -485,3 +487,40 @@ def test_enumerate_treasury_maps_http_error() -> None:
     with pytest.raises(ProviderError) as exc:
         enumerate_treasury()
     assert exc.value.status_code == 502
+
+
+# ---------------------------------------------------------------------------
+# ODM rate-feed registry (archetype D — curated, cross-validated live by
+# scripts/harvest_rate_feeds.py)
+# ---------------------------------------------------------------------------
+
+
+def test_rate_feed_registry_shape() -> None:
+    """Pin the ODM registry shape. The registry matches the live 2025 feed column union
+    exactly (cross-checked live by ``test_rate_feed_registry_has_no_live_phantom`` and
+    ``scripts/harvest_rate_feeds.py``): 14 par + 5 real-curve + 14 bill + 1 long-term + 1
+    real-long-term = 35. ``BC_1_5MONTH`` and the 6-week bill are real recent (2025)
+    additions — present, not phantoms."""
+    from parsimony_treasury.rate_feeds import build_treasury_rate_rows
+
+    rows = build_treasury_rate_rows()
+    assert len(rows) == 35
+    # Every ODM code is home/<feed>#<column> with a treasury_rates source.
+    assert all(r["code"].startswith("home/") and "#" in r["code"] for r in rows)
+    assert {r["source"] for r in rows} == {"treasury_rates"}
+    # The 2025-added maturities (1.5-month par point, 6-week bill) are catalogued.
+    codes = {r["code"] for r in rows}
+    assert {
+        "home/daily_treasury_yield_curve#BC_10YEAR",
+        "home/daily_treasury_yield_curve#BC_1_5MONTH",
+        "home/daily_treasury_bill_rates#ROUND_B1_YIELD_6WK_2",
+    } <= codes
+
+
+def test_measure_type_prefixes_exclude_dead_rate_prefix() -> None:
+    """No Fiscal Data field is typed ``RATE`` (verified live across 2,987 fields); the dead
+    prefix was removed so the measure-detection set is honest."""
+    from parsimony_treasury.parsing import MEASURE_TYPE_PREFIXES
+
+    assert "RATE" not in MEASURE_TYPE_PREFIXES
+    assert set(MEASURE_TYPE_PREFIXES) == {"CURRENCY", "NUMBER", "PERCENTAGE"}

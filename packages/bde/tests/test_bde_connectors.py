@@ -13,11 +13,14 @@ from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 from parsimony.result import Result
 
 from parsimony_bde import CONNECTORS
+from parsimony_bde._http import PB_ZIP_URL
 from parsimony_bde.connectors.enumerate import enumerate_bde
 from parsimony_bde.connectors.fetch import bde_fetch
 from parsimony_bde.outputs import BDE_ENUMERATE_OUTPUT
 
 _LISTA_SERIES_URL = "https://app.bde.es/bierest/resources/srdatosapp/listaSeries"
+_CSV_BASE = "https://www.bde.es/webbe/es/estadisticas/compartido/datos/csv"
+_CSV_CHAPTERS = ("be", "cf", "ie", "si", "tc", "ti")  # pb is recovered from pb.zip
 
 _ENUMERATE_FRAME_COLUMNS = [
     "key",
@@ -168,21 +171,57 @@ def test_bde_fetch_raises_parse_error_on_non_list_shape() -> None:
 
 
 @respx.mock
-def test_bde_fetch_maps_http_error_to_provider_error() -> None:
+def test_bde_fetch_maps_412_to_invalid_parameter_with_bde_detail() -> None:
+    # BdE answers an unknown series / frequency-incompatible range with HTTP 412
+    # and an errMsgDebug body. That's a caller-input error → InvalidParameterError
+    # carrying BdE's own message (not a generic ProviderError the caller would
+    # mistake for a transient server fault).
+    respx.get(_LISTA_SERIES_URL).mock(
+        return_value=httpx.Response(
+            412,
+            json={
+                "errNum": 412,
+                "errMsgUsr": "Error de validación en la solicitud",
+                "errMsgDebug": "La serie NOPE no existe",
+            },
+        )
+    )
+
+    with pytest.raises(InvalidParameterError) as exc:
+        bde_fetch(key="NOPE")
+    assert "no existe" in str(exc.value)
+
+
+@respx.mock
+def test_bde_fetch_maps_non_412_http_error_to_provider_error() -> None:
     from parsimony.errors import ProviderError
 
-    # BdE returns 412 for a validation error (e.g. unknown series); the canonical
-    # "other 4xx" mapping surfaces it as ProviderError(412).
-    respx.get(_LISTA_SERIES_URL).mock(return_value=httpx.Response(412, json={"errNum": 412}))
+    # A genuine server fault (5xx) stays a ProviderError via the canonical mapping.
+    respx.get(_LISTA_SERIES_URL).mock(return_value=httpx.Response(503))
 
     with pytest.raises(ProviderError) as exc:
-        bde_fetch(key="NOPE")
-    assert exc.value.status_code == 412
+        bde_fetch(key="D_1NBAF472")
+    assert exc.value.status_code == 503
 
 
-def test_bde_fetch_rejects_invalid_time_range() -> None:
+@respx.mock
+def test_bde_fetch_accepts_daily_range_codes() -> None:
+    """Daily series take 3M/12M/36M (not MAX). The client must NOT reject these
+    as it did when the valid set was hardcoded to {30M,60M,MAX}."""
+    route = respx.get(_LISTA_SERIES_URL).mock(
+        return_value=httpx.Response(200, json=[_series_record("DTCCBCEUSDEUR.B", short_desc="USD/EUR")])
+    )
+
+    bde_fetch(key="DTCCBCEUSDEUR.B", time_range="12m")
+
+    assert route.calls.last.request.url.params["rango"] == "12M"
+
+
+def test_bde_fetch_rejects_malformed_time_range() -> None:
+    # A value that is neither a known range code nor a 4-digit year is rejected
+    # client-side before any network call.
     with pytest.raises(InvalidParameterError, match="time_range"):
-        bde_fetch(key="D_1NBAF472", time_range="3M")
+        bde_fetch(key="D_1NBAF472", time_range="5Y")
 
 
 def test_bde_fetch_rejects_empty_key() -> None:
@@ -297,23 +336,64 @@ _CSV_BE = _csv(
         ),
     ],
 )
-_CSV_PB = _csv(
-    _HEADER,
-    [
-        _row(
-            serie="PB_1_1.1",
-            alias="PB_1_1.1",
-            description="EPB net change in lending criteria to non-financial corporations.",
-            frequency_raw="TRIMESTRAL",
-            unit="Porcentaje",
-            decimals="1",
-            start="DIC 2002",
-            end="DIC 2021",
-            nobs="77",
-            title="Bank Lending Survey/Lending criteria/NFCs",
-            source_org="Banco de Espana",
+# ``pb`` (Bank Lending Survey) is recovered from the bulk ``pb.zip``, whose
+# value files are TRANSPOSED: row 0 is the real fetchable ``DPB…`` codes, row 2
+# the ``PB_x_y.z`` aliases, then description/units/frequency rows, then one row
+# per observation date. The catalog CSV lists only the un-fetchable aliases, so
+# the connector reads the ZIP instead.
+def _pb_member_csv(series: list[dict[str, str]]) -> str:
+    """Render one transposed ``pb_*.csv`` member the way BdE's exporter does."""
+    import csv as _csv_mod
+    import io
+
+    n = len(series)
+    rows: list[list[str]] = [
+        ["NOMBRE DE LA SERIE", *[s["serie"] for s in series]],
+        ["NÚMERO SECUENCIAL", *[str(1815300 + i) for i in range(n)]],
+        ["ALIAS DE LA SERIE", *[s["alias"] for s in series]],
+        ["DESCRIPCIÓN DE LA SERIE", *[s["description"] for s in series]],
+        ["DESCRIPCIÓN DE LAS UNIDADES", *[s.get("unit", "Porcentaje") for s in series]],
+        ["FRECUENCIA", *[s.get("frequency_raw", "TRIMESTRAL") for s in series]],
+    ]
+    # Two observation dates; a column with "" at a date means "no obs there".
+    for date_label in ("DIC 2002", "MAR 2003"):
+        rows.append([date_label, *[s.get(date_label, "10.0") for s in series]])
+    buf = io.StringIO()
+    writer = _csv_mod.writer(buf, quoting=_csv_mod.QUOTE_MINIMAL)
+    for r in rows:
+        writer.writerow(r)
+    return buf.getvalue()
+
+
+def _pb_zip(members: dict[str, str]) -> bytes:
+    """Build an in-memory ``pb.zip`` from {member_name: csv_text}."""
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, text in members.items():
+            zf.writestr(name, text.encode("cp1252"))
+    return buf.getvalue()
+
+
+_PB_ZIP_DEFAULT = _pb_zip(
+    {
+        "pb_1_1.csv": _pb_member_csv(
+            [
+                {
+                    "serie": "DPBCOCCNFNOAPTOPN.T.ES",
+                    "alias": "PB_1_1.1",
+                    "description": "EPB. %neto. Cambios criterios aprobación préstamos a SNF.",
+                },
+                {
+                    "serie": "DPBPOCCNFNOAPTOPN.T.ES",
+                    "alias": "PB_1_1.2",
+                    "description": "EPB. %neto. Previsión criterios aprobación préstamos a SNF.",
+                },
+            ]
         ),
-    ],
+    }
 )
 _CSV_SI = _csv(
     _HEADER,
@@ -416,19 +496,17 @@ _CSV_IE = _csv(
 )
 
 
-def _mock_csv_chapters() -> None:
+def _mock_csv_chapters(*, pb_zip: bytes | None = _PB_ZIP_DEFAULT) -> None:
     payloads = {
         "be": _CSV_BE,
         "cf": _CSV_CF,
         "ie": _CSV_IE,
-        "pb": _CSV_PB,
         "si": _CSV_SI,
         "tc": _CSV_TC,
         "ti": _CSV_TI,
     }
-    base = "https://www.bde.es/webbe/es/estadisticas/compartido/datos/csv"
     for chapter, body in payloads.items():
-        respx.get(f"{base}/catalogo_{chapter}.csv").mock(
+        respx.get(f"{_CSV_BASE}/catalogo_{chapter}.csv").mock(
             return_value=httpx.Response(
                 200,
                 # Encode in CP1252 so the production decoder path is exercised.
@@ -436,19 +514,20 @@ def _mock_csv_chapters() -> None:
                 headers={"content-type": "text/csv"},
             )
         )
+    if pb_zip is not None:
+        respx.get(PB_ZIP_URL).mock(
+            return_value=httpx.Response(200, content=pb_zip, headers={"content-type": "application/zip"})
+        )
 
 
 @respx.mock
-def test_enumerate_bde_pulls_all_seven_catalog_chapters() -> None:
+def test_enumerate_bde_pulls_all_seven_catalog_sources() -> None:
     _mock_csv_chapters()
     result = enumerate_bde()
     df = _enumerate_frame(result)
 
-    # One row per chapter mock — seven total — wired to BDE_ENUMERATE_OUTPUT.
-    # CF (Financial Accounts of the Spanish Economy) and IE (International
-    # Economy) were added after the initial 5-chapter ship when an exhaustive
-    # probe of ``catalogo_{aa..zz}.csv`` uncovered them.
-    assert len(df) == 7
+    # Six CSV chapters contribute one row each; the seventh source — the Bank
+    # Lending Survey — is recovered from pb.zip and contributes its two series.
     assert set(df["category"]) == {
         "General Statistics",
         "Financial Accounts",
@@ -459,6 +538,84 @@ def test_enumerate_bde_pulls_all_seven_catalog_chapters() -> None:
         "Interest Rates",
     }
     assert set(df["source"]) == {"bde_biest"}
+    assert len(df) == 8  # 6 CSV rows + 2 recovered BLS series
+
+
+@respx.mock
+def test_enumerate_bde_recovers_bank_lending_survey_from_zip() -> None:
+    """The pb CSV lists un-fetchable family aliases (PB_1_1.1); the real
+    fetchable codes (DPB…) live only in pb.zip. Enumerate must surface the real
+    codes so a search hit can actually be fetched by bde_fetch."""
+    _mock_csv_chapters()
+    df = _enumerate_frame(enumerate_bde())
+
+    pb_rows = df[df["category"] == "Bank Lending Survey"]
+    assert set(pb_rows["key"]) == {"DPBCOCCNFNOAPTOPN.T.ES", "DPBPOCCNFNOAPTOPN.T.ES"}
+    # The un-fetchable alias is preserved as METADATA, not as the fetch key.
+    first = pb_rows[pb_rows["key"] == "DPBCOCCNFNOAPTOPN.T.ES"].iloc[0]
+    assert first["alias"] == "PB_1_1.1"
+    assert first["frequency"] == "Quarterly"
+    assert first["n_obs"] == "2"  # two observation rows in the fixture
+    # No un-fetchable PB_x_y.z code leaks into the catalog keys.
+    assert not df["key"].str.startswith("PB_").any()
+
+
+@respx.mock
+def test_enumerate_bde_dedupes_cross_chapter_repeats() -> None:
+    """A series listed under two thematic chapters must appear once. First
+    occurrence in chapter order wins, so the result is deterministic."""
+    dup = _csv(
+        _HEADER,
+        [
+            _row(
+                serie="D_DUP001",
+                alias="BE_9.1",
+                description="Shared series (home chapter).",
+                frequency_raw="MENSUAL",
+                unit="%",
+                decimals="2",
+                start="ENE 2000",
+                end="ENE 2026",
+                nobs="312",
+                title="Home/Shared",
+                source_org="",
+            ),
+        ],
+    )
+    dup_si = _csv(
+        _HEADER,
+        [
+            _row(
+                serie="D_DUP001",
+                alias="SI_9.1",
+                description="Shared series (summary chapter).",
+                frequency_raw="MENSUAL",
+                unit="%",
+                decimals="2",
+                start="ENE 2000",
+                end="ENE 2026",
+                nobs="312",
+                title="Summary/Shared",
+                source_org="",
+            ),
+        ],
+    )
+    for chapter in ("cf", "ie", "tc", "ti"):
+        respx.get(f"{_CSV_BASE}/catalogo_{chapter}.csv").mock(
+            return_value=httpx.Response(200, content=_csv(_HEADER, []).encode("cp1252"))
+        )
+    respx.get(f"{_CSV_BASE}/catalogo_be.csv").mock(
+        return_value=httpx.Response(200, content=dup.encode("cp1252"))
+    )
+    respx.get(f"{_CSV_BASE}/catalogo_si.csv").mock(
+        return_value=httpx.Response(200, content=dup_si.encode("cp1252"))
+    )
+    respx.get(PB_ZIP_URL).mock(return_value=httpx.Response(503))
+
+    df = _enumerate_frame(enumerate_bde())
+    assert list(df["key"]) == ["D_DUP001"]
+    # ``be`` precedes ``si`` in chapter order, so the home-chapter row wins.
+    assert df.iloc[0]["category"] == "General Statistics"
 
 
 @respx.mock
@@ -565,23 +722,28 @@ def test_enumerate_bde_captures_dates_and_units_metadata() -> None:
 def test_enumerate_bde_degrades_gracefully_on_chapter_outage() -> None:
     """Per-chapter 5xx must not lose the surviving ones. Catalog completeness
     is best-effort; partial is strictly better than empty."""
-    base = "https://www.bde.es/webbe/es/estadisticas/compartido/datos/csv"
-    # Four chapters succeed, three fail — verify we still get the surviving rows.
-    respx.get(f"{base}/catalogo_be.csv").mock(return_value=httpx.Response(200, content=_CSV_BE.encode("cp1252")))
-    respx.get(f"{base}/catalogo_cf.csv").mock(return_value=httpx.Response(503))
-    respx.get(f"{base}/catalogo_ie.csv").mock(return_value=httpx.Response(200, content=_CSV_IE.encode("cp1252")))
-    respx.get(f"{base}/catalogo_pb.csv").mock(return_value=httpx.Response(503))
-    respx.get(f"{base}/catalogo_si.csv").mock(return_value=httpx.Response(200, content=_CSV_SI.encode("cp1252")))
-    respx.get(f"{base}/catalogo_tc.csv").mock(return_value=httpx.Response(500))
-    respx.get(f"{base}/catalogo_ti.csv").mock(return_value=httpx.Response(200, content=_CSV_TI.encode("cp1252")))
+    # Three CSV chapters succeed; the rest (and pb.zip) fail — verify we still
+    # get the surviving rows rather than losing everything.
+    respx.get(f"{_CSV_BASE}/catalogo_be.csv").mock(
+        return_value=httpx.Response(200, content=_CSV_BE.encode("cp1252"))
+    )
+    respx.get(f"{_CSV_BASE}/catalogo_cf.csv").mock(return_value=httpx.Response(503))
+    respx.get(f"{_CSV_BASE}/catalogo_ie.csv").mock(
+        return_value=httpx.Response(200, content=_CSV_IE.encode("cp1252"))
+    )
+    respx.get(f"{_CSV_BASE}/catalogo_si.csv").mock(
+        return_value=httpx.Response(200, content=_CSV_SI.encode("cp1252"))
+    )
+    respx.get(f"{_CSV_BASE}/catalogo_tc.csv").mock(return_value=httpx.Response(500))
+    respx.get(f"{_CSV_BASE}/catalogo_ti.csv").mock(return_value=httpx.Response(503))
+    respx.get(PB_ZIP_URL).mock(return_value=httpx.Response(503))
 
     df = _enumerate_frame(enumerate_bde())
-    assert len(df) == 4
+    assert len(df) == 3
     assert set(df["category"]) == {
         "General Statistics",
         "International Economy",
         "Financial Indicators",
-        "Interest Rates",
     }
 
 
@@ -590,7 +752,6 @@ def test_enumerate_bde_skips_rows_missing_serie() -> None:
     """A row with no ``serie`` value can't be fetched and is dropped — this
     is a real failure mode in BdE's exporter when a description contains an
     unescaped quote."""
-    base = "https://www.bde.es/webbe/es/estadisticas/compartido/datos/csv"
     bogus = _csv(
         _HEADER,
         [
@@ -629,11 +790,14 @@ def test_enumerate_bde_skips_rows_missing_serie() -> None:
     # We give them a header-only CSV so empty-body decoding doesn't trip on
     # a missing header in the parser.
     header_only = _csv(_HEADER, [])
-    for chapter in ("be", "cf", "ie", "pb", "si", "tc"):
-        respx.get(f"{base}/catalogo_{chapter}.csv").mock(
+    for chapter in ("be", "cf", "ie", "si", "tc"):
+        respx.get(f"{_CSV_BASE}/catalogo_{chapter}.csv").mock(
             return_value=httpx.Response(200, content=header_only.encode("cp1252"))
         )
-    respx.get(f"{base}/catalogo_ti.csv").mock(return_value=httpx.Response(200, content=bogus.encode("cp1252")))
+    respx.get(f"{_CSV_BASE}/catalogo_ti.csv").mock(
+        return_value=httpx.Response(200, content=bogus.encode("cp1252"))
+    )
+    respx.get(PB_ZIP_URL).mock(return_value=httpx.Response(503))
 
     df = _enumerate_frame(enumerate_bde())
     assert list(df["key"]) == ["D_DTFK09A0"]
@@ -641,11 +805,11 @@ def test_enumerate_bde_skips_rows_missing_serie() -> None:
 
 @respx.mock
 def test_enumerate_bde_returns_empty_when_all_chapters_fail() -> None:
-    """All seven chapters down → empty frame with the declared schema columns,
-    not a crash. Catalog publish jobs check ``len(df) == 0`` separately."""
-    base = "https://www.bde.es/webbe/es/estadisticas/compartido/datos/csv"
-    for chapter in ("be", "cf", "ie", "pb", "si", "tc", "ti"):
-        respx.get(f"{base}/catalogo_{chapter}.csv").mock(return_value=httpx.Response(503))
+    """All sources down (6 CSV chapters + pb.zip) → empty frame with the declared
+    schema columns, not a crash. Catalog publish jobs check ``len(df) == 0``."""
+    for chapter in _CSV_CHAPTERS:
+        respx.get(f"{_CSV_BASE}/catalogo_{chapter}.csv").mock(return_value=httpx.Response(503))
+    respx.get(PB_ZIP_URL).mock(return_value=httpx.Response(503))
 
     df = _enumerate_frame(enumerate_bde())
     assert len(df) == 0

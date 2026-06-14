@@ -1,6 +1,6 @@
 [project]
 name = "parsimony-eia"
-version = "0.7.1"
+version = "0.8.0"
 description = "U.S. Energy Information Administration connector for the parsimony framework"
 authors = [{ name = "Ockham.sh", email = "team@ockham.sh" }]
 license = "Apache-2.0"
@@ -60,6 +60,10 @@ line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# Build scripts import the package after a sys.path tweak / argparse preamble.
+"scripts/*" = ["E402"]
 
 [tool.mypy]
 python_version = "3.11"

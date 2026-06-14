@@ -157,6 +157,20 @@ def test_fetch_rejects_empty_group_name() -> None:
         boc_fetch(series_name="group:")
 
 
+def test_fetch_rejects_oversized_series_url() -> None:
+    """Valet 302-redirects observations requests whose URL exceeds ~4 KB. Too
+    many/long comma-joined names are rejected pre-network with an actionable
+    error (split or use group:) rather than an opaque redirect → ParseError.
+    No respx route is registered — the guard must fire before any network call.
+    """
+    long_names = ",".join(f"SERIESNAME{i:05d}" for i in range(300))  # ~4,500 chars
+    with pytest.raises(InvalidParameterError) as exc:
+        boc_fetch(series_name=long_names)
+    msg = str(exc.value).lower()
+    assert "group:" in msg  # guidance to split or use a panel
+    assert "bytes" in msg
+
+
 # ---------------------------------------------------------------------------
 # enumerate_boc
 # ---------------------------------------------------------------------------
@@ -384,23 +398,67 @@ def test_enumerate_boc_tolerates_failing_group_endpoint() -> None:
     respx.get("https://www.bankofcanada.ca/valet/lists/groups/json").mock(
         return_value=httpx.Response(
             200,
-            json={"groups": {"DEAD_GROUP": {"label": "Retired group"}}},
+            json={"groups": {"FLAKY_GROUP": {"label": "Temporarily flaky group"}}},
         )
     )
-    respx.get("https://www.bankofcanada.ca/valet/groups/DEAD_GROUP/json").mock(return_value=httpx.Response(503))
+    respx.get("https://www.bankofcanada.ca/valet/groups/FLAKY_GROUP/json").mock(
+        return_value=httpx.Response(503)
+    )
 
     df = _enumerate_dataframe(enumerate_boc())
-    # Series rows: one (FXUSDCAD). Plus a group row for DEAD_GROUP — the
-    # group enumeration is independent of the per-group membership
-    # fan-out, so a 503 on /groups/{name}/json strips membership info
-    # but the group itself is still catalogued from /lists/groups/json.
+    # Series rows: one (FXUSDCAD), no group membership (the fan-out failed).
     series_rows = df[df["entity_type"] == "series"]
     assert set(series_rows["series_name"]) == {"FXUSDCAD"}
     row = series_rows.iloc[0]
     assert row["group"] == ""
     assert row["description"] == "USD to CAD"
+    # The group is KEPT — a 5xx is transient, not a retirement.
     group_rows = df[df["entity_type"] == "group"]
-    assert set(group_rows["series_name"]) == {"group:DEAD_GROUP"}
+    assert set(group_rows["series_name"]) == {"group:FLAKY_GROUP"}
+
+
+@respx.mock
+def test_enumerate_boc_prunes_retired_group_on_404() -> None:
+    """A group whose /groups/{name}/json returns **404** is retired — BoC leaves
+    ~29 dated one-off panels in /lists/groups that 404 on both the detail and
+    observations endpoints. The membership fan-out doubles as a liveness probe:
+    a 404 group is PRUNED so the catalog never offers an unfetchable panel. A
+    live group alongside it is still emitted."""
+    respx.get("https://www.bankofcanada.ca/valet/lists/series/json").mock(
+        return_value=httpx.Response(
+            200,
+            json={"series": {"FXUSDCAD": {"label": "USD/CAD", "description": "USD to CAD"}}},
+        )
+    )
+    respx.get("https://www.bankofcanada.ca/valet/lists/groups/json").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "groups": {
+                    "FX_RATES_DAILY": {"label": "Daily exchange rates"},
+                    "EXP_20220303": {"label": "Retired one-off panel"},
+                }
+            },
+        )
+    )
+    respx.get("https://www.bankofcanada.ca/valet/groups/FX_RATES_DAILY/json").mock(
+        return_value=httpx.Response(
+            200,
+            json={"groupDetails": {"name": "FX_RATES_DAILY", "groupSeries": {"FXUSDCAD": {"label": "USD/CAD"}}}},
+        )
+    )
+    respx.get("https://www.bankofcanada.ca/valet/groups/EXP_20220303/json").mock(
+        return_value=httpx.Response(404)
+    )
+
+    df = _enumerate_dataframe(enumerate_boc())
+    group_rows = df[df["entity_type"] == "group"]
+    # The retired (404) group is pruned; only the live group is catalogued.
+    assert set(group_rows["series_name"]) == {"group:FX_RATES_DAILY"}
+    assert "group:EXP_20220303" not in set(df["series_name"])
+    # The live group still resolved its membership.
+    fx = df[df["series_name"] == "FXUSDCAD"].iloc[0]
+    assert fx["group"] == "FX_RATES_DAILY"
 
 
 @respx.mock

@@ -1,7 +1,7 @@
 [project]
 name = "parsimony-treasury"
-version = "0.7.1"
-description = "U.S. Treasury connector for the parsimony framework"
+version = "0.8.0"
+description = "U.S. Treasury (Fiscal Data + Office of Debt Management rate feeds) connector for the parsimony framework"
 authors = [{ name = "Ockham.sh", email = "team@ockham.sh" }]
 license = "Apache-2.0"
 readme = "README.md"

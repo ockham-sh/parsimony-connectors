@@ -1,7 +1,7 @@
 [project]
 name = "parsimony-riksbank"
-version = "0.7.0"
-description = "Swedish Riksbank connector for the parsimony framework"
+version = "0.8.0"
+description = "Sveriges Riksbank connector for parsimony — all five public APIs (SWEA, SWESTR, Monetary Policy, Turnover, Holdings)"
 authors = [{ name = "Ockham.sh", email = "team@ockham.sh" }]
 license = "Apache-2.0"
 readme = "README.md"

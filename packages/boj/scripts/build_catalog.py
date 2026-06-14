@@ -22,8 +22,7 @@ from parsimony_boj.catalog_build import (
     DATABASES_NAMESPACE,
     build_databases_catalog,
     build_series_catalog,
-    entities_from_boj_enumeration,
-    split_enumerated_entries,
+    split_enumerated_df,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,8 +47,7 @@ def _publish(catalog, *, save_root: str | None, push_root: str | None) -> None:
 
 def build_all(*, save_root: str | None, push_root: str | None, db_filter: set[str] | None) -> None:
     result = enumerate_boj()
-    entries = entities_from_boj_enumeration(result)
-    databases, series_by_db = split_enumerated_entries(entries)
+    databases, series_by_db = split_enumerated_df(result.data)
     logger.info(
         "BoJ enumerate split: %d databases, %d series namespaces",
         len(databases),
@@ -73,8 +71,7 @@ def build_all(*, save_root: str | None, push_root: str | None, db_filter: set[st
 
 def build_databases_only(*, save_root: str | None, push_root: str | None) -> None:
     result = enumerate_boj()
-    entries = entities_from_boj_enumeration(result)
-    databases, _ = split_enumerated_entries(entries)
+    databases, _ = split_enumerated_df(result.data)
     catalog = build_databases_catalog(databases)
     _publish(catalog, save_root=save_root, push_root=push_root)
     logger.info("Built %s with %d entries", catalog.name, len(catalog))
@@ -87,8 +84,7 @@ def build_one_series(
     push_root: str | None,
 ) -> None:
     result = enumerate_boj()
-    entries = entities_from_boj_enumeration(result)
-    _, series_by_db = split_enumerated_entries(entries)
+    _, series_by_db = split_enumerated_df(result.data)
     rows = series_by_db.get(db_code.upper()) or series_by_db.get(db_code)
     if not rows:
         raise ValueError(f"No series rows for db={db_code!r} after enumeration")

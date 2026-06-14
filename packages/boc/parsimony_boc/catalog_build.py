@@ -6,7 +6,8 @@ from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
 from parsimony.catalog.source import entities_from_raw
 
-from parsimony_boc import BOC_ENUMERATE_OUTPUT, enumerate_boc
+from parsimony_boc.connectors.enumerate import enumerate_boc
+from parsimony_boc.outputs import BOC_ENUMERATE_OUTPUT
 
 CATALOG_NAMESPACE = "boc"
 

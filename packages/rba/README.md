@@ -8,9 +8,31 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 
 | Name | Kind | Description |
 |---|---|---|
-| `rba_fetch` | connector | Fetch a published RBA statistical table by `table_id` (e.g. `f1-data`, `g1-data`). Resolves the live tables index, downloads the CSV, and returns a tidy long-format DataFrame. |
-| `enumerate_rba` | enumerator | Discover available series by scraping the tables index and parsing each CSV's (and XLSX/xls-hist) metadata header rows. Drives the `rba` catalog. |
+| `rba_fetch` | connector | Fetch a published RBA statistical table/series by `table_id`. Resolves across all three publication formats — a CSV stem (`f1-data`), a current XLSX-exclusive sheet (`a03/Bond Purchase Program`), or a legacy xls-hist workbook (`b03hist`) — and returns a tidy long-format DataFrame. |
+| `enumerate_rba` | enumerator | Discover series via the 3-pass HTML scrape (CSV index + current XLSX-exclusive sheets + legacy xls-hist), parsing each table's metadata header rows. Drives the `rba` catalog. |
 | `rba_search` | search | Semantic search over the published RBA catalog. Pass the `table_id` portion (before `#`) of a returned code to `rba_fetch(table_id=...)`. |
+
+## Coverage
+
+The catalog indexes **~4,672 series** across RBA's nine statistical categories
+(Reserve Bank, banking & finance, credit cards, monetary aggregates, household &
+business finance, interest rates, exchange rates, economic activity, balance of
+payments), drawn from three publication formats RBA exposes as static files (it
+has **no JSON/REST API**):
+
+- **CSV index** (`/statistics/tables/`) — ~3,958 current series (the bulk).
+- **Current XLSX-exclusive sheets** — series published only in a workbook, never
+  re-exported as CSV (today: the Bond Purchase Program). Detected by dynamic
+  exclusivity, so a future XLSX-only sheet is picked up automatically.
+- **Legacy xls-hist binaries** (`/statistics/historical-data.html`) — discontinued
+  series that left the live CSVs.
+
+The catalog code is compound (`{table_id}#{series_id}`) because RBA reuses series
+ids across related tables. **Every catalogued series is fetchable** — `rba_fetch`
+resolves the `table_id` to whichever format published it. The redundant
+`*hist.xlsx` long-history workbooks and the period-range archives are deliberately
+skipped (an audit confirmed they carry the same series ids as the current CSVs).
+Data is CC BY 4.0 — cite as "Source: Reserve Bank of Australia".
 
 ## Install
 

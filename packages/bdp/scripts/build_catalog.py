@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 
 from parsimony_bdp.catalog_build import build_bdp_catalog
@@ -11,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def build(*, save: str | None, push: str | None) -> None:
-    catalog = build_bdp_catalog()
+    catalog = asyncio.run(build_bdp_catalog())
     logger.info("Built %s catalog with %d entries", catalog.name, len(catalog))
     if save is not None:
         catalog.save(save, builder="packages/bdp/scripts/build_catalog.py")

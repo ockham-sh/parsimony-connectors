@@ -83,6 +83,13 @@ PROVIDER_SPECS: dict[str, ProviderCatalogSpec] = {
         search_mode="hybrid_semantic",
         queries_file="packages/destatis/catalog_tests/queries.yaml",
     ),
+    "eia": ProviderCatalogSpec(
+        provider="eia",
+        default_url="hf://parsimony-dev/eia",
+        build_script="packages/eia/scripts/build_catalog.py",
+        search_mode="hybrid_semantic",
+        queries_file="packages/eia/catalog_tests/queries.yaml",
+    ),
     "rba": ProviderCatalogSpec(
         provider="rba",
         default_url="hf://parsimony-dev/rba",

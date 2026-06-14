@@ -10,12 +10,13 @@ Run explicitly with::
 
     uv run pytest packages/boj -m integration
 
-**Bounded crawls only.** ``enumerate_boj`` normally walks a ``getMetadata``
-request across all 50 canonical BoJ databases behind Akamai (serial,
-browser UA, retries). The live enumerate test monkeypatches ``_BOJ_DATABASES``
-down to a single small DB so the crawl fires exactly one request. The catalog
-search tests build a tiny local fixture catalog and point ``catalog_root`` at
-it, so they never trigger a cold full enumerate + embed.
+**Bounded crawls only.** ``enumerate_boj`` normally fans out a ``getMetadata``
+request to all 50 registry BoJ databases behind Akamai (browser UA, retries).
+The live enumerate test monkeypatches the ``_list_databases`` seam (in
+``parsimony_boj.connectors.enumerate``) down to a single small DB so the crawl
+fires exactly one request. The catalog search tests build a tiny local fixture
+catalog and point ``catalog_root`` at it, so they never trigger a cold full
+enumerate + embed.
 
 **Akamai note.** From the dev/CI environment probed during the 0.7 sweep, the
 BoJ endpoints returned HTTP 200 with both the default httpx UA and the browser
@@ -31,7 +32,6 @@ from pathlib import Path
 import pytest
 from parsimony_test_support import assert_provenance_shape
 
-import parsimony_boj
 from parsimony_boj import (
     BOJ_ENUMERATE_OUTPUT,
     boj_databases_search,
@@ -43,7 +43,7 @@ from parsimony_boj import (
 from parsimony_boj.catalog_build import (
     build_databases_catalog,
     build_series_catalog,
-    split_enumerated_entries,
+    split_enumerated_df,
 )
 
 pytestmark = pytest.mark.integration
@@ -101,6 +101,35 @@ def test_boj_fetch_multi_series_single_request_live() -> None:
         assert sub["value"].notna().any(), f"{serie} has no real values"
 
 
+def test_boj_fetch_paginates_nextposition_no_truncation_live() -> None:
+    """A multi-series full-history request exceeds the API's 60,000-point cap and
+    is returned in full via ``NEXTPOSITION`` pagination — NOT silently truncated.
+
+    Regression for the pre-0.8 bug where ``boj_fetch`` ignored ``NEXTPOSITION``
+    and dropped every series past the cap (22 daily FX series → only 5 returned,
+    HTTP 200 "Successfully completed", no error).
+    """
+    # Discover the real daily FX series codes from live metadata.
+    rows = fetch_boj_enumeration_rows_for_db("FM08")
+    series = rows[rows["entity_type"] == "series"]
+    daily = series[series["frequency"].astype(str).str.lower().str.startswith("daily")]
+    codes = list(daily["code"])
+    assert len(codes) >= 10, f"expected many daily FX series, got {len(codes)}"
+
+    result = boj_fetch(db="FM08", code=",".join(codes))
+    df = result.data
+
+    # Every requested series came back — pagination reconstructed the full set.
+    assert df["code"].nunique() == len(codes), (
+        f"requested {len(codes)} series but only {df['code'].nunique()} returned — "
+        "NEXTPOSITION pagination dropped series"
+    )
+    # The result exceeds the single-page 60,000-point cap, so pagination MUST
+    # have engaged (one getDataCode page cannot exceed the cap).
+    assert len(df) > 60_000, f"only {len(df)} points — pagination did not engage"
+    assert df["value"].notna().any()
+
+
 def test_boj_fetch_unknown_series_surfaces_provider_error_live() -> None:
     """BoJ returns HTTP 400 for an unknown series → typed ProviderError(400)."""
     from parsimony.errors import ProviderError
@@ -113,7 +142,7 @@ def test_boj_fetch_unknown_series_surfaces_provider_error_live() -> None:
 def test_enumerate_boj_bounded_single_db_live(monkeypatch: pytest.MonkeyPatch) -> None:
     """Crawl ONE real DB (FM01) to verify the live getMetadata shape + breadcrumb
     parsing without fanning out across all 50 databases."""
-    monkeypatch.setattr(parsimony_boj, "_BOJ_DATABASES", (_BOUNDED_DB,))
+    monkeypatch.setattr("parsimony_boj.connectors.enumerate._list_databases", lambda: (_BOUNDED_DB,))
 
     result = enumerate_boj()
     df = result.data
@@ -165,7 +194,7 @@ def _build_fixture_catalogs(tmp_path: Path) -> Path:
     and no published-snapshot download.
     """
     df = fetch_boj_enumeration_rows_for_db("FM01")
-    databases, series_by_db = split_enumerated_entries(df)
+    databases, series_by_db = split_enumerated_df(df)
 
     db_catalog = build_databases_catalog(databases)
     db_catalog.save(tmp_path / "boj_databases")

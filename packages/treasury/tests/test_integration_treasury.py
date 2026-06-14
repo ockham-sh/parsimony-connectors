@@ -97,6 +97,24 @@ def test_treasury_rates_fetch_bill_rates_live() -> None:
     assert df["record_date"].dtype.kind == "M"
 
 
+def test_rate_feed_registry_has_no_live_phantom() -> None:
+    """Cross-validate the curated ODM registry against the live feed columns (the
+    archetype-D discipline; mirrors scripts/harvest_rate_feeds.py).
+
+    2025 carries the **current full** maturity set — including the 1.5-month par point and
+    the 6-week bill, both added in 2025. Every registry benchmark column must appear in the
+    live 2025 feed (a stale phantom would fail here). NOTE: these columns are sparse — OData
+    omits null properties per-entry, so the check must use the column UNION across all rows
+    (the DataFrame ``columns``), never a single entry."""
+    from parsimony_treasury.rate_feeds import registry_columns
+
+    for feed in ("daily_treasury_yield_curve", "daily_treasury_real_yield_curve", "daily_treasury_bill_rates"):
+        result = treasury_rates_fetch(feed=feed, year=2025)
+        live_cols = set(result.data.columns)
+        missing = registry_columns(feed) - live_cols
+        assert not missing, f"{feed}: registry columns absent from the 2025 live feed (phantom?): {sorted(missing)}"
+
+
 def test_enumerate_treasury_live() -> None:
     # ONE metadata GET + an in-memory fan-out over the returned datasets. The
     # network cost is a single request; we do NOT embed/build a catalog here.
@@ -113,10 +131,10 @@ def test_enumerate_treasury_live() -> None:
     # The static ODM rate registry must always land (does not depend on the API).
     assert len(rates) > 30, "ODM rate-feed registry rows missing"
 
-    # Real content, not just column names: code/title/definition are populated.
+    # Real content, not just column names: code/title/description are populated.
     assert df["code"].astype(str).str.len().gt(0).all(), "blank code"
     assert df["title"].astype(str).str.len().gt(0).all(), "blank title"
-    assert df["definition"].astype(str).str.len().gt(0).any(), "no real definition text"
+    assert df["description"].astype(str).str.len().gt(0).any(), "no real description text"
     # The canonical debt measure is discoverable.
     assert df["code"].str.contains("debt_to_penny").any(), "debt_to_penny not enumerated"
     # build_entities round-trips on a real slice (catalog-build entry point).
@@ -137,7 +155,7 @@ def test_treasury_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         {
             "code": "v2/accounting/od/debt_to_penny#tot_pub_debt_out_amt",
             "title": "Total Public Debt Outstanding — Debt to the Penny",
-            "definition": "Total federal debt outstanding to the penny.",
+            "description": "Total federal debt outstanding to the penny.",
             "source": "fiscal_data",
             "endpoint": "v2/accounting/od/debt_to_penny",
             "field": "tot_pub_debt_out_amt",
@@ -151,7 +169,7 @@ def test_treasury_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         {
             "code": "home/daily_treasury_yield_curve#BC_10YEAR",
             "title": "10 Year — Daily Treasury Par Yield Curve Rates",
-            "definition": "10 Year constant-maturity Treasury par yield curve rate.",
+            "description": "10 Year constant-maturity Treasury par yield curve rate.",
             "source": "treasury_rates",
             "endpoint": "home/daily_treasury_yield_curve",
             "field": "BC_10YEAR",
@@ -165,7 +183,7 @@ def test_treasury_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         {
             "code": "v1/accounting/dts/operating_cash_balance#open_today_bal",
             "title": "Opening Balance — Operating Cash Balance",
-            "definition": "Treasury operating cash opening balance for the day.",
+            "description": "Treasury operating cash opening balance for the day.",
             "source": "fiscal_data",
             "endpoint": "v1/accounting/dts/operating_cash_balance",
             "field": "open_today_bal",

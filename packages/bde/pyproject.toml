@@ -1,6 +1,6 @@
 [project]
 name = "parsimony-bde"
-version = "0.7.0"
+version = "0.8.0"
 description = "Banco de España connector for the parsimony framework"
 authors = [{ name = "Ockham.sh", email = "team@ockham.sh" }]
 license = "Apache-2.0"

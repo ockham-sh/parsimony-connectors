@@ -12,8 +12,9 @@ Run explicitly with::
 
 **Bounded crawls only.** A full ``enumerate_boc`` fans out one
 ``/groups/{name}/json`` request per group (~2,400 requests, ~1 min). The live
-enumerate test monkeypatches the module-level ``_list_groups`` seam down to two
-tiny groups so the crawl fires only a handful of requests, and a request
+enumerate test monkeypatches the ``_list_groups`` seam (in
+``parsimony_boc.connectors.enumerate``) down to two tiny groups so the crawl
+fires only a handful of requests, and a request
 counter wrapped around ``HttpClient.request`` asserts the bound actually held.
 ``boc_search`` is covered against a locally-built fixture catalog rather than
 the published snapshot, so it never triggers a cold full enumerate + embed.
@@ -32,7 +33,6 @@ from parsimony.catalog.source import entities_from_raw
 from parsimony.transport import HttpClient
 from parsimony_test_support import assert_provenance_shape
 
-import parsimony_boc
 from parsimony_boc import BOC_ENUMERATE_OUTPUT, boc_fetch, enumerate_boc
 from parsimony_boc.search import boc_search
 
@@ -102,7 +102,7 @@ def test_boc_fetch_group_panel_live() -> None:
 def test_enumerate_boc_bounded_groups_live(monkeypatch: pytest.MonkeyPatch) -> None:
     """Crawl TWO real tiny groups to verify the live Valet shape without the
     full ~2,400-request fan-out. A request counter asserts the bound held."""
-    monkeypatch.setattr(parsimony_boc, "_list_groups", _bounded_groups)
+    monkeypatch.setattr("parsimony_boc.connectors.enumerate._list_groups", _bounded_groups)
 
     # Instrument the kernel HttpClient so we can assert the bound actually held:
     # 1 series-list request + 2 per-group membership requests = a handful, not

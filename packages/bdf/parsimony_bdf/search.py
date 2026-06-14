@@ -26,8 +26,12 @@ bdf_search = make_local_search_connector(
     build_catalog=build_bdf_catalog,
     tags=["macro", "fr", "tool"],
     description=(
-        "Semantic-search the Banque de France (BdF) Webstat catalog. "
-        "Pass series codes (dot-separated SDMX keys) to bdf_fetch(key=...)."
+        "Semantic-search the Banque de France (BdF) Webstat catalog of French "
+        "macroeconomic, monetary and financial time series. Returns ranked SDMX "
+        "series codes (and dataset:<id> group rows); pass a series code to "
+        "bdf_fetch(key=...) to retrieve its observations."
     ),
     output_columns=BDF_SEARCH_OUTPUT.columns,
 )
+
+__all__ = ["PARSIMONY_BDF_CATALOG_URL_ENV", "BdfSearchParams", "bdf_search"]

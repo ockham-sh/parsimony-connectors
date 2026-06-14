@@ -1,7 +1,7 @@
 [project]
 name = "parsimony-sec-edgar"
-version = "0.7.1"
-description = "SEC Edgar connector for the parsimony framework"
+version = "0.8.0"
+description = "SEC EDGAR connector for the parsimony framework"
 authors = [{ name = "Ockham.sh", email = "team@ockham.sh" }]
 license = "Apache-2.0"
 readme = "README.md"
@@ -24,6 +24,7 @@ dependencies = [
     "parsimony-core>=0.7,<0.8",
     "pydantic>=2.11.1,<3",
     "pandas>=2.3.0,<3",
+    "edgartools>=5.0,<6",
 ]
 
 [project.optional-dependencies]

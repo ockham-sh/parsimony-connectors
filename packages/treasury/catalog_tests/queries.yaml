@@ -1,19 +1,50 @@
+# Curated search probes for the U.S. Treasury catalog.
+#
+# Single-bundle catalog (namespace ``treasury``): ~913 entries — 879 Fiscal Data measures
+# discovered live from /services/dtg/metadata/ (compound ``{endpoint}#{field}`` codes,
+# ``source=fiscal_data``) + 34 Office of Debt Management rate-feed benchmarks
+# (``home/{feed}#{column}``, ``source=treasury_rates``). With >1000 unique titles the
+# adaptive index degrades to BM25-only (the guidebook rule), so exact ``code:`` probes are
+# ``required`` and semantic-style title probes stay ``optional``.
+#
+# Dispatch: the agent passes a ``home/<feed>`` hit's feed to treasury_rates_fetch and a
+# ``v<n>/<endpoint>#<field>`` hit's endpoint to treasury_fetch.
+#
+# Regenerate drafts after a local build:
+#   uv run python tooling/validate_catalog.py --provider treasury \
+#     --catalog-url file:///tmp/parsimony-catalogs/treasury \
+#     --write-queries packages/treasury/catalog_tests/queries.generated.yaml
+
 catalog_url: hf://parsimony-dev/treasury
 
 queries:
-  - id: code_tbill_52wk
-    query: "code: home/daily_treasury_bill_rates#ROUND_B1_YIELD_52WK_2"
-    expected_code: home/daily_treasury_bill_rates#ROUND_B1_YIELD_52WK_2
+  - id: code_debt_to_penny
+    query: "code: v2/accounting/od/debt_to_penny#tot_pub_debt_out_amt"
+    expected_code: "v2/accounting/od/debt_to_penny#tot_pub_debt_out_amt"
     mode: code
     required: true
-    why: "Direct lookup on indexed code field"
+    why: "Direct lookup on the indexed code field (total public debt outstanding — the canonical Fiscal Data measure)"
 
-  - id: title_tbill_52wk
-    query: "52-Week Treasury Bill Coupon"
-    expected_code: home/daily_treasury_bill_rates#ROUND_B1_YIELD_52WK_2
-    mode: title_bm25
+  - id: code_par_yield_10y
+    query: "code: home/daily_treasury_yield_curve#BC_10YEAR"
+    expected_code: "home/daily_treasury_yield_curve#BC_10YEAR"
+    mode: code
     required: true
-    why: "Lexical title probe on hybrid title index"
+    why: "An ODM rate-feed benchmark is catalogued and findable by its compound code (archetype-D registry lands)"
+
+  - id: title_debt_to_penny
+    query: "total public debt outstanding"
+    expected_code: "v2/accounting/od/debt_to_penny#tot_pub_debt_out_amt"
+    mode: title_bm25
+    optional: true
+    why: "Distinctive lexical title probe; ranking may vary on the BM25-only title index"
+
+  - id: title_par_yield_10y
+    query: "10 year Treasury par yield curve rate"
+    expected_code: "home/daily_treasury_yield_curve#BC_10YEAR"
+    mode: hybrid_title
+    optional: true
+    why: "Proves the famous 10-year par-yield benchmark surfaces by title text, not just exact code"
 
 thresholds:
   min_required_recall: 1.0
