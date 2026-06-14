@@ -34,6 +34,7 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 
 import pandas as pd
+from parsimony import Namespace
 from parsimony.connector import Connectors, connector
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 
@@ -96,16 +97,21 @@ def _to_frame(data: Any, op_name: str, query_params: dict[str, Any]) -> pd.DataF
 def _select_declared(df: pd.DataFrame, output: Any) -> pd.DataFrame:
     """Project a frame to the columns the schema declares, in declared order.
 
-    Keeps only schema-declared columns that are present, so provider extras (the
-    statement endpoints carry ~40 fields each) do not fold in as stray DATA
-    columns. Wildcard (``"*"``) schemas opt out — they intentionally keep
-    everything.
+    Drops provider extras not in the schema. Missing declared columns are filled
+    with ``NA`` so sparse upstream payloads still satisfy
+    :class:`~parsimony.result.OutputConfig`. Wildcard (``"*"``) schemas keep
+    unmapped columns after the fixed prefix.
     """
     names = [c.name for c in output.columns]
+    fixed = [n for n in names if n != "*"]
+    out = df.copy()
+    for n in fixed:
+        if n not in out.columns:
+            out[n] = pd.NA
     if "*" in names:
-        return df
-    keep = [n for n in names if n in df.columns]
-    return df[keep]
+        extra = [c for c in out.columns if c not in fixed]
+        return out[fixed + extra]
+    return out[fixed]
 
 
 # ---------------------------------------------------------------------------
@@ -148,9 +154,7 @@ _MARKET_MOVERS_DISPATCH: dict[str, str] = {
     "most_actives": "most-actives",
 }
 
-_INTRADAY_FREQUENCIES: frozenset[str] = frozenset(
-    {"1min", "5min", "15min", "30min", "1hour", "4hour"}
-)
+_INTRADAY_FREQUENCIES: frozenset[str] = frozenset({"1min", "5min", "15min", "30min", "1hour", "4hour"})
 
 _PRICES_PATH_MAP: dict[str, str] = {
     "daily": "historical-price-eod/full",
@@ -176,7 +180,7 @@ _DIVIDEND_ADJUSTED_RENAME: dict[str, str] = {
 
 
 @connector(output=SEARCH_OUTPUT, tags=["equity", "utility", "tool"], secrets=("api_key",))
-async def fmp_search(
+def fmp_search(
     query: str,
     limit: int = 20,
     exchange: str | None = None,
@@ -191,7 +195,7 @@ async def fmp_search(
     if not q:
         raise InvalidParameterError(_PROVIDER, "query must be non-empty")
     http = _client(api_key)
-    data = await fmp_get(
+    data = fmp_get(
         http,
         path="search-name",
         params={"query": q, "limit": limit, "exchange": exchange},
@@ -202,7 +206,7 @@ async def fmp_search(
 
 
 @connector(tags=["equity", "utility", "tool"], secrets=("api_key",))
-async def fmp_taxonomy(
+def fmp_taxonomy(
     type: Literal["sectors", "industries", "exchanges", "symbols_with_financials"],
     api_key: str = "",
 ) -> pd.DataFrame:
@@ -212,7 +216,7 @@ async def fmp_taxonomy(
     Use before building screener filters to ensure field values are valid.
     """
     http = _client(api_key, timeout=_BULK_TIMEOUT_SECONDS)
-    data = await fmp_get(http, path=_TAXONOMY_DISPATCH[type], op_name="fmp_taxonomy")
+    data = fmp_get(http, path=_TAXONOMY_DISPATCH[type], op_name="fmp_taxonomy")
     return _to_frame(data, "fmp_taxonomy", {"type": type})
 
 
@@ -222,7 +226,7 @@ async def fmp_taxonomy(
 
 
 @connector(output=STOCK_QUOTE_OUTPUT, tags=["equity"], secrets=("api_key",))
-async def fmp_quotes(symbols: str, api_key: str = "") -> pd.DataFrame:
+def fmp_quotes(symbols: str, api_key: str = "") -> pd.DataFrame:
     """[Starter+] Fetch real-time quotes for one or more symbols in a single
     request.
 
@@ -233,14 +237,14 @@ async def fmp_quotes(symbols: str, api_key: str = "") -> pd.DataFrame:
     if not s:
         raise InvalidParameterError(_PROVIDER, "symbols must be non-empty")
     http = _client(api_key)
-    data = await fmp_get(http, path="batch-quote", params={"symbols": s}, op_name="fmp_quotes")
+    data = fmp_get(http, path="batch-quote", params={"symbols": s}, op_name="fmp_quotes")
     df = _to_frame(data, "fmp_quotes", {"symbols": s})
     return _select_declared(df, STOCK_QUOTE_OUTPUT)
 
 
 @connector(output=HISTORICAL_PRICES_OUTPUT, tags=["equity"], secrets=("api_key",))
-async def fmp_prices(
-    symbol: Annotated[str, "ns:fmp_symbols"],
+def fmp_prices(
+    symbol: Annotated[str, Namespace("fmp_symbols")],
     frequency: str = "daily",
     from_date: str | None = None,
     to_date: str | None = None,
@@ -264,7 +268,7 @@ async def fmp_prices(
         raise InvalidParameterError(_PROVIDER, f"frequency must be one of {valid}, got {frequency!r}")
 
     http = _client(api_key)
-    data = await fmp_get(
+    data = fmp_get(
         http,
         path=path,
         params={"symbol": sym, "from": from_date, "to": to_date},
@@ -282,7 +286,7 @@ async def fmp_prices(
 
 
 @connector(output=COMPANY_PROFILE_OUTPUT, tags=["equity", "tool"], secrets=("api_key",))
-async def fmp_company_profile(symbol: Annotated[str, "ns:fmp_symbols"], api_key: str = "") -> pd.DataFrame:
+def fmp_company_profile(symbol: Annotated[str, Namespace("fmp_symbols")], api_key: str = "") -> pd.DataFrame:
     """[Starter+] Fetch company profile: name, sector, industry, market cap, CEO,
     employees, website, and ETF/ADR/fund flags.
 
@@ -292,13 +296,13 @@ async def fmp_company_profile(symbol: Annotated[str, "ns:fmp_symbols"], api_key:
     if not sym:
         raise InvalidParameterError(_PROVIDER, "symbol must be non-empty")
     http = _client(api_key)
-    data = await fmp_get(http, path="profile", params={"symbol": sym}, op_name="fmp_company_profile")
+    data = fmp_get(http, path="profile", params={"symbol": sym}, op_name="fmp_company_profile")
     df = _to_frame(data, "fmp_company_profile", {"symbol": sym})
     return _select_declared(df, COMPANY_PROFILE_OUTPUT)
 
 
 @connector(output=PEERS_OUTPUT, tags=["equity", "tool"], secrets=("api_key",))
-async def fmp_peers(symbol: Annotated[str, "ns:fmp_symbols"], api_key: str = "") -> pd.DataFrame:
+def fmp_peers(symbol: Annotated[str, Namespace("fmp_symbols")], api_key: str = "") -> pd.DataFrame:
     """[Starter+] Return the peer group for a company: stocks in the same sector
     with comparable market cap on the same exchange.
 
@@ -308,14 +312,14 @@ async def fmp_peers(symbol: Annotated[str, "ns:fmp_symbols"], api_key: str = "")
     if not sym:
         raise InvalidParameterError(_PROVIDER, "symbol must be non-empty")
     http = _client(api_key)
-    data = await fmp_get(http, path="stock-peers", params={"symbol": sym}, op_name="fmp_peers")
+    data = fmp_get(http, path="stock-peers", params={"symbol": sym}, op_name="fmp_peers")
     df = _to_frame(data, "fmp_peers", {"symbol": sym})
     return _select_declared(df, PEERS_OUTPUT)
 
 
 @connector(output=INCOME_STATEMENT_OUTPUT, tags=["equity"], secrets=("api_key",))
-async def fmp_income_statements(
-    symbol: Annotated[str, "ns:fmp_symbols"],
+def fmp_income_statements(
+    symbol: Annotated[str, Namespace("fmp_symbols")],
     period: str = "annual",
     limit: int = 5,
     api_key: str = "",
@@ -330,7 +334,7 @@ async def fmp_income_statements(
     if not sym:
         raise InvalidParameterError(_PROVIDER, "symbol must be non-empty")
     http = _client(api_key)
-    data = await fmp_get(
+    data = fmp_get(
         http,
         path="income-statement",
         params={"symbol": sym, "period": period, "limit": limit},
@@ -341,8 +345,8 @@ async def fmp_income_statements(
 
 
 @connector(output=BALANCE_SHEET_OUTPUT, tags=["equity"], secrets=("api_key",))
-async def fmp_balance_sheet_statements(
-    symbol: Annotated[str, "ns:fmp_symbols"],
+def fmp_balance_sheet_statements(
+    symbol: Annotated[str, Namespace("fmp_symbols")],
     period: str = "annual",
     limit: int = 5,
     api_key: str = "",
@@ -357,7 +361,7 @@ async def fmp_balance_sheet_statements(
     if not sym:
         raise InvalidParameterError(_PROVIDER, "symbol must be non-empty")
     http = _client(api_key)
-    data = await fmp_get(
+    data = fmp_get(
         http,
         path="balance-sheet-statement",
         params={"symbol": sym, "period": period, "limit": limit},
@@ -368,8 +372,8 @@ async def fmp_balance_sheet_statements(
 
 
 @connector(output=CASH_FLOW_OUTPUT, tags=["equity"], secrets=("api_key",))
-async def fmp_cash_flow_statements(
-    symbol: Annotated[str, "ns:fmp_symbols"],
+def fmp_cash_flow_statements(
+    symbol: Annotated[str, Namespace("fmp_symbols")],
     period: str = "annual",
     limit: int = 5,
     api_key: str = "",
@@ -384,7 +388,7 @@ async def fmp_cash_flow_statements(
     if not sym:
         raise InvalidParameterError(_PROVIDER, "symbol must be non-empty")
     http = _client(api_key)
-    data = await fmp_get(
+    data = fmp_get(
         http,
         path="cash-flow-statement",
         params={"symbol": sym, "period": period, "limit": limit},
@@ -400,8 +404,8 @@ async def fmp_cash_flow_statements(
 
 
 @connector(tags=["equity"], secrets=("api_key",))
-async def fmp_corporate_history(
-    symbol: Annotated[str, "ns:fmp_symbols"],
+def fmp_corporate_history(
+    symbol: Annotated[str, Namespace("fmp_symbols")],
     event_type: Literal["earnings", "dividends", "splits"],
     limit: int = 10,
     api_key: str = "",
@@ -415,7 +419,7 @@ async def fmp_corporate_history(
     if not sym:
         raise InvalidParameterError(_PROVIDER, "symbol must be non-empty")
     http = _client(api_key)
-    data = await fmp_get(
+    data = fmp_get(
         http,
         path=_CORPORATE_HISTORY_DISPATCH[event_type],
         params={"symbol": sym, "limit": limit},
@@ -425,7 +429,7 @@ async def fmp_corporate_history(
 
 
 @connector(tags=["equity"], secrets=("api_key",))
-async def fmp_event_calendar(
+def fmp_event_calendar(
     event_type: Literal["earnings", "dividends", "splits"],
     from_date: str | None = None,
     to_date: str | None = None,
@@ -435,7 +439,7 @@ async def fmp_event_calendar(
     splits within a date window (max 90 days).
     """
     http = _client(api_key, timeout=_BULK_TIMEOUT_SECONDS)
-    data = await fmp_get(
+    data = fmp_get(
         http,
         path=_EVENT_CALENDAR_DISPATCH[event_type],
         params={"from": from_date, "to": to_date},
@@ -445,8 +449,8 @@ async def fmp_event_calendar(
 
 
 @connector(output=ANALYST_ESTIMATES_OUTPUT, tags=["equity"], secrets=("api_key",))
-async def fmp_analyst_estimates(
-    symbol: Annotated[str, "ns:fmp_symbols"],
+def fmp_analyst_estimates(
+    symbol: Annotated[str, Namespace("fmp_symbols")],
     period: str = "annual",
     limit: int = 4,
     api_key: str = "",
@@ -460,7 +464,7 @@ async def fmp_analyst_estimates(
     if not sym:
         raise InvalidParameterError(_PROVIDER, "symbol must be non-empty")
     http = _client(api_key)
-    data = await fmp_get(
+    data = fmp_get(
         http,
         path="analyst-estimates",
         params={"symbol": sym, "period": period, "limit": limit},
@@ -476,7 +480,7 @@ async def fmp_analyst_estimates(
 
 
 @connector(output=NEWS_OUTPUT, tags=["equity"], secrets=("api_key",))
-async def fmp_news(
+def fmp_news(
     type: Literal["news", "press_releases"],
     symbols: str,
     from_date: str | None = None,
@@ -495,7 +499,7 @@ async def fmp_news(
     if not s:
         raise InvalidParameterError(_PROVIDER, "symbols must be non-empty")
     http = _client(api_key)
-    data = await fmp_get(
+    data = fmp_get(
         http,
         path=_NEWS_DISPATCH[type],
         params={"symbols": s, "from": from_date, "to": to_date, "limit": limit, "page": page},
@@ -506,8 +510,8 @@ async def fmp_news(
 
 
 @connector(output=INSIDER_TRADES_OUTPUT, tags=["equity"], secrets=("api_key",))
-async def fmp_insider_trades(
-    symbol: Annotated[str, "ns:fmp_symbols"],
+def fmp_insider_trades(
+    symbol: Annotated[str, Namespace("fmp_symbols")],
     limit: int = 20,
     page: int = 0,
     api_key: str = "",
@@ -521,7 +525,7 @@ async def fmp_insider_trades(
     if not sym:
         raise InvalidParameterError(_PROVIDER, "symbol must be non-empty")
     http = _client(api_key)
-    data = await fmp_get(
+    data = fmp_get(
         http,
         path="insider-trading/search",
         params={"symbol": sym, "limit": limit, "page": page},
@@ -532,8 +536,8 @@ async def fmp_insider_trades(
 
 
 @connector(output=INSTITUTIONAL_POSITIONS_OUTPUT, tags=["equity"], secrets=("api_key",))
-async def fmp_institutional_positions(
-    symbol: Annotated[str, "ns:fmp_symbols"],
+def fmp_institutional_positions(
+    symbol: Annotated[str, Namespace("fmp_symbols")],
     year: str,
     quarter: str,
     api_key: str = "",
@@ -549,7 +553,7 @@ async def fmp_institutional_positions(
     if quarter not in {"1", "2", "3", "4"}:
         raise InvalidParameterError(_PROVIDER, f"quarter must be one of 1, 2, 3, 4, got {quarter!r}")
     http = _client(api_key)
-    data = await fmp_get(
+    data = fmp_get(
         http,
         path="institutional-ownership/symbol-positions-summary",
         params={"symbol": sym, "year": year, "quarter": quarter},
@@ -560,8 +564,8 @@ async def fmp_institutional_positions(
 
 
 @connector(output=EARNINGS_TRANSCRIPT_OUTPUT, tags=["equity"], secrets=("api_key",))
-async def fmp_earnings_transcript(
-    symbol: Annotated[str, "ns:fmp_symbols"],
+def fmp_earnings_transcript(
+    symbol: Annotated[str, Namespace("fmp_symbols")],
     year: str,
     quarter: str,
     api_key: str = "",
@@ -577,7 +581,7 @@ async def fmp_earnings_transcript(
     if quarter not in {"1", "2", "3", "4"}:
         raise InvalidParameterError(_PROVIDER, f"quarter must be one of 1, 2, 3, 4, got {quarter!r}")
     http = _client(api_key, timeout=_BULK_TIMEOUT_SECONDS)
-    data = await fmp_get(
+    data = fmp_get(
         http,
         path="earning-call-transcript",
         params={"symbol": sym, "year": year, "quarter": quarter},
@@ -593,7 +597,7 @@ async def fmp_earnings_transcript(
 
 
 @connector(output=INDEX_CONSTITUENTS_OUTPUT, tags=["equity", "tool"], secrets=("api_key",))
-async def fmp_index_constituents(
+def fmp_index_constituents(
     index: Literal["SP500", "NASDAQ", "DOW_JONES"],
     api_key: str = "",
 ) -> pd.DataFrame:
@@ -601,13 +605,13 @@ async def fmp_index_constituents(
     symbol, name, sector, sub-sector, and headquarters.
     """
     http = _client(api_key)
-    data = await fmp_get(http, path=_INDEX_DISPATCH[index], op_name="fmp_index_constituents")
+    data = fmp_get(http, path=_INDEX_DISPATCH[index], op_name="fmp_index_constituents")
     df = _to_frame(data, "fmp_index_constituents", {"index": index})
     return _select_declared(df, INDEX_CONSTITUENTS_OUTPUT)
 
 
 @connector(output=MARKET_MOVERS_OUTPUT, tags=["equity", "tool"], secrets=("api_key",))
-async def fmp_market_movers(
+def fmp_market_movers(
     type: Literal["gainers", "losers", "most_actives"],
     api_key: str = "",
 ) -> pd.DataFrame:
@@ -615,7 +619,7 @@ async def fmp_market_movers(
     losers (biggest % down), or most_actives (highest volume).
     """
     http = _client(api_key)
-    data = await fmp_get(http, path=_MARKET_MOVERS_DISPATCH[type], op_name="fmp_market_movers")
+    data = fmp_get(http, path=_MARKET_MOVERS_DISPATCH[type], op_name="fmp_market_movers")
     df = _to_frame(data, "fmp_market_movers", {"type": type})
     return _select_declared(df, MARKET_MOVERS_OUTPUT)
 
@@ -627,7 +631,7 @@ async def fmp_market_movers(
 
 
 @connector(output=SCREENER_OUTPUT, tags=["equity", "tool"], secrets=("api_key",))
-async def fmp_screener(
+def fmp_screener(
     sector: str | None = None,
     industry: str | None = None,
     country: str | None = None,
@@ -663,7 +667,7 @@ async def fmp_screener(
     (1000-2000) for broad global searches sorted by TTM columns.
     """
     http = _client(api_key)
-    return await _screener.execute(
+    return _screener.execute(
         http,
         sector=sector,
         industry=industry,

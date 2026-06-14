@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from parsimony_destatis.connectors import CONNECTORS
+from parsimony_destatis.connectors import CONNECTORS, load
 
-__all__ = ["CONNECTORS"]
+__all__ = ["CONNECTORS", "load"]

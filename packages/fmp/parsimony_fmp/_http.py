@@ -33,13 +33,12 @@ but are never parsed here — this module branches on the HTTP status alone.
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import httpx
-from parsimony.errors import PaymentRequiredError, UnauthorizedError
+from parsimony.errors import PaymentRequiredError
 from parsimony.transport import HttpClient, map_http_error, map_timeout_error, pooled_client
-from parsimony.transport.helpers import make_api_key_client
+from parsimony.transport.helpers import make_api_key_client, require_key
 
 _PROVIDER = "fmp"
 _BASE_URL = "https://financialmodelingprep.com/stable"
@@ -66,13 +65,11 @@ def _client(api_key: str, *, timeout: float = _DEFAULT_TIMEOUT_SECONDS) -> HttpC
     transport layer) — FMP's only fixed query param — so ``make_api_key_client``
     (which sets exactly that param) fits.
     """
-    key = api_key or os.environ.get(_ENV_VAR, "")
-    if not key:
-        raise UnauthorizedError(_PROVIDER, env_var=_ENV_VAR)
+    key = require_key(api_key, env_var=_ENV_VAR, provider=_PROVIDER)
     return make_api_key_client(_BASE_URL, api_key=key, api_key_param="apikey", timeout=timeout)
 
 
-async def fmp_get(
+def fmp_get(
     http: HttpClient,
     *,
     path: str,
@@ -93,7 +90,7 @@ async def fmp_get(
     """
     filtered = {k: v for k, v in (params or {}).items() if v is not None}
     try:
-        response = await http.request("GET", f"/{path.lstrip('/')}", params=filtered or None)
+        response = http.request("GET", f"/{path.lstrip('/')}", params=filtered or None)
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code in _PLAN_RESTRICTION_STATUSES:

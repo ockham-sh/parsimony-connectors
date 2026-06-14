@@ -83,8 +83,7 @@ def test_load_binds_key_across_collection() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_search_returns_rows_and_strips_key() -> None:
+def test_tiingo_search_returns_rows_and_strips_key() -> None:
     respx.get(f"{_BASE}/tiingo/utilities/search").mock(
         return_value=httpx.Response(
             200,
@@ -103,7 +102,7 @@ async def test_tiingo_search_returns_rows_and_strips_key() -> None:
     )
 
     bound = tiingo_search.bind(api_key=_KEY)
-    result = await bound(query="apple")
+    result = bound(query="apple")
 
     assert result.provenance.source == "tiingo_search"
     # Theme-B: the bound key must not appear in provenance.
@@ -115,60 +114,48 @@ async def test_tiingo_search_returns_rows_and_strips_key() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_search_empty_results_raise_empty_data() -> None:
+def test_tiingo_search_empty_results_raise_empty_data() -> None:
     respx.get(f"{_BASE}/tiingo/utilities/search").mock(return_value=httpx.Response(200, json=[]))
     bound = tiingo_search.bind(api_key=_KEY)
     with pytest.raises(EmptyDataError):
-        await bound(query="zzzznotaticker")
+        bound(query="zzzznotaticker")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_search_non_list_raises_parse_error() -> None:
-    respx.get(f"{_BASE}/tiingo/utilities/search").mock(
-        return_value=httpx.Response(200, json={"detail": "weird"})
-    )
+def test_tiingo_search_non_list_raises_parse_error() -> None:
+    respx.get(f"{_BASE}/tiingo/utilities/search").mock(return_value=httpx.Response(200, json={"detail": "weird"}))
     bound = tiingo_search.bind(api_key=_KEY)
     with pytest.raises(ParseError):
-        await bound(query="apple")
+        bound(query="apple")
 
 
-@pytest.mark.asyncio
-async def test_tiingo_search_rejects_empty_query() -> None:
+def test_tiingo_search_rejects_empty_query() -> None:
     bound = tiingo_search.bind(api_key=_KEY)
     with pytest.raises(InvalidParameterError, match="query"):
-        await bound(query="   ")
+        bound(query="   ")
 
 
-@pytest.mark.asyncio
-async def test_tiingo_search_rejects_bad_limit() -> None:
+def test_tiingo_search_rejects_bad_limit() -> None:
     bound = tiingo_search.bind(api_key=_KEY)
     with pytest.raises(InvalidParameterError, match="limit"):
-        await bound(query="apple", limit=0)
+        bound(query="apple", limit=0)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_search_maps_401_without_leaking_key() -> None:
-    respx.get(f"{_BASE}/tiingo/utilities/search").mock(
-        return_value=httpx.Response(401, text="unauthorized")
-    )
+def test_tiingo_search_maps_401_without_leaking_key() -> None:
+    respx.get(f"{_BASE}/tiingo/utilities/search").mock(return_value=httpx.Response(401, text="unauthorized"))
     bound = tiingo_search.bind(api_key=_KEY)
     with pytest.raises(UnauthorizedError) as exc_info:
-        await bound(query="apple")
+        bound(query="apple")
     assert _KEY not in str(exc_info.value)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_search_maps_429_without_leaking_key() -> None:
-    respx.get(f"{_BASE}/tiingo/utilities/search").mock(
-        return_value=httpx.Response(429, text="rate limited")
-    )
+def test_tiingo_search_maps_429_without_leaking_key() -> None:
+    respx.get(f"{_BASE}/tiingo/utilities/search").mock(return_value=httpx.Response(429, text="rate limited"))
     bound = tiingo_search.bind(api_key=_KEY)
     with pytest.raises(RateLimitError) as exc_info:
-        await bound(query="apple")
+        bound(query="apple")
     assert _KEY not in str(exc_info.value)
 
 
@@ -178,8 +165,7 @@ async def test_tiingo_search_maps_429_without_leaking_key() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_eod_returns_ohlcv() -> None:
+def test_tiingo_eod_returns_ohlcv() -> None:
     respx.get(f"{_BASE}/tiingo/daily/AAPL/prices").mock(
         return_value=httpx.Response(
             200,
@@ -203,26 +189,24 @@ async def test_tiingo_eod_returns_ohlcv() -> None:
         )
     )
     bound = tiingo_eod.bind(api_key=_KEY)
-    result = await bound(ticker="AAPL")
+    result = bound(ticker="AAPL")
     df = result.data
     assert df.iloc[0]["close"] == 185.64
     assert df.iloc[0]["ticker"] == "AAPL"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_eod_empty_raises_empty_data() -> None:
+def test_tiingo_eod_empty_raises_empty_data() -> None:
     respx.get(f"{_BASE}/tiingo/daily/AAPL/prices").mock(return_value=httpx.Response(200, json=[]))
     bound = tiingo_eod.bind(api_key=_KEY)
     with pytest.raises(EmptyDataError):
-        await bound(ticker="AAPL")
+        bound(ticker="AAPL")
 
 
-@pytest.mark.asyncio
-async def test_tiingo_eod_rejects_unsafe_ticker() -> None:
+def test_tiingo_eod_rejects_unsafe_ticker() -> None:
     bound = tiingo_eod.bind(api_key=_KEY)
     with pytest.raises(InvalidParameterError, match="unsafe"):
-        await bound(ticker="../etc/passwd")
+        bound(ticker="../etc/passwd")
 
 
 # ---------------------------------------------------------------------------
@@ -231,8 +215,7 @@ async def test_tiingo_eod_rejects_unsafe_ticker() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_iex_returns_quotes() -> None:
+def test_tiingo_iex_returns_quotes() -> None:
     respx.get(f"{_BASE}/iex/").mock(
         return_value=httpx.Response(
             200,
@@ -256,24 +239,22 @@ async def test_tiingo_iex_returns_quotes() -> None:
         )
     )
     bound = tiingo_iex.bind(api_key=_KEY)
-    result = await bound(tickers="AAPL")
+    result = bound(tickers="AAPL")
     assert result.data.iloc[0]["tngo_last"] == 312.27
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_iex_empty_raises_empty_data() -> None:
+def test_tiingo_iex_empty_raises_empty_data() -> None:
     respx.get(f"{_BASE}/iex/").mock(return_value=httpx.Response(200, json=[]))
     bound = tiingo_iex.bind(api_key=_KEY)
     with pytest.raises(EmptyDataError):
-        await bound(tickers="AAPL")
+        bound(tickers="AAPL")
 
 
-@pytest.mark.asyncio
-async def test_tiingo_iex_rejects_empty_tickers() -> None:
+def test_tiingo_iex_rejects_empty_tickers() -> None:
     bound = tiingo_iex.bind(api_key=_KEY)
     with pytest.raises(InvalidParameterError, match="tickers"):
-        await bound(tickers="  ")
+        bound(tickers="  ")
 
 
 # ---------------------------------------------------------------------------
@@ -282,8 +263,7 @@ async def test_tiingo_iex_rejects_empty_tickers() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_iex_historical_returns_bars() -> None:
+def test_tiingo_iex_historical_returns_bars() -> None:
     respx.get(f"{_BASE}/iex/AAPL/prices").mock(
         return_value=httpx.Response(
             200,
@@ -291,19 +271,18 @@ async def test_tiingo_iex_historical_returns_bars() -> None:
         )
     )
     bound = tiingo_iex_historical.bind(api_key=_KEY)
-    result = await bound(ticker="AAPL")
+    result = bound(ticker="AAPL")
     df = result.data
     assert df.iloc[0]["close"] == 312.28
     assert df.iloc[0]["ticker"] == "AAPL"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_iex_historical_empty_raises_empty_data() -> None:
+def test_tiingo_iex_historical_empty_raises_empty_data() -> None:
     respx.get(f"{_BASE}/iex/AAPL/prices").mock(return_value=httpx.Response(200, json=[]))
     bound = tiingo_iex_historical.bind(api_key=_KEY)
     with pytest.raises(EmptyDataError):
-        await bound(ticker="AAPL")
+        bound(ticker="AAPL")
 
 
 # ---------------------------------------------------------------------------
@@ -312,8 +291,7 @@ async def test_tiingo_iex_historical_empty_raises_empty_data() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_meta_returns_dict() -> None:
+def test_tiingo_meta_returns_dict() -> None:
     respx.get(f"{_BASE}/tiingo/daily/AAPL").mock(
         return_value=httpx.Response(
             200,
@@ -328,18 +306,17 @@ async def test_tiingo_meta_returns_dict() -> None:
         )
     )
     bound = tiingo_meta.bind(api_key=_KEY)
-    result = await bound(ticker="AAPL")
+    result = bound(ticker="AAPL")
     assert result.data["ticker"] == "AAPL"
     assert result.data["exchangeCode"] == "NASDAQ"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_meta_no_ticker_raises_empty_data() -> None:
+def test_tiingo_meta_no_ticker_raises_empty_data() -> None:
     respx.get(f"{_BASE}/tiingo/daily/AAPL").mock(return_value=httpx.Response(200, json={}))
     bound = tiingo_meta.bind(api_key=_KEY)
     with pytest.raises(EmptyDataError):
-        await bound(ticker="AAPL")
+        bound(ticker="AAPL")
 
 
 # ---------------------------------------------------------------------------
@@ -348,8 +325,7 @@ async def test_tiingo_meta_no_ticker_raises_empty_data() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_fundamentals_meta_returns_list() -> None:
+def test_tiingo_fundamentals_meta_returns_list() -> None:
     respx.get(f"{_BASE}/tiingo/fundamentals/meta").mock(
         return_value=httpx.Response(
             200,
@@ -357,19 +333,18 @@ async def test_tiingo_fundamentals_meta_returns_list() -> None:
         )
     )
     bound = tiingo_fundamentals_meta.bind(api_key=_KEY)
-    result = await bound(tickers="AAPL")
+    result = bound(tickers="AAPL")
     # Always a list (stable shape regardless of ticker count).
     assert isinstance(result.data, list)
     assert result.data[0]["sector"] == "Technology"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_fundamentals_meta_empty_raises_empty_data() -> None:
+def test_tiingo_fundamentals_meta_empty_raises_empty_data() -> None:
     respx.get(f"{_BASE}/tiingo/fundamentals/meta").mock(return_value=httpx.Response(200, json=[]))
     bound = tiingo_fundamentals_meta.bind(api_key=_KEY)
     with pytest.raises(EmptyDataError):
-        await bound(tickers="AAPL")
+        bound(tickers="AAPL")
 
 
 # ---------------------------------------------------------------------------
@@ -378,8 +353,7 @@ async def test_tiingo_fundamentals_meta_empty_raises_empty_data() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_fundamentals_definitions_returns_rows() -> None:
+def test_tiingo_fundamentals_definitions_returns_rows() -> None:
     respx.get(f"{_BASE}/tiingo/fundamentals/definitions").mock(
         return_value=httpx.Response(
             200,
@@ -395,19 +369,18 @@ async def test_tiingo_fundamentals_definitions_returns_rows() -> None:
         )
     )
     bound = tiingo_fundamentals_definitions.bind(api_key=_KEY)
-    result = await bound()
+    result = bound()
     df = result.data
     assert df.iloc[0]["data_code"] == "rps"
     assert df.iloc[0]["name"] == "Revenue Per Share"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_fundamentals_definitions_empty_raises_empty_data() -> None:
+def test_tiingo_fundamentals_definitions_empty_raises_empty_data() -> None:
     respx.get(f"{_BASE}/tiingo/fundamentals/definitions").mock(return_value=httpx.Response(200, json=[]))
     bound = tiingo_fundamentals_definitions.bind(api_key=_KEY)
     with pytest.raises(EmptyDataError):
-        await bound()
+        bound()
 
 
 # ---------------------------------------------------------------------------
@@ -416,8 +389,7 @@ async def test_tiingo_fundamentals_definitions_empty_raises_empty_data() -> None
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_news_returns_articles() -> None:
+def test_tiingo_news_returns_articles() -> None:
     respx.get(f"{_BASE}/tiingo/news").mock(
         return_value=httpx.Response(
             200,
@@ -436,60 +408,54 @@ async def test_tiingo_news_returns_articles() -> None:
         )
     )
     bound = tiingo_news.bind(api_key=_KEY)
-    result = await bound(tickers="AAPL")
+    result = bound(tickers="AAPL")
     df = result.data
     assert df.iloc[0]["title"] == "Apple beats earnings"
     assert df.iloc[0]["tickers"] == "aapl"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_news_403_maps_to_payment_required() -> None:
+def test_tiingo_news_403_maps_to_payment_required() -> None:
     # Free-tier 403 is a plan-tier restriction, NOT a credential failure.
     respx.get(f"{_BASE}/tiingo/news").mock(
         return_value=httpx.Response(403, json={"detail": "You do not have permission to access the News API"})
     )
     bound = tiingo_news.bind(api_key=_KEY)
     with pytest.raises(PaymentRequiredError) as exc_info:
-        await bound()
+        bound()
     assert exc_info.value.provider == "tiingo"
     assert _KEY not in str(exc_info.value)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_news_403_invalid_token_maps_to_unauthorized() -> None:
+def test_tiingo_news_403_invalid_token_maps_to_unauthorized() -> None:
     # Tiingo also returns 403 for a bad/typo'd/revoked key — that is a credential
     # failure, NOT a plan restriction, so it must map to UnauthorizedError.
     from parsimony.errors import UnauthorizedError
 
-    respx.get(f"{_BASE}/tiingo/news").mock(
-        return_value=httpx.Response(403, json={"detail": "Invalid token."})
-    )
+    respx.get(f"{_BASE}/tiingo/news").mock(return_value=httpx.Response(403, json={"detail": "Invalid token."}))
     bound = tiingo_news.bind(api_key=_KEY)
     with pytest.raises(UnauthorizedError) as exc_info:
-        await bound()
+        bound()
     assert exc_info.value.provider == "tiingo"
     assert _KEY not in str(exc_info.value)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_news_500_maps_to_provider_error() -> None:
+def test_tiingo_news_500_maps_to_provider_error() -> None:
     # Non-403 errors still go through the canonical mapper.
     respx.get(f"{_BASE}/tiingo/news").mock(return_value=httpx.Response(500, text="boom"))
     bound = tiingo_news.bind(api_key=_KEY)
     with pytest.raises(Exception) as exc_info:
-        await bound()
+        bound()
     # ProviderError is not PaymentRequiredError.
     assert not isinstance(exc_info.value, PaymentRequiredError)
 
 
-@pytest.mark.asyncio
-async def test_tiingo_news_rejects_bad_limit() -> None:
+def test_tiingo_news_rejects_bad_limit() -> None:
     bound = tiingo_news.bind(api_key=_KEY)
     with pytest.raises(InvalidParameterError, match="limit"):
-        await bound(limit=500)
+        bound(limit=500)
 
 
 # ---------------------------------------------------------------------------
@@ -498,8 +464,7 @@ async def test_tiingo_news_rejects_bad_limit() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_crypto_prices_flattens_nested() -> None:
+def test_tiingo_crypto_prices_flattens_nested() -> None:
     respx.get(f"{_BASE}/tiingo/crypto/prices").mock(
         return_value=httpx.Response(
             200,
@@ -525,21 +490,20 @@ async def test_tiingo_crypto_prices_flattens_nested() -> None:
         )
     )
     bound = tiingo_crypto_prices.bind(api_key=_KEY)
-    result = await bound(tickers="btcusd")
+    result = bound(tickers="btcusd")
     df = result.data
     assert df.iloc[0]["ticker"] == "btcusd"
     assert df.iloc[0]["close"] == 44208.1
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_crypto_prices_empty_priceData_raises_empty_data() -> None:
+def test_tiingo_crypto_prices_empty_priceData_raises_empty_data() -> None:
     respx.get(f"{_BASE}/tiingo/crypto/prices").mock(
         return_value=httpx.Response(200, json=[{"ticker": "btcusd", "priceData": []}])
     )
     bound = tiingo_crypto_prices.bind(api_key=_KEY)
     with pytest.raises(EmptyDataError):
-        await bound(tickers="btcusd")
+        bound(tickers="btcusd")
 
 
 # ---------------------------------------------------------------------------
@@ -548,8 +512,7 @@ async def test_tiingo_crypto_prices_empty_priceData_raises_empty_data() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_crypto_top_flattens_nested() -> None:
+def test_tiingo_crypto_top_flattens_nested() -> None:
     respx.get(f"{_BASE}/tiingo/crypto/top").mock(
         return_value=httpx.Response(
             200,
@@ -573,19 +536,18 @@ async def test_tiingo_crypto_top_flattens_nested() -> None:
         )
     )
     bound = tiingo_crypto_top.bind(api_key=_KEY)
-    result = await bound(tickers="btcusd")
+    result = bound(tickers="btcusd")
     df = result.data
     assert df.iloc[0]["last_price"] == 66746.5
     assert df.iloc[0]["last_exchange"] == "BULLISH"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_crypto_top_empty_raises_empty_data() -> None:
+def test_tiingo_crypto_top_empty_raises_empty_data() -> None:
     respx.get(f"{_BASE}/tiingo/crypto/top").mock(return_value=httpx.Response(200, json=[]))
     bound = tiingo_crypto_top.bind(api_key=_KEY)
     with pytest.raises(EmptyDataError):
-        await bound(tickers="btcusd")
+        bound(tickers="btcusd")
 
 
 # ---------------------------------------------------------------------------
@@ -594,8 +556,7 @@ async def test_tiingo_crypto_top_empty_raises_empty_data() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_fx_prices_returns_bars() -> None:
+def test_tiingo_fx_prices_returns_bars() -> None:
     respx.get(f"{_BASE}/tiingo/fx/prices").mock(
         return_value=httpx.Response(
             200,
@@ -612,19 +573,18 @@ async def test_tiingo_fx_prices_returns_bars() -> None:
         )
     )
     bound = tiingo_fx_prices.bind(api_key=_KEY)
-    result = await bound(tickers="eurusd")
+    result = bound(tickers="eurusd")
     df = result.data
     assert df.iloc[0]["ticker"] == "eurusd"
     assert df.iloc[0]["close"] == 1.1036
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_fx_prices_empty_raises_empty_data() -> None:
+def test_tiingo_fx_prices_empty_raises_empty_data() -> None:
     respx.get(f"{_BASE}/tiingo/fx/prices").mock(return_value=httpx.Response(200, json=[]))
     bound = tiingo_fx_prices.bind(api_key=_KEY)
     with pytest.raises(EmptyDataError):
-        await bound(tickers="eurusd")
+        bound(tickers="eurusd")
 
 
 # ---------------------------------------------------------------------------
@@ -633,8 +593,7 @@ async def test_tiingo_fx_prices_empty_raises_empty_data() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_fx_top_returns_quotes() -> None:
+def test_tiingo_fx_top_returns_quotes() -> None:
     respx.get(f"{_BASE}/tiingo/fx/top").mock(
         return_value=httpx.Response(
             200,
@@ -652,18 +611,17 @@ async def test_tiingo_fx_top_returns_quotes() -> None:
         )
     )
     bound = tiingo_fx_top.bind(api_key=_KEY)
-    result = await bound(tickers="eurusd")
+    result = bound(tickers="eurusd")
     df = result.data
     assert df.iloc[0]["mid_price"] == 1.16035
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_tiingo_fx_top_empty_raises_empty_data() -> None:
+def test_tiingo_fx_top_empty_raises_empty_data() -> None:
     respx.get(f"{_BASE}/tiingo/fx/top").mock(return_value=httpx.Response(200, json=[]))
     bound = tiingo_fx_top.bind(api_key=_KEY)
     with pytest.raises(EmptyDataError):
-        await bound(tickers="eurusd")
+        bound(tickers="eurusd")
 
 
 # ---------------------------------------------------------------------------
@@ -684,8 +642,7 @@ def _make_tickers_zip(rows: list[dict[str, str]]) -> bytes:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_tiingo_parses_zip() -> None:
+def test_enumerate_tiingo_parses_zip() -> None:
     content = _make_tickers_zip(
         [
             {
@@ -710,7 +667,7 @@ async def test_enumerate_tiingo_parses_zip() -> None:
         return_value=httpx.Response(200, content=content)
     )
     bound = enumerate_tiingo.bind(api_key=_KEY)
-    result = await bound()
+    result = bound()
     df = result.data
     # Exact-match enumerator columns.
     assert list(df.columns) == ["ticker", "name", "asset_type", "exchange", "price_currency", "start_date", "end_date"]
@@ -721,14 +678,13 @@ async def test_enumerate_tiingo_parses_zip() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_tiingo_bad_zip_raises_parse_error() -> None:
+def test_enumerate_tiingo_bad_zip_raises_parse_error() -> None:
     respx.get("https://apimedia.tiingo.com/docs/tiingo/daily/supported_tickers.zip").mock(
         return_value=httpx.Response(200, content=b"not a zip file")
     )
     bound = enumerate_tiingo.bind(api_key=_KEY)
     with pytest.raises(ParseError):
-        await bound()
+        bound()
 
 
 # ---------------------------------------------------------------------------
@@ -755,11 +711,10 @@ async def test_enumerate_tiingo_bad_zip_raises_parse_error() -> None:
         (enumerate_tiingo, {}),
     ],
 )
-@pytest.mark.asyncio
-async def test_no_key_raises_unauthorized(connector_fn, kwargs, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_no_key_raises_unauthorized(connector_fn, kwargs, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TIINGO_API_KEY", raising=False)
     with pytest.raises(UnauthorizedError) as exc_info:
-        await connector_fn(**kwargs)
+        connector_fn(**kwargs)
     assert exc_info.value.env_var == "TIINGO_API_KEY"
     assert exc_info.value.provider == "tiingo"
 

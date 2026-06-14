@@ -11,12 +11,12 @@ from parsimony_rba import RBA_ENUMERATE_OUTPUT, enumerate_rba
 CATALOG_NAMESPACE = "rba"
 
 
-async def build_rba_catalog() -> Catalog:
-    result = await enumerate_rba()
+def build_rba_catalog() -> Catalog:
+    result = enumerate_rba()
     entries = entities_from_raw(result, RBA_ENUMERATE_OUTPUT)
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
-    await catalog.build()
+    catalog.build()
     return catalog
 
 

@@ -11,7 +11,7 @@ stock python-httpx** — every request through the canonical
 ``make_http_client``/``fetch_json`` path returns HTTP 403. The canonical
 transport therefore structurally *cannot reach this host*, which is exactly the
 §6 sanctioned "raw transport + custom error mapper" exception. RBA fetches go
-through **curl_cffi** (``AsyncSession(...).get(url, impersonate="chrome")``),
+through **curl_cffi** (``Session(...).get(url, impersonate="chrome")``),
 which presents a real Chrome TLS handshake and gets HTTP 200. curl_cffi is a
 HARD dependency (declared in ``pyproject.toml``): without it the connector is
 non-functional.
@@ -47,7 +47,6 @@ hard-coding URL patterns that break when the RBA renames files.
 
 from __future__ import annotations
 
-import asyncio
 import csv
 import io
 import logging
@@ -59,8 +58,9 @@ from xml.etree import ElementTree as ET
 import openpyxl
 import pandas as pd
 import xlrd
-from curl_cffi.requests import AsyncSession
+from curl_cffi.requests import Session
 from curl_cffi.requests import exceptions as curl_exc
+from parsimony import Namespace
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import (
     EmptyDataError,
@@ -93,13 +93,6 @@ _XLS_HIST_LINK_PATTERN = re.compile(r'href="/statistics/tables/xls-hist/([^"]+)\
 #: impersonates a recent Chrome TLS fingerprint (``impersonate="chrome"``) so
 #: Akamai lets the request through; older fingerprints have started to 403.
 _TIMEOUT = 60.0
-
-#: Concurrency cap for the enumerator's ~250-fetch fan-out across the CSV
-#: index + XLSX-exclusive + xls-hist passes. RBA is unauthenticated but
-#: Akamai-fronted; a bounded fan-out (one shared curl_cffi session reused
-#: across all requests) keeps us well under any rate-limit / WAF radar while
-#: staying far faster than the old fresh-session-per-request crawl.
-_ENUMERATE_CONCURRENCY = 8
 
 # Allow-list of ``xls/<stem>.xlsx`` sub-sheets whose series are NOT
 # republished in any CSV. Key = xlsx filename stem; value = tuple of
@@ -215,7 +208,7 @@ def _retry_after_seconds(response: Response, *, default: float = 60.0) -> float:
     return parse_retry_after(_Shim(), default=default)  # type: ignore[arg-type]
 
 
-async def _curl_get(session: AsyncSession, url: str, *, op_name: str, binary: bool = False) -> str | bytes:
+def _curl_get(session: Session, url: str, *, op_name: str, binary: bool = False) -> str | bytes:
     """GET *url* via curl_cffi (Chrome impersonation) → text or bytes.
 
     The raw §6 transport for an Akamai-blocked host: issue the GET, inspect
@@ -225,7 +218,7 @@ async def _curl_get(session: AsyncSession, url: str, *, op_name: str, binary: bo
     The body is parsed separately by the caller.
     """
     try:
-        response = await session.get(url, impersonate="chrome", timeout=_TIMEOUT)
+        response = session.get(url, impersonate="chrome", timeout=_TIMEOUT)
     except curl_exc.Timeout as exc:
         raise ProviderError("rba", status_code=408) from exc
     except curl_exc.RequestException as exc:
@@ -243,10 +236,10 @@ async def _curl_get(session: AsyncSession, url: str, *, op_name: str, binary: bo
     return str(response.text)
 
 
-def _make_session() -> AsyncSession:
+def _make_session() -> Session:
     """Build a curl_cffi session. One per ``rba_fetch`` call; reused (pooled)
     across the enumerator's fan-out."""
-    return AsyncSession()
+    return Session()
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +247,7 @@ def _make_session() -> AsyncSession:
 # ---------------------------------------------------------------------------
 
 
-async def _discover_csv_links(session: AsyncSession) -> list[str]:
+def _discover_csv_links(session: Session) -> list[str]:
     """Scrape the tables index and return the CSV link paths it advertises.
 
     The **primary bounding seam** for the enumerator's live test: monkeypatch
@@ -262,24 +255,24 @@ async def _discover_csv_links(session: AsyncSession) -> list[str]:
     handful of requests instead of the full ~216-CSV crawl. The enumerator
     reads it as a module global at call time, so the monkeypatch takes.
     """
-    html = await _curl_get(session, _TABLES_URL, op_name="tables_index")
+    html = _curl_get(session, _TABLES_URL, op_name="tables_index")
     assert isinstance(html, str)
     return [m[0] for m in _CSV_LINK_PATTERN.findall(html)]
 
 
-async def _discover_xlsx_stems(session: AsyncSession) -> set[str]:
+def _discover_xlsx_stems(session: Session) -> set[str]:
     """Scrape the tables index and return the XLSX workbook stems present.
 
     A **bounding seam** (live tests monkeypatch this to ``set()`` so the
     XLSX-exclusive pass fires zero requests). Only stems in
     :data:`_XLSX_EXCLUSIVE_SHEETS` are actually fetched downstream.
     """
-    html = await _curl_get(session, _TABLES_URL, op_name="tables_index")
+    html = _curl_get(session, _TABLES_URL, op_name="tables_index")
     assert isinstance(html, str)
     return set(_XLSX_LINK_PATTERN.findall(html))
 
 
-async def _discover_xls_hist_stems(session: AsyncSession) -> list[str]:
+def _discover_xls_hist_stems(session: Session) -> list[str]:
     """Scrape the historical-data index and return the xls-hist workbook stems.
 
     A **bounding seam** (live tests monkeypatch this to ``[]`` so the xls-hist
@@ -287,19 +280,19 @@ async def _discover_xls_hist_stems(session: AsyncSession) -> list[str]:
     requests). Read as a module global at call time so the monkeypatch takes.
     """
     try:
-        hist_html = await _curl_get(session, _HISTORICAL_URL, op_name="historical_index")
+        hist_html = _curl_get(session, _HISTORICAL_URL, op_name="historical_index")
         assert isinstance(hist_html, str)
     except Exception:
         return []
     return sorted(set(_XLS_HIST_LINK_PATTERN.findall(hist_html)))
 
 
-async def _resolve_csv_url(session: AsyncSession, table_id: str) -> str:
+def _resolve_csv_url(session: Session, table_id: str) -> str:
     """Scrape the RBA tables page and resolve *table_id* to a full CSV URL.
 
     Matches the table_id against known CSV filenames on the page.
     """
-    html = await _curl_get(session, _TABLES_URL, op_name="tables_index")
+    html = _curl_get(session, _TABLES_URL, op_name="tables_index")
     assert isinstance(html, str)
     matches = _CSV_LINK_PATTERN.findall(html)
 
@@ -568,11 +561,9 @@ def _parse_xls_hist(data: bytes, table_id: str) -> list[dict[str, str]]:
         sheet_rows = _xls_sheet_rows(sheet)
         # Heuristic: only attach sheet_name to table_id when the workbook
         # has >1 data sheet. Single-sheet workbooks keep a cleaner code.
-        attach_sheet = sum(
-            1
-            for sn in wb.sheet_names()
-            if "note" not in sn.lower() and "series breaks" not in sn.lower()
-        ) > 1
+        attach_sheet = (
+            sum(1 for sn in wb.sheet_names() if "note" not in sn.lower() and "series breaks" not in sn.lower()) > 1
+        )
         rows.extend(
             _metadata_from_header_rows(
                 sheet_rows,
@@ -725,7 +716,7 @@ def _parse_csv_metadata(text: str, csv_url: str) -> list[dict[str, str]]:
 
 
 @connector(output=RBA_FETCH_OUTPUT, tags=["macro", "au"])
-async def rba_fetch(table_id: Annotated[str, "ns:rba"]) -> pd.DataFrame:
+def rba_fetch(table_id: Annotated[str, Namespace("rba")]) -> pd.DataFrame:
     """Fetch RBA statistical table data by table ID.
 
     Resolves the table_id against the live RBA tables page to find the
@@ -739,9 +730,9 @@ async def rba_fetch(table_id: Annotated[str, "ns:rba"]) -> pd.DataFrame:
     if not table_id:
         raise InvalidParameterError("rba", "table_id must be non-empty")
 
-    async with _make_session() as session:
-        url = await _resolve_csv_url(session, table_id)
-        text = await _curl_get(session, url, op_name="csv")
+    with _make_session() as session:
+        url = _resolve_csv_url(session, table_id)
+        text = _curl_get(session, url, op_name="csv")
     assert isinstance(text, str)
 
     try:
@@ -775,44 +766,42 @@ _ENUMERATE_COLUMNS: tuple[str, ...] = (
 
 
 @enumerator(output=RBA_ENUMERATE_OUTPUT, tags=["macro", "au"])
-async def enumerate_rba() -> pd.DataFrame:
+def enumerate_rba() -> pd.DataFrame:
     """Discover RBA series from CSV index, XLSX sheets, and xls-hist files.
 
     Compound catalog keys use ``table_id#series_id`` so duplicate series ids
-    across tables remain addressable without losing descriptions. The crawl
-    reuses one curl_cffi session across all ~250 requests (Akamai-impersonated
-    pooling) and caps concurrency; per-fetch failures are skipped, not fatal.
+    across tables remain addressable without losing descriptions. The serial
+    crawl reuses one curl_cffi session across all ~250 requests
+    (Akamai-impersonated pooling); per-fetch failures are skipped, not fatal.
     """
     all_rows: list[dict[str, str]] = []
     seen: set[str] = set()
-    sem = asyncio.Semaphore(_ENUMERATE_CONCURRENCY)
 
-    async with _make_session() as session:
+    with _make_session() as session:
         # Step 1: discover the three link sets via module-global seams. Each is
         # read at call time so a live test can monkeypatch any of them to bound
         # the fan-out (the CSV seam is the primary one; the XLSX/xls-hist seams
         # bound the secondary passes).
-        csv_links = await _discover_csv_links(session)
+        csv_links = _discover_csv_links(session)
         try:
-            xlsx_stems = await _discover_xlsx_stems(session)
+            xlsx_stems = _discover_xlsx_stems(session)
         except Exception:
             xlsx_stems = set()
 
         if not csv_links and not xlsx_stems:
             return pd.DataFrame(columns=list(_ENUMERATE_COLUMNS))
 
-        async def _fetch_csv(link: str) -> list[dict[str, str]]:
+        def _fetch_csv(link: str) -> list[dict[str, str]]:
             url = f"{_BASE_URL}{link}"
-            async with sem:
-                try:
-                    text = await _curl_get(session, url, op_name="csv_metadata")
-                    assert isinstance(text, str)
-                    return _parse_csv_metadata(text, url)
-                except Exception:
-                    return []
+            try:
+                text = _curl_get(session, url, op_name="csv_metadata")
+                assert isinstance(text, str)
+                return _parse_csv_metadata(text, url)
+            except Exception:
+                return []
 
-        # Step 2: CSV pass (concurrent, bounded by the semaphore).
-        for rows in await asyncio.gather(*(_fetch_csv(link) for link in csv_links)):
+        # Step 2: CSV pass.
+        for rows in [_fetch_csv(link) for link in csv_links]:
             for row in rows:
                 code = row["code"]
                 if code not in seen:
@@ -822,20 +811,17 @@ async def enumerate_rba() -> pd.DataFrame:
         # Step 3: XLSX-exclusive sub-sheet pass. Only fetches workbooks in
         # the allow-list, not the full ~86-file XLSX set — the rest duplicate
         # CSV content.
-        async def _fetch_xlsx(stem: str, sheets: tuple[str, ...]) -> list[dict[str, str]]:
+        def _fetch_xlsx(stem: str, sheets: tuple[str, ...]) -> list[dict[str, str]]:
             url = f"{_BASE_URL}/statistics/tables/xls/{stem}.xlsx"
-            async with sem:
-                try:
-                    data = await _curl_get(session, url, op_name="xlsx", binary=True)
-                    assert isinstance(data, bytes)
-                    return _parse_xlsx_exclusive(data, stem, sheets)
-                except Exception:
-                    return []
+            try:
+                data = _curl_get(session, url, op_name="xlsx", binary=True)
+                assert isinstance(data, bytes)
+                return _parse_xlsx_exclusive(data, stem, sheets)
+            except Exception:
+                return []
 
-        xlsx_targets = [
-            (stem, sheets) for stem, sheets in _XLSX_EXCLUSIVE_SHEETS.items() if stem in xlsx_stems
-        ]
-        for rows in await asyncio.gather(*(_fetch_xlsx(stem, sheets) for stem, sheets in xlsx_targets)):
+        xlsx_targets = [(stem, sheets) for stem, sheets in _XLSX_EXCLUSIVE_SHEETS.items() if stem in xlsx_stems]
+        for rows in [_fetch_xlsx(stem, sheets) for stem, sheets in xlsx_targets]:
             for row in rows:
                 code = row["code"]
                 if code not in seen:
@@ -844,23 +830,22 @@ async def enumerate_rba() -> pd.DataFrame:
 
         # Step 4: xls-hist legacy binary pass. The historical-data.html index
         # lists ~37 .xls workbooks covering discontinued series.
-        xls_hist_stems = await _discover_xls_hist_stems(session)
+        xls_hist_stems = _discover_xls_hist_stems(session)
 
-        async def _fetch_xls_hist(stem: str) -> list[dict[str, str]]:
+        def _fetch_xls_hist(stem: str) -> list[dict[str, str]]:
             url = f"{_BASE_URL}/statistics/tables/xls-hist/{stem}.xls"
-            async with sem:
-                try:
-                    data = await _curl_get(session, url, op_name="xls_hist", binary=True)
-                    assert isinstance(data, bytes)
-                    return _parse_xls_hist(data, stem)
-                except Exception:
-                    return []
+            try:
+                data = _curl_get(session, url, op_name="xls_hist", binary=True)
+                assert isinstance(data, bytes)
+                return _parse_xls_hist(data, stem)
+            except Exception:
+                return []
 
         # Skip obvious "period range" workbooks (``1983-1986.xls``, etc.)
         # whose sheets lack Series ID rows — they return empty and cost a
         # fetch. Detection: first character isn't a letter.
         hist_targets = [stem for stem in xls_hist_stems if stem and stem[0].isalpha()]
-        for rows in await asyncio.gather(*(_fetch_xls_hist(stem) for stem in hist_targets)):
+        for rows in [_fetch_xls_hist(stem) for stem in hist_targets]:
             for row in rows:
                 code = row["code"]
                 if code not in seen:

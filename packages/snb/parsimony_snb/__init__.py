@@ -11,8 +11,8 @@ Transport:
   ``raise_for_status`` + ``map_http_error`` / ``map_timeout_error`` → text).
   The CSV is parsed separately; a malformed / non-CSV 200 body raises
   ``ParseError`` (§5.8), an empty-but-valid result raises ``EmptyDataError``.
-* ``enumerate_snb`` keeps its bespoke, concurrency-capped per-cube probe
-  fan-out (it does NOT use ``parsimony_shared``), but builds the client via
+* ``enumerate_snb`` keeps its bespoke, serial per-cube probe
+  crawl (it does NOT use ``parsimony_shared``), but builds the client via
   ``make_http_client`` + ``pooled_client`` and maps transport errors through
   the kernel helpers. Per-cube probe failures are swallowed by design (SNB
   leaves retired cube IDs reachable but empty); ``_KNOWN_CUBES`` is a module
@@ -22,7 +22,6 @@ Transport:
 
 from __future__ import annotations
 
-import asyncio
 import io
 import json
 import logging
@@ -32,6 +31,7 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
+from parsimony import Namespace
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import ConnectorError, EmptyDataError, InvalidParameterError, ParseError
 from parsimony.result import (
@@ -45,12 +45,6 @@ from parsimony.transport.helpers import make_http_client
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://data.snb.ch"
-
-#: Concurrency cap for the per-cube probe fan-out in ``enumerate_snb``. At
-#: ~237 cubes × two requests each, an unbounded fan-out saturates the SNB
-#: CDN's per-IP connection pool and trips transient 429s; 20 keeps wall-time
-#: near the latency floor while staying under the WAF radar.
-_PROBE_CONCURRENCY = 20
 
 
 # SNB cube registry, harvested from the data portal's own navigation tree
@@ -138,12 +132,24 @@ _KNOWN_CUBES: tuple[tuple[str, str], ...] = (
     ("batreuhlandua", "by selected country"),
     ("batreuhua", "By currency (Annual)"),
     ("batreuhum", "By currency (Monthly)"),
-    ("bawebedomsecwa", "By domicile of custody account holder and issuer, business sector and investment currency (Monthly)"),  # noqa: E501
-    ("bawebedomsecwja", "By domicile of custody account holder and issuer, business sector and investment currency (Annual)"),  # noqa: E501
+    (
+        "bawebedomsecwa",
+        "By domicile of custody account holder and issuer, business sector and investment currency (Monthly)",
+    ),  # noqa: E501
+    (
+        "bawebedomsecwja",
+        "By domicile of custody account holder and issuer, business sector and investment currency (Annual)",
+    ),  # noqa: E501
     ("bawebesec", "By domicile and business sector of custody account holder, security category (Monthly)"),
     ("bawebesecja", "By domicile and business sector of custody account holder, security category (Annual)"),
-    ("bawebewa", "By domicile of custody account holder and issuer, security category and investment currency (Monthly)"),  # noqa: E501
-    ("bawebewja", "By domicile of custody account holder and issuer, security category and investment currency (Annual)"),  # noqa: E501
+    (
+        "bawebewa",
+        "By domicile of custody account holder and issuer, security category and investment currency (Monthly)",
+    ),  # noqa: E501
+    (
+        "bawebewja",
+        "By domicile of custody account holder and issuer, security category and investment currency (Annual)",
+    ),  # noqa: E501
     ("bopcapbala", "Financial account (Year)"),
     ("bopcapbalq", "Financial account (Quarter)"),
     ("bopcurra", "Current account (Year)"),
@@ -258,8 +264,14 @@ _KNOWN_CUBES: tuple[tuple[str, str], ...] = (
     ("pllohnind", "Salary/wage indices"),
     ("plproimpr", "Producer and import prices"),
     ("pubfin", "Public finances"),
-    ("rendeiduebd", "Spot interest rates on Swiss Confederation bonds, euro area government bonds and CHF bond issues for various borrower categories – Day"),  # noqa: E501
-    ("rendeiduebm", "Spot interest rates on Swiss Confederation bonds, euro area government bonds and CHF bond issues for various borrower categories – Month"),  # noqa: E501
+    (
+        "rendeiduebd",
+        "Spot interest rates on Swiss Confederation bonds, euro area government bonds and CHF bond issues for various borrower categories – Day",  # noqa: E501
+    ),
+    (
+        "rendeiduebm",
+        "Spot interest rates on Swiss Confederation bonds, euro area government bonds and CHF bond issues for various borrower categories – Month",  # noqa: E501
+    ),
     ("rendoblid", "Yields on bond issues ‒ 2002 methodology (up to July 2025) (Day)"),
     ("rendoblim", "Yields on bond issues ‒ 2002 methodology (up to July 2025) (Month)"),
     ("rendoeid", "Yields to maturity and residual maturities of individual Swiss Confederation bond issues"),
@@ -374,7 +386,7 @@ SNB_ENUMERATE_OUTPUT = OutputConfig(
 
 SNB_FETCH_OUTPUT = OutputConfig(
     columns=[
-        Column(name="cube_id", role=ColumnRole.KEY, param_key="cube_id", namespace="snb"),
+        Column(name="cube_id", role=ColumnRole.KEY, namespace="snb"),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="date", dtype="datetime", role=ColumnRole.DATA),
     ]
@@ -490,7 +502,7 @@ def _snb_http(timeout: float = 30.0) -> HttpClient:
     return make_http_client(_BASE_URL, timeout=timeout)
 
 
-async def _get_text(http: HttpClient, path: str, *, op_name: str, params: dict[str, str] | None = None) -> str:
+def _get_text(http: HttpClient, path: str, *, op_name: str, params: dict[str, str] | None = None) -> str:
     """GET *path* and return the raw text body (SNB cubes serve CSV, not JSON).
 
     The §6.7 raw-transport shape for any response ``fetch_json`` cannot
@@ -499,7 +511,7 @@ async def _get_text(http: HttpClient, path: str, *, op_name: str, params: dict[s
     (via :func:`map_timeout_error`). The CSV body is parsed separately.
     """
     try:
-        response = await http.request("GET", path, params=params)
+        response = http.request("GET", path, params=params)
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         map_http_error(exc, provider="snb", op_name=op_name)
@@ -580,11 +592,7 @@ def _series_from_dimensions(
     reachable in the catalog.
     """
     rows: list[dict[str, str]] = []
-    cube_name = (
-        (dimensions_payload or {}).get("name")
-        or (dimensions_payload or {}).get("cubeName")
-        or cube_title
-    )
+    cube_name = (dimensions_payload or {}).get("name") or (dimensions_payload or {}).get("cubeName") or cube_title
     category = _infer_category(cube_id, cube_title)
 
     dims = (dimensions_payload or {}).get("dimensions") or []
@@ -642,9 +650,7 @@ def _series_from_dimensions(
         # Rich description: cube context + full dimension breadcrumbs so
         # the embedder sees both the specific series and the cube it
         # belongs to (per gold-standard pattern in Treasury).
-        description = (
-            f"{cube_title}. {dimension_path}." if dimension_path else cube_title
-        )
+        description = f"{cube_title}. {dimension_path}." if dimension_path else cube_title
         rows.append(
             {
                 "code": f"{cube_id}#{series_key}",
@@ -668,8 +674,8 @@ def _series_from_dimensions(
 
 
 @connector(output=SNB_FETCH_OUTPUT, tags=["macro", "ch"])
-async def snb_fetch(
-    cube_id: Annotated[str, "ns:snb"],
+def snb_fetch(
+    cube_id: Annotated[str, Namespace("snb")],
     from_date: str | None = None,
     to_date: str | None = None,
     dim_sel: str | None = None,
@@ -698,7 +704,7 @@ async def snb_fetch(
     if dim_sel:
         req_params["dimSel"] = dim_sel
 
-    text = await _get_text(
+    text = _get_text(
         http,
         f"/api/cube/{cube_id}/data/csv/{lang}",
         op_name="cube/data",
@@ -722,10 +728,9 @@ async def snb_fetch(
     return df
 
 
-async def _probe_cube(
+def _probe_cube(
     client: HttpClient,
     cube_id: str,
-    sem: asyncio.Semaphore,
 ) -> tuple[dict[str, Any] | None, str]:
     """Fetch ``/dimensions/en`` and a frequency hint for ``cube_id``.
 
@@ -739,20 +744,19 @@ async def _probe_cube(
     ``TimeoutException`` through the canonical helpers — but cataloguing is a
     best-effort sweep, so the resulting typed :class:`ConnectorError` is
     caught and the cube is treated as retired rather than failing the whole
-    enumeration. ``sem`` caps in-flight probes (see :data:`_PROBE_CONCURRENCY`).
+    enumeration.
     """
     dim_payload: dict[str, Any] | None = None
     frequency = "Unknown"
 
-    async def _gated_text(path: str, params: dict[str, str] | None = None) -> str | None:
-        async with sem:
-            try:
-                return await _get_text(client, path, op_name="cube/probe", params=params)
-            except ConnectorError as exc:
-                logger.debug("SNB probe failed for %s (%s): %s", cube_id, path, exc)
-                return None
+    def _probe_text(path: str, params: dict[str, str] | None = None) -> str | None:
+        try:
+            return _get_text(client, path, op_name="cube/probe", params=params)
+        except ConnectorError as exc:
+            logger.debug("SNB probe failed for %s (%s): %s", cube_id, path, exc)
+            return None
 
-    dim_text = await _gated_text(f"/api/cube/{cube_id}/dimensions/en")
+    dim_text = _probe_text(f"/api/cube/{cube_id}/dimensions/en")
     if dim_text is not None:
         try:
             payload = json.loads(dim_text)
@@ -762,7 +766,7 @@ async def _probe_cube(
             dim_payload = payload
 
     # Frequency inference is best-effort; sample one CSV page.
-    data_text = await _gated_text(f"/api/cube/{cube_id}/data/csv/en", {"fromDate": "2020"})
+    data_text = _probe_text(f"/api/cube/{cube_id}/data/csv/en", {"fromDate": "2020"})
     if data_text is not None:
         sep = ";" if ";" in data_text else ","
         dates: list[str] = []
@@ -776,21 +780,18 @@ async def _probe_cube(
 
 
 @enumerator(output=SNB_ENUMERATE_OUTPUT, tags=["macro", "ch"])
-async def enumerate_snb() -> pd.DataFrame:
+def enumerate_snb() -> pd.DataFrame:
     """Enumerate SNB cube dimension leaves as fetchable series rows.
 
     Compound codes are ``cube_id#leaf_path`` so agents can route hits to
     ``snb_fetch`` without reparsing cube metadata. The crawl probes every
     cube in :data:`_KNOWN_CUBES` (read at call time, so a test can shrink it
-    to bound the fan-out); per-cube failures are skipped, not fatal.
+    to bound the crawl); per-cube failures are skipped, not fatal.
     """
     rows: list[dict[str, str]] = []
-    sem = asyncio.Semaphore(_PROBE_CONCURRENCY)
     base = _snb_http()
-    async with pooled_client(base) as client:
-        probes = await asyncio.gather(
-            *(_probe_cube(client, cid, sem) for cid, _ in _KNOWN_CUBES),
-        )
+    with pooled_client(base) as client:
+        probes = [_probe_cube(client, cid) for cid, _ in _KNOWN_CUBES]
 
     for (cube_id, cube_title), (dim_payload, frequency) in zip(_KNOWN_CUBES, probes, strict=True):
         if dim_payload is None:

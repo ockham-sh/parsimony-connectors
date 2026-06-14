@@ -3,7 +3,7 @@
 Discovers GENESIS-Online statistics + tables by composing ``/statistics`` with
 a per-statistic ``/statistics/{code}/information`` + ``/statistics/{code}/tables``
 fan-out (``1 + 2N`` requests). The crawl uses the shared ``ThrottledJsonFetcher``
-(throttled, retrying fan-out over a raw ``httpx.AsyncClient``) — the re-base of
+(throttled, retrying fan-out over a raw ``httpx.Client``) — the re-base of
 ``_shared`` onto core transport is a separate cross-cutting step, so this code
 keeps using ``_shared`` for now and only owns the Destatis-side parsing/framing.
 
@@ -15,7 +15,6 @@ unmapped columns then demands an exact match against the declared schema).
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
@@ -33,7 +32,7 @@ logger = logging.getLogger(__name__)
 def _pick_lang(node: Any, key: str = "name") -> tuple[str, str]:
     """Extract DE/EN strings from a Destatis ``{de, en}``-shaped node."""
     if not isinstance(node, dict):
-        bare = (str(node).strip() if node is not None else "")
+        bare = str(node).strip() if node is not None else ""
         return bare, bare
 
     nested = node.get(key)
@@ -268,7 +267,7 @@ def _emit_rows_for_statistic(
     return rows
 
 
-async def _load_statistics_index(fetcher: ThrottledJsonFetcher) -> list[dict[str, Any]]:
+def _load_statistics_index(fetcher: ThrottledJsonFetcher) -> list[dict[str, Any]]:
     """Fetch + normalise the ``/statistics`` index into a list of statistic nodes.
 
     This is the bounding seam: a live test monkeypatches it to return a 1–2
@@ -276,18 +275,18 @@ async def _load_statistics_index(fetcher: ThrottledJsonFetcher) -> list[dict[str
     ~331 statistics → ~663 per-statistic requests). The connector reads it as a
     module attribute at call time so the monkeypatch takes.
     """
-    index = await get_path_json(fetcher, "/statistics")
+    index = get_path_json(fetcher, "/statistics")
     if index is None:
         return []
     return _extract_statistics_list(index)
 
 
 @enumerator(output=DESTATIS_ENUMERATE_OUTPUT, tags=["macro", "de"])
-async def enumerate_destatis() -> pd.DataFrame:
+def enumerate_destatis() -> pd.DataFrame:
     """Enumerate Destatis statistics and tables from GENESIS-Online."""
     rows: list[dict[str, str]] = []
 
-    async with httpx.AsyncClient(timeout=60.0, headers=HEADERS) as client:
+    with httpx.Client(timeout=60.0, headers=HEADERS) as client:
         fetcher = ThrottledJsonFetcher(
             client,
             provider="destatis",
@@ -295,12 +294,12 @@ async def enumerate_destatis() -> pd.DataFrame:
             logger=logger,
             accept_non_json=lambda r: not looks_like_html(r.text),
         )
-        statistics = await _load_statistics_index(fetcher)
+        statistics = _load_statistics_index(fetcher)
         if not statistics:
             logger.warning("Destatis enumerate: /statistics returned no usable entries")
             return pd.DataFrame(columns=list(ENUMERATE_COLUMNS))
 
-        async def _gather_one(
+        def _gather_one(
             stat: dict[str, Any],
         ) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any] | list[Any] | None]:
             code = str(stat.get("code") or stat.get("Code") or "").strip()
@@ -308,11 +307,11 @@ async def enumerate_destatis() -> pd.DataFrame:
                 return stat, None, None
             info_task = get_path_json(fetcher, f"/statistics/{code}/information")
             tables_task = get_path_json(fetcher, f"/statistics/{code}/tables")
-            info, tables = await asyncio.gather(info_task, tables_task)
+            info, tables = info_task, tables_task
             info_dict = info if isinstance(info, dict) else None
             return stat, info_dict, tables
 
-        results = await asyncio.gather(*[_gather_one(s) for s in statistics])
+        results = [_gather_one(s) for s in statistics]
 
     failed: list[str] = []
     for stat, info, tables_payload in results:

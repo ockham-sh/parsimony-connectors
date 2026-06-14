@@ -15,6 +15,7 @@ RIKSBANK_SEARCH_OUTPUT = OutputConfig(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="riksbank"),
         Column(name="title", role=ColumnRole.TITLE),
+        Column(name="source", role=ColumnRole.METADATA),
         Column(name="score", role=ColumnRole.DATA),
     ]
 )
@@ -31,4 +32,5 @@ riksbank_search = make_local_search_connector(
         "SWEA series → riksbank_fetch(series_id=...)."
     ),
     output_columns=RIKSBANK_SEARCH_OUTPUT.columns,
+    metadata_columns=("source",),
 )

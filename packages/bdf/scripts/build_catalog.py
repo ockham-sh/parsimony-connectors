@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import logging
 import os
 
@@ -13,14 +12,14 @@ _BDF_API_KEY_ENV = "BDF_API_KEY"
 logger = logging.getLogger(__name__)
 
 
-async def build(*, save: str | None, push: str | None, api_key: str | None) -> None:
+def build(*, save: str | None, push: str | None, api_key: str | None) -> None:
     key = (api_key or os.environ.get(_BDF_API_KEY_ENV, "")).strip()
-    catalog = await build_bdf_catalog(api_key=key or None)
+    catalog = build_bdf_catalog(api_key=key or None)
     logger.info("Built %s catalog with %d entries", catalog.name, len(catalog))
     if save is not None:
-        await catalog.save(save, builder="packages/bdf/scripts/build_catalog.py")
+        catalog.save(save, builder="packages/bdf/scripts/build_catalog.py")
     if push is not None:
-        await catalog.save(push, builder="packages/bdf/scripts/build_catalog.py")
+        catalog.save(push, builder="packages/bdf/scripts/build_catalog.py")
 
 
 def main() -> None:
@@ -30,7 +29,7 @@ def main() -> None:
     parser.add_argument("--api-key", help=f"BdF API key (fallback: {_BDF_API_KEY_ENV}).")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    asyncio.run(build(save=args.save, push=args.push, api_key=args.api_key))
+    build(save=args.save, push=args.push, api_key=args.api_key)
 
 
 if __name__ == "__main__":

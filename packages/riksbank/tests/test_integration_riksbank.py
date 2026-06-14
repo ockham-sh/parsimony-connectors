@@ -24,8 +24,8 @@ and ``pytest.skip``s cleanly when absent.
 
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Awaitable, Callable
+import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -51,8 +51,8 @@ pytestmark = pytest.mark.integration
 _T = TypeVar("_T")
 
 
-async def _with_retry(fn: Callable[[], Awaitable[_T]], *, attempts: int = 4, base_delay: float = 12.0) -> _T:
-    """Retry an awaitable on the keyless rate limit (HTTP 429 → RateLimitError).
+def _with_retry(fn: Callable[[], _T], *, attempts: int = 4, base_delay: float = 12.0) -> _T:
+    """Retry a call on the keyless rate limit (HTTP 429 → RateLimitError).
 
     The unauthenticated Riksbank gateway throttles aggressively; without a key
     a burst hits 429 with a ~40-50s reset. We honour the provider's
@@ -62,11 +62,11 @@ async def _with_retry(fn: Callable[[], Awaitable[_T]], *, attempts: int = 4, bas
     last: RateLimitError | None = None
     for i in range(attempts):
         try:
-            return await fn()
+            return fn()
         except RateLimitError as exc:
             last = exc
             wait = min(float(exc.retry_after or base_delay), 60.0) if exc.retry_after else base_delay * (i + 1)
-            await asyncio.sleep(wait)
+            time.sleep(wait)
     assert last is not None
     raise last
 
@@ -76,12 +76,9 @@ async def _with_retry(fn: Callable[[], Awaitable[_T]], *, attempts: int = 4, bas
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_riksbank_fetch_sekeur_live() -> None:
+def test_riksbank_fetch_sekeur_live() -> None:
     """SEKEURPMI — EUR/SEK daily mid rate — is a stable, high-traffic series."""
-    result = await _with_retry(
-        lambda: riksbank_fetch(series_id="SEKEURPMI", from_date="2026-01-01", to_date="2026-02-28")
-    )
+    result = _with_retry(lambda: riksbank_fetch(series_id="SEKEURPMI", from_date="2026-01-01", to_date="2026-02-28"))
 
     assert_provenance_shape(result, expected_source="riksbank_fetch", required_param_keys=["series_id"])
     df = result.data
@@ -104,11 +101,10 @@ async def test_riksbank_fetch_sekeur_live() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_riksbank_swestr_fetch_latest_rate_live() -> None:
+def test_riksbank_swestr_fetch_latest_rate_live() -> None:
     """The latest SWESTR overnight fixing carries a real numeric rate plus
     SWESTR's native trade metadata."""
-    result = await _with_retry(lambda: riksbank_swestr_fetch(series="SWESTR"))
+    result = _with_retry(lambda: riksbank_swestr_fetch(series="SWESTR"))
 
     assert_provenance_shape(result, expected_source="riksbank_swestr_fetch", required_param_keys=["series"])
     df = result.data
@@ -123,12 +119,11 @@ async def test_riksbank_swestr_fetch_latest_rate_live() -> None:
     assert "numberOfTransactions" in df.columns, "SWESTR trade metadata missing"
 
 
-@pytest.mark.asyncio
-async def test_riksbank_swestr_fetch_index_live() -> None:
+def test_riksbank_swestr_fetch_index_live() -> None:
     """The SWESTR index publishes ``value`` (an index level, not ``rate``);
     the connector normalises it onto the ``value`` column. This exercises a
     DIFFERENT URL family (/index) than the raw fixing — facet coverage."""
-    result = await _with_retry(lambda: riksbank_swestr_fetch(series="SWESTRINDEX"))
+    result = _with_retry(lambda: riksbank_swestr_fetch(series="SWESTRINDEX"))
     df = result.data
     assert not df.empty, "SWESTR index returned empty"
     assert set(df["series"]) == {"SWESTRINDEX"}
@@ -143,12 +138,11 @@ async def test_riksbank_swestr_fetch_index_live() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_enumerate_riksbank_live() -> None:
+def test_enumerate_riksbank_live() -> None:
     """Enumerate the live SWEA catalog (~117 series in one /Series request)
     plus the static SWESTR registry, asserting REAL content in the declared
     metadata columns — not just column names."""
-    result = await _with_retry(lambda: enumerate_riksbank())
+    result = _with_retry(lambda: enumerate_riksbank())
     df = result.data
 
     # @enumerator enforces an EXACT column match against the declared schema.
@@ -186,8 +180,7 @@ async def test_enumerate_riksbank_live() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_riksbank_search_over_bounded_catalog_live(tmp_path: Path) -> None:
+def test_riksbank_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     """Exercise ``riksbank_search`` end-to-end over a small, locally-built
     catalog. Bounded by design: a cold ``build_riksbank_catalog()`` would
     require the ⚠️ key and embed ~120 rows. We build a 3-row catalog from
@@ -229,11 +222,11 @@ async def test_riksbank_search_over_bounded_catalog_live(tmp_path: Path) -> None
     entries = entities_from_raw(df, RIKSBANK_ENUMERATE_OUTPUT)
     catalog = Catalog("riksbank", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
-    await catalog.build()
+    catalog.build()
     out_dir = tmp_path / "riksbank_catalog"
-    await catalog.save(out_dir)
+    catalog.save(out_dir)
 
-    result = await riksbank_search(query="euro Swedish krona exchange rate", limit=5, catalog_url=str(out_dir))
+    result = riksbank_search(query="euro Swedish krona exchange rate", limit=5, catalog_url=str(out_dir))
 
     assert_provenance_shape(result, expected_source="riksbank_search", required_param_keys=["query"])
     sdf = result.data
@@ -244,9 +237,7 @@ async def test_riksbank_search_over_bounded_catalog_live(tmp_path: Path) -> None
     assert sdf["score"].notna().all(), "search scores not populated"
 
     # Ranking actually discriminates: a different query surfaces a different hit.
-    swestr_hit = await riksbank_search(
-        query="overnight reference rate SWESTR benchmark", limit=5, catalog_url=str(out_dir)
-    )
+    swestr_hit = riksbank_search(query="overnight reference rate SWESTR benchmark", limit=5, catalog_url=str(out_dir))
     assert swestr_hit.data.iloc[0]["code"] == "SWESTR"
 
 
@@ -255,14 +246,13 @@ async def test_riksbank_search_over_bounded_catalog_live(tmp_path: Path) -> None
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_build_riksbank_catalog_live() -> None:
+def test_build_riksbank_catalog_live() -> None:
     """Full live catalog build. ⚠️ The keyless quota cannot sustain a full
     ~117-series enumeration, so ``build_riksbank_catalog`` requires a key and
     this test skips cleanly when ``RIKSBANK_API_KEY`` is absent (it is not in
     the workspace ``.env``)."""
     creds = require_env("RIKSBANK_API_KEY")
-    catalog = await build_riksbank_catalog(api_key=creds["RIKSBANK_API_KEY"])
+    catalog = build_riksbank_catalog(api_key=creds["RIKSBANK_API_KEY"])
     assert catalog.name == "riksbank"
     # ~117 SWEA series + 7 static SWESTR rows.
     assert len(catalog) > 50, f"live build produced implausibly few entries: {len(catalog)}"

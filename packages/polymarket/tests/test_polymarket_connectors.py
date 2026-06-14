@@ -43,62 +43,64 @@ def test_markets_and_events_are_enumerators() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_polymarket_markets_returns_declared_columns() -> None:
+def test_polymarket_markets_returns_declared_columns() -> None:
     respx.get(_MARKETS_URL).mock(
         return_value=httpx.Response(
             200,
             json=[
                 # Extra junk fields must be dropped by the enumerator exact-match.
-                {"id": "1", "question": "Will X happen?", "slug": "x", "active": True, "volume": "5"},
+                {
+                    "id": "1",
+                    "question": "Will X happen?",
+                    "slug": "x",
+                    "active": True,
+                    "clobTokenIds": '["111", "222"]',
+                    "volume": "5",
+                },
             ],
         )
     )
-    result = await polymarket_markets(limit=5)
+    result = polymarket_markets(limit=5)
     assert result.provenance.source == "polymarket_markets"
-    assert list(result.data.columns) == ["id", "question", "slug", "active"]
+    assert list(result.data.columns) == ["id", "question", "slug", "active", "clobTokenIds"]
     assert result.data.iloc[0]["slug"] == "x"
+    assert result.data.iloc[0]["clobTokenIds"] == '["111", "222"]'
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_polymarket_markets_raises_empty_data_when_no_rows() -> None:
+def test_polymarket_markets_raises_empty_data_when_no_rows() -> None:
     respx.get(_MARKETS_URL).mock(return_value=httpx.Response(200, json=[]))
     with pytest.raises(EmptyDataError):
-        await polymarket_markets(limit=5)
+        polymarket_markets(limit=5)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_polymarket_markets_raises_parse_error_on_non_list() -> None:
+def test_polymarket_markets_raises_parse_error_on_non_list() -> None:
     respx.get(_MARKETS_URL).mock(return_value=httpx.Response(200, json={"error": "nope"}))
     with pytest.raises(ParseError):
-        await polymarket_markets(limit=5)
+        polymarket_markets(limit=5)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_polymarket_markets_raises_parse_error_on_missing_fields() -> None:
+def test_polymarket_markets_raises_parse_error_on_missing_fields() -> None:
     # 200 with a list, but rows lack the declared TITLE/KEY fields.
     respx.get(_MARKETS_URL).mock(return_value=httpx.Response(200, json=[{"foo": "bar"}]))
     with pytest.raises(ParseError):
-        await polymarket_markets(limit=5)
+        polymarket_markets(limit=5)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_polymarket_markets_maps_500() -> None:
+def test_polymarket_markets_maps_500() -> None:
     respx.get(_MARKETS_URL).mock(return_value=httpx.Response(500, text="err"))
     with pytest.raises(ProviderError):
-        await polymarket_markets(limit=5)
+        polymarket_markets(limit=5)
 
 
-@pytest.mark.asyncio
-async def test_polymarket_markets_rejects_out_of_range_limit() -> None:
+def test_polymarket_markets_rejects_out_of_range_limit() -> None:
     with pytest.raises(InvalidParameterError):
-        await polymarket_markets(limit=0)
+        polymarket_markets(limit=0)
     with pytest.raises(InvalidParameterError):
-        await polymarket_markets(limit=101)
+        polymarket_markets(limit=101)
 
 
 # ---------------------------------------------------------------------------
@@ -107,39 +109,35 @@ async def test_polymarket_markets_rejects_out_of_range_limit() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_polymarket_events_returns_declared_columns() -> None:
+def test_polymarket_events_returns_declared_columns() -> None:
     respx.get(_EVENTS_URL).mock(
         return_value=httpx.Response(
             200,
             json=[{"id": "e1", "title": "Election", "slug": "election", "noise": 1}],
         )
     )
-    result = await polymarket_events(limit=5)
+    result = polymarket_events(limit=5)
     assert result.provenance.source == "polymarket_events"
     assert list(result.data.columns) == ["id", "title", "slug"]
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_polymarket_events_raises_empty_data_when_no_rows() -> None:
+def test_polymarket_events_raises_empty_data_when_no_rows() -> None:
     respx.get(_EVENTS_URL).mock(return_value=httpx.Response(200, json=[]))
     with pytest.raises(EmptyDataError):
-        await polymarket_events(limit=5)
+        polymarket_events(limit=5)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_polymarket_events_raises_parse_error_on_missing_fields() -> None:
+def test_polymarket_events_raises_parse_error_on_missing_fields() -> None:
     respx.get(_EVENTS_URL).mock(return_value=httpx.Response(200, json=[{"id": "e1"}]))
     with pytest.raises(ParseError):
-        await polymarket_events(limit=5)
+        polymarket_events(limit=5)
 
 
-@pytest.mark.asyncio
-async def test_polymarket_events_rejects_out_of_range_limit() -> None:
+def test_polymarket_events_rejects_out_of_range_limit() -> None:
     with pytest.raises(InvalidParameterError):
-        await polymarket_events(limit=0)
+        polymarket_events(limit=0)
 
 
 # ---------------------------------------------------------------------------
@@ -148,32 +146,28 @@ async def test_polymarket_events_rejects_out_of_range_limit() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_polymarket_market_prices_returns_dict() -> None:
+def test_polymarket_market_prices_returns_dict() -> None:
     respx.get(_PRICE_URL).mock(return_value=httpx.Response(200, json={"price": "0.42"}))
-    result = await polymarket_market_prices(token_id="abc")
+    result = polymarket_market_prices(token_id="abc")
     # Scalar/dict return → Result (no .df); the dict is on result.data.
     assert result.data["price"] == "0.42"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_polymarket_market_prices_raises_empty_data_when_no_price() -> None:
+def test_polymarket_market_prices_raises_empty_data_when_no_price() -> None:
     # 200 but the body has no "price" key.
     respx.get(_PRICE_URL).mock(return_value=httpx.Response(200, json={}))
     with pytest.raises(EmptyDataError):
-        await polymarket_market_prices(token_id="abc")
+        polymarket_market_prices(token_id="abc")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_polymarket_market_prices_raises_empty_data_on_non_dict() -> None:
+def test_polymarket_market_prices_raises_empty_data_on_non_dict() -> None:
     respx.get(_PRICE_URL).mock(return_value=httpx.Response(200, json=["not", "a", "dict"]))
     with pytest.raises(EmptyDataError):
-        await polymarket_market_prices(token_id="abc")
+        polymarket_market_prices(token_id="abc")
 
 
-@pytest.mark.asyncio
-async def test_polymarket_market_prices_rejects_blank_token() -> None:
+def test_polymarket_market_prices_rejects_blank_token() -> None:
     with pytest.raises(InvalidParameterError, match="token_id"):
-        await polymarket_market_prices(token_id="   ")
+        polymarket_market_prices(token_id="   ")

@@ -42,15 +42,10 @@ default; override with the `PARSIMONY_RBA_CATALOG_URL` env var or
 ## Quick start
 
 ```python
-import asyncio
 from parsimony_rba import CONNECTORS
 
-async def main():
-    connectors = CONNECTORS
-    result = await connectors["rba_fetch"](table_id="f1-data")
-    print(result.data.head())
-
-asyncio.run(main())
+result = CONNECTORS["rba_fetch"](table_id="f1-data")
+print(result.data.head())
 ```
 
 For multi-plugin composition:

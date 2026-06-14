@@ -52,18 +52,14 @@ Get a free key at https://www.alphavantage.co/support/#api-key. Free tier: 25 re
 ## Quick start
 
 ```python
-import asyncio
 import os
 from parsimony_alpha_vantage import load
 
-async def main():
-    # load(api_key=...) binds the key across every connector and strips it
-    # from provenance (it is declared secrets=("api_key",) on each verb).
-    connectors = load(api_key=os.environ["ALPHA_VANTAGE_API_KEY"])
-    result = await connectors["alpha_vantage_quote"](symbol="IBM")
-    print(result.data.head())
-
-asyncio.run(main())
+# load(api_key=...) binds the key across every connector and strips it
+# from provenance (it is declared secrets=("api_key",) on each verb).
+connectors = load(api_key=os.environ["ALPHA_VANTAGE_API_KEY"])
+result = connectors["alpha_vantage_quote"](symbol="IBM")
+print(result.data.head())
 ```
 
 For multi-plugin composition (autoloads everything installed):

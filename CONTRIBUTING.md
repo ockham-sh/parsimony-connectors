@@ -78,7 +78,7 @@ Don't commit this — it's developer-local.
 Scaffold `packages/foo/` by copying an existing small plugin (e.g.
 `packages/treasury/`) and adapting it. Each plugin must contain:
 
-- `pyproject.toml` — pin `parsimony-core>=0.6,<0.7`, declare a
+- `pyproject.toml` — pin `parsimony-core>=0.7,<0.8` (or `parsimony-core[catalog]>=0.7,<0.8` for catalog-backed packages), declare a
   `[project.entry-points."parsimony.providers"]` line, and set
   `[project.urls] Homepage`. See the kernel's
   [`docs/guide-new-plugin.md`](https://github.com/ockham-sh/parsimony/blob/main/docs/guide-new-plugin.md)
@@ -104,8 +104,8 @@ Scaffold `packages/foo/` by copying an existing small plugin (e.g.
   catalog)* — operator driver that calls the enumerator, converts with
   `entries_from_result`, configures one top-level index per field (use
   `HybridIndex` to fuse BM25 + vector within a field), sets
-  `default_field`, calls `await catalog.build()`, then
-  `await catalog.save(...)` for local paths or `hf://...` uploads.
+  `default_field`, calls `catalog.build()`, then
+  `catalog.save(...)` for local paths or `hf://...` uploads.
 
 Before opening a PR:
 

@@ -28,19 +28,14 @@ python -c "from parsimony import discover; print([p.name for p in discover.iter_
 ## Quick start
 
 ```python
-import asyncio
 from parsimony_treasury import CONNECTORS
 
-async def main():
-    connectors = CONNECTORS
-    result = await connectors["treasury_fetch"](
-        endpoint="v2/accounting/od/debt_to_penny",
-        sort="-record_date",
-        page_size=10,
-    )
-    print(result.data.head())
-
-asyncio.run(main())
+result = CONNECTORS["treasury_fetch"](
+    endpoint="v2/accounting/od/debt_to_penny",
+    sort="-record_date",
+    page_size=10,
+)
+print(result.data.head())
 ```
 
 For multi-plugin composition:

@@ -50,17 +50,13 @@ Get a Demo key at https://www.coingecko.com/en/api/pricing.
 ## Quick start
 
 ```python
-import asyncio
 import os
 from parsimony_coingecko import load
 
-async def main():
-    # Bind the key off the call surface (kept out of provenance and logs).
-    connectors = load(api_key=os.environ["COINGECKO_API_KEY"])
-    result = await connectors["coingecko_price"](ids="bitcoin", vs_currencies="usd")
-    print(result.data.head())
-
-asyncio.run(main())
+# Bind the key off the call surface (kept out of provenance and logs).
+connectors = load(api_key=os.environ["COINGECKO_API_KEY"])
+result = connectors["coingecko_price"](ids="bitcoin", vs_currencies="usd")
+print(result.data.head())
 ```
 
 If the key is not bound, each connector falls back to `COINGECKO_API_KEY` from the

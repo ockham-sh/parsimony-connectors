@@ -21,7 +21,9 @@ import pytest
 import respx
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 from parsimony.result import ColumnRole
+from parsimony_shared.cb_enumerate import MetadataCrawlConfig
 
+import parsimony_boj
 from parsimony_boj import (
     BOJ_ENUMERATE_OUTPUT,
     CONNECTORS,
@@ -31,6 +33,26 @@ from parsimony_boj import (
 
 _DATA_URL = "https://www.stat-search.boj.or.jp/api/v1/getDataCode"
 _META_URL = "https://www.stat-search.boj.or.jp/api/v1/getMetadata"
+
+
+@pytest.fixture(autouse=True)
+def _instant_metadata_crawl(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Strip the Akamai-throttle waits for offline tests.
+
+    The production crawl is serial across ~40 databases with a 0.5s
+    inter-request delay and 1/2/4s retry backoffs — minutes of real
+    ``time.sleep`` under respx. Zeroing the delays keeps every retry and
+    backoff branch on the code path while making the suite instant.
+    """
+    monkeypatch.setattr(
+        parsimony_boj,
+        "_METADATA_CRAWL",
+        MetadataCrawlConfig(
+            inter_request_delay_s=0.0,
+            retry_statuses=parsimony_boj._METADATA_CRAWL.retry_statuses,
+            retry_backoffs_s=(0.0, 0.0, 0.0),
+        ),
+    )
 
 _ENUMERATE_COLS = [
     "code",
@@ -94,8 +116,7 @@ def test_resolve_known_database_normalizes_case() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_boj_fetch_returns_observations() -> None:
+def test_boj_fetch_returns_observations() -> None:
     respx.get(_DATA_URL).mock(
         return_value=httpx.Response(
             200,
@@ -116,7 +137,7 @@ async def test_boj_fetch_returns_observations() -> None:
         )
     )
 
-    result = await boj_fetch(db="FM08", code="FXERD01")
+    result = boj_fetch(db="FM08", code="FXERD01")
 
     assert result.provenance.source == "boj_fetch"
     df = result.data
@@ -128,8 +149,7 @@ async def test_boj_fetch_returns_observations() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_boj_fetch_skips_null_values_keeps_real_ones() -> None:
+def test_boj_fetch_skips_null_values_keeps_real_ones() -> None:
     """BoJ pads early periods with ``null`` values; those rows are dropped."""
     respx.get(_DATA_URL).mock(
         return_value=httpx.Response(
@@ -150,26 +170,24 @@ async def test_boj_fetch_skips_null_values_keeps_real_ones() -> None:
         )
     )
 
-    result = await boj_fetch(db="FM08", code="FXERD01")
+    result = boj_fetch(db="FM08", code="FXERD01")
     df = result.data
     assert len(df) == 1
     assert df.iloc[0]["value"] == 159.65
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_boj_fetch_raises_empty_data_on_empty_resultset() -> None:
+def test_boj_fetch_raises_empty_data_on_empty_resultset() -> None:
     respx.get(_DATA_URL).mock(return_value=httpx.Response(200, json={"RESULTSET": []}))
 
     with pytest.raises(EmptyDataError) as exc:
-        await boj_fetch(db="FM08", code="XX")
+        boj_fetch(db="FM08", code="XX")
     # EmptyDataError carries the call params for the agent to adjust.
     assert exc.value.query_params == {"db": "FM08", "code": "XX"}
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_boj_fetch_raises_empty_data_when_all_values_null() -> None:
+def test_boj_fetch_raises_empty_data_when_all_values_null() -> None:
     respx.get(_DATA_URL).mock(
         return_value=httpx.Response(
             200,
@@ -187,35 +205,31 @@ async def test_boj_fetch_raises_empty_data_when_all_values_null() -> None:
     )
 
     with pytest.raises(EmptyDataError):
-        await boj_fetch(db="FM08", code="FXERD01")
+        boj_fetch(db="FM08", code="FXERD01")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_boj_fetch_raises_parse_error_on_non_dict_body() -> None:
+def test_boj_fetch_raises_parse_error_on_non_dict_body() -> None:
     respx.get(_DATA_URL).mock(return_value=httpx.Response(200, json=[1, 2, 3]))
 
     with pytest.raises(ParseError):
-        await boj_fetch(db="FM08", code="FXERD01")
+        boj_fetch(db="FM08", code="FXERD01")
 
 
-@pytest.mark.asyncio
-async def test_boj_fetch_rejects_empty_db() -> None:
+def test_boj_fetch_rejects_empty_db() -> None:
     with pytest.raises(InvalidParameterError, match="db must be non-empty"):
-        await boj_fetch(db="  ", code="FXERD01")
+        boj_fetch(db="  ", code="FXERD01")
 
 
-@pytest.mark.asyncio
-async def test_boj_fetch_rejects_empty_code() -> None:
+def test_boj_fetch_rejects_empty_code() -> None:
     with pytest.raises(InvalidParameterError, match="At least one series code"):
-        await boj_fetch(db="FM08", code=" , ")
+        boj_fetch(db="FM08", code=" , ")
 
 
-@pytest.mark.asyncio
-async def test_boj_fetch_rejects_too_many_codes() -> None:
+def test_boj_fetch_rejects_too_many_codes() -> None:
     too_many = ",".join(f"C{i}" for i in range(251))
     with pytest.raises(InvalidParameterError, match="Maximum 250 codes"):
-        await boj_fetch(db="FM08", code=too_many)
+        boj_fetch(db="FM08", code=too_many)
 
 
 # ---------------------------------------------------------------------------
@@ -225,9 +239,7 @@ async def test_boj_fetch_rejects_too_many_codes() -> None:
 
 def _stub_metadata_endpoint(*, status: int = 200, json: dict | None = None) -> respx.Route:
     """Mock /getMetadata with a single response for every ``db=`` value."""
-    return respx.get(_META_URL).mock(
-        return_value=httpx.Response(status, json=json or {"RESULTSET": []})
-    )
+    return respx.get(_META_URL).mock(return_value=httpx.Response(status, json=json or {"RESULTSET": []}))
 
 
 # Realistic FM08 metadata: a section header (empty code, integer LAYER1=1) and
@@ -260,13 +272,12 @@ _FM08_PAYLOAD = {
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_boj_emits_series_rows_with_real_breadcrumb() -> None:
+def test_enumerate_boj_emits_series_rows_with_real_breadcrumb() -> None:
     """Series rows carry all 14 columns; breadcrumb resolves from the section
     header's NAME, NOT the integer LAYER ordinal."""
     _stub_metadata_endpoint(json=_FM08_PAYLOAD)
 
-    result = await enumerate_boj()
+    result = enumerate_boj()
     df = result.data
 
     assert list(df.columns) == _ENUMERATE_COLS
@@ -291,38 +302,35 @@ async def test_enumerate_boj_emits_series_rows_with_real_breadcrumb() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_boj_breadcrumb_never_a_bare_integer() -> None:
+def test_enumerate_boj_breadcrumb_never_a_bare_integer() -> None:
     """Regression: integer LAYER ordinals must not leak into the breadcrumb."""
     _stub_metadata_endpoint(json=_FM08_PAYLOAD)
 
-    result = await enumerate_boj()
+    result = enumerate_boj()
     series = result.data[result.data["entity_type"] == "series"]
     for bc in series["breadcrumb"]:
         assert not str(bc).strip().isdigit(), f"breadcrumb leaked a raw ordinal: {bc!r}"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_boj_emits_db_rows_with_db_prefix_key() -> None:
+def test_enumerate_boj_emits_db_rows_with_db_prefix_key() -> None:
     """Each DB gets one synthetic ``db:<code>`` row. 50 canonical DBs ⇒ 50 db rows."""
     _stub_metadata_endpoint(json={"RESULTSET": []})
 
-    result = await enumerate_boj()
+    result = enumerate_boj()
     df = result.data
 
     db_rows = df[df["entity_type"] == "db"]
     assert len(db_rows) == 50
     assert all(code.startswith("db:") for code in db_rows["code"])
-    db_codes_after_prefix = {code[len("db:"):] for code in db_rows["code"]}
+    db_codes_after_prefix = {code[len("db:") :] for code in db_rows["code"]}
     assert {"FF", "CO", "BIS", "DER", "OT", "FM01", "IR01"}.issubset(db_codes_after_prefix)
     # The phantom BP02 must NOT appear in the canonical list.
     assert "BP02" not in db_codes_after_prefix
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_boj_handles_403_with_retry_then_warning(
+def test_enumerate_boj_handles_403_with_retry_then_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Akamai 403s must not crash enumeration. After exhausting retries the
@@ -332,7 +340,7 @@ async def test_enumerate_boj_handles_403_with_retry_then_warning(
     respx.get(_META_URL).mock(return_value=httpx.Response(403))
 
     with caplog.at_level(logging.WARNING, logger="parsimony_boj"):
-        result = await enumerate_boj()
+        result = enumerate_boj()
 
     df = result.data
     assert list(df.columns) == _ENUMERATE_COLS
@@ -341,12 +349,11 @@ async def test_enumerate_boj_handles_403_with_retry_then_warning(
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_boj_build_entities_round_trip() -> None:
+def test_enumerate_boj_build_entities_round_trip() -> None:
     """The enumerator Result projects to catalog entities with KEY=code (ns boj)."""
     _stub_metadata_endpoint(json=_FM08_PAYLOAD)
 
-    result = await enumerate_boj()
+    result = enumerate_boj()
     # The respx stub returns the same payload for every DB; dedupe on code.
     frame = result.data.drop_duplicates(subset=["code"], keep="first")
     entries = BOJ_ENUMERATE_OUTPUT.build_entities(frame)

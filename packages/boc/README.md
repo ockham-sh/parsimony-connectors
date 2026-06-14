@@ -31,15 +31,10 @@ No configuration required — the Bank of Canada Valet API is open and unauthent
 ## Quick start
 
 ```python
-import asyncio
 from parsimony_boc import CONNECTORS
 
-async def main():
-    connectors = CONNECTORS
-    result = await connectors["boc_fetch"](series_name="FXUSDCAD")
-    print(result.data.head())
-
-asyncio.run(main())
+result = CONNECTORS["boc_fetch"](series_name="FXUSDCAD")
+print(result.data.head())
 ```
 
 For multi-plugin composition (autoloads everything installed):

@@ -67,7 +67,7 @@ Load programmatically:
 ```python
 from parsimony.catalog import Catalog
 
-catalog = await Catalog.load("hf://{repo_id}")
+catalog = Catalog.load("hf://{repo_id}")
 ```
 """
 

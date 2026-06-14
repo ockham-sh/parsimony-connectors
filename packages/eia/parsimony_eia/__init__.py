@@ -10,15 +10,15 @@ The API key is declared as a secret and supplied by binding
 
 from __future__ import annotations
 
-import os
 from typing import Annotated
 
 import pandas as pd
+from parsimony import Namespace
 from parsimony.connector import Connectors, connector, enumerator
-from parsimony.errors import EmptyDataError, InvalidParameterError, UnauthorizedError
+from parsimony.errors import EmptyDataError, InvalidParameterError
 from parsimony.result import Column, ColumnRole, OutputConfig
 from parsimony.transport import HttpClient
-from parsimony.transport.helpers import fetch_json, make_api_key_client
+from parsimony.transport.helpers import fetch_json, make_api_key_client, require_key
 
 __all__ = ["CONNECTORS", "load"]
 
@@ -54,9 +54,7 @@ EIA_FETCH_OUTPUT = OutputConfig(
 
 def _client(api_key: str) -> HttpClient:
     """Resolve the API key (arg → env fallback) and build the EIA client."""
-    key = api_key or os.environ.get(_ENV_VAR, "")
-    if not key:
-        raise UnauthorizedError("eia", env_var=_ENV_VAR)
+    key = require_key(api_key, env_var=_ENV_VAR, provider="eia")
     return make_api_key_client(_BASE_URL, api_key=key, api_key_param="api_key", timeout=30.0)
 
 
@@ -66,8 +64,8 @@ def _client(api_key: str) -> HttpClient:
 
 
 @connector(output=EIA_FETCH_OUTPUT, tags=["macro", "energy", "us"], secrets=("api_key",))
-async def eia_fetch(
-    route: Annotated[str, "ns:eia"],
+def eia_fetch(
+    route: Annotated[str, Namespace("eia")],
     measure: str = "value",
     frequency: str | None = None,
     start: str | None = None,
@@ -90,7 +88,7 @@ async def eia_fetch(
         raise InvalidParameterError("eia", "measure must be non-empty")
 
     http = _client(api_key)
-    body = await fetch_json(
+    body = fetch_json(
         http,
         path=f"{r}/data",
         # data[0]=<measure> is REQUIRED for EIA v2 to return the measure column;
@@ -123,10 +121,10 @@ async def eia_fetch(
 
 
 @enumerator(output=EIA_ENUMERATE_OUTPUT, tags=["macro", "energy", "us"], secrets=("api_key",))
-async def enumerate_eia(api_key: str = "") -> pd.DataFrame:
+def enumerate_eia(api_key: str = "") -> pd.DataFrame:
     """Enumerate top-level EIA API routes for catalog indexing."""
     http = _client(api_key)
-    body = await fetch_json(http, path="", provider="eia", op_name="enumerate_eia")
+    body = fetch_json(http, path="", provider="eia", op_name="enumerate_eia")
 
     routes = body.get("response", {}).get("routes", [])
     rows = [

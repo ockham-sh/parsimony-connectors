@@ -48,6 +48,7 @@ _MARKETS_OUTPUT = OutputConfig(
         Column(name="question", role=ColumnRole.TITLE),
         Column(name="slug", role=ColumnRole.METADATA),
         Column(name="active", role=ColumnRole.METADATA),
+        Column(name="clobTokenIds", role=ColumnRole.METADATA),
     ]
 )
 
@@ -84,7 +85,7 @@ def _clob_http() -> HttpClient:
 
 
 @enumerator(output=_MARKETS_OUTPUT, tags=["polymarket"])
-async def polymarket_markets(limit: int = 20, active: bool = True) -> pd.DataFrame:
+def polymarket_markets(limit: int = 20, active: bool = True) -> pd.DataFrame:
     """Discover Polymarket markets via the Gamma API.
 
     Returns up to `limit` markets (1-100) as id + question (title) rows with
@@ -93,7 +94,7 @@ async def polymarket_markets(limit: int = 20, active: bool = True) -> pd.DataFra
     if limit < 1 or limit > 100:
         raise InvalidParameterError("polymarket", "limit must be between 1 and 100")
 
-    data = await fetch_json(
+    data = fetch_json(
         _gamma_http(),
         path="markets",
         params={"limit": limit, "active": str(active).lower()},
@@ -115,7 +116,7 @@ async def polymarket_markets(limit: int = 20, active: bool = True) -> pd.DataFra
 
 
 @enumerator(output=_EVENTS_OUTPUT, tags=["polymarket"])
-async def polymarket_events(limit: int = 20) -> pd.DataFrame:
+def polymarket_events(limit: int = 20) -> pd.DataFrame:
     """Discover Polymarket events via the Gamma API.
 
     Returns up to `limit` events (1-100) as id + title rows with slug metadata.
@@ -124,7 +125,7 @@ async def polymarket_events(limit: int = 20) -> pd.DataFrame:
     if limit < 1 or limit > 100:
         raise InvalidParameterError("polymarket", "limit must be between 1 and 100")
 
-    data = await fetch_json(
+    data = fetch_json(
         _gamma_http(),
         path="events",
         params={"limit": limit},
@@ -146,7 +147,7 @@ async def polymarket_events(limit: int = 20) -> pd.DataFrame:
 
 
 @connector(tags=["polymarket", "tool"])
-async def polymarket_market_prices(token_id: str) -> dict[str, object]:
+def polymarket_market_prices(token_id: str) -> dict[str, object]:
     """Fetch the current CLOB buy-side price for a Polymarket outcome token.
 
     `token_id` is a CLOB ERC-1155 token id (the `clobTokenIds` field on a
@@ -156,7 +157,7 @@ async def polymarket_market_prices(token_id: str) -> dict[str, object]:
     if not token:
         raise InvalidParameterError("polymarket", "token_id is required")
 
-    data = await fetch_json(
+    data = fetch_json(
         _clob_http(),
         path="price",
         params={"token_id": token, "side": "buy"},

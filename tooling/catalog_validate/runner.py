@@ -70,9 +70,9 @@ def _resolve_catalog_url(
     raise ValueError(f"Cannot resolve catalog URL for probe {query.id!r}")
 
 
-async def _run_probe(catalog: Catalog, query: CatalogQuery) -> ProbeResult:
+def _run_probe(catalog: Catalog, query: CatalogQuery) -> ProbeResult:
     try:
-        matches, _ = await catalog.search(query.query, limit=query.limit)
+        matches, _ = catalog.search(query.query, limit=query.limit)
         codes = [entity_key(m.namespace, m.code)[1] for m in matches]
         hit = query.expected_code in codes
         return ProbeResult(query=query, hit=hit, top_codes=codes[:5])
@@ -80,7 +80,7 @@ async def _run_probe(catalog: Catalog, query: CatalogQuery) -> ProbeResult:
         return ProbeResult(query=query, hit=False, top_codes=[], error=f"{type(exc).__name__}: {exc}")
 
 
-async def validate_catalog(
+def validate_catalog(
     catalog_url: str,
     query_set: CatalogQuerySet | None = None,
     *,
@@ -90,7 +90,7 @@ async def validate_catalog(
     """Load *catalog_url* and run compatibility + optional curated probes."""
     report = ValidationReport(catalog_url=catalog_url)
     try:
-        catalog = await Catalog.load(catalog_url)
+        catalog = Catalog.load(catalog_url)
     except Exception as exc:  # noqa: BLE001
         if allow_missing:
             report.skipped = True
@@ -114,7 +114,7 @@ async def validate_catalog(
 
     for url, queries in buckets.items():
         try:
-            bucket_catalog = catalog if url == catalog_url else await Catalog.load(url)
+            bucket_catalog = catalog if url == catalog_url else Catalog.load(url)
         except FileNotFoundError as exc:
             for q in queries:
                 if q.optional or not q.required:
@@ -125,7 +125,7 @@ async def validate_catalog(
                     raise
             continue
         for q in queries:
-            report.probe_results.append(await _run_probe(bucket_catalog, q))
+            report.probe_results.append(_run_probe(bucket_catalog, q))
 
     return report
 

@@ -21,12 +21,11 @@ pytestmark = pytest.mark.integration
 _KEY = os.environ.get("BLS_API_KEY", "")
 
 
-@pytest.mark.asyncio
-async def test_bls_fetch_unemployment() -> None:
+def test_bls_fetch_unemployment() -> None:
     bound = bls_fetch.bind(api_key=_KEY)
 
     # LNS14000000 is the canonical US unemployment rate series from BLS.
-    result = await bound(series_id="LNS14000000", start_year="2025", end_year="2026")
+    result = bound(series_id="LNS14000000", start_year="2025", end_year="2026")
 
     assert_provenance_shape(result, expected_source="bls_fetch", required_param_keys=["series_id"])
     df = result.data
@@ -40,13 +39,12 @@ async def test_bls_fetch_unemployment() -> None:
         assert_no_secret_leak(result, secret=_KEY)
 
 
-@pytest.mark.asyncio
-async def test_enumerate_bls_single_survey() -> None:
+def test_enumerate_bls_single_survey() -> None:
     # Bound to ONE survey (CE = Current Employment Statistics) — cheap, no
     # full multi-survey fan-out.
     bound = enumerate_bls.bind(api_key=_KEY)
 
-    result = await bound(survey="CE")
+    result = bound(survey="CE")
 
     assert_provenance_shape(result, expected_source="enumerate_bls")
     df = result.data

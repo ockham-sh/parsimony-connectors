@@ -24,12 +24,11 @@ from parsimony_fred import fred_fetch, fred_search
 pytestmark = pytest.mark.integration
 
 
-@pytest.mark.asyncio
-async def test_fred_search_unemployment_returns_unrate() -> None:
+def test_fred_search_unemployment_returns_unrate() -> None:
     creds = require_env("FRED_API_KEY")
     bound = fred_search.bind(api_key=creds["FRED_API_KEY"])
 
-    result = await bound(search_text="unemployment rate")
+    result = bound(search_text="unemployment rate")
 
     assert_provenance_shape(result, expected_source="fred_search", required_param_keys=["search_text"])
     df = result.data
@@ -43,12 +42,11 @@ async def test_fred_search_unemployment_returns_unrate() -> None:
     assert_no_secret_leak(result, secret=creds["FRED_API_KEY"])
 
 
-@pytest.mark.asyncio
-async def test_fred_fetch_unrate_returns_observations() -> None:
+def test_fred_fetch_unrate_returns_observations() -> None:
     creds = require_env("FRED_API_KEY")
     bound = fred_fetch.bind(api_key=creds["FRED_API_KEY"])
 
-    result = await bound(series_id="UNRATE")
+    result = bound(series_id="UNRATE")
 
     assert_provenance_shape(result, expected_source="fred_fetch", required_param_keys=["series_id"])
     df = result.data
@@ -60,12 +58,11 @@ async def test_fred_fetch_unrate_returns_observations() -> None:
     assert_no_secret_leak(result, secret=creds["FRED_API_KEY"])
 
 
-@pytest.mark.asyncio
-async def test_fred_fetch_respects_observation_window() -> None:
+def test_fred_fetch_respects_observation_window() -> None:
     creds = require_env("FRED_API_KEY")
     bound = fred_fetch.bind(api_key=creds["FRED_API_KEY"])
 
-    result = await bound(
+    result = bound(
         series_id="UNRATE",
         observation_start="2020-01-01",
         observation_end="2020-12-31",

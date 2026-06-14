@@ -115,8 +115,8 @@ def _normalize_cik(raw: str) -> str:
     return digits.zfill(10)
 
 
-async def _load_company_tickers() -> list[dict[str, Any]]:
-    payload = await fetch_json(
+def _load_company_tickers() -> list[dict[str, Any]]:
+    payload = fetch_json(
         _www_client(),
         path="/files/company_tickers.json",
         provider="sec_edgar",
@@ -133,7 +133,7 @@ async def _load_company_tickers() -> list[dict[str, Any]]:
 
 
 @connector(output=_FIND_OUTPUT, tags=["sec_edgar", "tool"])
-async def sec_edgar_find_company(identifier: str) -> pd.DataFrame:
+def sec_edgar_find_company(identifier: str) -> pd.DataFrame:
     """Find an SEC registrant by ticker symbol or CIK using the published ticker map.
 
     Returns cik + ticker + company title rows. `identifier` matches a ticker
@@ -144,7 +144,7 @@ async def sec_edgar_find_company(identifier: str) -> pd.DataFrame:
     if not query:
         raise InvalidParameterError("sec_edgar", "identifier is required")
 
-    rows = await _load_company_tickers()
+    rows = _load_company_tickers()
     query_upper = query.upper()
     query_cik = _normalize_cik(query) if query.isdigit() else None
 
@@ -166,7 +166,7 @@ async def sec_edgar_find_company(identifier: str) -> pd.DataFrame:
 
 
 @connector(output=_SUBMISSIONS_OUTPUT, tags=["sec_edgar", "tool"])
-async def sec_edgar_submissions(cik: str, limit: int = 20) -> pd.DataFrame:
+def sec_edgar_submissions(cik: str, limit: int = 20) -> pd.DataFrame:
     """List recent SEC filings for a CIK from the EDGAR submissions API.
 
     Returns accession number + filing date + form type + primary document for
@@ -175,7 +175,7 @@ async def sec_edgar_submissions(cik: str, limit: int = 20) -> pd.DataFrame:
     cik_norm = _normalize_cik(cik)
     limit_clamped = max(1, min(limit, 100))
 
-    payload = await fetch_json(
+    payload = fetch_json(
         _data_client(),
         path=f"/submissions/CIK{cik_norm}.json",
         provider="sec_edgar",
@@ -204,7 +204,7 @@ async def sec_edgar_submissions(cik: str, limit: int = 20) -> pd.DataFrame:
 
 
 @connector(tags=["sec_edgar", "tool"])
-async def sec_edgar_company_facts(cik: str) -> dict[str, Any]:
+def sec_edgar_company_facts(cik: str) -> dict[str, Any]:
     """Return the raw XBRL company-facts blob for a CIK.
 
     Fetches /api/xbrl/companyfacts/CIK{cik}.json — the full set of reported
@@ -212,7 +212,7 @@ async def sec_edgar_company_facts(cik: str) -> dict[str, Any]:
     as a dict for downstream extraction.
     """
     cik_norm = _normalize_cik(cik)
-    payload = await fetch_json(
+    payload = fetch_json(
         _data_client(),
         path=f"/api/xbrl/companyfacts/CIK{cik_norm}.json",
         provider="sec_edgar",
@@ -228,9 +228,7 @@ async def sec_edgar_company_facts(cik: str) -> dict[str, Any]:
 
 
 @connector(tags=["sec_edgar", "tool"])
-async def sec_edgar_fetch_filing(
-    cik: str, accession_number: str, document: str | None = None
-) -> dict[str, str]:
+def sec_edgar_fetch_filing(cik: str, accession_number: str, document: str | None = None) -> dict[str, str]:
     """Fetch one SEC filing document body from the EDGAR archives.
 
     Resolves the primary document for `accession_number` from the company's
@@ -247,7 +245,7 @@ async def sec_edgar_fetch_filing(
     if not doc_name:
         # Resolve the primary document name from the company's submissions
         # (a data.sec.gov JSON call). Skipped entirely when `document` is given.
-        submissions = await fetch_json(
+        submissions = fetch_json(
             _data_client(),
             path=f"submissions/CIK{cik_norm}.json",
             provider="sec_edgar",
@@ -275,7 +273,7 @@ async def sec_edgar_fetch_filing(
     # 404s the /Archives path). The directory uses the dash-stripped accession.
     cik_int = str(int(cik_norm))
     path = f"/Archives/edgar/data/{cik_int}/{accession}/{doc_name}"
-    content = await _get_text(_www_client(), path, op_name="fetch_filing")
+    content = _get_text(_www_client(), path, op_name="fetch_filing")
 
     return {
         "cik": cik_norm,
@@ -285,10 +283,10 @@ async def sec_edgar_fetch_filing(
     }
 
 
-async def _get_text(http: HttpClient, path: str, *, op_name: str) -> str:
+def _get_text(http: HttpClient, path: str, *, op_name: str) -> str:
     """GET *path* and return the raw text body (non-JSON document)."""
     try:
-        response = await http.request("GET", path)
+        response = http.request("GET", path)
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         map_http_error(exc, provider="sec_edgar", op_name=op_name)

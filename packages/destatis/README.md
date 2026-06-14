@@ -37,14 +37,10 @@ export PARSIMONY_DESTATIS_CATALOG_URL="hf://your-org/destatis"   # optional; ove
 ## Quick start
 
 ```python
-import asyncio
 from parsimony_destatis import CONNECTORS
 
-async def main():
-    result = await CONNECTORS["destatis_fetch"](name="61111-0001")
-    print(result.data.head())
-
-asyncio.run(main())
+result = CONNECTORS["destatis_fetch"](name="61111-0001")
+print(result.data.head())
 ```
 
 For multi-plugin composition:

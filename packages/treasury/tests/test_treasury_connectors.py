@@ -52,8 +52,7 @@ def test_treasury_fetch_namespace_hint() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_treasury_fetch_returns_records() -> None:
+def test_treasury_fetch_returns_records() -> None:
     respx.get(f"{_FISCAL_BASE}/v2/accounting/od/debt_to_penny").mock(
         return_value=httpx.Response(
             200,
@@ -79,7 +78,7 @@ async def test_treasury_fetch_returns_records() -> None:
         )
     )
 
-    result = await treasury_fetch(endpoint="v2/accounting/od/debt_to_penny")
+    result = treasury_fetch(endpoint="v2/accounting/od/debt_to_penny")
 
     assert result.provenance.source == "treasury_fetch"
     assert result.provenance.params == {
@@ -99,24 +98,22 @@ async def test_treasury_fetch_returns_records() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_treasury_fetch_strips_leading_slash_in_endpoint() -> None:
+def test_treasury_fetch_strips_leading_slash_in_endpoint() -> None:
     route = respx.get(f"{_FISCAL_BASE}/v2/accounting/od/debt_to_penny").mock(
         return_value=httpx.Response(200, json={"data": [{"record_date": "2026-01-02"}], "meta": {}})
     )
-    result = await treasury_fetch(endpoint="/v2/accounting/od/debt_to_penny")
+    result = treasury_fetch(endpoint="/v2/accounting/od/debt_to_penny")
     assert route.called
     assert list(result.data["endpoint"]) == ["v2/accounting/od/debt_to_penny"]
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_treasury_fetch_raises_empty_data_on_no_records() -> None:
+def test_treasury_fetch_raises_empty_data_on_no_records() -> None:
     respx.get(f"{_FISCAL_BASE}/v2/accounting/od/debt_to_penny").mock(
         return_value=httpx.Response(200, json={"data": [], "meta": {}})
     )
     with pytest.raises(EmptyDataError) as exc:
-        await treasury_fetch(endpoint="v2/accounting/od/debt_to_penny")
+        treasury_fetch(endpoint="v2/accounting/od/debt_to_penny")
     assert exc.value.query_params == {
         "endpoint": "v2/accounting/od/debt_to_penny",
         "filter": None,
@@ -125,48 +122,43 @@ async def test_treasury_fetch_raises_empty_data_on_no_records() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_treasury_fetch_raises_parse_error_on_missing_data_key() -> None:
+def test_treasury_fetch_raises_parse_error_on_missing_data_key() -> None:
     # HTTP 200 but not the expected shape (no 'data') -> ParseError, not a fake status.
     respx.get(f"{_FISCAL_BASE}/v2/accounting/od/debt_to_penny").mock(
         return_value=httpx.Response(200, json={"error": "nope"})
     )
     with pytest.raises(ParseError):
-        await treasury_fetch(endpoint="v2/accounting/od/debt_to_penny")
+        treasury_fetch(endpoint="v2/accounting/od/debt_to_penny")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_treasury_fetch_maps_http_error() -> None:
+def test_treasury_fetch_maps_http_error() -> None:
     from parsimony.errors import ProviderError
 
     respx.get(f"{_FISCAL_BASE}/v2/accounting/od/bad").mock(return_value=httpx.Response(503))
     with pytest.raises(ProviderError) as exc:
-        await treasury_fetch(endpoint="v2/accounting/od/bad")
+        treasury_fetch(endpoint="v2/accounting/od/bad")
     assert exc.value.status_code == 503
 
 
-@pytest.mark.asyncio
-async def test_treasury_fetch_rejects_empty_endpoint() -> None:
+def test_treasury_fetch_rejects_empty_endpoint() -> None:
     with pytest.raises(InvalidParameterError):
-        await treasury_fetch(endpoint="   ")
+        treasury_fetch(endpoint="   ")
 
 
-@pytest.mark.asyncio
-async def test_treasury_fetch_rejects_out_of_range_page_size() -> None:
+def test_treasury_fetch_rejects_out_of_range_page_size() -> None:
     with pytest.raises(InvalidParameterError):
-        await treasury_fetch(endpoint="v2/accounting/od/debt_to_penny", page_size=0)
+        treasury_fetch(endpoint="v2/accounting/od/debt_to_penny", page_size=0)
     with pytest.raises(InvalidParameterError):
-        await treasury_fetch(endpoint="v2/accounting/od/debt_to_penny", page_size=10001)
+        treasury_fetch(endpoint="v2/accounting/od/debt_to_penny", page_size=10001)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_treasury_fetch_passes_filter_and_sort() -> None:
+def test_treasury_fetch_passes_filter_and_sort() -> None:
     route = respx.get(f"{_FISCAL_BASE}/v2/accounting/od/debt_to_penny").mock(
         return_value=httpx.Response(200, json={"data": [{"record_date": "2026-01-02"}], "meta": {}})
     )
-    await treasury_fetch(
+    treasury_fetch(
         endpoint="v2/accounting/od/debt_to_penny",
         filter="record_date:gte:2026-01-01",
         sort="-record_date",
@@ -208,13 +200,12 @@ _YIELD_CURVE_XML = (
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_treasury_rates_fetch_parses_xml_and_normalises_record_date() -> None:
+def test_treasury_rates_fetch_parses_xml_and_normalises_record_date() -> None:
     respx.get(_RATES_URL).mock(
         return_value=httpx.Response(200, text=_YIELD_CURVE_XML, headers={"content-type": "text/xml"})
     )
 
-    result = await treasury_rates_fetch(feed="daily_treasury_yield_curve", year=2026)
+    result = treasury_rates_fetch(feed="daily_treasury_yield_curve", year=2026)
 
     df = result.data
     assert len(df) == 2
@@ -232,65 +223,56 @@ async def test_treasury_rates_fetch_parses_xml_and_normalises_record_date() -> N
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_treasury_rates_fetch_sends_feed_and_year_params() -> None:
+def test_treasury_rates_fetch_sends_feed_and_year_params() -> None:
     route = respx.get(_RATES_URL).mock(
         return_value=httpx.Response(200, text=_YIELD_CURVE_XML, headers={"content-type": "text/xml"})
     )
-    await treasury_rates_fetch(feed="daily_treasury_yield_curve", year=2024)
+    treasury_rates_fetch(feed="daily_treasury_yield_curve", year=2024)
     sent = route.calls.last.request
     assert sent.url.params["data"] == "daily_treasury_yield_curve"
     assert sent.url.params["field_tdr_date_value"] == "2024"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_treasury_rates_fetch_raises_empty_data_on_no_entries() -> None:
+def test_treasury_rates_fetch_raises_empty_data_on_no_entries() -> None:
     empty_xml = (
-        '<?xml version="1.0" encoding="utf-8" standalone="yes" ?>'
-        '<feed xmlns="http://www.w3.org/2005/Atom"></feed>'
+        '<?xml version="1.0" encoding="utf-8" standalone="yes" ?><feed xmlns="http://www.w3.org/2005/Atom"></feed>'
     )
-    respx.get(_RATES_URL).mock(
-        return_value=httpx.Response(200, text=empty_xml, headers={"content-type": "text/xml"})
-    )
+    respx.get(_RATES_URL).mock(return_value=httpx.Response(200, text=empty_xml, headers={"content-type": "text/xml"}))
     with pytest.raises(EmptyDataError):
-        await treasury_rates_fetch(feed="daily_treasury_yield_curve", year=1990)
+        treasury_rates_fetch(feed="daily_treasury_yield_curve", year=1990)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_treasury_rates_fetch_raises_parse_error_on_bad_xml() -> None:
+def test_treasury_rates_fetch_raises_parse_error_on_bad_xml() -> None:
     # HTTP 200 but the body is not parseable XML -> ParseError (200-with-error-body, §5.8).
     respx.get(_RATES_URL).mock(
         return_value=httpx.Response(200, text="<html><body>service unavailable", headers={"content-type": "text/html"})
     )
     with pytest.raises(ParseError):
-        await treasury_rates_fetch(feed="daily_treasury_yield_curve", year=2026)
+        treasury_rates_fetch(feed="daily_treasury_yield_curve", year=2026)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_treasury_rates_fetch_maps_http_error() -> None:
+def test_treasury_rates_fetch_maps_http_error() -> None:
     from parsimony.errors import ProviderError
 
     respx.get(_RATES_URL).mock(return_value=httpx.Response(500))
     with pytest.raises(ProviderError) as exc:
-        await treasury_rates_fetch(feed="daily_treasury_yield_curve", year=2026)
+        treasury_rates_fetch(feed="daily_treasury_yield_curve", year=2026)
     assert exc.value.status_code == 500
 
 
-@pytest.mark.asyncio
-async def test_treasury_rates_fetch_rejects_unknown_feed() -> None:
+def test_treasury_rates_fetch_rejects_unknown_feed() -> None:
     with pytest.raises(InvalidParameterError):
-        await treasury_rates_fetch(feed="bogus_feed")  # type: ignore[arg-type]
+        treasury_rates_fetch(feed="bogus_feed")  # type: ignore[arg-type]
 
 
-@pytest.mark.asyncio
-async def test_treasury_rates_fetch_rejects_out_of_range_year() -> None:
+def test_treasury_rates_fetch_rejects_out_of_range_year() -> None:
     with pytest.raises(InvalidParameterError):
-        await treasury_rates_fetch(feed="daily_treasury_yield_curve", year=1989)
+        treasury_rates_fetch(feed="daily_treasury_yield_curve", year=1989)
     with pytest.raises(InvalidParameterError):
-        await treasury_rates_fetch(feed="daily_treasury_yield_curve", year=2101)
+        treasury_rates_fetch(feed="daily_treasury_yield_curve", year=2101)
 
 
 # ---------------------------------------------------------------------------
@@ -299,8 +281,7 @@ async def test_treasury_rates_fetch_rejects_out_of_range_year() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_treasury_emits_one_row_per_measure_field() -> None:
+def test_enumerate_treasury_emits_one_row_per_measure_field() -> None:
     respx.get(_METADATA_URL).mock(
         return_value=httpx.Response(
             200,
@@ -349,7 +330,7 @@ async def test_enumerate_treasury_emits_one_row_per_measure_field() -> None:
         )
     )
 
-    result = await enumerate_treasury()
+    result = enumerate_treasury()
 
     df = result.data
     # @enumerator enforces an EXACT column match — the frame carries exactly the declared columns.
@@ -371,8 +352,7 @@ async def test_enumerate_treasury_emits_one_row_per_measure_field() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_treasury_handles_top_level_list_payload() -> None:
+def test_enumerate_treasury_handles_top_level_list_payload() -> None:
     # The live metadata endpoint returns a top-level JSON *list*, not an object.
     respx.get(_METADATA_URL).mock(
         return_value=httpx.Response(
@@ -401,14 +381,13 @@ async def test_enumerate_treasury_handles_top_level_list_payload() -> None:
         )
     )
 
-    df = (await enumerate_treasury()).data
+    df = (enumerate_treasury()).data
     fiscal = df[df["source"] == "fiscal_data"]
     assert set(fiscal["code"]) == {"v2/accounting/od/debt_to_penny#tot_pub_debt_out_amt"}
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_treasury_keeps_tcir_string_rate_fields() -> None:
+def test_enumerate_treasury_keeps_tcir_string_rate_fields() -> None:
     """TCIR (Certified Interest Rates) tables store their rate values as STRING
     in Fiscal Data's data dictionary. The enumerator must include them anyway
     via a name-based heuristic on STRING fields, while excluding *_desc and Y/N
@@ -460,7 +439,7 @@ async def test_enumerate_treasury_keeps_tcir_string_rate_fields() -> None:
         )
     )
 
-    df = (await enumerate_treasury()).data
+    df = (enumerate_treasury()).data
     fiscal = df[~df["endpoint"].str.startswith("home/")]
     assert set(fiscal["code"]) == {"v1/accounting/od/tcir_monthly_table_2#monthly_rate"}
     row = fiscal.iloc[0]
@@ -469,14 +448,13 @@ async def test_enumerate_treasury_keeps_tcir_string_rate_fields() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_treasury_appends_office_of_debt_management_rates() -> None:
+def test_enumerate_treasury_appends_office_of_debt_management_rates() -> None:
     """The static rate-feed registry contributes catalog rows on every run,
     independent of the Fiscal Data metadata. Codes use a ``home/`` prefix to
     distinguish them from versioned Fiscal Data endpoints."""
     respx.get(_METADATA_URL).mock(return_value=httpx.Response(200, json={"datasets": []}))
 
-    df = (await enumerate_treasury()).data
+    df = (enumerate_treasury()).data
     home = df[df["endpoint"].str.startswith("home/")]
     assert len(home) > 30, "expected the full rate-feed registry to land"
 
@@ -500,11 +478,10 @@ async def test_enumerate_treasury_appends_office_of_debt_management_rates() -> N
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_treasury_maps_http_error() -> None:
+def test_enumerate_treasury_maps_http_error() -> None:
     from parsimony.errors import ProviderError
 
     respx.get(_METADATA_URL).mock(return_value=httpx.Response(502))
     with pytest.raises(ProviderError) as exc:
-        await enumerate_treasury()
+        enumerate_treasury()
     assert exc.value.status_code == 502

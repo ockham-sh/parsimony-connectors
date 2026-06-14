@@ -57,8 +57,7 @@ class ErrorMappingSuite:
     """Base class for parametric HTTP-error-mapping tests.
 
     Subclass and override the class attributes. Do NOT add the
-    ``@pytest.mark.asyncio`` decorator — inherited methods already carry
-    it via pytest-asyncio auto-mode.
+    Tests call connectors synchronously — no asyncio marker required.
 
     Override :attr:`connector`, :attr:`call_kwargs`, :attr:`route_url`,
     :attr:`method`. Override :attr:`env_key` to ``None`` for public
@@ -82,15 +81,14 @@ class ErrorMappingSuite:
     #: per-connector test file.
     status_map: ClassVar[list[tuple[int, type[ConnectorError]]]] = STATUS_TO_EXC
 
-    async def _call(self, connector: Any) -> Any:
-        return await connector(**self.call_kwargs)
+    def _call(self, connector: Any) -> Any:
+        return connector(**self.call_kwargs)
 
     # --- Tests ----------------------------------------------------------
 
     @respx.mock
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("status,exc_type", STATUS_TO_EXC)
-    async def test_maps_status_and_does_not_leak_key(
+    def test_maps_status_and_does_not_leak_key(
         self, status: int, exc_type: type[ConnectorError]
     ) -> None:
         # Skip parametrize cases this subclass explicitly overrides via
@@ -109,15 +107,14 @@ class ErrorMappingSuite:
             else self.connector
         )
         with pytest.raises(exc_type) as exc_info:
-            await self._call(bound)
+            self._call(bound)
 
         assert_no_secret_leak(exc_info.value, secret=self.env_value)
         if self.env_key is not None and self.provider is not None:
             assert exc_info.value.provider == self.provider
 
     @respx.mock
-    @pytest.mark.asyncio
-    async def test_rate_limit_carries_retry_after(self) -> None:
+    def test_rate_limit_carries_retry_after(self) -> None:
         route = respx.route(method=self.method, url=self.route_url)
         route.mock(
             return_value=httpx.Response(429, text="slow", headers={"Retry-After": "17"})
@@ -129,12 +126,11 @@ class ErrorMappingSuite:
             else self.connector
         )
         with pytest.raises(RateLimitError) as exc_info:
-            await self._call(bound)
+            self._call(bound)
         assert exc_info.value.retry_after == 17.0
 
     @respx.mock
-    @pytest.mark.asyncio
-    async def test_provider_error_carries_status_code(self) -> None:
+    def test_provider_error_carries_status_code(self) -> None:
         route = respx.route(method=self.method, url=self.route_url)
         route.mock(return_value=httpx.Response(503, text="unavailable"))
 
@@ -144,5 +140,5 @@ class ErrorMappingSuite:
             else self.connector
         )
         with pytest.raises(ProviderError) as exc_info:
-            await self._call(bound)
+            self._call(bound)
         assert exc_info.value.status_code == 503

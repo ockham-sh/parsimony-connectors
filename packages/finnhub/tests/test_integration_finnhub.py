@@ -65,10 +65,9 @@ def _recent_window(days: int = 14) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_finnhub_search_apple_returns_aapl() -> None:
+def test_finnhub_search_apple_returns_aapl() -> None:
     key = _key()
-    result = await finnhub_search.bind(api_key=key)(query="apple")
+    result = finnhub_search.bind(api_key=key)(query="apple")
 
     assert_provenance_shape(result, expected_source="finnhub_search", required_param_keys=["query"])
     df = result.data
@@ -84,10 +83,9 @@ async def test_finnhub_search_apple_returns_aapl() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_finnhub_quote_aapl() -> None:
+def test_finnhub_quote_aapl() -> None:
     key = _key()
-    result = await finnhub_quote.bind(api_key=key)(symbol="AAPL")
+    result = finnhub_quote.bind(api_key=key)(symbol="AAPL")
 
     assert_provenance_shape(result, expected_source="finnhub_quote", required_param_keys=["symbol"])
     df = result.data
@@ -104,10 +102,9 @@ async def test_finnhub_quote_aapl() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_finnhub_profile_aapl() -> None:
+def test_finnhub_profile_aapl() -> None:
     key = _key()
-    result = await finnhub_profile.bind(api_key=key)(symbol="AAPL")
+    result = finnhub_profile.bind(api_key=key)(symbol="AAPL")
 
     assert_provenance_shape(result, expected_source="finnhub_profile", required_param_keys=["symbol"])
     data = result.data
@@ -119,10 +116,9 @@ async def test_finnhub_profile_aapl() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_finnhub_peers_aapl() -> None:
+def test_finnhub_peers_aapl() -> None:
     key = _key()
-    result = await finnhub_peers.bind(api_key=key)(symbol="AAPL")
+    result = finnhub_peers.bind(api_key=key)(symbol="AAPL")
 
     assert_provenance_shape(result, expected_source="finnhub_peers", required_param_keys=["symbol"])
     df = result.data
@@ -132,10 +128,9 @@ async def test_finnhub_peers_aapl() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_finnhub_recommendation_aapl() -> None:
+def test_finnhub_recommendation_aapl() -> None:
     key = _key()
-    result = await finnhub_recommendation.bind(api_key=key)(symbol="AAPL")
+    result = finnhub_recommendation.bind(api_key=key)(symbol="AAPL")
 
     assert_provenance_shape(result, expected_source="finnhub_recommendation", required_param_keys=["symbol"])
     df = result.data
@@ -143,15 +138,15 @@ async def test_finnhub_recommendation_aapl() -> None:
     # Real content: the buy/hold counts must carry numbers, not be all-NaN.
     assert df["buy"].notna().any(), "buy column entirely NaN"
     assert df["hold"].notna().any(), "hold column entirely NaN"
-    assert (df["buy"].fillna(0) + df["hold"].fillna(0) + df["sell"].fillna(0)).gt(0).any(), \
+    assert (df["buy"].fillna(0) + df["hold"].fillna(0) + df["sell"].fillna(0)).gt(0).any(), (
         "every recommendation row sums to zero"
+    )
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_finnhub_earnings_aapl() -> None:
+def test_finnhub_earnings_aapl() -> None:
     key = _key()
-    result = await finnhub_earnings.bind(api_key=key)(symbol="AAPL")
+    result = finnhub_earnings.bind(api_key=key)(symbol="AAPL")
 
     assert_provenance_shape(result, expected_source="finnhub_earnings", required_param_keys=["symbol"])
     df = result.data
@@ -161,10 +156,9 @@ async def test_finnhub_earnings_aapl() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_finnhub_basic_financials_aapl() -> None:
+def test_finnhub_basic_financials_aapl() -> None:
     key = _key()
-    result = await finnhub_basic_financials.bind(api_key=key)(symbol="AAPL")
+    result = finnhub_basic_financials.bind(api_key=key)(symbol="AAPL")
 
     assert_provenance_shape(result, expected_source="finnhub_basic_financials", required_param_keys=["symbol"])
     data = result.data
@@ -181,11 +175,10 @@ async def test_finnhub_basic_financials_aapl() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_finnhub_company_news_aapl_recent() -> None:
+def test_finnhub_company_news_aapl_recent() -> None:
     key = _key()
     frm, to = _recent_window(14)
-    result = await finnhub_company_news.bind(api_key=key)(symbol="AAPL", from_date=frm, to_date=to)
+    result = finnhub_company_news.bind(api_key=key)(symbol="AAPL", from_date=frm, to_date=to)
 
     assert_provenance_shape(result, expected_source="finnhub_company_news", required_param_keys=["symbol"])
     df = result.data
@@ -195,10 +188,9 @@ async def test_finnhub_company_news_aapl_recent() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_finnhub_market_news_general() -> None:
+def test_finnhub_market_news_general() -> None:
     key = _key()
-    result = await finnhub_market_news.bind(api_key=key)(category="general")
+    result = finnhub_market_news.bind(api_key=key)(category="general")
 
     assert_provenance_shape(result, expected_source="finnhub_market_news")
     df = result.data
@@ -212,13 +204,12 @@ async def test_finnhub_market_news_general() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_finnhub_earnings_calendar_window() -> None:
+def test_finnhub_earnings_calendar_window() -> None:
     key = _key()
     today = dt.date.today()
     frm = (today - dt.timedelta(days=7)).isoformat()
     to = (today + dt.timedelta(days=30)).isoformat()
-    result = await finnhub_earnings_calendar.bind(api_key=key)(from_date=frm, to_date=to)
+    result = finnhub_earnings_calendar.bind(api_key=key)(from_date=frm, to_date=to)
 
     assert_provenance_shape(result, expected_source="finnhub_earnings_calendar")
     df = result.data
@@ -229,13 +220,12 @@ async def test_finnhub_earnings_calendar_window() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_finnhub_ipo_calendar_window() -> None:
+def test_finnhub_ipo_calendar_window() -> None:
     key = _key()
     today = dt.date.today()
     frm = (today - dt.timedelta(days=90)).isoformat()
     to = (today + dt.timedelta(days=30)).isoformat()
-    result = await finnhub_ipo_calendar.bind(api_key=key)(from_date=frm, to_date=to)
+    result = finnhub_ipo_calendar.bind(api_key=key)(from_date=frm, to_date=to)
 
     assert_provenance_shape(result, expected_source="finnhub_ipo_calendar")
     df = result.data
@@ -251,16 +241,22 @@ async def test_finnhub_ipo_calendar_window() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_enumerate_finnhub_bounded() -> None:
+def test_enumerate_finnhub_bounded() -> None:
     key = _key()
-    result = await enumerate_finnhub.bind(api_key=key)(exchange="US")
+    result = enumerate_finnhub.bind(api_key=key)(exchange="US")
 
     assert_provenance_shape(result, expected_source="enumerate_finnhub")
     df = result.data
     # Exact-match enumerator schema.
     assert list(df.columns) == [
-        "symbol", "description", "display_symbol", "type", "currency", "mic", "exchange", "isin"
+        "symbol",
+        "description",
+        "display_symbol",
+        "type",
+        "currency",
+        "mic",
+        "exchange",
+        "isin",
     ]
     assert not df.empty, "symbol enumeration returned no rows"
     assert "AAPL" in set(df["symbol"]), "AAPL missing from the US symbol list"

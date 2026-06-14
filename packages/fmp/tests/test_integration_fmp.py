@@ -63,12 +63,12 @@ def _key() -> str:
     return str(require_env("FMP_API_KEY")["FMP_API_KEY"])
 
 
-async def _content_or_payment_required(connector_fn, kwargs, source: str, key: str) -> None:
+def _content_or_payment_required(connector_fn, kwargs, source: str, key: str) -> None:
     """Plan-gated verb: assert real content on a high-tier key OR PaymentRequiredError
     on a lower-tier key. Either documents the plan boundary; neither is a silent skip."""
     bound = connector_fn.bind(api_key=key)
     try:
-        result = await bound(**kwargs)
+        result = bound(**kwargs)
     except PaymentRequiredError as exc:
         assert exc.provider == "fmp", f"{source}: wrong provider on PaymentRequiredError"
         assert key not in str(exc), f"{source}: key leaked into PaymentRequiredError"
@@ -89,10 +89,9 @@ async def _content_or_payment_required(connector_fn, kwargs, source: str, key: s
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_fmp_search_apple() -> None:
+def test_fmp_search_apple() -> None:
     key = _key()
-    result = await fmp_search.bind(api_key=key)(query="Apple")
+    result = fmp_search.bind(api_key=key)(query="Apple")
 
     assert_provenance_shape(result, expected_source="fmp_search", required_param_keys=["query"])
     df = result.data
@@ -102,21 +101,19 @@ async def test_fmp_search_apple() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_fmp_taxonomy_sectors() -> None:
+def test_fmp_taxonomy_sectors() -> None:
     key = _key()
-    result = await fmp_taxonomy.bind(api_key=key)(type="sectors")
+    result = fmp_taxonomy.bind(api_key=key)(type="sectors")
     df = result.data
     assert not df.empty, "available-sectors returned no rows"
     assert "Technology" in set(df["sector"]), f"Technology missing: {list(df['sector'])[:10]}"
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_fmp_taxonomy_exchanges_facet() -> None:
+def test_fmp_taxonomy_exchanges_facet() -> None:
     # A non-default taxonomy route (different path + column from 'sectors').
     key = _key()
-    result = await fmp_taxonomy.bind(api_key=key)(type="exchanges")
+    result = fmp_taxonomy.bind(api_key=key)(type="exchanges")
     df = result.data
     assert not df.empty, "available-exchanges returned no rows"
     assert "exchange" in df.columns, f"exchange column missing: {list(df.columns)}"
@@ -128,10 +125,9 @@ async def test_fmp_taxonomy_exchanges_facet() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_fmp_quotes_aapl() -> None:
+def test_fmp_quotes_aapl() -> None:
     key = _key()
-    result = await fmp_quotes.bind(api_key=key)(symbols="AAPL")
+    result = fmp_quotes.bind(api_key=key)(symbols="AAPL")
 
     assert_provenance_shape(result, expected_source="fmp_quotes", required_param_keys=["symbols"])
     df = result.data
@@ -141,10 +137,9 @@ async def test_fmp_quotes_aapl() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_fmp_prices_daily_window() -> None:
+def test_fmp_prices_daily_window() -> None:
     key = _key()
-    result = await fmp_prices.bind(api_key=key)(
+    result = fmp_prices.bind(api_key=key)(
         symbol="AAPL", frequency="daily", from_date="2025-05-01", to_date="2025-05-09"
     )
 
@@ -156,13 +151,12 @@ async def test_fmp_prices_daily_window() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_fmp_prices_dividend_adjusted_window() -> None:
+def test_fmp_prices_dividend_adjusted_window() -> None:
     # The dividend-adjusted route returns adjOpen/adjHigh/adjLow/adjClose (no
     # open/high/low/close); the connector renames them onto the declared schema.
     # Regression for the "dividend_adjusted silently drops all price data" blocker.
     key = _key()
-    result = await fmp_prices.bind(api_key=key)(
+    result = fmp_prices.bind(api_key=key)(
         symbol="AAPL", frequency="dividend_adjusted", from_date="2025-05-01", to_date="2025-05-09"
     )
 
@@ -176,12 +170,9 @@ async def test_fmp_prices_dividend_adjusted_window() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_fmp_prices_intraday_plan_gated() -> None:
+def test_fmp_prices_intraday_plan_gated() -> None:
     # Intraday is [Professional+]; accept content OR PaymentRequiredError.
-    await _content_or_payment_required(
-        fmp_prices, {"symbol": "AAPL", "frequency": "1min"}, "fmp_prices", _key()
-    )
+    _content_or_payment_required(fmp_prices, {"symbol": "AAPL", "frequency": "1min"}, "fmp_prices", _key())
 
 
 # ---------------------------------------------------------------------------
@@ -189,10 +180,9 @@ async def test_fmp_prices_intraday_plan_gated() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_fmp_company_profile_aapl() -> None:
+def test_fmp_company_profile_aapl() -> None:
     key = _key()
-    result = await fmp_company_profile.bind(api_key=key)(symbol="AAPL")
+    result = fmp_company_profile.bind(api_key=key)(symbol="AAPL")
 
     assert_provenance_shape(result, expected_source="fmp_company_profile", required_param_keys=["symbol"])
     df = result.data
@@ -202,10 +192,9 @@ async def test_fmp_company_profile_aapl() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_fmp_peers_aapl() -> None:
+def test_fmp_peers_aapl() -> None:
     key = _key()
-    result = await fmp_peers.bind(api_key=key)(symbol="AAPL")
+    result = fmp_peers.bind(api_key=key)(symbol="AAPL")
     df = result.data
     assert not df.empty, "peers returned no rows"
     assert df["symbol"].str.len().gt(0).any(), "peer symbol empty"
@@ -213,10 +202,9 @@ async def test_fmp_peers_aapl() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_fmp_income_statements_aapl() -> None:
+def test_fmp_income_statements_aapl() -> None:
     key = _key()
-    result = await fmp_income_statements.bind(api_key=key)(symbol="AAPL", period="annual", limit=2)
+    result = fmp_income_statements.bind(api_key=key)(symbol="AAPL", period="annual", limit=2)
     df = result.data
     assert not df.empty, "income statements returned no rows"
     assert df["revenue"].notna().any(), "revenue is entirely NaN"
@@ -224,20 +212,18 @@ async def test_fmp_income_statements_aapl() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_fmp_balance_sheet_aapl() -> None:
+def test_fmp_balance_sheet_aapl() -> None:
     key = _key()
-    result = await fmp_balance_sheet_statements.bind(api_key=key)(symbol="AAPL", period="annual", limit=2)
+    result = fmp_balance_sheet_statements.bind(api_key=key)(symbol="AAPL", period="annual", limit=2)
     df = result.data
     assert not df.empty, "balance sheets returned no rows"
     assert df["totalAssets"].notna().any(), "totalAssets is entirely NaN"
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_fmp_cash_flow_aapl() -> None:
+def test_fmp_cash_flow_aapl() -> None:
     key = _key()
-    result = await fmp_cash_flow_statements.bind(api_key=key)(symbol="AAPL", period="annual", limit=2)
+    result = fmp_cash_flow_statements.bind(api_key=key)(symbol="AAPL", period="annual", limit=2)
     df = result.data
     assert not df.empty, "cash flow statements returned no rows"
     assert df["freeCashFlow"].notna().any(), "freeCashFlow is entirely NaN"
@@ -249,43 +235,37 @@ async def test_fmp_cash_flow_aapl() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_fmp_corporate_history_earnings_aapl() -> None:
+def test_fmp_corporate_history_earnings_aapl() -> None:
     key = _key()
-    result = await fmp_corporate_history.bind(api_key=key)(symbol="AAPL", event_type="earnings", limit=4)
+    result = fmp_corporate_history.bind(api_key=key)(symbol="AAPL", event_type="earnings", limit=4)
     df = result.data
     assert not df.empty, "corporate earnings history returned no rows"
     assert (df["symbol"] == "AAPL").all(), "rows are not all AAPL"
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_fmp_corporate_history_dividends_facet() -> None:
+def test_fmp_corporate_history_dividends_facet() -> None:
     # A non-default event_type route (different upstream path from 'earnings').
     key = _key()
-    result = await fmp_corporate_history.bind(api_key=key)(symbol="AAPL", event_type="dividends", limit=4)
+    result = fmp_corporate_history.bind(api_key=key)(symbol="AAPL", event_type="dividends", limit=4)
     df = result.data
     assert not df.empty, "corporate dividends history returned no rows"
     assert "dividend" in df.columns, f"dividend column missing: {list(df.columns)}"
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_fmp_event_calendar_earnings_bounded() -> None:
+def test_fmp_event_calendar_earnings_bounded() -> None:
     # Market-wide calendar — bound to a tight 2-day window.
     key = _key()
-    result = await fmp_event_calendar.bind(api_key=key)(
-        event_type="earnings", from_date="2026-06-01", to_date="2026-06-03"
-    )
+    result = fmp_event_calendar.bind(api_key=key)(event_type="earnings", from_date="2026-06-01", to_date="2026-06-03")
     df = result.data
     assert not df.empty, "earnings calendar returned no rows"
     assert df["symbol"].str.len().gt(0).any(), "calendar symbol empty"
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_fmp_analyst_estimates_plan_gated() -> None:
-    await _content_or_payment_required(
+def test_fmp_analyst_estimates_plan_gated() -> None:
+    _content_or_payment_required(
         fmp_analyst_estimates, {"symbol": "AAPL", "period": "annual", "limit": 4}, "fmp_analyst_estimates", _key()
     )
 
@@ -295,34 +275,28 @@ async def test_fmp_analyst_estimates_plan_gated() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_fmp_news_aapl() -> None:
+def test_fmp_news_aapl() -> None:
     key = _key()
-    result = await fmp_news.bind(api_key=key)(type="news", symbols="AAPL", limit=3)
+    result = fmp_news.bind(api_key=key)(type="news", symbols="AAPL", limit=3)
     df = result.data
     assert not df.empty, "news returned no rows"
     assert df["title"].str.len().gt(0).any(), "all news titles empty"
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_fmp_news_press_releases_facet() -> None:
+def test_fmp_news_press_releases_facet() -> None:
     # Non-default news type (different upstream path from 'news').
-    await _content_or_payment_required(
+    _content_or_payment_required(
         fmp_news, {"type": "press_releases", "symbols": "AAPL", "limit": 3}, "fmp_news", _key()
     )
 
 
-@pytest.mark.asyncio
-async def test_fmp_insider_trades_plan_gated() -> None:
-    await _content_or_payment_required(
-        fmp_insider_trades, {"symbol": "AAPL", "limit": 3}, "fmp_insider_trades", _key()
-    )
+def test_fmp_insider_trades_plan_gated() -> None:
+    _content_or_payment_required(fmp_insider_trades, {"symbol": "AAPL", "limit": 3}, "fmp_insider_trades", _key())
 
 
-@pytest.mark.asyncio
-async def test_fmp_institutional_positions_plan_gated() -> None:
-    await _content_or_payment_required(
+def test_fmp_institutional_positions_plan_gated() -> None:
+    _content_or_payment_required(
         fmp_institutional_positions,
         {"symbol": "AAPL", "year": "2024", "quarter": "1"},
         "fmp_institutional_positions",
@@ -330,9 +304,8 @@ async def test_fmp_institutional_positions_plan_gated() -> None:
     )
 
 
-@pytest.mark.asyncio
-async def test_fmp_earnings_transcript_plan_gated() -> None:
-    await _content_or_payment_required(
+def test_fmp_earnings_transcript_plan_gated() -> None:
+    _content_or_payment_required(
         fmp_earnings_transcript, {"symbol": "AAPL", "year": "2024", "quarter": "1"}, "fmp_earnings_transcript", _key()
     )
 
@@ -342,10 +315,9 @@ async def test_fmp_earnings_transcript_plan_gated() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_fmp_index_constituents_sp500_bounded() -> None:
+def test_fmp_index_constituents_sp500_bounded() -> None:
     key = _key()
-    result = await fmp_index_constituents.bind(api_key=key)(index="SP500")
+    result = fmp_index_constituents.bind(api_key=key)(index="SP500")
     df = result.data
     assert not df.empty, "SP500 constituents returned no rows"
     assert "AAPL" in set(df["symbol"]), "AAPL missing from SP500"
@@ -354,10 +326,9 @@ async def test_fmp_index_constituents_sp500_bounded() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_fmp_market_movers_gainers() -> None:
+def test_fmp_market_movers_gainers() -> None:
     key = _key()
-    result = await fmp_market_movers.bind(api_key=key)(type="gainers")
+    result = fmp_market_movers.bind(api_key=key)(type="gainers")
     df = result.data
     assert not df.empty, "market movers returned no rows"
     assert df["symbol"].str.len().gt(0).any(), "mover symbol empty"
@@ -376,14 +347,13 @@ async def test_fmp_market_movers_gainers() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_fmp_screener_bounded_with_enrichment() -> None:
+def test_fmp_screener_bounded_with_enrichment() -> None:
     key = _key()
     # prefilter_limit=3 caps the company-screener result set to 3 symbols, so the
     # enrichment fan-out is at most 1 + 2*3 = 7 requests regardless of how broad
     # the pushdown is. (limit=3 alone would NOT bound the fan-out — it truncates
     # only after enrichment.)
-    result = await fmp_screener.bind(api_key=key)(
+    result = fmp_screener.bind(api_key=key)(
         sector="Technology",
         country="US",
         market_cap_min=1e12,
@@ -399,12 +369,11 @@ async def test_fmp_screener_bounded_with_enrichment() -> None:
     assert_no_secret_leak(result, secret=key)
 
 
-@pytest.mark.asyncio
-async def test_fmp_screener_native_fields_zero_enrichment() -> None:
+def test_fmp_screener_native_fields_zero_enrichment() -> None:
     # fields are screener-native only → the enrichment fan-out is skipped entirely
     # (one company-screener request). Still bounded by a tight pushdown + limit.
     key = _key()
-    result = await fmp_screener.bind(api_key=key)(
+    result = fmp_screener.bind(api_key=key)(
         sector="Technology",
         country="US",
         market_cap_min=1e12,

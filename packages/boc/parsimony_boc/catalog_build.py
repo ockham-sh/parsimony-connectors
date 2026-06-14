@@ -11,12 +11,12 @@ from parsimony_boc import BOC_ENUMERATE_OUTPUT, enumerate_boc
 CATALOG_NAMESPACE = "boc"
 
 
-async def build_boc_catalog() -> Catalog:
-    result = await enumerate_boc()
+def build_boc_catalog() -> Catalog:
+    result = enumerate_boc()
     entries = entities_from_raw(result, BOC_ENUMERATE_OUTPUT)
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
-    await catalog.build()
+    catalog.build()
     return catalog
 
 

@@ -15,6 +15,7 @@ from typing import Annotated, Any
 
 import httpx
 import pandas as pd
+from parsimony import Namespace
 from parsimony.connector import connector
 from parsimony.errors import (
     EmptyDataError,
@@ -199,7 +200,7 @@ def _parse_jsonstat(payload: dict[str, Any], table_code: str) -> pd.DataFrame:
     return df
 
 
-async def _get_text(path: str, *, params: dict[str, str] | None = None, op_name: str) -> str:
+def _get_text(path: str, *, params: dict[str, str] | None = None, op_name: str) -> str:
     """GET ``path`` and return the raw text, mapping HTTP/timeout errors typed.
 
     The single-table data endpoint is JSON-stat, but we read it as text first so
@@ -212,7 +213,7 @@ async def _get_text(path: str, *, params: dict[str, str] | None = None, op_name:
     http = make_client()
     filtered = {k: v for k, v in (params or {}).items() if v is not None}
     try:
-        response = await http.request("GET", f"/{path.lstrip('/')}", params=filtered or None)
+        response = http.request("GET", f"/{path.lstrip('/')}", params=filtered or None)
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         map_http_error(exc, provider="destatis", op_name=op_name)
@@ -222,8 +223,8 @@ async def _get_text(path: str, *, params: dict[str, str] | None = None, op_name:
 
 
 @connector(output=DESTATIS_FETCH_OUTPUT, tags=["macro", "de"])
-async def destatis_fetch(
-    name: Annotated[str, "ns:destatis"],
+def destatis_fetch(
+    name: Annotated[str, Namespace("destatis")],
     start_year: str | None = None,
     end_year: str | None = None,
 ) -> pd.DataFrame:
@@ -244,7 +245,7 @@ async def destatis_fetch(
     if end_year:
         query["endyear"] = end_year
 
-    text = await _get_text(f"/tables/{table_code}/data", params=query or None, op_name="data")
+    text = _get_text(f"/tables/{table_code}/data", params=query or None, op_name="data")
 
     # §5.8 — 200-with-error body. GENESIS can return HTTP 200 with the SPA /
     # maintenance HTML shell (host swap) or a throttle notice instead of a

@@ -39,13 +39,12 @@ def test_connectors_collection_exposes_expected_names() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_snb_fetch_parses_csv() -> None:
+def test_snb_fetch_parses_csv() -> None:
     respx.get("https://data.snb.ch/api/cube/rendoblim/data/csv/en").mock(
         return_value=httpx.Response(200, text=_SNB_CSV)
     )
 
-    result = await snb_fetch(cube_id="rendoblim")
+    result = snb_fetch(cube_id="rendoblim")
 
     assert result.provenance.source == "snb_fetch"
     df = result.data
@@ -65,33 +64,26 @@ async def test_snb_fetch_parses_csv() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_snb_fetch_title_falls_back_to_cube_id_for_unknown_cube() -> None:
+def test_snb_fetch_title_falls_back_to_cube_id_for_unknown_cube() -> None:
     """A cube outside the curated registry falls back to the cube_id as its
     title — the fetch still succeeds (single request, no dimensions call)."""
-    respx.get("https://data.snb.ch/api/cube/notacube/data/csv/en").mock(
-        return_value=httpx.Response(200, text=_SNB_CSV)
-    )
+    respx.get("https://data.snb.ch/api/cube/notacube/data/csv/en").mock(return_value=httpx.Response(200, text=_SNB_CSV))
 
-    df = (await snb_fetch(cube_id="notacube")).data
+    df = (snb_fetch(cube_id="notacube")).data
     assert not df.empty
     assert set(df["title"]) == {"notacube"}
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_snb_fetch_raises_empty_data_on_empty_csv() -> None:
-    respx.get("https://data.snb.ch/api/cube/rendoblim/data/csv/en").mock(
-        return_value=httpx.Response(200, text="")
-    )
+def test_snb_fetch_raises_empty_data_on_empty_csv() -> None:
+    respx.get("https://data.snb.ch/api/cube/rendoblim/data/csv/en").mock(return_value=httpx.Response(200, text=""))
 
     with pytest.raises(EmptyDataError):
-        await snb_fetch(cube_id="rendoblim")
+        snb_fetch(cube_id="rendoblim")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_snb_fetch_raises_parse_error_on_malformed_csv() -> None:
+def test_snb_fetch_raises_parse_error_on_malformed_csv() -> None:
     """A 200 whose body is NOT a parseable cube CSV (e.g. an SNB JSON error
     envelope or an HTML error page) → ParseError, never a silent empty frame
     (the bug this rewrite fixes)."""
@@ -100,39 +92,34 @@ async def test_snb_fetch_raises_parse_error_on_malformed_csv() -> None:
     )
 
     with pytest.raises(ParseError):
-        await snb_fetch(cube_id="rendoblim")
+        snb_fetch(cube_id="rendoblim")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_snb_fetch_raises_parse_error_on_html_error_page() -> None:
+def test_snb_fetch_raises_parse_error_on_html_error_page() -> None:
     """An HTML stub (single-column junk, no CSV header) → ParseError."""
     respx.get("https://data.snb.ch/api/cube/rendoblim/data/csv/en").mock(
         return_value=httpx.Response(200, text="<html><body>Service unavailable</body></html>")
     )
 
     with pytest.raises(ParseError):
-        await snb_fetch(cube_id="rendoblim")
+        snb_fetch(cube_id="rendoblim")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_snb_fetch_maps_http_error_to_provider_error() -> None:
+def test_snb_fetch_maps_http_error_to_provider_error() -> None:
     """A non-200 on the cube CSV endpoint surfaces a typed ProviderError."""
-    respx.get("https://data.snb.ch/api/cube/rendoblim/data/csv/en").mock(
-        return_value=httpx.Response(500)
-    )
+    respx.get("https://data.snb.ch/api/cube/rendoblim/data/csv/en").mock(return_value=httpx.Response(500))
 
     with pytest.raises(ProviderError):
-        await snb_fetch(cube_id="rendoblim")
+        snb_fetch(cube_id="rendoblim")
 
 
 def test_fetch_rejects_empty_cube_id() -> None:
     """Blank cube_id is rejected inline before any network call."""
-    import asyncio
 
     with pytest.raises(InvalidParameterError):
-        asyncio.run(snb_fetch(cube_id="   "))
+        snb_fetch(cube_id="   ")
 
 
 def test_parse_snb_csv_raises_on_unparseable_body() -> None:
@@ -321,18 +308,13 @@ def _mock_all_known_cubes(*, live: dict[str, dict]) -> None:
         else:
             # SNB's "table not found" envelope is returned with 404 + JSON.
             respx.get(f"https://data.snb.ch/api/cube/{cid}/dimensions/en").mock(
-                return_value=httpx.Response(
-                    404, json={"message": f"Table {cid} not found"}
-                )
+                return_value=httpx.Response(404, json={"message": f"Table {cid} not found"})
             )
-            respx.get(f"https://data.snb.ch/api/cube/{cid}/data/csv/en").mock(
-                return_value=httpx.Response(404, text="")
-            )
+            respx.get(f"https://data.snb.ch/api/cube/{cid}/data/csv/en").mock(return_value=httpx.Response(404, text=""))
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_snb_emits_one_row_per_series_with_compound_code() -> None:
+def test_enumerate_snb_emits_one_row_per_series_with_compound_code() -> None:
     _mock_all_known_cubes(
         live={
             "rendoblim": {
@@ -346,7 +328,7 @@ async def test_enumerate_snb_emits_one_row_per_series_with_compound_code() -> No
         }
     )
 
-    result = await enumerate_snb()
+    result = enumerate_snb()
     df = result.data
 
     # 3 rendoblim series + 4 devkum series; retired cubes skipped.
@@ -359,8 +341,7 @@ async def test_enumerate_snb_emits_one_row_per_series_with_compound_code() -> No
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_snb_populates_description_for_embedder() -> None:
+def test_enumerate_snb_populates_description_for_embedder() -> None:
     """Description metadata must carry rich per-series text for catalog search."""
     _mock_all_known_cubes(
         live={
@@ -371,7 +352,7 @@ async def test_enumerate_snb_populates_description_for_embedder() -> None:
         }
     )
 
-    df = (await enumerate_snb()).data
+    df = (enumerate_snb()).data
     ten_year = df[df["code"] == "rendoblim#10J"].iloc[0]
     assert ten_year["description"]
     assert "10 years" in ten_year["description"]
@@ -383,8 +364,7 @@ async def test_enumerate_snb_populates_description_for_embedder() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_snb_emits_source_metadata_for_dispatch() -> None:
+def test_enumerate_snb_emits_source_metadata_for_dispatch() -> None:
     """Every row carries ``source = snb_data_portal`` so an agent dispatching
     off a search hit knows which fetch connector to call without parsing
     the code prefix."""
@@ -397,25 +377,23 @@ async def test_enumerate_snb_emits_source_metadata_for_dispatch() -> None:
         }
     )
 
-    df = (await enumerate_snb()).data
+    df = (enumerate_snb()).data
     assert set(df["source"]) == {"snb_data_portal"}
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_snb_skips_retired_cubes() -> None:
+def test_enumerate_snb_skips_retired_cubes() -> None:
     """Cubes whose ``/dimensions`` returns the SNB error envelope (the
     retired-table case) must not pollute the catalog with rows pointing
     at dead endpoints."""
     _mock_all_known_cubes(live={})
 
-    df = (await enumerate_snb()).data
+    df = (enumerate_snb()).data
     assert df.empty
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_snb_infers_monthly_frequency_from_csv() -> None:
+def test_enumerate_snb_infers_monthly_frequency_from_csv() -> None:
     _mock_all_known_cubes(
         live={
             "rendoblim": {
@@ -426,13 +404,12 @@ async def test_enumerate_snb_infers_monthly_frequency_from_csv() -> None:
         }
     )
 
-    df = (await enumerate_snb()).data
+    df = (enumerate_snb()).data
     assert (df["frequency"] == "Monthly").all()
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_snb_carries_dimension_path_metadata() -> None:
+def test_enumerate_snb_carries_dimension_path_metadata() -> None:
     """``dimension_path`` is the human-readable breadcrumb the agent can
     surface in tool-call summaries; verify it's threaded through end-to-end."""
     _mock_all_known_cubes(
@@ -443,7 +420,7 @@ async def test_enumerate_snb_carries_dimension_path_metadata() -> None:
             },
         }
     )
-    df = (await enumerate_snb()).data
+    df = (enumerate_snb()).data
     usd = df[df["code"] == "devkum#M0.USD1"].iloc[0]
     # Both group label ("America") and leaf label ("USD 1") appear.
     assert "USD 1" in usd["dimension_path"]
@@ -453,8 +430,7 @@ async def test_enumerate_snb_carries_dimension_path_metadata() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_snb_emits_complete_column_set() -> None:
+def test_enumerate_snb_emits_complete_column_set() -> None:
     """Catalog completeness check — every documented column is populated
     (mirrors Treasury's column-shape test)."""
     _mock_all_known_cubes(
@@ -465,7 +441,7 @@ async def test_enumerate_snb_emits_complete_column_set() -> None:
             },
         }
     )
-    df = (await enumerate_snb()).data
+    df = (enumerate_snb()).data
     expected = {
         "code",
         "title",
@@ -494,8 +470,7 @@ def test_known_cubes_registry_covers_full_snb_portal() -> None:
     well above the original 17-cube hand-curated list (of which only 4
     were live)."""
     assert len(_snb_module._KNOWN_CUBES) >= 200, (
-        f"registry shrank to {len(_snb_module._KNOWN_CUBES)} cubes — "
-        "re-run the discovery script to refresh"
+        f"registry shrank to {len(_snb_module._KNOWN_CUBES)} cubes — re-run the discovery script to refresh"
     )
 
 
@@ -505,12 +480,8 @@ def test_known_cubes_registry_uses_clean_cube_ids() -> None:
     ``/api/cube/{id}`` and would 500 if accidentally seeded into this
     list."""
     for cube_id, _ in _snb_module._KNOWN_CUBES:
-        assert "@" not in cube_id and "." not in cube_id, (
-            f"warehouse-style cube id leaked into registry: {cube_id!r}"
-        )
-        assert cube_id == cube_id.strip().lower(), (
-            f"cube id should be lowercase trimmed: {cube_id!r}"
-        )
+        assert "@" not in cube_id and "." not in cube_id, f"warehouse-style cube id leaked into registry: {cube_id!r}"
+        assert cube_id == cube_id.strip().lower(), f"cube id should be lowercase trimmed: {cube_id!r}"
 
 
 def test_known_cubes_registry_has_no_duplicates() -> None:
@@ -537,9 +508,7 @@ def test_series_from_dimensions_collapses_oversized_cubes_to_cube_row() -> None:
             {
                 "id": "D0",
                 "name": "Big dim",
-                "dimensionItems": [
-                    {"id": f"X{i}", "name": f"item {i}"} for i in range(cap + 5)
-                ],
+                "dimensionItems": [{"id": f"X{i}", "name": f"item {i}"} for i in range(cap + 5)],
             }
         ],
     }
@@ -555,7 +524,9 @@ def test_series_from_dimensions_preserves_series_for_in_cap_cubes() -> None:
     """Sanity: the cap doesn't flatten everything — modest cubes still
     yield one row per series exactly as before the cap was added."""
     rows = _series_from_dimensions(
-        "rendoblim", "Yields", _RENDOBLIM_DIMS,
+        "rendoblim",
+        "Yields",
+        _RENDOBLIM_DIMS,
     )
     # 3 maturities, well under the cap.
     assert len(rows) == 3

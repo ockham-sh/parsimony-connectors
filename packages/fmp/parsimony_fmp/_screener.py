@@ -10,7 +10,6 @@ work lives here.
 
 from __future__ import annotations
 
-import asyncio
 import difflib
 import logging
 import re
@@ -23,14 +22,6 @@ from parsimony.transport import HttpClient
 from parsimony_fmp._http import fmp_get, pooled_client
 
 logger = logging.getLogger(__name__)
-
-
-# Single cap for concurrent FMP enrichment requests per screener invocation.
-# FMP rate-limits on a per-account basis; 10 is a conservative steady-state
-# ceiling that exercises connection pooling without triggering 429. A single
-# shared semaphore (rather than one-per-endpoint) correctly represents the
-# shared upstream rate budget.
-DEFAULT_ENRICHMENT_CONCURRENCY: int = 10
 
 
 # ---------------------------------------------------------------------------
@@ -267,20 +258,17 @@ def _collect_enrichment(results: list[Any]) -> pd.DataFrame:
     return pd.concat(cleaned, ignore_index=True)
 
 
-async def _fetch_enrichment_df(
-    semaphore: asyncio.Semaphore,
+def _fetch_enrichment_df(
     http: HttpClient,
     path: str,
     symbol: str,
 ) -> pd.DataFrame:
     """Fetch one enrichment endpoint for one symbol, return a DataFrame.
 
-    Runs inside the shared semaphore to respect the per-invocation
-    concurrency cap. Returns an empty DataFrame for genuinely empty
-    responses so ``_collect_enrichment`` can distinguish those from errors.
+    Returns an empty DataFrame for genuinely empty responses so
+    ``_collect_enrichment`` can distinguish those from errors.
     """
-    async with semaphore:
-        data = await fmp_get(http, path=path, params={"symbol": symbol}, op_name=f"fmp_screener:{path}")
+    data = fmp_get(http, path=path, params={"symbol": symbol}, op_name=f"fmp_screener:{path}")
     if not data:
         return pd.DataFrame()
     df = pd.json_normalize(data if isinstance(data, list) else [data])
@@ -291,7 +279,7 @@ async def _fetch_enrichment_df(
     return df
 
 
-async def execute(
+def execute(
     http: HttpClient,
     *,
     sector: str | None = None,
@@ -354,7 +342,7 @@ async def execute(
         if value is not None:
             screener_params[upstream_key] = value
 
-    screener_raw = await fmp_get(
+    screener_raw = fmp_get(
         http,
         path="company-screener",
         params=screener_params,
@@ -389,38 +377,27 @@ async def execute(
         need_ratios,
     )
 
-    # Step 3: Enrichment fan-out with a single shared semaphore and a
-    # single pooled httpx.AsyncClient. One semaphore correctly models the
-    # shared upstream rate budget across metrics+ratios endpoints.
+    # Step 3: Enrichment over a single pooled httpx.Client. Failures are
+    # captured per symbol rather than raised so one bad symbol can't sink
+    # the whole screen.
     metrics_df = pd.DataFrame(columns=["symbol"])
     ratios_df = pd.DataFrame(columns=["symbol"])
 
     if need_metrics or need_ratios:
-        semaphore = asyncio.Semaphore(DEFAULT_ENRICHMENT_CONCURRENCY)
-        async with pooled_client(http) as enrich_http:
+        with pooled_client(http) as enrich_http:
             gathered_metrics: list[Any] = []
             gathered_ratios: list[Any] = []
-            tasks: list[asyncio.Task[pd.DataFrame]] = []
-            if need_metrics:
-                metrics_tasks = [
-                    asyncio.create_task(_fetch_enrichment_df(semaphore, enrich_http, "key-metrics-ttm", s))
-                    for s in symbols
-                ]
-                tasks.extend(metrics_tasks)
-            if need_ratios:
-                ratios_tasks = [
-                    asyncio.create_task(_fetch_enrichment_df(semaphore, enrich_http, "ratios-ttm", s))
-                    for s in symbols
-                ]
-                tasks.extend(ratios_tasks)
 
-            all_results = await asyncio.gather(*tasks, return_exceptions=True)
+            def _safe_enrich(endpoint: str, symbol: str) -> pd.DataFrame | BaseException:
+                try:
+                    return _fetch_enrichment_df(enrich_http, endpoint, symbol)
+                except BaseException as exc:  # noqa: BLE001 — capture per-symbol failure, don't raise
+                    return exc
 
             if need_metrics:
-                gathered_metrics = list(all_results[: len(symbols)])
-                all_results = all_results[len(symbols) :]
+                gathered_metrics = [_safe_enrich("key-metrics-ttm", s) for s in symbols]
             if need_ratios:
-                gathered_ratios = list(all_results[: len(symbols)])
+                gathered_ratios = [_safe_enrich("ratios-ttm", s) for s in symbols]
 
         if need_metrics:
             metrics_df = _collect_enrichment(gathered_metrics)
@@ -449,9 +426,7 @@ async def execute(
         except Exception as exc:
             unknown = _extract_unknown_cols(str(exc), allowed_cols)
             suggestions = {c: difflib.get_close_matches(c, allowed_cols, n=3, cutoff=0.6) for c in unknown}
-            sug_str = "; ".join(
-                f"'{c}' → {v}" if v else f"'{c}' → no close match" for c, v in suggestions.items()
-            )
+            sug_str = "; ".join(f"'{c}' → {v}" if v else f"'{c}' → no close match" for c, v in suggestions.items())
             raise InvalidParameterError(
                 "fmp",
                 f"Invalid where_clause: {exc}\n"
@@ -481,18 +456,19 @@ async def execute(
         if missing:
             raise InvalidParameterError(
                 "fmp",
-                f"Unknown field(s) in 'fields': {missing}. "
-                f"Available columns ({len(allowed_cols)}): {allowed_cols}",
+                f"Unknown field(s) in 'fields': {missing}. Available columns ({len(allowed_cols)}): {allowed_cols}",
             )
         df = df[keep]
 
     if df.empty:
         raise EmptyDataError("fmp", message="Screener returned no rows after applying all filters.")
 
-    return df
+    from parsimony_fmp import _select_declared
+    from parsimony_fmp.outputs import SCREENER_OUTPUT
+
+    return _select_declared(df, SCREENER_OUTPUT)
 
 
 __all__ = [
-    "DEFAULT_ENRICHMENT_CONCURRENCY",
     "execute",
 ]

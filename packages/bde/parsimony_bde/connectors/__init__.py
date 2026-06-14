@@ -10,4 +10,12 @@ from parsimony_bde.search import bde_search
 
 CONNECTORS = Connectors([bde_fetch, enumerate_bde, bde_search])
 
-__all__ = ["CONNECTORS"]
+
+def load(*, catalog_url: str | None = None) -> Connectors:
+    """Return :data:`CONNECTORS` with an optional catalog URL bound on search."""
+    if catalog_url is None:
+        return CONNECTORS
+    return CONNECTORS.bind(catalog_url=catalog_url)
+
+
+__all__ = ["CONNECTORS", "load"]

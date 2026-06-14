@@ -11,16 +11,20 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Protocol, runtime_checkable
 
-from parsimony_sdmx.core.models import DatasetRecord, SeriesRecord
+from parsimony_sdmx.core.models import DatasetRecord, SeriesRecord, StructureRecord
 
 
 @runtime_checkable
 class CatalogProvider(Protocol):
-    """Produce dataset and series records for one agency."""
+    """Produce dataset, structure, and series records for one agency."""
 
     @property
     def agency_id(self) -> str: ...
 
     def list_datasets(self) -> Iterator[DatasetRecord]: ...
+
+    def fetch_structure(self, dataset_id: str) -> StructureRecord: ...
+
+    def discover_series_keys(self, dataset_id: str, partial_key: str) -> list[SeriesRecord]: ...
 
     def list_series(self, dataset_id: str) -> Iterator[SeriesRecord]: ...

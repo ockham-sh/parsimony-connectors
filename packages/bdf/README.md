@@ -52,15 +52,11 @@ variable, or pass `catalog_url=` at call time.
 ## Quick start
 
 ```python
-import asyncio
 from parsimony_bdf import load
 
-async def main():
-    connectors = load(api_key="<your-key>")
-    result = await connectors["bdf_fetch"](key="EXR.M.USD.EUR.SP00.E")
-    print(result.data.head())
-
-asyncio.run(main())
+connectors = load(api_key="<your-key>")
+result = connectors["bdf_fetch"](key="EXR.M.USD.EUR.SP00.E")
+print(result.data.head())
 ```
 
 For multi-plugin composition (autoloads everything installed):

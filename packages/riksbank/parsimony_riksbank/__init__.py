@@ -37,10 +37,12 @@ emits ``source="forecasts"`` rows once the endpoint returns.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import date
 from typing import Annotated, Any, Literal
 
 import pandas as pd
+from parsimony import Namespace
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import ConnectorError, EmptyDataError, InvalidParameterError, ParseError
 from parsimony.result import (
@@ -55,6 +57,8 @@ logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://api.riksbank.se/swea/v1"
 _SWESTR_BASE_URL = "https://api.riksbank.se/swestr/v1"
+_ENV_VAR = "RIKSBANK_API_KEY"
+
 
 #: Source identifiers for catalog rows. Exposed as constants rather than
 #: scattered string literals so the dispatch contract stays greppable
@@ -116,7 +120,7 @@ RIKSBANK_ENUMERATE_OUTPUT = OutputConfig(
 
 RIKSBANK_FETCH_OUTPUT = OutputConfig(
     columns=[
-        Column(name="series_id", role=ColumnRole.KEY, param_key="series_id", namespace="riksbank"),
+        Column(name="series_id", role=ColumnRole.KEY, namespace="riksbank"),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="date", dtype="datetime", role=ColumnRole.DATA),
         Column(name="value", dtype="numeric", role=ColumnRole.DATA),
@@ -131,7 +135,7 @@ RIKSBANK_FETCH_OUTPUT = OutputConfig(
 # them without a fetch-level schema migration.
 RIKSBANK_SWESTR_FETCH_OUTPUT = OutputConfig(
     columns=[
-        Column(name="series", role=ColumnRole.KEY, param_key="series", namespace="riksbank"),
+        Column(name="series", role=ColumnRole.KEY, namespace="riksbank"),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="date", dtype="datetime", role=ColumnRole.DATA),
         Column(name="value", dtype="numeric", role=ColumnRole.DATA),
@@ -162,16 +166,18 @@ def _make_http(api_key: str = "") -> HttpClient:
     """Build a SWEA client. The optional key rides in a header (never a
     query param), so it stays out of request logs without needing the
     transport sensitive-param set."""
+    key = api_key or os.environ.get(_ENV_VAR, "")
     headers: dict[str, str] = {}
-    if api_key:
-        headers["Ocp-Apim-Subscription-Key"] = api_key
+    if key:
+        headers["Ocp-Apim-Subscription-Key"] = key
     return make_http_client(_BASE_URL, headers=headers, timeout=30.0)
 
 
 def _make_swestr_http(api_key: str = "") -> HttpClient:
+    key = api_key or os.environ.get(_ENV_VAR, "")
     headers: dict[str, str] = {}
-    if api_key:
-        headers["Ocp-Apim-Subscription-Key"] = api_key
+    if key:
+        headers["Ocp-Apim-Subscription-Key"] = key
     return make_http_client(_SWESTR_BASE_URL, headers=headers, timeout=30.0)
 
 
@@ -184,9 +190,7 @@ def _validate_date_pair(from_date: str | None, to_date: str | None) -> None:
     of the pair → :class:`InvalidParameterError`.
     """
     if (from_date is None) != (to_date is None):
-        raise InvalidParameterError(
-            "riksbank", "Provide both from_date and to_date, or neither"
-        )
+        raise InvalidParameterError("riksbank", "Provide both from_date and to_date, or neither")
 
 
 def _swestr_kind(series: str) -> str:
@@ -520,7 +524,7 @@ def _normalize_observation_date(value: Any) -> str:
     return s[:10]
 
 
-async def _resolve_swea_title(http: HttpClient, series_id: str) -> str:
+def _resolve_swea_title(http: HttpClient, series_id: str) -> str:
     """Best-effort title for a SWEA series from ``/Series`` (``shortDescription``).
 
     The ``/Observations`` payload carries only ``date``/``value`` — no
@@ -532,7 +536,7 @@ async def _resolve_swea_title(http: HttpClient, series_id: str) -> str:
     propagate — we do not blanket-swallow.
     """
     try:
-        series_list = await fetch_json(http, path="Series", provider="riksbank", op_name="Series")
+        series_list = fetch_json(http, path="Series", provider="riksbank", op_name="Series")
     except ConnectorError as exc:
         logger.warning("riksbank: title lookup for %s failed (%s); using id", series_id, type(exc).__name__)
         return series_id
@@ -552,8 +556,8 @@ async def _resolve_swea_title(http: HttpClient, series_id: str) -> str:
 
 
 @connector(output=RIKSBANK_FETCH_OUTPUT, tags=["macro", "se"], secrets=("api_key",))
-async def riksbank_fetch(
-    series_id: Annotated[str, "ns:riksbank"],
+def riksbank_fetch(
+    series_id: Annotated[str, Namespace("riksbank")],
     from_date: str | None = None,
     to_date: str | None = None,
     api_key: str = "",
@@ -577,9 +581,9 @@ async def riksbank_fetch(
     else:
         path = f"Observations/Latest/{series_id}"
 
-    data = await fetch_json(http, path=path, provider="riksbank", op_name="Observations")
+    data = fetch_json(http, path=path, provider="riksbank", op_name="Observations")
 
-    title = await _resolve_swea_title(http, series_id)
+    title = _resolve_swea_title(http, series_id)
 
     items = data if isinstance(data, list) else [data]
     rows: list[dict[str, Any]] = []
@@ -612,8 +616,8 @@ async def riksbank_fetch(
 
 
 @connector(output=RIKSBANK_SWESTR_FETCH_OUTPUT, tags=["macro", "se"], secrets=("api_key",))
-async def riksbank_swestr_fetch(
-    series: Annotated[SwestrSeries, "ns:riksbank"],
+def riksbank_swestr_fetch(
+    series: Annotated[SwestrSeries, Namespace("riksbank")],
     from_date: str | None = None,
     to_date: str | None = None,
     api_key: str = "",
@@ -660,7 +664,7 @@ async def riksbank_swestr_fetch(
         else:  # index
             path = f"index/latest/{series}"
 
-    payload = await fetch_json(http, path=path, params=query, provider="riksbank", op_name=path)
+    payload = fetch_json(http, path=path, params=query, provider="riksbank", op_name=path)
 
     rows = _swestr_parse_rows(series, payload)
     if not rows:
@@ -676,7 +680,7 @@ async def riksbank_swestr_fetch(
 
 
 @enumerator(output=RIKSBANK_ENUMERATE_OUTPUT, tags=["macro", "se"], secrets=("api_key",))
-async def enumerate_riksbank(api_key: str = "") -> pd.DataFrame:
+def enumerate_riksbank(api_key: str = "") -> pd.DataFrame:
     """Enumerate Riksbank SWEA series plus static SWESTR registry rows.
 
     Two cheap requests — ``/Groups`` (group hierarchy) and ``/Series``
@@ -688,10 +692,10 @@ async def enumerate_riksbank(api_key: str = "") -> pd.DataFrame:
 
     # ``/Groups`` returns a single root node (not a list); ``_flatten_groups``
     # tolerates both and walks ``childGroups``.
-    groups_data = await fetch_json(http, path="Groups", provider="riksbank", op_name="Groups")
+    groups_data = fetch_json(http, path="Groups", provider="riksbank", op_name="Groups")
     group_lookup = _flatten_groups(groups_data)
 
-    series_data = await fetch_json(http, path="Series", provider="riksbank", op_name="Series")
+    series_data = fetch_json(http, path="Series", provider="riksbank", op_name="Series")
     if isinstance(series_data, dict):
         series_data = [series_data]
     if not isinstance(series_data, list):
@@ -749,3 +753,13 @@ from parsimony_riksbank.search import (  # noqa: E402, F401  (after public decor
 )
 
 CONNECTORS = Connectors([riksbank_fetch, riksbank_swestr_fetch, enumerate_riksbank, riksbank_search])
+
+
+def load(*, catalog_url: str | None = None, api_key: str = "") -> Connectors:
+    """Return :data:`CONNECTORS` with optional catalog URL and API key bound."""
+    bound = CONNECTORS
+    if api_key:
+        bound = bound.bind(api_key=api_key)
+    if catalog_url is None:
+        return bound
+    return bound.bind(catalog_url=catalog_url)

@@ -25,9 +25,6 @@ bde_search = make_local_search_connector(
     catalog_url_env_var=PARSIMONY_BDE_CATALOG_URL_ENV,
     build_catalog=build_bde_catalog,
     tags=["macro", "es", "tool"],
-    description=(
-        "Semantic-search the Banco de España (BdE) catalog. "
-        "Pass returned serie code to bde_fetch(key=...)."
-    ),
+    description=("Semantic-search the Banco de España (BdE) catalog. Pass returned serie code to bde_fetch(key=...)."),
     output_columns=BDE_SEARCH_OUTPUT.columns,
 )

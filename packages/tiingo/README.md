@@ -52,17 +52,13 @@ Get a key at <https://www.tiingo.com/account/api/token>.
 ## Quick start
 
 ```python
-import asyncio
 import os
 from parsimony_tiingo import load
 
-async def main():
-    # Bind the key off the call surface (it never enters provenance).
-    connectors = load(api_key=os.environ["TIINGO_API_KEY"])
-    result = await connectors["tiingo_eod"](ticker="AAPL")
-    print(result.data.head())
-
-asyncio.run(main())
+# Bind the key off the call surface (it never enters provenance).
+connectors = load(api_key=os.environ["TIINGO_API_KEY"])
+result = connectors["tiingo_eod"](ticker="AAPL")
+print(result.data.head())
 ```
 
 The key is declared as a secret on every verb (stripped from provenance) and

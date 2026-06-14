@@ -48,15 +48,11 @@ redacted from logs. A missing key fails fast with `UnauthorizedError`.
 ## Quick start
 
 ```python
-import asyncio
 from parsimony_fmp import load
 
-async def main():
-    connectors = load(api_key="<your-key>")   # or rely on FMP_API_KEY
-    result = await connectors["fmp_quotes"](symbols="AAPL,TSLA,MSFT")
-    print(result.data.head())
-
-asyncio.run(main())
+connectors = load(api_key="<your-key>")   # or rely on FMP_API_KEY
+result = connectors["fmp_quotes"](symbols="AAPL,TSLA,MSFT")
+print(result.data.head())
 ```
 
 For multi-plugin composition:

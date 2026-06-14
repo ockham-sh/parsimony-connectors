@@ -10,8 +10,8 @@ Transport:
   ``make_http_client`` + ``fetch_json`` — GET + ``raise_for_status`` +
   ``map_http_error`` / ``map_timeout_error`` + ``json()`` + ``None``-param
   dropping, all in one call (Valet is JSON, so ``fetch_json`` fits).
-* ``enumerate_boc`` keeps its own hand-rolled, concurrency-capped group
-  fan-out (it does NOT use ``parsimony_shared``), but builds the client via
+* ``enumerate_boc`` keeps its own hand-rolled group walk (it does NOT use
+  ``parsimony_shared``), but builds the client via
   ``make_http_client`` + ``pooled_client`` and maps errors/timeouts through
   the kernel helpers. The list endpoints map through ``fetch_json``; the
   best-effort per-group membership fetch swallows transient errors by design
@@ -28,12 +28,12 @@ Endpoints used:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Annotated, Any
 
 import httpx
 import pandas as pd
+from parsimony import Namespace
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 from parsimony.result import (
@@ -48,13 +48,6 @@ logger = logging.getLogger(__name__)
 
 
 _BASE_URL = "https://www.bankofcanada.ca/valet"
-
-#: Concurrency cap for the per-group fan-out used to build the
-#: series→group map. BoC's Valet endpoint is unauthenticated and
-#: tolerates moderate concurrency; 16 keeps total enumeration time at
-#: ~1 minute for the ~2,400 groups while staying well under any sensible
-#: rate limit.
-_GROUP_FETCH_CONCURRENCY = 16
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +94,7 @@ BOC_ENUMERATE_OUTPUT = OutputConfig(
 
 BOC_FETCH_OUTPUT = OutputConfig(
     columns=[
-        Column(name="series_name", role=ColumnRole.KEY, param_key="series_name", namespace="boc"),
+        Column(name="series_name", role=ColumnRole.KEY, namespace="boc"),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="date", dtype="datetime", role=ColumnRole.DATA),
         Column(name="value", dtype="numeric", role=ColumnRole.DATA),
@@ -172,7 +165,7 @@ def _parse_observations(
     return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["series_name", "title", "date", "value"])
 
 
-async def _list_groups(client: HttpClient) -> dict[str, dict[str, Any]]:
+def _list_groups(client: HttpClient) -> dict[str, dict[str, Any]]:
     """Return BoC's group index (~2.4k entries) from ``/lists/groups/json``.
 
     This is the **bounding seam** for live tests: monkeypatch this module
@@ -180,17 +173,16 @@ async def _list_groups(client: HttpClient) -> dict[str, dict[str, Any]]:
     handful of requests, never the full ~2,400-request crawl. The connector
     reads it as a module global at call time, so the monkeypatch takes.
     """
-    payload = await fetch_json(client, path="lists/groups/json", provider="boc", op_name="groups/list")
+    payload = fetch_json(client, path="lists/groups/json", provider="boc", op_name="groups/list")
     if not isinstance(payload, dict):
         raise ParseError("boc", "unexpected /lists/groups/json shape (expected object)")
     groups = payload.get("groups") or {}
     return groups if isinstance(groups, dict) else {}
 
 
-async def _fetch_group_membership(
+def _fetch_group_membership(
     client: HttpClient,
     group_name: str,
-    semaphore: asyncio.Semaphore,
 ) -> tuple[str, list[str]]:
     """Fetch a single group's series-membership list.
 
@@ -200,17 +192,16 @@ async def _fetch_group_membership(
     and BoC does occasionally retire group endpoints while leaving them
     in the index.
     """
-    async with semaphore:
-        try:
-            resp = await client.request("GET", f"/groups/{group_name}/json")
-            resp.raise_for_status()
-            body = resp.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            # Best-effort: a transport failure OR a 200-with-non-JSON body
-            # (BoC sometimes serves an HTML stub for a retired-but-indexed
-            # group) treats this group as empty so the sweep continues.
-            logger.warning("BoC group fetch failed for %r: %s", group_name, exc)
-            return group_name, []
+    try:
+        resp = client.request("GET", f"/groups/{group_name}/json")
+        resp.raise_for_status()
+        body = resp.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        # Best-effort: a transport failure OR a 200-with-non-JSON body
+        # (BoC sometimes serves an HTML stub for a retired-but-indexed
+        # group) treats this group as empty so the sweep continues.
+        logger.warning("BoC group fetch failed for %r: %s", group_name, exc)
+        return group_name, []
 
     if not isinstance(body, dict):
         return group_name, []
@@ -221,7 +212,7 @@ async def _fetch_group_membership(
     return group_name, [s for s in members if s]
 
 
-async def _build_series_to_group_map(
+def _build_series_to_group_map(
     client: HttpClient,
     groups_index: dict[str, dict[str, Any]],
 ) -> dict[str, tuple[str, str]]:
@@ -232,12 +223,10 @@ async def _build_series_to_group_map(
     group wins. Iteration order is the order BoC returns groups in
     ``/lists/groups/json``, which is stable across requests.
 
-    Connections are pooled across the fan-out via :func:`pooled_client`.
+    Connections are pooled across the walk via :func:`pooled_client`.
     """
-    semaphore = asyncio.Semaphore(_GROUP_FETCH_CONCURRENCY)
-    async with pooled_client(client) as shared:
-        tasks = [_fetch_group_membership(shared, group_name, semaphore) for group_name in groups_index]
-        results = await asyncio.gather(*tasks)
+    with pooled_client(client) as shared:
+        results = [_fetch_group_membership(shared, group_name) for group_name in groups_index]
 
     series_to_group: dict[str, tuple[str, str]] = {}
     for group_name, members in results:
@@ -256,8 +245,8 @@ async def _build_series_to_group_map(
 
 
 @connector(output=BOC_FETCH_OUTPUT, tags=["macro", "ca"])
-async def boc_fetch(
-    series_name: Annotated[str, "ns:boc"],
+def boc_fetch(
+    series_name: Annotated[str, Namespace("boc")],
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> pd.DataFrame:
@@ -278,7 +267,7 @@ async def boc_fetch(
     else:
         path = f"observations/{series_name}/json"
 
-    json_data = await fetch_json(
+    json_data = fetch_json(
         make_http_client(_BASE_URL, timeout=60.0),
         path=path,
         params={"start_date": start_date, "end_date": end_date},
@@ -301,25 +290,25 @@ async def boc_fetch(
 
 
 @enumerator(output=BOC_ENUMERATE_OUTPUT, tags=["macro", "ca"])
-async def enumerate_boc() -> pd.DataFrame:
+def enumerate_boc() -> pd.DataFrame:
     """Enumerate every Bank of Canada series via Valet's three list endpoints.
 
     Granularity is one row per series — Valet addresses observations per
     series, so series-level keys are the right unit (~15k rows) — plus one
     row per group (keyed ``group:NAME``) so whole panels are discoverable.
 
-    Pipeline: /lists/series/json and /lists/groups/json, then a concurrent
-    /groups/{name}/json fan-out (one request per group) for series
+    Pipeline: /lists/series/json and /lists/groups/json, then a serial
+    /groups/{name}/json walk (one request per group) for series
     membership.
     """
     client = make_http_client(_BASE_URL, timeout=60.0)
 
-    series_payload = await fetch_json(client, path="lists/series/json", provider="boc", op_name="series/list")
+    series_payload = fetch_json(client, path="lists/series/json", provider="boc", op_name="series/list")
     if not isinstance(series_payload, dict):
         raise ParseError("boc", "unexpected /lists/series/json shape (expected object)")
 
-    groups_index = await _list_groups(client)
-    series_to_group = await _build_series_to_group_map(client, groups_index)
+    groups_index = _list_groups(client)
+    series_to_group = _build_series_to_group_map(client, groups_index)
 
     series = series_payload.get("series") or {}
     if not isinstance(series, dict):

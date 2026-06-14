@@ -14,18 +14,14 @@ pip install parsimony-core parsimony-fred parsimony-sdmx
 ```
 
 ```python
-import asyncio
 from parsimony import discover
 
-async def main():
-    connectors = discover.load_all()
-    fred = await connectors["fred_fetch"](series_id="UNRATE")
-    ecb = await connectors["sdmx_fetch"](
-        dataset_key="ECB-ICP",
-        series_key="M.U2.N.000000.4.ANR",
-    )
-
-asyncio.run(main())
+connectors = discover.load_all()
+fred = connectors["fred_fetch"](series_id="UNRATE")
+ecb = connectors["sdmx_fetch"](
+    dataset_key="ECB-ICP",
+    series_key="M.U2.N.000000.4.ANR",
+)
 ```
 
 The kernel finds every installed `parsimony-*` package through Python entry-points. Add another connector and it shows up in `connectors`; remove it and it disappears. There is no central registry.
@@ -38,27 +34,27 @@ Every connector ships as its own PyPI distribution. The "Tool surface" column sh
 |  | Package | Source | Connectors | Tool surface |
 |---|---|---|---|---|
 | <a href="https://pypi.org/project/parsimony-alpha-vantage/"><img src="https://www.google.com/s2/favicons?domain=alphavantage.co&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-alpha-vantage`](https://pypi.org/project/parsimony-alpha-vantage/) | [Alpha Vantage](https://www.alphavantage.co) | 29 | 4 of 29 |
-| <a href="https://pypi.org/project/parsimony-bde/"><img src="https://www.google.com/s2/favicons?domain=bde.es&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-bde`](https://pypi.org/project/parsimony-bde/) | [Banco de España](https://www.bde.es) | 1 | 0 of 1 |
-| <a href="https://pypi.org/project/parsimony-bdf/"><img src="https://www.google.com/s2/favicons?domain=banque-france.fr&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-bdf`](https://pypi.org/project/parsimony-bdf/) | [Banque de France](https://www.banque-france.fr) | 1 | 0 of 1 |
-| <a href="https://pypi.org/project/parsimony-bdp/"><img src="https://www.google.com/s2/favicons?domain=bportugal.pt&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-bdp`](https://pypi.org/project/parsimony-bdp/) | [Banco de Portugal](https://www.bportugal.pt) | 1 | 0 of 1 |
-| <a href="https://pypi.org/project/parsimony-bls/"><img src="https://www.google.com/s2/favicons?domain=bls.gov&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-bls`](https://pypi.org/project/parsimony-bls/) | [U.S. Bureau of Labor Statistics](https://www.bls.gov) | 1 | 0 of 1 |
-| <a href="https://pypi.org/project/parsimony-boc/"><img src="https://www.google.com/s2/favicons?domain=bankofcanada.ca&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-boc`](https://pypi.org/project/parsimony-boc/) | [Bank of Canada](https://www.bankofcanada.ca) | 1 | 0 of 1 |
-| <a href="https://pypi.org/project/parsimony-boj/"><img src="https://www.google.com/s2/favicons?domain=boj.or.jp&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-boj`](https://pypi.org/project/parsimony-boj/) | [Bank of Japan](https://www.boj.or.jp) | 3 | 2 of 3 |
+| <a href="https://pypi.org/project/parsimony-bde/"><img src="https://www.google.com/s2/favicons?domain=bde.es&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-bde`](https://pypi.org/project/parsimony-bde/) | [Banco de España](https://www.bde.es) | 3 | 1 of 3 |
+| <a href="https://pypi.org/project/parsimony-bdf/"><img src="https://www.google.com/s2/favicons?domain=banque-france.fr&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-bdf`](https://pypi.org/project/parsimony-bdf/) | [Banque de France](https://www.banque-france.fr) | 3 | 1 of 3 |
+| <a href="https://pypi.org/project/parsimony-bdp/"><img src="https://www.google.com/s2/favicons?domain=bportugal.pt&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-bdp`](https://pypi.org/project/parsimony-bdp/) | [Banco de Portugal](https://www.bportugal.pt) | 3 | 1 of 3 |
+| <a href="https://pypi.org/project/parsimony-bls/"><img src="https://www.google.com/s2/favicons?domain=bls.gov&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-bls`](https://pypi.org/project/parsimony-bls/) | [U.S. Bureau of Labor Statistics](https://www.bls.gov) | 2 | 0 of 2 |
+| <a href="https://pypi.org/project/parsimony-boc/"><img src="https://www.google.com/s2/favicons?domain=bankofcanada.ca&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-boc`](https://pypi.org/project/parsimony-boc/) | [Bank of Canada](https://www.bankofcanada.ca) | 3 | 1 of 3 |
+| <a href="https://pypi.org/project/parsimony-boj/"><img src="https://www.google.com/s2/favicons?domain=boj.or.jp&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-boj`](https://pypi.org/project/parsimony-boj/) | [Bank of Japan](https://www.boj.or.jp) | 4 | 2 of 4 |
 | <a href="https://pypi.org/project/parsimony-coingecko/"><img src="https://www.google.com/s2/favicons?domain=coingecko.com&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-coingecko`](https://pypi.org/project/parsimony-coingecko/) | [CoinGecko](https://www.coingecko.com) | 11 | 3 of 11 |
-| <a href="https://pypi.org/project/parsimony-destatis/"><img src="https://www.google.com/s2/favicons?domain=destatis.de&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-destatis`](https://pypi.org/project/parsimony-destatis/) | [Destatis (German federal statistics)](https://www.destatis.de) | 1 | 0 of 1 |
-| <a href="https://pypi.org/project/parsimony-eia/"><img src="https://www.google.com/s2/favicons?domain=eia.gov&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-eia`](https://pypi.org/project/parsimony-eia/) | [U.S. Energy Information Administration](https://www.eia.gov) | 1 | 0 of 1 |
+| <a href="https://pypi.org/project/parsimony-destatis/"><img src="https://www.google.com/s2/favicons?domain=destatis.de&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-destatis`](https://pypi.org/project/parsimony-destatis/) | [Destatis (German federal statistics)](https://www.destatis.de) | 3 | 1 of 3 |
+| <a href="https://pypi.org/project/parsimony-eia/"><img src="https://www.google.com/s2/favicons?domain=eia.gov&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-eia`](https://pypi.org/project/parsimony-eia/) | [U.S. Energy Information Administration](https://www.eia.gov) | 2 | 0 of 2 |
 | <a href="https://pypi.org/project/parsimony-eodhd/"><img src="https://www.google.com/s2/favicons?domain=eodhd.com&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-eodhd`](https://pypi.org/project/parsimony-eodhd/) | [EODHD](https://eodhd.com) | 17 | 5 of 17 |
 | <a href="https://pypi.org/project/parsimony-finnhub/"><img src="https://www.google.com/s2/favicons?domain=finnhub.io&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-finnhub`](https://pypi.org/project/parsimony-finnhub/) | [Finnhub](https://finnhub.io) | 12 | 1 of 12 |
 | <a href="https://pypi.org/project/parsimony-fmp/"><img src="https://www.google.com/s2/favicons?domain=financialmodelingprep.com&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-fmp`](https://pypi.org/project/parsimony-fmp/) | [Financial Modeling Prep](https://financialmodelingprep.com) | 19 | 7 of 19 |
 | <a href="https://pypi.org/project/parsimony-fred/"><img src="https://www.google.com/s2/favicons?domain=fred.stlouisfed.org&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-fred`](https://pypi.org/project/parsimony-fred/) | [FRED (Federal Reserve Economic Data)](https://fred.stlouisfed.org) | 2 | 1 of 2 |
-| <a href="https://pypi.org/project/parsimony-polymarket/"><img src="https://www.google.com/s2/favicons?domain=polymarket.com&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-polymarket`](https://pypi.org/project/parsimony-polymarket/) | [Polymarket](https://polymarket.com) | 3 | 3 of 3 |
-| <a href="https://pypi.org/project/parsimony-rba/"><img src="https://www.google.com/s2/favicons?domain=rba.gov.au&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-rba`](https://pypi.org/project/parsimony-rba/) | [Reserve Bank of Australia](https://www.rba.gov.au) | 1 | 0 of 1 |
-| <a href="https://pypi.org/project/parsimony-riksbank/"><img src="https://www.google.com/s2/favicons?domain=riksbank.se&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-riksbank`](https://pypi.org/project/parsimony-riksbank/) | [Swedish Riksbank](https://www.riksbank.se) | 2 | 0 of 2 |
-| <a href="https://pypi.org/project/parsimony-sdmx/"><img src="https://www.google.com/s2/favicons?domain=sdmx.org&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-sdmx`](https://pypi.org/project/parsimony-sdmx/) | [SDMX protocol (ECB, Eurostat, IMF, OECD, BIS, World Bank, ILO)](https://sdmx.org) | 4 | 2 of 4 |
-| <a href="https://pypi.org/project/parsimony-sec-edgar/"><img src="https://www.google.com/s2/favicons?domain=sec.gov&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-sec-edgar`](https://pypi.org/project/parsimony-sec-edgar/) | [SEC Edgar](https://www.sec.gov) | 4 | 4 of 4 |
-| <a href="https://pypi.org/project/parsimony-snb/"><img src="https://www.google.com/s2/favicons?domain=snb.ch&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-snb`](https://pypi.org/project/parsimony-snb/) | [Swiss National Bank](https://www.snb.ch) | 1 | 0 of 1 |
+| <a href="https://pypi.org/project/parsimony-polymarket/"><img src="https://www.google.com/s2/favicons?domain=polymarket.com&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-polymarket`](https://pypi.org/project/parsimony-polymarket/) | [Polymarket](https://polymarket.com) | 3 | 1 of 3 |
+| <a href="https://pypi.org/project/parsimony-rba/"><img src="https://www.google.com/s2/favicons?domain=rba.gov.au&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-rba`](https://pypi.org/project/parsimony-rba/) | [Reserve Bank of Australia](https://www.rba.gov.au) | 3 | 1 of 3 |
+| <a href="https://pypi.org/project/parsimony-riksbank/"><img src="https://www.google.com/s2/favicons?domain=riksbank.se&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-riksbank`](https://pypi.org/project/parsimony-riksbank/) | [Swedish Riksbank](https://www.riksbank.se) | 4 | 1 of 4 |
+| <a href="https://pypi.org/project/parsimony-sdmx/"><img src="https://www.google.com/s2/favicons?domain=sdmx.org&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-sdmx`](https://pypi.org/project/parsimony-sdmx/) | [SDMX protocol (ECB, Eurostat, IMF, World Bank)](https://sdmx.org) | 5 | 2 of 5 |
+| <a href="https://pypi.org/project/parsimony-sec-edgar/"><img src="https://www.google.com/s2/favicons?domain=sec.gov&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-sec-edgar`](https://pypi.org/project/parsimony-sec-edgar/) | [SEC Edgar](https://www.sec.gov) | 5 | 4 of 5 |
+| <a href="https://pypi.org/project/parsimony-snb/"><img src="https://www.google.com/s2/favicons?domain=snb.ch&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-snb`](https://pypi.org/project/parsimony-snb/) | [Swiss National Bank](https://www.snb.ch) | 3 | 1 of 3 |
 | <a href="https://pypi.org/project/parsimony-tiingo/"><img src="https://www.google.com/s2/favicons?domain=tiingo.com&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-tiingo`](https://pypi.org/project/parsimony-tiingo/) | [Tiingo](https://www.tiingo.com) | 13 | 1 of 13 |
-| <a href="https://pypi.org/project/parsimony-treasury/"><img src="https://www.google.com/s2/favicons?domain=fiscaldata.treasury.gov&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-treasury`](https://pypi.org/project/parsimony-treasury/) | [U.S. Treasury](https://fiscaldata.treasury.gov) | 2 | 0 of 2 |
+| <a href="https://pypi.org/project/parsimony-treasury/"><img src="https://www.google.com/s2/favicons?domain=fiscaldata.treasury.gov&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-treasury`](https://pypi.org/project/parsimony-treasury/) | [U.S. Treasury](https://fiscaldata.treasury.gov) | 4 | 1 of 4 |
 <!-- roster:end -->
 
 The roster is generated from `packages/*/pyproject.toml` and the connector source tree. Run `make readme-roster` to refresh it.
@@ -73,7 +69,7 @@ The roster is generated from `packages/*/pyproject.toml` and the connector sourc
 
 **The kernel is editable in CI.** The root `pyproject.toml` pins `parsimony-core` via an editable path (`../parsimony`). Kernel breaking changes get verified against every connector in a single PR before either side releases.
 
-**Provider quirks live in the connector, not the kernel.** The Reserve Bank of Australia fronts its data with Akamai, so `parsimony-rba` uses `curl_cffi` for TLS fingerprint impersonation. SDMX dynamically discovers 8000+ dataflows across seven agencies and publishes one Hugging Face catalog per `(agency, dataset)` pair.
+**Provider quirks live in the connector, not the kernel.** The Reserve Bank of Australia fronts its data with Akamai, so `parsimony-rba` uses `curl_cffi` for TLS fingerprint impersonation. SDMX dynamically discovers thousands of dataflows across four agencies (ECB, Eurostat, IMF, World Bank) and publishes Hugging Face catalogs per agency and dataset.
 
 ## Repository layout
 
@@ -103,9 +99,10 @@ parsimony-connectors/
 Connectors that ship a curated HuggingFace dataset (the SDMX series
 catalog, BLS surveys, Treasury fiscal data, central-bank macro
 indicators, ...) include a provider-owned `scripts/build_catalog.py`.
+BLS is enumerate-only (no hosted catalog).
 Building is an operator workflow: the user-facing package surface remains
 `CONNECTORS`, while the script enumerates rows, builds indexes, and
-optionally calls ``await catalog.save(...)`` for local paths or ``hf://...`` uploads.
+optionally calls ``catalog.save(...)`` for local paths or ``hf://...`` uploads.
 
 | Platform | Default location |
 |---|---|

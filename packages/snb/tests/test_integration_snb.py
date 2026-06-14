@@ -47,10 +47,9 @@ _BOUNDED_CUBES: tuple[tuple[str, str], ...] = (
 )
 
 
-@pytest.mark.asyncio
-async def test_snb_fetch_rendoblim_live() -> None:
+def test_snb_fetch_rendoblim_live() -> None:
     """rendoblim (Swiss Confederation bond yields) — a stable monthly cube."""
-    result = await snb_fetch(cube_id="rendoblim", from_date="2024")
+    result = snb_fetch(cube_id="rendoblim", from_date="2024")
 
     assert_provenance_shape(result, expected_source="snb_fetch", required_param_keys=["cube_id"])
     df = result.data
@@ -74,11 +73,10 @@ async def test_snb_fetch_rendoblim_live() -> None:
     assert df["date"].notna().any(), "observation dates all NaT"
 
 
-@pytest.mark.asyncio
-async def test_snb_fetch_devkum_multidim_live() -> None:
+def test_snb_fetch_devkum_multidim_live() -> None:
     """devkum (FX rates) is a two-dimension cube (D0 month-type × D1 currency)
     — exercises the multi-dimension long-format parse against the real feed."""
-    result = await snb_fetch(cube_id="devkum", from_date="2024")
+    result = snb_fetch(cube_id="devkum", from_date="2024")
     df = result.data
     assert not df.empty
     # Two dimension code columns present alongside the measure.
@@ -87,8 +85,7 @@ async def test_snb_fetch_devkum_multidim_live() -> None:
     assert df["Value"].notna().any(), "no real FX values"
 
 
-@pytest.mark.asyncio
-async def test_enumerate_snb_bounded_cubes_live(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_enumerate_snb_bounded_cubes_live(monkeypatch: pytest.MonkeyPatch) -> None:
     """Crawl TWO real cubes to verify the live SNB CSV/dimensions shape without
     the full ~474-request fan-out. A request counter asserts the bound held."""
     monkeypatch.setattr(parsimony_snb, "_KNOWN_CUBES", _BOUNDED_CUBES)
@@ -98,13 +95,13 @@ async def test_enumerate_snb_bounded_cubes_live(monkeypatch: pytest.MonkeyPatch)
     real_request = HttpClient.request
     calls: list[str] = []
 
-    async def _counting_request(self: Any, method: str, path: str, *args: Any, **kwargs: Any) -> Any:
+    def _counting_request(self: Any, method: str, path: str, *args: Any, **kwargs: Any) -> Any:
         calls.append(path)
-        return await real_request(self, method, path, *args, **kwargs)
+        return real_request(self, method, path, *args, **kwargs)
 
     monkeypatch.setattr(HttpClient, "request", _counting_request)
 
-    result = await enumerate_snb()
+    result = enumerate_snb()
     df = result.data
 
     # The bound held: 2 cubes × 2 probes each = a handful, never ~474.
@@ -133,8 +130,7 @@ async def test_enumerate_snb_bounded_cubes_live(monkeypatch: pytest.MonkeyPatch)
     assert entities[0].namespace == "snb"
 
 
-@pytest.mark.asyncio
-async def test_snb_search_over_bounded_catalog_live(tmp_path: Path) -> None:
+def test_snb_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     """Exercise ``snb_search`` end-to-end over a small, locally-built catalog.
 
     Bounded by design: a cold full ``build_snb_catalog()`` runs the expensive
@@ -177,11 +173,11 @@ async def test_snb_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     entries = entities_from_raw(df, SNB_ENUMERATE_OUTPUT)
     catalog = Catalog("snb", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
-    await catalog.build()
+    catalog.build()
     out_dir = tmp_path / "snb_catalog"
-    await catalog.save(out_dir)
+    catalog.save(out_dir)
 
-    result = await snb_search(query="Swiss Confederation bond yields", limit=5, catalog_url=str(out_dir))
+    result = snb_search(query="Swiss Confederation bond yields", limit=5, catalog_url=str(out_dir))
 
     assert_provenance_shape(result, expected_source="snb_search", required_param_keys=["query"])
     sdf = result.data
@@ -194,5 +190,5 @@ async def test_snb_search_over_bounded_catalog_live(tmp_path: Path) -> None:
 
     # Ranking actually discriminates: a different query surfaces a different
     # series as the top hit (not the same row regardless of query).
-    fx = await snb_search(query="US dollar exchange rate", limit=5, catalog_url=str(out_dir))
+    fx = snb_search(query="US dollar exchange rate", limit=5, catalog_url=str(out_dir))
     assert fx.data.iloc[0]["code"] == "devkum#M0.USD1"

@@ -78,8 +78,7 @@ def test_load_binds_key_across_collection() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_search_returns_rows_and_strips_key() -> None:
+def test_fmp_search_returns_rows_and_strips_key() -> None:
     respx.get(f"{_BASE}/search-name").mock(
         return_value=httpx.Response(
             200,
@@ -95,7 +94,7 @@ async def test_fmp_search_returns_rows_and_strips_key() -> None:
             ],
         )
     )
-    result = await fmp_search.bind(api_key=_KEY)(query="apple")
+    result = fmp_search.bind(api_key=_KEY)(query="apple")
 
     assert result.provenance.source == "fmp_search"
     # Theme-B: the bound key must not appear in provenance.
@@ -107,26 +106,23 @@ async def test_fmp_search_returns_rows_and_strips_key() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_search_empty_raises_empty_data() -> None:
+def test_fmp_search_empty_raises_empty_data() -> None:
     # FMP returns 200 with [] for an unknown query.
     respx.get(f"{_BASE}/search-name").mock(return_value=httpx.Response(200, json=[]))
     with pytest.raises(EmptyDataError):
-        await fmp_search.bind(api_key=_KEY)(query="zzzznotacompany")
+        fmp_search.bind(api_key=_KEY)(query="zzzznotacompany")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_search_non_list_raises_parse_error() -> None:
+def test_fmp_search_non_list_raises_parse_error() -> None:
     respx.get(f"{_BASE}/search-name").mock(return_value=httpx.Response(200, json="weird"))
     with pytest.raises(ParseError):
-        await fmp_search.bind(api_key=_KEY)(query="apple")
+        fmp_search.bind(api_key=_KEY)(query="apple")
 
 
-@pytest.mark.asyncio
-async def test_fmp_search_rejects_empty_query() -> None:
+def test_fmp_search_rejects_empty_query() -> None:
     with pytest.raises(InvalidParameterError, match="query"):
-        await fmp_search.bind(api_key=_KEY)(query="   ")
+        fmp_search.bind(api_key=_KEY)(query="   ")
 
 
 # ---------------------------------------------------------------------------
@@ -135,12 +131,11 @@ async def test_fmp_search_rejects_empty_query() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_taxonomy_sectors() -> None:
+def test_fmp_taxonomy_sectors() -> None:
     respx.get(f"{_BASE}/available-sectors").mock(
         return_value=httpx.Response(200, json=[{"sector": "Technology"}, {"sector": "Energy"}])
     )
-    result = await fmp_taxonomy.bind(api_key=_KEY)(type="sectors")
+    result = fmp_taxonomy.bind(api_key=_KEY)(type="sectors")
     assert set(result.data["sector"]) == {"Technology", "Energy"}
 
 
@@ -150,8 +145,7 @@ async def test_fmp_taxonomy_sectors() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_quotes_returns_rows() -> None:
+def test_fmp_quotes_returns_rows() -> None:
     respx.get(f"{_BASE}/batch-quote").mock(
         return_value=httpx.Response(
             200,
@@ -178,7 +172,7 @@ async def test_fmp_quotes_returns_rows() -> None:
             ],
         )
     )
-    result = await fmp_quotes.bind(api_key=_KEY)(symbols="AAPL")
+    result = fmp_quotes.bind(api_key=_KEY)(symbols="AAPL")
     df = result.data
     assert df.iloc[0]["symbol"] == "AAPL"
     assert df.iloc[0]["changePercentage"] == -1.56
@@ -187,10 +181,9 @@ async def test_fmp_quotes_returns_rows() -> None:
     assert "pe" not in df.columns
 
 
-@pytest.mark.asyncio
-async def test_fmp_quotes_rejects_empty_symbols() -> None:
+def test_fmp_quotes_rejects_empty_symbols() -> None:
     with pytest.raises(InvalidParameterError, match="symbols"):
-        await fmp_quotes.bind(api_key=_KEY)(symbols="  ")
+        fmp_quotes.bind(api_key=_KEY)(symbols="  ")
 
 
 # ---------------------------------------------------------------------------
@@ -199,8 +192,7 @@ async def test_fmp_quotes_rejects_empty_symbols() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_prices_daily_returns_ohlcv() -> None:
+def test_fmp_prices_daily_returns_ohlcv() -> None:
     respx.get(f"{_BASE}/historical-price-eod/full").mock(
         return_value=httpx.Response(
             200,
@@ -220,7 +212,7 @@ async def test_fmp_prices_daily_returns_ohlcv() -> None:
             ],
         )
     )
-    result = await fmp_prices.bind(api_key=_KEY)(symbol="AAPL", frequency="daily")
+    result = fmp_prices.bind(api_key=_KEY)(symbol="AAPL", frequency="daily")
     df = result.data
     assert df.iloc[0]["close"] == 198.89
     # symbol is a provider extra here (prices schema is date-keyed, no symbol col)
@@ -228,8 +220,7 @@ async def test_fmp_prices_daily_returns_ohlcv() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_prices_dividend_adjusted_renames_adj_columns() -> None:
+def test_fmp_prices_dividend_adjusted_renames_adj_columns() -> None:
     """Regression: the dividend-adjusted route returns adjOpen/adjHigh/adjLow/adjClose
     (no open/high/low/close). They must be renamed onto the declared schema before
     shaping, otherwise _select_declared drops every price column."""
@@ -249,7 +240,7 @@ async def test_fmp_prices_dividend_adjusted_renames_adj_columns() -> None:
             ],
         )
     )
-    result = await fmp_prices.bind(api_key=_KEY)(symbol="AAPL", frequency="dividend_adjusted")
+    result = fmp_prices.bind(api_key=_KEY)(symbol="AAPL", frequency="dividend_adjusted")
     df = result.data
     assert "close" in df.columns, f"close dropped — columns are {list(df.columns)}"
     assert df.iloc[0]["close"] == 197.48
@@ -262,8 +253,7 @@ async def test_fmp_prices_dividend_adjusted_renames_adj_columns() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_prices_intraday_preserves_time_component() -> None:
+def test_fmp_prices_intraday_preserves_time_component() -> None:
     """Regression: HISTORICAL_PRICES_OUTPUT.date must be datetime, not date.
     `date` runs dt.normalize() which would zero out intraday times."""
     respx.get(f"{_BASE}/historical-chart/1min").mock(
@@ -275,16 +265,15 @@ async def test_fmp_prices_intraday_preserves_time_component() -> None:
             ],
         )
     )
-    result = await fmp_prices.bind(api_key=_KEY)(symbol="AAPL", frequency="1min")
+    result = fmp_prices.bind(api_key=_KEY)(symbol="AAPL", frequency="1min")
     times = result.data["date"].dt.time.astype(str).tolist()
     assert "00:00:00" not in times
     assert times[0] == "14:30:00"
 
 
-@pytest.mark.asyncio
-async def test_fmp_prices_rejects_bad_frequency() -> None:
+def test_fmp_prices_rejects_bad_frequency() -> None:
     with pytest.raises(InvalidParameterError, match="frequency"):
-        await fmp_prices.bind(api_key=_KEY)(symbol="AAPL", frequency="monthly")
+        fmp_prices.bind(api_key=_KEY)(symbol="AAPL", frequency="monthly")
 
 
 # ---------------------------------------------------------------------------
@@ -293,8 +282,7 @@ async def test_fmp_prices_rejects_bad_frequency() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_company_profile_returns_row_and_drops_extras() -> None:
+def test_fmp_company_profile_returns_row_and_drops_extras() -> None:
     respx.get(f"{_BASE}/profile").mock(
         return_value=httpx.Response(
             200,
@@ -325,23 +313,21 @@ async def test_fmp_company_profile_returns_row_and_drops_extras() -> None:
             ],
         )
     )
-    result = await fmp_company_profile.bind(api_key=_KEY)(symbol="AAPL")
+    result = fmp_company_profile.bind(api_key=_KEY)(symbol="AAPL")
     df = result.data
     assert df.iloc[0]["companyName"] == "Apple Inc."
     assert "cusip" not in df.columns
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_company_profile_unknown_symbol_raises_empty_data() -> None:
+def test_fmp_company_profile_unknown_symbol_raises_empty_data() -> None:
     respx.get(f"{_BASE}/profile").mock(return_value=httpx.Response(200, json=[]))
     with pytest.raises(EmptyDataError):
-        await fmp_company_profile.bind(api_key=_KEY)(symbol="ZZZZZZ")
+        fmp_company_profile.bind(api_key=_KEY)(symbol="ZZZZZZ")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_peers_returns_peer_group() -> None:
+def test_fmp_peers_returns_peer_group() -> None:
     respx.get(f"{_BASE}/stock-peers").mock(
         return_value=httpx.Response(
             200,
@@ -351,7 +337,7 @@ async def test_fmp_peers_returns_peer_group() -> None:
             ],
         )
     )
-    result = await fmp_peers.bind(api_key=_KEY)(symbol="AAPL")
+    result = fmp_peers.bind(api_key=_KEY)(symbol="AAPL")
     assert set(result.data["symbol"]) == {"GOOGL", "META"}
 
 
@@ -361,8 +347,7 @@ async def test_fmp_peers_returns_peer_group() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_income_statements_projects_declared_columns() -> None:
+def test_fmp_income_statements_projects_declared_columns() -> None:
     respx.get(f"{_BASE}/income-statement").mock(
         return_value=httpx.Response(
             200,
@@ -386,7 +371,7 @@ async def test_fmp_income_statements_projects_declared_columns() -> None:
             ],
         )
     )
-    result = await fmp_income_statements.bind(api_key=_KEY)(symbol="AAPL", limit=1)
+    result = fmp_income_statements.bind(api_key=_KEY)(symbol="AAPL", limit=1)
     df = result.data
     assert df.iloc[0]["revenue"] == 4e11
     assert "cik" not in df.columns
@@ -394,8 +379,7 @@ async def test_fmp_income_statements_projects_declared_columns() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_balance_sheet_keeps_extras_via_wildcard() -> None:
+def test_fmp_balance_sheet_keeps_extras_via_wildcard() -> None:
     respx.get(f"{_BASE}/balance-sheet-statement").mock(
         return_value=httpx.Response(
             200,
@@ -414,15 +398,14 @@ async def test_fmp_balance_sheet_keeps_extras_via_wildcard() -> None:
             ],
         )
     )
-    result = await fmp_balance_sheet_statements.bind(api_key=_KEY)(symbol="AAPL", limit=1)
+    result = fmp_balance_sheet_statements.bind(api_key=_KEY)(symbol="AAPL", limit=1)
     df = result.data
     assert df.iloc[0]["totalAssets"] == 3.5e11
     assert "goodwill" in df.columns  # wildcard keeps it
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_cash_flow_statements_returns_rows() -> None:
+def test_fmp_cash_flow_statements_returns_rows() -> None:
     respx.get(f"{_BASE}/cash-flow-statement").mock(
         return_value=httpx.Response(
             200,
@@ -443,7 +426,7 @@ async def test_fmp_cash_flow_statements_returns_rows() -> None:
             ],
         )
     )
-    result = await fmp_cash_flow_statements.bind(api_key=_KEY)(symbol="AAPL", limit=1)
+    result = fmp_cash_flow_statements.bind(api_key=_KEY)(symbol="AAPL", limit=1)
     assert result.data.iloc[0]["freeCashFlow"] == 1.1e11
 
 
@@ -453,33 +436,28 @@ async def test_fmp_cash_flow_statements_returns_rows() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_corporate_history_earnings() -> None:
+def test_fmp_corporate_history_earnings() -> None:
     respx.get(f"{_BASE}/earnings").mock(
         return_value=httpx.Response(
             200,
             json=[{"symbol": "AAPL", "date": "2026-07-30", "epsActual": None, "epsEstimated": 1.86}],
         )
     )
-    result = await fmp_corporate_history.bind(api_key=_KEY)(symbol="AAPL", event_type="earnings")
+    result = fmp_corporate_history.bind(api_key=_KEY)(symbol="AAPL", event_type="earnings")
     assert result.data.iloc[0]["symbol"] == "AAPL"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_event_calendar_dividends() -> None:
+def test_fmp_event_calendar_dividends() -> None:
     respx.get(f"{_BASE}/dividends-calendar").mock(
         return_value=httpx.Response(200, json=[{"symbol": "AAPL", "date": "2026-06-05", "dividend": 0.27}])
     )
-    result = await fmp_event_calendar.bind(api_key=_KEY)(
-        event_type="dividends", from_date="2026-06-01", to_date="2026-06-10"
-    )
+    result = fmp_event_calendar.bind(api_key=_KEY)(event_type="dividends", from_date="2026-06-01", to_date="2026-06-10")
     assert result.data.iloc[0]["dividend"] == 0.27
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_analyst_estimates_returns_rows() -> None:
+def test_fmp_analyst_estimates_returns_rows() -> None:
     respx.get(f"{_BASE}/analyst-estimates").mock(
         return_value=httpx.Response(
             200,
@@ -505,7 +483,7 @@ async def test_fmp_analyst_estimates_returns_rows() -> None:
             ],
         )
     )
-    result = await fmp_analyst_estimates.bind(api_key=_KEY)(symbol="AAPL")
+    result = fmp_analyst_estimates.bind(api_key=_KEY)(symbol="AAPL")
     assert result.data.iloc[0]["epsAvg"] == 9.5
 
 
@@ -515,8 +493,7 @@ async def test_fmp_analyst_estimates_returns_rows() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_news_returns_articles() -> None:
+def test_fmp_news_returns_articles() -> None:
     respx.get(f"{_BASE}/news/stock").mock(
         return_value=httpx.Response(
             200,
@@ -534,21 +511,19 @@ async def test_fmp_news_returns_articles() -> None:
             ],
         )
     )
-    result = await fmp_news.bind(api_key=_KEY)(type="news", symbols="AAPL")
+    result = fmp_news.bind(api_key=_KEY)(type="news", symbols="AAPL")
     df = result.data
     assert df.iloc[0]["title"] == "Apple beats earnings"
     assert "publisher" not in df.columns
 
 
-@pytest.mark.asyncio
-async def test_fmp_news_rejects_empty_symbols() -> None:
+def test_fmp_news_rejects_empty_symbols() -> None:
     with pytest.raises(InvalidParameterError, match="symbols"):
-        await fmp_news.bind(api_key=_KEY)(type="news", symbols=" ")
+        fmp_news.bind(api_key=_KEY)(type="news", symbols=" ")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_insider_trades_returns_rows() -> None:
+def test_fmp_insider_trades_returns_rows() -> None:
     respx.get(f"{_BASE}/insider-trading/search").mock(
         return_value=httpx.Response(
             200,
@@ -570,13 +545,12 @@ async def test_fmp_insider_trades_returns_rows() -> None:
             ],
         )
     )
-    result = await fmp_insider_trades.bind(api_key=_KEY)(symbol="AAPL")
+    result = fmp_insider_trades.bind(api_key=_KEY)(symbol="AAPL")
     assert result.data.iloc[0]["reportingName"] == "Cook Timothy"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_institutional_positions_returns_row() -> None:
+def test_fmp_institutional_positions_returns_row() -> None:
     respx.get(f"{_BASE}/institutional-ownership/symbol-positions-summary").mock(
         return_value=httpx.Response(
             200,
@@ -601,33 +575,30 @@ async def test_fmp_institutional_positions_returns_row() -> None:
             ],
         )
     )
-    result = await fmp_institutional_positions.bind(api_key=_KEY)(symbol="AAPL", year="2024", quarter="1")
+    result = fmp_institutional_positions.bind(api_key=_KEY)(symbol="AAPL", year="2024", quarter="1")
     assert result.data.iloc[0]["investorsHolding"] == 5272
 
 
-@pytest.mark.asyncio
-async def test_fmp_institutional_positions_rejects_bad_quarter() -> None:
+def test_fmp_institutional_positions_rejects_bad_quarter() -> None:
     with pytest.raises(InvalidParameterError, match="quarter"):
-        await fmp_institutional_positions.bind(api_key=_KEY)(symbol="AAPL", year="2024", quarter="5")
+        fmp_institutional_positions.bind(api_key=_KEY)(symbol="AAPL", year="2024", quarter="5")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_earnings_transcript_returns_text() -> None:
+def test_fmp_earnings_transcript_returns_text() -> None:
     respx.get(f"{_BASE}/earning-call-transcript").mock(
         return_value=httpx.Response(
             200,
             json=[{"symbol": "AAPL", "period": "Q1", "year": 2024, "date": "2024-02-01", "content": "Operator: ..."}],
         )
     )
-    result = await fmp_earnings_transcript.bind(api_key=_KEY)(symbol="AAPL", year="2024", quarter="1")
+    result = fmp_earnings_transcript.bind(api_key=_KEY)(symbol="AAPL", year="2024", quarter="1")
     assert result.data.iloc[0]["content"].startswith("Operator")
 
 
-@pytest.mark.asyncio
-async def test_fmp_earnings_transcript_rejects_bad_quarter() -> None:
+def test_fmp_earnings_transcript_rejects_bad_quarter() -> None:
     with pytest.raises(InvalidParameterError, match="quarter"):
-        await fmp_earnings_transcript.bind(api_key=_KEY)(symbol="AAPL", year="2024", quarter="0")
+        fmp_earnings_transcript.bind(api_key=_KEY)(symbol="AAPL", year="2024", quarter="0")
 
 
 # ---------------------------------------------------------------------------
@@ -636,8 +607,7 @@ async def test_fmp_earnings_transcript_rejects_bad_quarter() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_index_constituents_sp500() -> None:
+def test_fmp_index_constituents_sp500() -> None:
     respx.get(f"{_BASE}/sp500-constituent").mock(
         return_value=httpx.Response(
             200,
@@ -655,13 +625,12 @@ async def test_fmp_index_constituents_sp500() -> None:
             ],
         )
     )
-    result = await fmp_index_constituents.bind(api_key=_KEY)(index="SP500")
+    result = fmp_index_constituents.bind(api_key=_KEY)(index="SP500")
     assert result.data.iloc[0]["symbol"] == "AAPL"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fmp_market_movers_gainers() -> None:
+def test_fmp_market_movers_gainers() -> None:
     respx.get(f"{_BASE}/biggest-gainers").mock(
         return_value=httpx.Response(
             200,
@@ -677,7 +646,7 @@ async def test_fmp_market_movers_gainers() -> None:
             ],
         )
     )
-    result = await fmp_market_movers.bind(api_key=_KEY)(type="gainers")
+    result = fmp_market_movers.bind(api_key=_KEY)(type="gainers")
     assert result.data.iloc[0]["symbol"] == "XOS"
     assert result.data.iloc[0]["changesPercentage"] == 234.5
 
@@ -688,38 +657,33 @@ async def test_fmp_market_movers_gainers() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_403_maps_to_payment_required() -> None:
+def test_403_maps_to_payment_required() -> None:
     # 403 "Legacy Endpoint / plan restriction" must NOT map to UnauthorizedError.
     respx.get(f"{_BASE}/profile").mock(
         return_value=httpx.Response(403, json={"Error Message": "Legacy Endpoint : ..."})
     )
     with pytest.raises(PaymentRequiredError) as exc_info:
-        await fmp_company_profile.bind(api_key=_KEY)(symbol="AAPL")
+        fmp_company_profile.bind(api_key=_KEY)(symbol="AAPL")
     assert exc_info.value.provider == "fmp"
     assert not isinstance(exc_info.value, UnauthorizedError)
     assert _KEY not in str(exc_info.value)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_402_maps_to_payment_required() -> None:
+def test_402_maps_to_payment_required() -> None:
     respx.get(f"{_BASE}/profile").mock(return_value=httpx.Response(402, text="payment required"))
     with pytest.raises(PaymentRequiredError) as exc_info:
-        await fmp_company_profile.bind(api_key=_KEY)(symbol="AAPL")
+        fmp_company_profile.bind(api_key=_KEY)(symbol="AAPL")
     assert exc_info.value.provider == "fmp"
     assert _KEY not in str(exc_info.value)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_401_maps_to_unauthorized() -> None:
+def test_401_maps_to_unauthorized() -> None:
     # Invalid key is unambiguously 401 — must map to UnauthorizedError, not Payment.
-    respx.get(f"{_BASE}/profile").mock(
-        return_value=httpx.Response(401, json={"Error Message": "Invalid API KEY. ..."})
-    )
+    respx.get(f"{_BASE}/profile").mock(return_value=httpx.Response(401, json={"Error Message": "Invalid API KEY. ..."}))
     with pytest.raises(UnauthorizedError) as exc_info:
-        await fmp_company_profile.bind(api_key=_KEY)(symbol="AAPL")
+        fmp_company_profile.bind(api_key=_KEY)(symbol="AAPL")
     assert not isinstance(exc_info.value, PaymentRequiredError)
     assert _KEY not in str(exc_info.value)
 
@@ -754,11 +718,10 @@ async def test_401_maps_to_unauthorized() -> None:
         (fmp_screener, {"sector": "Technology"}),
     ],
 )
-@pytest.mark.asyncio
-async def test_no_key_raises_unauthorized(connector_fn, kwargs, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_no_key_raises_unauthorized(connector_fn, kwargs, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("FMP_API_KEY", raising=False)
     with pytest.raises(UnauthorizedError) as exc_info:
-        await connector_fn(**kwargs)
+        connector_fn(**kwargs)
     assert exc_info.value.env_var == "FMP_API_KEY"
     assert exc_info.value.provider == "fmp"
 

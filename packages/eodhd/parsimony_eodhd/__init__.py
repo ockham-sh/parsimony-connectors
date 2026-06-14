@@ -42,6 +42,7 @@ import re
 from typing import Annotated, Any, Literal
 
 import pandas as pd
+from parsimony import Namespace
 from parsimony.connector import Connectors, connector
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 
@@ -71,9 +72,26 @@ _BULK_TIMEOUT: float = 60.0
 
 # Technical-indicator function names accepted by eodhd_technical.
 _TechnicalFunction = Literal[
-    "sma", "ema", "wma", "volatility", "stochastic", "rsi", "stddev", "stochrsi",
-    "slope", "dmi", "adx", "macd", "atr", "cci", "sar", "bbands", "splitadjusted",
-    "avgvol", "avgvolacave", "williams_r",
+    "sma",
+    "ema",
+    "wma",
+    "volatility",
+    "stochastic",
+    "rsi",
+    "stddev",
+    "stochrsi",
+    "slope",
+    "dmi",
+    "adx",
+    "macd",
+    "atr",
+    "cci",
+    "sar",
+    "bbands",
+    "splitadjusted",
+    "avgvol",
+    "avgvolacave",
+    "williams_r",
 ]
 
 # Guard for values interpolated directly into request paths
@@ -94,16 +112,22 @@ def _safe_path_token(value: str, name: str) -> str:
 def _select_declared(df: pd.DataFrame, output: Any) -> pd.DataFrame:
     """Project a frame to the columns the schema declares, in declared order.
 
-    Keeps only schema-declared columns that are present, so provider extras
-    (EODHD's free-tier ``warning`` row field, news ``sentiment`` dict, etc.) do
-    not fold in as stray DATA columns. Wildcard (``"*"``) schemas opt out — they
-    intentionally keep every column.
+    Drops provider extras not in the schema. Missing declared columns are filled
+    with ``NA`` so :class:`~parsimony.result.OutputConfig` can shape sparse
+    payloads (calendar types, dividend-adjusted prices, etc.) without folding
+    extras in as stray DATA columns. Wildcard (``"*"``) schemas keep unmapped
+    columns after the fixed prefix.
     """
     names = [c.name for c in output.columns]
+    fixed = [n for n in names if n != "*"]
+    out = df.copy()
+    for n in fixed:
+        if n not in out.columns:
+            out[n] = pd.NA
     if "*" in names:
-        return df
-    keep = [n for n in names if n in df.columns]
-    return df[keep]
+        extra = [c for c in out.columns if c not in fixed]
+        return out[fixed + extra]
+    return out[fixed]
 
 
 def _rows_to_frame(data: Any, op_name: str, query_params: dict[str, Any]) -> pd.DataFrame:
@@ -124,7 +148,7 @@ def _rows_to_frame(data: Any, op_name: str, query_params: dict[str, Any]) -> pd.
 
 
 @connector(output=_SEARCH_OUTPUT, tags=["eodhd", "tool"], secrets=("api_key",))
-async def eodhd_search(
+def eodhd_search(
     query: str,
     limit: int = 50,
     type: Literal["stock", "etf", "fund", "bond", "index"] | None = None,
@@ -142,7 +166,7 @@ async def eodhd_search(
         raise InvalidParameterError(_PROVIDER, "limit must be between 1 and 500")
 
     http = _client(api_key)
-    data = await eodhd_get(
+    data = eodhd_get(
         http,
         path=f"search/{q}",
         params={"limit": limit, "type": type},
@@ -153,19 +177,19 @@ async def eodhd_search(
 
 
 @connector(output=_EXCHANGES_OUTPUT, tags=["eodhd", "tool"], secrets=("api_key",))
-async def eodhd_exchanges(api_key: str = "") -> pd.DataFrame:
+def eodhd_exchanges(api_key: str = "") -> pd.DataFrame:
     """[Free+] List all exchanges supported by EODHD. Returns Code, Name, country,
     currency and operating MIC. Use the Code with eodhd_bulk_eod and
     eodhd_exchange_symbols.
     """
     http = _client(api_key)
-    data = await eodhd_get(http, path="exchanges-list", op_name="eodhd_exchanges")
+    data = eodhd_get(http, path="exchanges-list", op_name="eodhd_exchanges")
     df = _rows_to_frame(data, "eodhd_exchanges", {})
     return _select_declared(df, _EXCHANGES_OUTPUT)
 
 
 @connector(output=_EXCHANGE_SYMBOLS_OUTPUT, tags=["eodhd"], secrets=("api_key",))
-async def eodhd_exchange_symbols(
+def eodhd_exchange_symbols(
     exchange: str,
     type: Literal["common_stock", "preferred_stock", "stock", "etf", "fund"] | None = None,
     api_key: str = "",
@@ -177,7 +201,7 @@ async def eodhd_exchange_symbols(
     """
     ex = _safe_path_token(exchange, "exchange")
     http = _client(api_key, timeout=_BULK_TIMEOUT)
-    data = await eodhd_get(
+    data = eodhd_get(
         http,
         path=f"exchange-symbol-list/{ex}",
         params={"type": type},
@@ -193,8 +217,8 @@ async def eodhd_exchange_symbols(
 
 
 @connector(output=_EOD_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",))
-async def eodhd_eod(
-    ticker: Annotated[str, "ns:eodhd_symbols"],
+def eodhd_eod(
+    ticker: Annotated[str, Namespace("eodhd_symbols")],
     from_date: str | None = None,
     to_date: str | None = None,
     period: Literal["d", "w", "m"] | None = None,
@@ -207,7 +231,7 @@ async def eodhd_eod(
     """
     t = _safe_path_token(ticker, "ticker")
     http = _client(api_key)
-    data = await eodhd_get(
+    data = eodhd_get(
         http,
         path=f"eod/{t}",
         params={"from": from_date, "to": to_date, "period": period},
@@ -218,14 +242,14 @@ async def eodhd_eod(
 
 
 @connector(output=_LIVE_OUTPUT, tags=["eodhd", "equity", "tool"], secrets=("api_key",))
-async def eodhd_live(ticker: Annotated[str, "ns:eodhd_symbols"], api_key: str = "") -> pd.DataFrame:
+def eodhd_live(ticker: Annotated[str, Namespace("eodhd_symbols")], api_key: str = "") -> pd.DataFrame:
     """[Free+] Fetch the live (real-time or 15-min delayed) quote for a ticker:
     code, timestamp, OHLC, volume, previous close, and change. Use eodhd_search
     to resolve a company name to its EODHD ticker (e.g. AAPL.US).
     """
     t = _safe_path_token(ticker, "ticker")
     http = _client(api_key, timeout=_LATENCY_TIMEOUT)
-    data = await eodhd_get(http, path=f"real-time/{t}", op_name="eodhd_live")
+    data = eodhd_get(http, path=f"real-time/{t}", op_name="eodhd_live")
     if not isinstance(data, dict) or not data.get("code"):
         raise EmptyDataError(_PROVIDER, query_params={"ticker": t})
     df = pd.DataFrame([data])
@@ -233,8 +257,8 @@ async def eodhd_live(ticker: Annotated[str, "ns:eodhd_symbols"], api_key: str = 
 
 
 @connector(output=_INTRADAY_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",))
-async def eodhd_intraday(
-    ticker: Annotated[str, "ns:eodhd_symbols"],
+def eodhd_intraday(
+    ticker: Annotated[str, Namespace("eodhd_symbols")],
     interval: Literal["1m", "5m", "1h"],
     from_unix: int | None = None,
     to_unix: int | None = None,
@@ -247,7 +271,7 @@ async def eodhd_intraday(
     """
     t = _safe_path_token(ticker, "ticker")
     http = _client(api_key, timeout=_LATENCY_TIMEOUT)
-    data = await eodhd_get(
+    data = eodhd_get(
         http,
         path=f"intraday/{t}",
         params={"interval": interval, "from": from_unix, "to": to_unix},
@@ -258,7 +282,7 @@ async def eodhd_intraday(
 
 
 @connector(output=_BULK_EOD_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",))
-async def eodhd_bulk_eod(exchange: str, date: str | None = None, api_key: str = "") -> pd.DataFrame:
+def eodhd_bulk_eod(exchange: str, date: str | None = None, api_key: str = "") -> pd.DataFrame:
     """[EOD Historical+] Fetch end-of-day prices for every symbol on an exchange
     in one request (returns code, name, date, OHLCV). Defaults to the last
     trading day; pass date to fetch a specific day. Large response — use for
@@ -267,7 +291,7 @@ async def eodhd_bulk_eod(exchange: str, date: str | None = None, api_key: str = 
     """
     ex = _safe_path_token(exchange, "exchange")
     http = _client(api_key, timeout=_BULK_TIMEOUT)
-    data = await eodhd_get(
+    data = eodhd_get(
         http,
         path=f"eod-bulk-last-day/{ex}",
         params={"date": date},
@@ -283,8 +307,8 @@ async def eodhd_bulk_eod(exchange: str, date: str | None = None, api_key: str = 
 
 
 @connector(output=_DIVIDENDS_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",))
-async def eodhd_dividends(
-    ticker: Annotated[str, "ns:eodhd_symbols"],
+def eodhd_dividends(
+    ticker: Annotated[str, Namespace("eodhd_symbols")],
     from_date: str | None = None,
     to_date: str | None = None,
     api_key: str = "",
@@ -295,7 +319,7 @@ async def eodhd_dividends(
     """
     t = _safe_path_token(ticker, "ticker")
     http = _client(api_key)
-    data = await eodhd_get(
+    data = eodhd_get(
         http,
         path=f"div/{t}",
         params={"from": from_date, "to": to_date},
@@ -306,8 +330,8 @@ async def eodhd_dividends(
 
 
 @connector(output=_SPLITS_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",))
-async def eodhd_splits(
-    ticker: Annotated[str, "ns:eodhd_symbols"],
+def eodhd_splits(
+    ticker: Annotated[str, Namespace("eodhd_symbols")],
     from_date: str | None = None,
     to_date: str | None = None,
     api_key: str = "",
@@ -318,7 +342,7 @@ async def eodhd_splits(
     """
     t = _safe_path_token(ticker, "ticker")
     http = _client(api_key)
-    data = await eodhd_get(
+    data = eodhd_get(
         http,
         path=f"splits/{t}",
         params={"from": from_date, "to": to_date},
@@ -334,7 +358,7 @@ async def eodhd_splits(
 
 
 @connector(tags=["eodhd", "equity"], secrets=("api_key",))
-async def eodhd_fundamentals(ticker: Annotated[str, "ns:eodhd_symbols"], api_key: str = "") -> dict[str, Any]:
+def eodhd_fundamentals(ticker: Annotated[str, Namespace("eodhd_symbols")], api_key: str = "") -> dict[str, Any]:
     """[Fundamentals+] Fetch full fundamentals for a stock or ETF as a large nested
     dict (not a DataFrame). Typical equity top-level keys: General, Highlights,
     Valuation, SharesStats, Technicals, SplitsDividends, AnalystRatings, Holders,
@@ -345,7 +369,7 @@ async def eodhd_fundamentals(ticker: Annotated[str, "ns:eodhd_symbols"], api_key
     """
     t = _safe_path_token(ticker, "ticker")
     http = _client(api_key, timeout=_BULK_TIMEOUT)
-    data = await eodhd_get(http, path=f"fundamentals/{t}", op_name="eodhd_fundamentals")
+    data = eodhd_get(http, path=f"fundamentals/{t}", op_name="eodhd_fundamentals")
     if not isinstance(data, dict) or not data:
         raise EmptyDataError(_PROVIDER, query_params={"ticker": t})
     return data
@@ -357,7 +381,7 @@ async def eodhd_fundamentals(ticker: Annotated[str, "ns:eodhd_symbols"], api_key
 
 
 @connector(output=_CALENDAR_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",))
-async def eodhd_calendar(
+def eodhd_calendar(
     type: Literal["earnings", "ipos", "trends", "splits"],
     from_date: str | None = None,
     to_date: str | None = None,
@@ -371,7 +395,7 @@ async def eodhd_calendar(
     paid plan; a free key returns PaymentRequiredError.
     """
     http = _client(api_key)
-    data = await eodhd_get(
+    data = eodhd_get(
         http,
         path=f"calendar/{type}",
         params={"from": from_date, "to": to_date, "symbols": symbols},
@@ -394,7 +418,7 @@ async def eodhd_calendar(
 
 
 @connector(output=_NEWS_OUTPUT, tags=["eodhd", "tool"], secrets=("api_key",))
-async def eodhd_news(
+def eodhd_news(
     ticker: str | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
@@ -413,7 +437,7 @@ async def eodhd_news(
         raise InvalidParameterError(_PROVIDER, "offset must be non-negative")
 
     http = _client(api_key)
-    data = await eodhd_get(
+    data = eodhd_get(
         http,
         path="news",
         params={
@@ -435,7 +459,7 @@ async def eodhd_news(
 
 
 @connector(output=_MACRO_OUTPUT, tags=["eodhd", "macro"], secrets=("api_key",))
-async def eodhd_macro(country: str, indicator: str, api_key: str = "") -> pd.DataFrame:
+def eodhd_macro(country: str, indicator: str, api_key: str = "") -> pd.DataFrame:
     """[Fundamentals+] Fetch a macro indicator time series for a country (returns
     Date, Value, Period). Country must be an ISO 3-letter code (e.g. USA, DEU).
     Common indicators: gdp_current_usd, unemployment_total_percent,
@@ -447,7 +471,7 @@ async def eodhd_macro(country: str, indicator: str, api_key: str = "") -> pd.Dat
     if not ind:
         raise InvalidParameterError(_PROVIDER, "indicator must be non-empty")
     http = _client(api_key)
-    data = await eodhd_get(
+    data = eodhd_get(
         http,
         path=f"macro-indicator/{c}",
         params={"indicator": ind},
@@ -458,7 +482,7 @@ async def eodhd_macro(country: str, indicator: str, api_key: str = "") -> pd.Dat
 
 
 @connector(output=_MACRO_OUTPUT, tags=["eodhd", "macro"], secrets=("api_key",))
-async def eodhd_macro_bulk(country: str, indicator: str | None = None, api_key: str = "") -> pd.DataFrame:
+def eodhd_macro_bulk(country: str, indicator: str | None = None, api_key: str = "") -> pd.DataFrame:
     """[Fundamentals+] Fetch macro indicator data for a country. The EODHD
     macro-indicator endpoint requires an indicator; pass one explicitly or rely
     on the default. Returns Date, Value, Period. Country must be an ISO 3-letter
@@ -467,7 +491,7 @@ async def eodhd_macro_bulk(country: str, indicator: str | None = None, api_key: 
     """
     c = _safe_path_token(country, "country")
     http = _client(api_key, timeout=_BULK_TIMEOUT)
-    data = await eodhd_get(
+    data = eodhd_get(
         http,
         path=f"macro-indicator/{c}",
         params={"indicator": indicator},
@@ -483,8 +507,8 @@ async def eodhd_macro_bulk(country: str, indicator: str | None = None, api_key: 
 
 
 @connector(output=_TECHNICAL_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",))
-async def eodhd_technical(
-    ticker: Annotated[str, "ns:eodhd_symbols"],
+def eodhd_technical(
+    ticker: Annotated[str, Namespace("eodhd_symbols")],
     function: _TechnicalFunction,
     period: int = 50,
     from_date: str | None = None,
@@ -502,7 +526,7 @@ async def eodhd_technical(
     if period < 1:
         raise InvalidParameterError(_PROVIDER, "period must be a positive integer")
     http = _client(api_key)
-    data = await eodhd_get(
+    data = eodhd_get(
         http,
         path=f"technical/{t}",
         params={
@@ -515,7 +539,7 @@ async def eodhd_technical(
         op_name="eodhd_technical",
     )
     df = _rows_to_frame(data, "eodhd_technical", {"ticker": t, "function": function})
-    return df
+    return _select_declared(df, _TECHNICAL_OUTPUT)
 
 
 # ---------------------------------------------------------------------------
@@ -524,8 +548,8 @@ async def eodhd_technical(
 
 
 @connector(output=_INSIDER_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",))
-async def eodhd_insider(
-    ticker: Annotated[str, "ns:eodhd_symbols"] | None = None,
+def eodhd_insider(
+    ticker: Annotated[str, Namespace("eodhd_symbols")] | None = None,
     limit: int = 100,
     offset: int = 0,
     api_key: str = "",
@@ -541,13 +565,14 @@ async def eodhd_insider(
         raise InvalidParameterError(_PROVIDER, "offset must be non-negative")
     code = ticker.strip() if ticker else None
     http = _client(api_key)
-    data = await eodhd_get(
+    data = eodhd_get(
         http,
         path="insider-transactions",
         params={"code": code, "limit": limit, "offset": offset},
         op_name="eodhd_insider",
     )
-    return _rows_to_frame(data, "eodhd_insider", {"ticker": code or ""})
+    df = _rows_to_frame(data, "eodhd_insider", {"ticker": code or ""})
+    return _select_declared(df, _INSIDER_OUTPUT)
 
 
 # ---------------------------------------------------------------------------
@@ -556,7 +581,7 @@ async def eodhd_insider(
 
 
 @connector(output=_SCREENER_OUTPUT, tags=["eodhd", "equity", "tool"], secrets=("api_key",))
-async def eodhd_screener(
+def eodhd_screener(
     filters: list[tuple[str, str, str]] | None = None,
     signals: str | None = None,
     sort: str | None = None,
@@ -585,7 +610,7 @@ async def eodhd_screener(
         params["sort"] = f"{sort}.{order}"
 
     http = _client(api_key)
-    data = await eodhd_get(http, path="screener", params=params, op_name="eodhd_screener")
+    data = eodhd_get(http, path="screener", params=params, op_name="eodhd_screener")
     # The screener wraps rows under a top-level ``data`` key.
     if isinstance(data, dict):
         rows = data.get("data")

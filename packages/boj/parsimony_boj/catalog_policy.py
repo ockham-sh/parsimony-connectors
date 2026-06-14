@@ -8,8 +8,6 @@ from parsimony.catalog.policy import (
     HYBRID_VECTOR_WEIGHT,
     adaptive_field_index,
     discovery_indexes,
-    hybrid_field_index,
-    macro_discovery_indexes,
 )
 
 __all__ = [
@@ -18,6 +16,4 @@ __all__ = [
     "HYBRID_VECTOR_WEIGHT",
     "adaptive_field_index",
     "discovery_indexes",
-    "hybrid_field_index",
-    "macro_discovery_indexes",
 ]

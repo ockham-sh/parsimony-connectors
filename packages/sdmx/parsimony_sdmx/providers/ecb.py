@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from parsimony_sdmx.core.errors import SdmxFetchError
-from parsimony_sdmx.core.models import DatasetRecord, SeriesRecord
+from parsimony_sdmx.core.models import DatasetRecord, SeriesRecord, StructureRecord
 from parsimony_sdmx.core.titles import choose_series_title
 from parsimony_sdmx.io.http import HttpConfig, bounded_get, build_session
 from parsimony_sdmx.providers.ecb_portal import scrape_ecb_portal
@@ -17,9 +17,11 @@ from parsimony_sdmx.providers.ecb_series_attrs import parse_ecb_series_attribute
 from parsimony_sdmx.providers.sdmx_client import sdmx_client
 from parsimony_sdmx.providers.sdmx_extract import extract_dsd_dim_order
 from parsimony_sdmx.providers.sdmx_flow import (
+    discover_series_keys_flow,
     fetch_dataflow_with_structure,
     list_datasets_flow,
     list_series_flow,
+    list_structure_flow,
     resolve_dsd,
 )
 
@@ -53,6 +55,14 @@ class EcbProvider:
 
         with sdmx_client(self.agency_id, self.http_config) as client:
             yield from list_datasets_flow(client, self.agency_id, decorate_title=decorate)
+
+    def fetch_structure(self, dataset_id: str) -> StructureRecord:
+        with sdmx_client(self.agency_id, self.http_config) as client:
+            return list_structure_flow(client, self.agency_id, dataset_id)
+
+    def discover_series_keys(self, dataset_id: str, partial_key: str) -> list[SeriesRecord]:
+        with sdmx_client(self.agency_id, self.http_config) as client:
+            return discover_series_keys_flow(client, self.agency_id, dataset_id, partial_key)
 
     def list_series(self, dataset_id: str) -> Iterator[SeriesRecord]:
         with sdmx_client(self.agency_id, self.http_config) as client:

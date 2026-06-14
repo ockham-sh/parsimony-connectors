@@ -14,13 +14,13 @@ CATALOG_NAMESPACE = "riksbank"
 _RIKSBANK_API_KEY_ENV = "RIKSBANK_API_KEY"
 
 
-async def build_riksbank_catalog(*, api_key: str | None = None) -> Catalog:
+def build_riksbank_catalog(*, api_key: str | None = None) -> Catalog:
     key = api_key if api_key is not None else os.environ.get(_RIKSBANK_API_KEY_ENV, "")
-    result = await enumerate_riksbank(api_key=key)
+    result = enumerate_riksbank(api_key=key)
     entries = entities_from_raw(result, RIKSBANK_ENUMERATE_OUTPUT)
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
-    await catalog.build()
+    catalog.build()
     return catalog
 
 

@@ -1,8 +1,5 @@
 # Probes where the expected code is NOT returned by catalog search (even at limit 500).
 # Use for retrieval-gap diagnostics only — do not mix into rerank or recall evals.
-#
-# Run: SDMX_RUN_EVALS=1 is not applicable; use rerank_search.py --allow-unretrievable
-# or a custom script. See notes on each probe.
 
 dataset_title_nl:
   - id: euro_yield_curve
@@ -22,19 +19,6 @@ dataset_title_nl:
     namespace: sdmx_datasets_ecb
     expected: "ECB|YC"
     notes: "Same retrieval gap as euro_yield_curve."
-
-series_dimension_label:
-  - id: hicp_france_geo
-    query: "geo: France"
-    namespace: sdmx_series_estat_prc_hicp_manr
-    expected: "M.RCH_A.CP00.FR"
-    notes: "169 matches; headline CP00 not in top-500 without coicop narrowing."
-
-  - id: hicp_france_geo_cp00
-    query: "geo: France && coicop: All-items HICP"
-    namespace: sdmx_series_estat_prc_hicp_manr
-    expected: "M.RCH_A.CP00.FR"
-    notes: "Multi-clause structured search returns 0; coicop index mismatch."
 
 thresholds:
   min_required_recall: 0.0

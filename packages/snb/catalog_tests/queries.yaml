@@ -1,0 +1,19 @@
+catalog_url: hf://parsimony-dev/snb
+
+queries:
+  - id: code_gdp_financial
+    query: "code: gdppr#WMF.FI"
+    expected_code: gdppr#WMF.FI
+    mode: code
+    required: true
+    why: "Direct lookup on indexed code field"
+
+  - id: title_gdp_financial
+    query: "Financial activities gross domestic product"
+    expected_code: gdppr#WMF.FI
+    mode: title_bm25
+    required: true
+    why: "Lexical title probe"
+
+thresholds:
+  min_required_recall: 1.0

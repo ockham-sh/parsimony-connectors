@@ -144,13 +144,12 @@ def test_no_key_cases_cover_every_verb() -> None:
     assert {fn.name for fn, _ in _NO_KEY_CASES} == set(CONNECTORS.names())
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("connector_fn,kwargs", _NO_KEY_CASES, ids=[fn.name for fn, _ in _NO_KEY_CASES])
-async def test_missing_key_raises_unauthorized(connector_fn, kwargs, monkeypatch) -> None:
+def test_missing_key_raises_unauthorized(connector_fn, kwargs, monkeypatch) -> None:
     # Ensure no env fallback resolves a key.
     monkeypatch.delenv("ALPHA_VANTAGE_API_KEY", raising=False)
     with pytest.raises(UnauthorizedError) as exc_info:
-        await connector_fn(**kwargs)
+        connector_fn(**kwargs)
     assert exc_info.value.provider == "alpha_vantage"
     assert exc_info.value.env_var == "ALPHA_VANTAGE_API_KEY"
 
@@ -172,55 +171,50 @@ _INFO_RATE_LIMIT = (
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_in_body_note_maps_rate_limit() -> None:
+def test_in_body_note_maps_rate_limit() -> None:
     _mock({"Note": "Thank you for using Alpha Vantage! Our standard API rate limit is 25/day..."})
     with pytest.raises(RateLimitError) as exc_info:
-        await alpha_vantage_search.bind(api_key=_KEY)(keywords="x")
+        alpha_vantage_search.bind(api_key=_KEY)(keywords="x")
     assert exc_info.value.quota_exhausted is True
     assert _KEY not in str(exc_info.value)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_in_body_information_rate_limit_maps_rate_limit() -> None:
+def test_in_body_information_rate_limit_maps_rate_limit() -> None:
     # The real free-tier notice (rate-limit language) → RateLimitError.
     _mock({"Information": _INFO_RATE_LIMIT})
     with pytest.raises(RateLimitError) as exc_info:
-        await alpha_vantage_search.bind(api_key=_KEY)(keywords="x")
+        alpha_vantage_search.bind(api_key=_KEY)(keywords="x")
     assert exc_info.value.quota_exhausted is True
     assert _KEY not in str(exc_info.value)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_in_body_information_premium_only_maps_payment_required() -> None:
+def test_in_body_information_premium_only_maps_payment_required() -> None:
     # A premium-gate notice WITHOUT rate-limit language → PaymentRequiredError.
     _mock({"Information": "This is a premium endpoint. Please subscribe to a premium plan."})
     with pytest.raises(PaymentRequiredError) as exc_info:
-        await alpha_vantage_options.bind(api_key=_KEY)(symbol="IBM")
+        alpha_vantage_options.bind(api_key=_KEY)(symbol="IBM")
     assert exc_info.value.provider == "alpha_vantage"
     assert _KEY not in str(exc_info.value)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_in_body_error_message_maps_parse_error() -> None:
+def test_in_body_error_message_maps_parse_error() -> None:
     _mock({"Error Message": "Invalid API call. Please retry or visit the documentation."})
     with pytest.raises(ParseError) as exc_info:
-        await alpha_vantage_search.bind(api_key=_KEY)(keywords="x")
+        alpha_vantage_search.bind(api_key=_KEY)(keywords="x")
     assert exc_info.value.provider == "alpha_vantage"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_csv_in_body_information_maps_rate_limit() -> None:
+def test_csv_in_body_information_maps_rate_limit() -> None:
     # CSV endpoints return a JSON notice body (not CSV) on rate-limit.
     import json
 
     _mock(text=json.dumps({"Information": _INFO_RATE_LIMIT}))
     with pytest.raises(RateLimitError):
-        await alpha_vantage_ipo_calendar.bind(api_key=_KEY)()
+        alpha_vantage_ipo_calendar.bind(api_key=_KEY)()
 
 
 # ---------------------------------------------------------------------------
@@ -229,8 +223,7 @@ async def test_csv_in_body_information_maps_rate_limit() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_search_returns_rows_and_strips_key() -> None:
+def test_search_returns_rows_and_strips_key() -> None:
     _mock(
         {
             "bestMatches": [
@@ -245,7 +238,7 @@ async def test_search_returns_rows_and_strips_key() -> None:
             ]
         }
     )
-    result = await alpha_vantage_search.bind(api_key=_KEY)(keywords="apple")
+    result = alpha_vantage_search.bind(api_key=_KEY)(keywords="apple")
 
     assert result.provenance.source == "alpha_vantage_search"
     assert "api_key" not in result.provenance.params, "Theme-B: key leaked to provenance"
@@ -256,22 +249,19 @@ async def test_search_returns_rows_and_strips_key() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_search_empty_matches_raises_empty_data() -> None:
+def test_search_empty_matches_raises_empty_data() -> None:
     _mock({"bestMatches": []})
     with pytest.raises(EmptyDataError):
-        await alpha_vantage_search.bind(api_key=_KEY)(keywords="zzz")
+        alpha_vantage_search.bind(api_key=_KEY)(keywords="zzz")
 
 
-@pytest.mark.asyncio
-async def test_search_blank_keywords_raises_invalid_parameter() -> None:
+def test_search_blank_keywords_raises_invalid_parameter() -> None:
     with pytest.raises(InvalidParameterError):
-        await alpha_vantage_search.bind(api_key=_KEY)(keywords="   ")
+        alpha_vantage_search.bind(api_key=_KEY)(keywords="   ")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_quote_returns_single_row() -> None:
+def test_quote_returns_single_row() -> None:
     _mock(
         {
             "Global Quote": {
@@ -288,7 +278,7 @@ async def test_quote_returns_single_row() -> None:
             }
         }
     )
-    result = await alpha_vantage_quote.bind(api_key=_KEY)(symbol="IBM")
+    result = alpha_vantage_quote.bind(api_key=_KEY)(symbol="IBM")
     df = result.data
     assert len(df) == 1
     assert df.iloc[0]["symbol"] == "IBM"
@@ -297,11 +287,10 @@ async def test_quote_returns_single_row() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_quote_empty_raises_empty_data() -> None:
+def test_quote_empty_raises_empty_data() -> None:
     _mock({"Global Quote": {}})
     with pytest.raises(EmptyDataError):
-        await alpha_vantage_quote.bind(api_key=_KEY)(symbol="NOPE")
+        alpha_vantage_quote.bind(api_key=_KEY)(symbol="NOPE")
 
 
 def _ohlcv_body(ts_key: str) -> dict:
@@ -320,7 +309,6 @@ def _ohlcv_body(ts_key: str) -> dict:
 
 
 @respx.mock
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "fn,ts_key",
     [
@@ -330,9 +318,9 @@ def _ohlcv_body(ts_key: str) -> dict:
     ],
     ids=["daily", "weekly", "monthly"],
 )
-async def test_ohlcv_series_inject_symbol_and_drop_meta(fn, ts_key) -> None:
+def test_ohlcv_series_inject_symbol_and_drop_meta(fn, ts_key) -> None:
     _mock(_ohlcv_body(ts_key))
-    result = await fn.bind(api_key=_KEY)(symbol="AAPL")
+    result = fn.bind(api_key=_KEY)(symbol="AAPL")
     df = result.data
     # Symbol injected (raw payload has no symbol row field); Meta Data dropped.
     assert set(df.columns) == {"symbol", "date", "open", "high", "low", "close", "volume"}
@@ -341,8 +329,7 @@ async def test_ohlcv_series_inject_symbol_and_drop_meta(fn, ts_key) -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_intraday_uses_timestamp_and_injects_symbol() -> None:
+def test_intraday_uses_timestamp_and_injects_symbol() -> None:
     _mock(
         {
             "Meta Data": {"2. Symbol": "AAPL"},
@@ -357,18 +344,17 @@ async def test_intraday_uses_timestamp_and_injects_symbol() -> None:
             },
         }
     )
-    result = await alpha_vantage_intraday.bind(api_key=_KEY)(symbol="AAPL", interval="60min")
+    result = alpha_vantage_intraday.bind(api_key=_KEY)(symbol="AAPL", interval="60min")
     df = result.data
     assert "timestamp" in df.columns
     assert df.iloc[0]["symbol"] == "AAPL"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_daily_empty_raises_empty_data() -> None:
+def test_daily_empty_raises_empty_data() -> None:
     _mock({"Meta Data": {}})
     with pytest.raises(EmptyDataError):
-        await alpha_vantage_daily.bind(api_key=_KEY)(symbol="IBM")
+        alpha_vantage_daily.bind(api_key=_KEY)(symbol="IBM")
 
 
 # ---------------------------------------------------------------------------
@@ -377,10 +363,9 @@ async def test_daily_empty_raises_empty_data() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_overview_returns_single_keyed_row() -> None:
+def test_overview_returns_single_keyed_row() -> None:
     _mock({"Symbol": "IBM", "Name": "International Business Machines", "Sector": "TECHNOLOGY", "PERatio": "None"})
-    result = await alpha_vantage_overview.bind(api_key=_KEY)(symbol="IBM")
+    result = alpha_vantage_overview.bind(api_key=_KEY)(symbol="IBM")
     df = result.data
     assert len(df) == 1
     assert df.iloc[0]["Symbol"] == "IBM"
@@ -390,15 +375,13 @@ async def test_overview_returns_single_keyed_row() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_overview_empty_raises_empty_data() -> None:
+def test_overview_empty_raises_empty_data() -> None:
     _mock({})
     with pytest.raises(EmptyDataError):
-        await alpha_vantage_overview.bind(api_key=_KEY)(symbol="IBM")
+        alpha_vantage_overview.bind(api_key=_KEY)(symbol="IBM")
 
 
 @respx.mock
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "fn,key",
     [
@@ -408,30 +391,29 @@ async def test_overview_empty_raises_empty_data() -> None:
     ],
     ids=["income", "balance", "cashflow"],
 )
-async def test_statements_return_period_rows_keyed_by_symbol(fn, key) -> None:
+def test_statements_return_period_rows_keyed_by_symbol(fn, key) -> None:
     _mock({key: [{"fiscalDateEnding": "2025-12-31", "totalRevenue": "1000"}]})
-    result = await fn.bind(api_key=_KEY)(symbol="IBM")
+    result = fn.bind(api_key=_KEY)(symbol="IBM")
     df = result.data
     assert df.iloc[0]["symbol"] == "IBM"
     assert df.iloc[0]["fiscalDateEnding"] == "2025-12-31"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_income_statement_empty_raises_empty_data() -> None:
+def test_income_statement_empty_raises_empty_data() -> None:
     _mock({"annualReports": []})
     with pytest.raises(EmptyDataError):
-        await alpha_vantage_income_statement.bind(api_key=_KEY)(symbol="IBM")
+        alpha_vantage_income_statement.bind(api_key=_KEY)(symbol="IBM")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_earnings_returns_quarterly_rows() -> None:
+def test_earnings_returns_quarterly_rows() -> None:
     _mock(
         {
             "quarterlyEarnings": [
                 {
                     "fiscalDateEnding": "2025-12-31",
+                    "reportedDate": "2026-01-21",
                     "reportedEPS": "2.10",
                     "estimatedEPS": "2.00",
                     "surprise": "0.10",
@@ -441,15 +423,14 @@ async def test_earnings_returns_quarterly_rows() -> None:
             ]
         }
     )
-    result = await alpha_vantage_earnings.bind(api_key=_KEY)(symbol="IBM")
+    result = alpha_vantage_earnings.bind(api_key=_KEY)(symbol="IBM")
     df = result.data
     assert df.iloc[0]["symbol"] == "IBM"
     assert df["reportedEPS"].notna().any()
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_etf_profile_returns_holding_rows() -> None:
+def test_etf_profile_returns_holding_rows() -> None:
     _mock(
         {
             "net_assets": "500000000000",
@@ -459,7 +440,7 @@ async def test_etf_profile_returns_holding_rows() -> None:
             ],
         }
     )
-    result = await alpha_vantage_etf_profile.bind(api_key=_KEY)(symbol="SPY")
+    result = alpha_vantage_etf_profile.bind(api_key=_KEY)(symbol="SPY")
     df = result.data
     assert df.iloc[0]["symbol"] == "SPY"
     assert set(df["holding_symbol"]) == {"AAPL", "MSFT"}
@@ -467,11 +448,10 @@ async def test_etf_profile_returns_holding_rows() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_etf_profile_empty_raises_empty_data() -> None:
+def test_etf_profile_empty_raises_empty_data() -> None:
     _mock({"net_assets": "0", "holdings": []})
     with pytest.raises(EmptyDataError):
-        await alpha_vantage_etf_profile.bind(api_key=_KEY)(symbol="SPY")
+        alpha_vantage_etf_profile.bind(api_key=_KEY)(symbol="SPY")
 
 
 # ---------------------------------------------------------------------------
@@ -480,8 +460,7 @@ async def test_etf_profile_empty_raises_empty_data() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fx_rate_returns_single_row() -> None:
+def test_fx_rate_returns_single_row() -> None:
     _mock(
         {
             "Realtime Currency Exchange Rate": {
@@ -496,7 +475,7 @@ async def test_fx_rate_returns_single_row() -> None:
             }
         }
     )
-    result = await alpha_vantage_fx_rate.bind(api_key=_KEY)(from_currency="USD", to_currency="EUR")
+    result = alpha_vantage_fx_rate.bind(api_key=_KEY)(from_currency="USD", to_currency="EUR")
     df = result.data
     assert len(df) == 1
     assert df.iloc[0]["from_currency"] == "USD"
@@ -504,7 +483,6 @@ async def test_fx_rate_returns_single_row() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "fn,ts_key",
     [
@@ -514,15 +492,9 @@ async def test_fx_rate_returns_single_row() -> None:
     ],
     ids=["fx_daily", "fx_weekly", "fx_monthly"],
 )
-async def test_fx_series_injects_pair_key(fn, ts_key) -> None:
-    _mock(
-        {
-            ts_key: {
-                "2026-04-18": {"1. open": "1.10", "2. high": "1.12", "3. low": "1.09", "4. close": "1.11"}
-            }
-        }
-    )
-    result = await fn.bind(api_key=_KEY)(from_symbol="EUR", to_symbol="USD")
+def test_fx_series_injects_pair_key(fn, ts_key) -> None:
+    _mock({ts_key: {"2026-04-18": {"1. open": "1.10", "2. high": "1.12", "3. low": "1.09", "4. close": "1.11"}}})
+    result = fn.bind(api_key=_KEY)(from_symbol="EUR", to_symbol="USD")
     df = result.data
     # The synthetic KEY (no `pair` field in the raw payload).
     assert df.iloc[0]["pair"] == "EUR/USD"
@@ -530,11 +502,10 @@ async def test_fx_series_injects_pair_key(fn, ts_key) -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_fx_daily_empty_raises_empty_data() -> None:
+def test_fx_daily_empty_raises_empty_data() -> None:
     _mock({"Time Series FX (Daily)": {}})
     with pytest.raises(EmptyDataError):
-        await alpha_vantage_fx_daily.bind(api_key=_KEY)(from_symbol="EUR", to_symbol="USD")
+        alpha_vantage_fx_daily.bind(api_key=_KEY)(from_symbol="EUR", to_symbol="USD")
 
 
 # ---------------------------------------------------------------------------
@@ -543,7 +514,6 @@ async def test_fx_daily_empty_raises_empty_data() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "fn,ts_key",
     [
@@ -553,7 +523,7 @@ async def test_fx_daily_empty_raises_empty_data() -> None:
     ],
     ids=["crypto_daily", "crypto_weekly", "crypto_monthly"],
 )
-async def test_crypto_series_injects_symbol_key(fn, ts_key) -> None:
+def test_crypto_series_injects_symbol_key(fn, ts_key) -> None:
     _mock(
         {
             "Meta Data": {"2. Digital Currency Code": "BTC"},
@@ -568,7 +538,7 @@ async def test_crypto_series_injects_symbol_key(fn, ts_key) -> None:
             },
         }
     )
-    result = await fn.bind(api_key=_KEY)(symbol="BTC", market="USD")
+    result = fn.bind(api_key=_KEY)(symbol="BTC", market="USD")
     df = result.data
     # Raw crypto rows carry NO symbol field — it must be injected from the param.
     assert df.iloc[0]["symbol"] == "BTC"
@@ -577,11 +547,10 @@ async def test_crypto_series_injects_symbol_key(fn, ts_key) -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_crypto_daily_empty_raises_empty_data() -> None:
+def test_crypto_daily_empty_raises_empty_data() -> None:
     _mock({"Time Series (Digital Currency Daily)": {}})
     with pytest.raises(EmptyDataError):
-        await alpha_vantage_crypto_daily.bind(api_key=_KEY)(symbol="BTC")
+        alpha_vantage_crypto_daily.bind(api_key=_KEY)(symbol="BTC")
 
 
 # ---------------------------------------------------------------------------
@@ -590,8 +559,7 @@ async def test_crypto_daily_empty_raises_empty_data() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_econ_returns_observation_rows() -> None:
+def test_econ_returns_observation_rows() -> None:
     _mock(
         {
             "name": "Real Gross Domestic Product",
@@ -600,7 +568,7 @@ async def test_econ_returns_observation_rows() -> None:
             "data": [{"date": "2025-12-31", "value": "23000.0"}, {"date": "2025-09-30", "value": "."}],
         }
     )
-    result = await alpha_vantage_econ.bind(api_key=_KEY)(function="REAL_GDP")
+    result = alpha_vantage_econ.bind(api_key=_KEY)(function="REAL_GDP")
     df = result.data
     assert df.iloc[0]["name"] == "REAL_GDP"
     assert df["value"].notna().any()
@@ -608,46 +576,41 @@ async def test_econ_returns_observation_rows() -> None:
     assert df["value"].isna().any()
 
 
-@pytest.mark.asyncio
-async def test_econ_bad_function_raises_invalid_parameter() -> None:
+def test_econ_bad_function_raises_invalid_parameter() -> None:
     with pytest.raises(InvalidParameterError):
-        await alpha_vantage_econ.bind(api_key=_KEY)(function="NOT_A_REAL_INDICATOR")
+        alpha_vantage_econ.bind(api_key=_KEY)(function="NOT_A_REAL_INDICATOR")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_econ_empty_raises_empty_data() -> None:
+def test_econ_empty_raises_empty_data() -> None:
     _mock({"name": "Real GDP", "data": []})
     with pytest.raises(EmptyDataError):
-        await alpha_vantage_econ.bind(api_key=_KEY)(function="REAL_GDP")
+        alpha_vantage_econ.bind(api_key=_KEY)(function="REAL_GDP")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_metal_spot_returns_single_row() -> None:
+def test_metal_spot_returns_single_row() -> None:
     _mock({"nominal": "Gold", "price": "2350.50", "timestamp": "2026-06-03"})
-    result = await alpha_vantage_metal_spot.bind(api_key=_KEY)(symbol="GOLD")
+    result = alpha_vantage_metal_spot.bind(api_key=_KEY)(symbol="GOLD")
     df = result.data
     assert df.iloc[0]["symbol"] == "GOLD"
     assert df["price"].notna().any()
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_metal_history_returns_price_rows() -> None:
+def test_metal_history_returns_price_rows() -> None:
     _mock({"data": [{"date": "2026-05-01", "price": "2340.0"}, {"date": "2026-04-01", "price": "."}]})
-    result = await alpha_vantage_metal_history.bind(api_key=_KEY)(symbol="GOLD", interval="monthly")
+    result = alpha_vantage_metal_history.bind(api_key=_KEY)(symbol="GOLD", interval="monthly")
     df = result.data
     assert df.iloc[0]["symbol"] == "GOLD"
     assert df["price"].notna().any()
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_metal_spot_empty_raises_empty_data() -> None:
+def test_metal_spot_empty_raises_empty_data() -> None:
     _mock({"nominal": "Gold"})
     with pytest.raises(EmptyDataError):
-        await alpha_vantage_metal_spot.bind(api_key=_KEY)(symbol="GOLD")
+        alpha_vantage_metal_spot.bind(api_key=_KEY)(symbol="GOLD")
 
 
 # ---------------------------------------------------------------------------
@@ -656,8 +619,7 @@ async def test_metal_spot_empty_raises_empty_data() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_news_returns_article_rows() -> None:
+def test_news_returns_article_rows() -> None:
     _mock(
         {
             "feed": [
@@ -674,29 +636,26 @@ async def test_news_returns_article_rows() -> None:
             ]
         }
     )
-    result = await alpha_vantage_news.bind(api_key=_KEY)(tickers="AAPL", limit=5)
+    result = alpha_vantage_news.bind(api_key=_KEY)(tickers="AAPL", limit=5)
     df = result.data
     assert df.iloc[0]["title"] == "Markets rally"
     assert df["overall_sentiment_score"].notna().any()
 
 
-@pytest.mark.asyncio
-async def test_news_bad_limit_raises_invalid_parameter() -> None:
+def test_news_bad_limit_raises_invalid_parameter() -> None:
     with pytest.raises(InvalidParameterError):
-        await alpha_vantage_news.bind(api_key=_KEY)(limit=0)
+        alpha_vantage_news.bind(api_key=_KEY)(limit=0)
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_news_empty_raises_empty_data() -> None:
+def test_news_empty_raises_empty_data() -> None:
     _mock({"feed": []})
     with pytest.raises(EmptyDataError):
-        await alpha_vantage_news.bind(api_key=_KEY)()
+        alpha_vantage_news.bind(api_key=_KEY)()
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_top_movers_returns_categorized_rows() -> None:
+def test_top_movers_returns_categorized_rows() -> None:
     _mock(
         {
             "top_gainers": [
@@ -708,23 +667,21 @@ async def test_top_movers_returns_categorized_rows() -> None:
             "most_actively_traded": [],
         }
     )
-    result = await alpha_vantage_top_movers.bind(api_key=_KEY)()
+    result = alpha_vantage_top_movers.bind(api_key=_KEY)()
     df = result.data
     assert set(df["category"]) == {"top_gainers", "top_losers"}
     assert df["change_percentage"].notna().any()
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_top_movers_empty_raises_empty_data() -> None:
+def test_top_movers_empty_raises_empty_data() -> None:
     _mock({"top_gainers": [], "top_losers": [], "most_actively_traded": []})
     with pytest.raises(EmptyDataError):
-        await alpha_vantage_top_movers.bind(api_key=_KEY)()
+        alpha_vantage_top_movers.bind(api_key=_KEY)()
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_options_returns_contract_rows() -> None:
+def test_options_returns_contract_rows() -> None:
     _mock(
         {
             "data": [
@@ -748,23 +705,21 @@ async def test_options_returns_contract_rows() -> None:
             ]
         }
     )
-    result = await alpha_vantage_options.bind(api_key=_KEY)(symbol="IBM")
+    result = alpha_vantage_options.bind(api_key=_KEY)(symbol="IBM")
     df = result.data
     assert df.iloc[0]["contractID"] == "IBM260101C00100000"
     assert df["strike"].notna().any()
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_options_empty_raises_empty_data() -> None:
+def test_options_empty_raises_empty_data() -> None:
     _mock({"data": []})
     with pytest.raises(EmptyDataError):
-        await alpha_vantage_options.bind(api_key=_KEY)(symbol="IBM")
+        alpha_vantage_options.bind(api_key=_KEY)(symbol="IBM")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_technical_injects_symbol_and_coerces_values() -> None:
+def test_technical_injects_symbol_and_coerces_values() -> None:
     _mock(
         {
             "Meta Data": {"1: Symbol": "AAPL"},
@@ -774,15 +729,14 @@ async def test_technical_injects_symbol_and_coerces_values() -> None:
             },
         }
     )
-    result = await alpha_vantage_technical.bind(api_key=_KEY)(symbol="AAPL", function="SMA")
+    result = alpha_vantage_technical.bind(api_key=_KEY)(symbol="AAPL", function="SMA")
     df = result.data
     assert df.iloc[0]["symbol"] == "AAPL"
     assert df["SMA"].notna().any()
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_technical_intraday_preserves_time_component() -> None:
+def test_technical_intraday_preserves_time_component() -> None:
     """Regression: TECHNICAL_OUTPUT.date is `datetime` (not `date`) so intraday
     intervals keep their time component (date would `dt.normalize()` to midnight)."""
     _mock(
@@ -794,7 +748,7 @@ async def test_technical_intraday_preserves_time_component() -> None:
             },
         }
     )
-    result = await alpha_vantage_technical.bind(api_key=_KEY)(
+    result = alpha_vantage_technical.bind(api_key=_KEY)(
         symbol="AAPL", function="SMA", interval="1min", time_period=20, series_type="close"
     )
     times = result.data["date"].dt.time.astype(str).tolist()
@@ -802,18 +756,16 @@ async def test_technical_intraday_preserves_time_component() -> None:
     assert set(times) == {"14:30:00", "14:29:00"}
 
 
-@pytest.mark.asyncio
-async def test_technical_bad_function_raises_invalid_parameter() -> None:
+def test_technical_bad_function_raises_invalid_parameter() -> None:
     with pytest.raises(InvalidParameterError):
-        await alpha_vantage_technical.bind(api_key=_KEY)(symbol="AAPL", function="NOPE")
+        alpha_vantage_technical.bind(api_key=_KEY)(symbol="AAPL", function="NOPE")
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_technical_empty_raises_empty_data() -> None:
+def test_technical_empty_raises_empty_data() -> None:
     _mock({"Meta Data": {}})
     with pytest.raises(EmptyDataError):
-        await alpha_vantage_technical.bind(api_key=_KEY)(symbol="AAPL", function="SMA")
+        alpha_vantage_technical.bind(api_key=_KEY)(symbol="AAPL", function="SMA")
 
 
 # ---------------------------------------------------------------------------
@@ -822,39 +774,36 @@ async def test_technical_empty_raises_empty_data() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_earnings_calendar_returns_rows() -> None:
+def test_earnings_calendar_returns_rows() -> None:
     csv = (
         "symbol,name,reportDate,fiscalDateEnding,estimate,currency\n"
         "IBM,International Business Machines,2026-07-20,2026-06-30,2.50,USD\n"
     )
     _mock(text=csv)
-    result = await alpha_vantage_earnings_calendar.bind(api_key=_KEY)(horizon="3month")
+    result = alpha_vantage_earnings_calendar.bind(api_key=_KEY)(horizon="3month")
     df = result.data
     assert df.iloc[0]["symbol"] == "IBM"
     assert df["reportDate"].notna().any()
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_ipo_calendar_returns_rows() -> None:
+def test_ipo_calendar_returns_rows() -> None:
     csv = (
         "symbol,name,ipoDate,priceRangeLow,priceRangeHigh,currency,exchange\n"
         "NEWCO,New Company,2026-07-01,18.0,20.0,USD,NASDAQ\n"
     )
     _mock(text=csv)
-    result = await alpha_vantage_ipo_calendar.bind(api_key=_KEY)()
+    result = alpha_vantage_ipo_calendar.bind(api_key=_KEY)()
     df = result.data
     assert df.iloc[0]["symbol"] == "NEWCO"
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_ipo_calendar_empty_raises_empty_data() -> None:
+def test_ipo_calendar_empty_raises_empty_data() -> None:
     # Header-only CSV → empty frame.
     _mock(text="symbol,name,ipoDate,priceRangeLow,priceRangeHigh,currency,exchange\n")
     with pytest.raises(EmptyDataError):
-        await alpha_vantage_ipo_calendar.bind(api_key=_KEY)()
+        alpha_vantage_ipo_calendar.bind(api_key=_KEY)()
 
 
 # ---------------------------------------------------------------------------
@@ -863,15 +812,14 @@ async def test_ipo_calendar_empty_raises_empty_data() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_returns_declared_columns() -> None:
+def test_enumerate_returns_declared_columns() -> None:
     csv = (
         "symbol,name,exchange,assetType,ipoDate,delistingDate,status\n"
         "AAPL,Apple Inc,NASDAQ,Stock,1980-12-12,null,Active\n"
         "MSFT,Microsoft Corp,NASDAQ,Stock,1986-03-13,null,Active\n"
     )
     _mock(text=csv)
-    result = await enumerate_alpha_vantage.bind(api_key=_KEY)(state="active")
+    result = enumerate_alpha_vantage.bind(api_key=_KEY)(state="active")
     df = result.data
     # Enumerator drops unmapped (delistingDate) and exact-matches the schema.
     assert set(df.columns) == {"symbol", "name", "exchange", "assetType", "ipoDate", "status"}
@@ -880,11 +828,10 @@ async def test_enumerate_returns_declared_columns() -> None:
 
 
 @respx.mock
-@pytest.mark.asyncio
-async def test_enumerate_bounds_row_count() -> None:
+def test_enumerate_bounds_row_count() -> None:
     # A synthetic 6001-row CSV must be capped to the head slice.
     header = "symbol,name,exchange,assetType,ipoDate,status\n"
     body = "".join(f"SYM{i},Name {i},NASDAQ,Stock,2000-01-01,Active\n" for i in range(6001))
     _mock(text=header + body)
-    result = await enumerate_alpha_vantage.bind(api_key=_KEY)(state="active")
+    result = enumerate_alpha_vantage.bind(api_key=_KEY)(state="active")
     assert len(result.data) == 5000

@@ -1,0 +1,19 @@
+catalog_url: hf://parsimony-dev/treasury
+
+queries:
+  - id: code_tbill_52wk
+    query: "code: home/daily_treasury_bill_rates#ROUND_B1_YIELD_52WK_2"
+    expected_code: home/daily_treasury_bill_rates#ROUND_B1_YIELD_52WK_2
+    mode: code
+    required: true
+    why: "Direct lookup on indexed code field"
+
+  - id: title_tbill_52wk
+    query: "52-Week Treasury Bill Coupon"
+    expected_code: home/daily_treasury_bill_rates#ROUND_B1_YIELD_52WK_2
+    mode: title_bm25
+    required: true
+    why: "Lexical title probe on hybrid title index"
+
+thresholds:
+  min_required_recall: 1.0

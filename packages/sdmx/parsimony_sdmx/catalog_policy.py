@@ -13,76 +13,9 @@ from parsimony.catalog.policy import (
     adaptive_field_index,
 )
 
-LABEL_SUFFIX = "_label"
-CODE_SUFFIX = "_code"
-DEFAULT_MAX_VALUES_PER_DIMENSION = 12
+from parsimony_sdmx.connectors._agencies import AgencyId
 
 sdmx_field_index = adaptive_field_index
-
-
-def _label_items(entry: Entity) -> list[tuple[str, str]]:
-    return [
-        (key.removesuffix(LABEL_SUFFIX), str(value).strip())
-        for key, value in entry.metadata.items()
-        if key.endswith(LABEL_SUFFIX) and value is not None and str(value).strip()
-    ]
-
-
-def derive_title_dimension_suffix(entry: Entity) -> str:
-    """Return ``"dim: label; ..."`` summary of an entry's SDMX label fields.
-
-    Used to augment series titles for hybrid (BM25 + vector) discovery; the
-    suffix is concatenated onto ``entry.title`` in :func:`sdmx_series_entries`.
-    Dimension names are the observed SDMX metadata keys without the
-    ``_label`` suffix and serve as human-readable schema hints, not lookup
-    codes.
-    """
-
-    return "; ".join(f"{name}: {value}" for name, value in _label_items(entry))
-
-
-def sdmx_series_entries(entries: Sequence[Entity], dim_codes: list[str]) -> list[Entity]:
-    """Return *entries* augmented with direct per-dimension metadata keys and composite title."""
-
-    out: list[Entity] = []
-    for entry in entries:
-        metadata = dict(entry.metadata)
-
-        for dim in dim_codes:
-            lbl_key = f"{dim}_label"
-            if lbl_key in entry.metadata:
-                metadata[dim] = entry.metadata[lbl_key]
-
-        composite = derive_title_dimension_suffix(entry)
-
-        augmented_title = entry.title
-        if composite and composite not in entry.title:
-            augmented_title = f"{entry.title} | {composite}"
-
-        out.append(
-            Entity(
-                namespace=entry.namespace,
-                code=entry.code,
-                title=augmented_title,
-                metadata=metadata,
-            )
-        )
-    return out
-
-
-def sdmx_series_indexes(
-    entries: Sequence[Entity],
-    dim_codes: list[str],
-) -> dict[str, CatalogIndex]:
-    """Return SDMX series indexes: hybrid or BM25 per field based on cardinality."""
-
-    indexes: dict[str, CatalogIndex] = {
-        "code": BM25Index(),
-        "title": sdmx_field_index("title", entries),
-    }
-    for dim in dim_codes:
-        indexes[dim] = sdmx_field_index(dim, entries)
-    return indexes
 
 
 def sdmx_datasets_indexes(
@@ -102,67 +35,70 @@ def sdmx_datasets_indexes(
     }
 
 
-def discover_dim_codes(entries: Sequence[Entity]) -> list[str]:
-    """Return sorted SDMX dimension IDs observed in series entry metadata."""
+def sdmx_codelist_indexes(entries: Sequence[Entity]) -> dict[str, CatalogIndex]:
+    """Return codelist catalog indexes — always hybrid on ``label`` for concept->code recall."""
 
-    dim_codes: set[str] = set()
-    for entry in entries:
-        for key in entry.metadata:
-            if key.endswith(LABEL_SUFFIX):
-                dim_codes.add(key.removesuffix(LABEL_SUFFIX))
-    return sorted(dim_codes)
+    from parsimony.catalog import BM25Index, HybridIndex, VectorIndex
+    from parsimony.embedder import SentenceTransformerEmbedder
+    from parsimony.ranking import ZScoreFusion
+
+    return {
+        "code": BM25Index(),
+        "label": HybridIndex(
+            components=[
+                BM25Index(),
+                VectorIndex(embedder=SentenceTransformerEmbedder()),
+            ],
+            fusion=ZScoreFusion(weights={"bm25": HYBRID_BM25_WEIGHT, "vector": HYBRID_VECTOR_WEIGHT}),
+        ),
+    }
 
 
-def sdmx_dimension_manifest(
-    entries: Sequence[Entity],
-    dim_codes: list[str],
+def dsd_summary_from_structure(
+    record: Any,
     *,
-    max_values_per_dimension: int = DEFAULT_MAX_VALUES_PER_DIMENSION,
+    agency: AgencyId | str,
 ) -> list[dict[str, Any]]:
-    """Build a compact, JSON-serializable manifest of searchable SDMX dimensions.
+    """Build JSON-serializable DSD summary for dataset catalog metadata."""
+    from parsimony_sdmx.connectors.codelist_namespace import codelist_namespace
 
-    Each dimension lists up to *max_values_per_dimension* distinct
-    ``(code, label)`` pairs in stable first-seen order. Blank codes or labels
-    are skipped.
-    """
+    summary: list[dict[str, Any]] = []
+    for dim in record.dimensions:
+        cl_id = dim.codelist_id
+        summary.append(
+            {
+                "dimension_id": dim.dimension_id,
+                "name": dim.name or dim.dimension_id,
+                "codelist_id": cl_id,
+                "codelist_namespace": codelist_namespace(agency, cl_id) if cl_id else None,
+                "code_count": dim.code_count,
+                "sample": [{"code": sample.code, "label": sample.label} for sample in dim.sample],
+            }
+        )
+    return summary
 
-    if max_values_per_dimension < 1:
-        raise ValueError("max_values_per_dimension must be >= 1")
 
-    manifest: list[dict[str, Any]] = []
-    for dim in dim_codes:
-        code_key = f"{dim}{CODE_SUFFIX}"
-        label_key = f"{dim}{LABEL_SUFFIX}"
-        seen: set[tuple[str, str]] = set()
-        values: list[dict[str, str]] = []
-        for entry in entries:
-            raw_code = entry.metadata.get(code_key)
-            raw_label = entry.metadata.get(label_key)
-            code = str(raw_code).strip() if raw_code is not None else ""
-            label = str(raw_label).strip() if raw_label is not None else ""
-            if not code or not label:
-                continue
-            pair = (code, label)
-            if pair in seen:
-                continue
-            seen.add(pair)
-            values.append({"code": code, "label": label})
-            if len(values) >= max_values_per_dimension:
-                break
-        manifest.append({"id": dim, "values": values})
-    return manifest
+def dsd_description_text(record: Any) -> str:
+    """Compact vocabulary text folded into dataset description for recall."""
+    parts: list[str] = []
+    for dim in record.dimensions:
+        dim_bits = [dim.name or dim.dimension_id]
+        if dim.codelist_id:
+            dim_bits.append(f"codelist={dim.codelist_id}")
+        if dim.sample:
+            labels = ", ".join(f"{s.label}" for s in dim.sample[:3])
+            dim_bits.append(f"examples: {labels}")
+        parts.append("; ".join(dim_bits))
+    return " | ".join(parts)
 
 
 __all__ = [
-    "DEFAULT_MAX_VALUES_PER_DIMENSION",
     "HYBRID_BM25_WEIGHT",
     "HYBRID_UNIQUE_VALUE_LIMIT",
     "HYBRID_VECTOR_WEIGHT",
-    "derive_title_dimension_suffix",
-    "discover_dim_codes",
-    "sdmx_dimension_manifest",
-    "sdmx_datasets_indexes",
+    "sdmx_codelist_indexes",
+    "dsd_description_text",
+    "dsd_summary_from_structure",
     "sdmx_field_index",
-    "sdmx_series_entries",
-    "sdmx_series_indexes",
+    "sdmx_datasets_indexes",
 ]

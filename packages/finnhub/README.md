@@ -40,16 +40,12 @@ Get a key at <https://finnhub.io>. Free tier: 60 calls/min.
 ## Quick start
 
 ```python
-import asyncio
 import os
 from parsimony_finnhub import load
 
-async def main():
-    connectors = load(api_key=os.environ["FINNHUB_API_KEY"])
-    result = await connectors["finnhub_quote"](symbol="AAPL")
-    print(result.data.head())
-
-asyncio.run(main())
+connectors = load(api_key=os.environ["FINNHUB_API_KEY"])
+result = connectors["finnhub_quote"](symbol="AAPL")
+print(result.data.head())
 ```
 
 The API key is declared as a secret (stripped from provenance) and bound off

@@ -41,10 +41,9 @@ from parsimony_treasury.catalog_build import CATALOG_NAMESPACE
 pytestmark = pytest.mark.integration
 
 
-@pytest.mark.asyncio
-async def test_treasury_fetch_debt_to_penny_live() -> None:
+def test_treasury_fetch_debt_to_penny_live() -> None:
     # debt_to_penny is a stable, high-traffic daily Fiscal Data dataset.
-    result = await treasury_fetch(
+    result = treasury_fetch(
         endpoint="v2/accounting/od/debt_to_penny",
         sort="-record_date",
         page_size=10,
@@ -65,10 +64,9 @@ async def test_treasury_fetch_debt_to_penny_live() -> None:
     assert df["tot_pub_debt_out_amt"].max() > 1e13, "debt magnitude implausibly small"
 
 
-@pytest.mark.asyncio
-async def test_treasury_rates_fetch_yield_curve_live() -> None:
+def test_treasury_rates_fetch_yield_curve_live() -> None:
     # 2024 is a complete, stable year for the par yield curve feed (XML path).
-    result = await treasury_rates_fetch(feed="daily_treasury_yield_curve", year=2024)
+    result = treasury_rates_fetch(feed="daily_treasury_yield_curve", year=2024)
 
     assert_provenance_shape(result, expected_source="treasury_rates_fetch", required_param_keys=["feed"])
     df = result.data
@@ -85,11 +83,10 @@ async def test_treasury_rates_fetch_yield_curve_live() -> None:
     assert list(df["feed"].unique()) == ["daily_treasury_yield_curve"]
 
 
-@pytest.mark.asyncio
-async def test_treasury_rates_fetch_bill_rates_live() -> None:
+def test_treasury_rates_fetch_bill_rates_live() -> None:
     # A second feed whose date column is INDEX_DATE (not NEW_DATE) — exercises
     # the alternate date-column branch of the XML parser against the real feed.
-    result = await treasury_rates_fetch(feed="daily_treasury_bill_rates", year=2024)
+    result = treasury_rates_fetch(feed="daily_treasury_bill_rates", year=2024)
 
     df = result.data
     assert not df.empty, "bill rates feed returned an empty DataFrame"
@@ -100,11 +97,10 @@ async def test_treasury_rates_fetch_bill_rates_live() -> None:
     assert df["record_date"].dtype.kind == "M"
 
 
-@pytest.mark.asyncio
-async def test_enumerate_treasury_live() -> None:
+def test_enumerate_treasury_live() -> None:
     # ONE metadata GET + an in-memory fan-out over the returned datasets. The
     # network cost is a single request; we do NOT embed/build a catalog here.
-    result = await enumerate_treasury()
+    result = enumerate_treasury()
 
     df = result.data
     # @enumerator: exact column match against the declared schema.
@@ -129,8 +125,7 @@ async def test_enumerate_treasury_live() -> None:
     assert entities[0].namespace == CATALOG_NAMESPACE
 
 
-@pytest.mark.asyncio
-async def test_treasury_search_over_bounded_catalog_live(tmp_path: Path) -> None:
+def test_treasury_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     """Exercise the search verb end-to-end over a small, locally-built catalog.
 
     Bounded by design: a full live ``build_treasury_catalog()`` embeds ~900
@@ -186,11 +181,11 @@ async def test_treasury_search_over_bounded_catalog_live(tmp_path: Path) -> None
     entries = entities_from_raw(df, TREASURY_ENUMERATE_OUTPUT)
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
-    await catalog.build()
+    catalog.build()
     out_dir = tmp_path / "treasury_catalog"
-    await catalog.save(out_dir)
+    catalog.save(out_dir)
 
-    result = await treasury_search(query="10 year treasury yield curve", limit=5, catalog_url=str(out_dir))
+    result = treasury_search(query="10 year treasury yield curve", limit=5, catalog_url=str(out_dir))
 
     assert_provenance_shape(result, expected_source="treasury_search", required_param_keys=["query"])
     sdf = result.data

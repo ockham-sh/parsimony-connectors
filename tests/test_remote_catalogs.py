@@ -43,37 +43,52 @@ def provider_spec(request: pytest.FixtureRequest):
     return PROVIDER_SPECS[request.param]
 
 
-@pytest.mark.asyncio
-async def test_provider_catalog_schema_and_probes(provider_spec) -> None:
+def test_provider_catalog_schema_and_probes(provider_spec) -> None:
     load_queries_file, _, _, validate_catalog = import_catalog_validate()
     url = catalog_url_override(provider_spec.default_url)
     queries_path = REPO_ROOT / provider_spec.queries_file
     query_set = load_queries_file(queries_path) if queries_path.exists() else None
-    report = await validate_catalog(
+    report = validate_catalog(
         url,
         query_set,
         allow_missing=allow_missing_remote(),
     )
     if report.skipped:
         pytest.skip(report.skip_reason)
-    assert report.schema_ok, f"{url} must be schema_version 4"
+    assert report.schema_ok, f"{url} must be schema_version 1"
     assert report.entry_count > 0
     if query_set is not None and query_set.queries:
         min_recall = query_set.thresholds.get("min_required_recall", 1.0)
         assert report.required_recall >= min_recall, report.probe_results
 
 
-@pytest.mark.asyncio
-async def test_sdmx_agency_datasets_catalog_schema() -> None:
+def test_sdmx_agency_datasets_catalog_schema() -> None:
     skip_unless_remote_catalogs()
     load_queries_file, _, SDMX_QUERIES_FILE, validate_catalog = import_catalog_validate()
     queries_path = REPO_ROOT / SDMX_QUERIES_FILE
     query_set = load_queries_file(queries_path) if queries_path.exists() else None
     root = catalog_url_override("hf://parsimony-dev/sdmx")
     url = f"{root}/sdmx_datasets_ecb"
-    report = await validate_catalog(
+    report = validate_catalog(
         url,
         query_set,
+        allow_missing=allow_missing_remote(),
+        catalog_root=root,
+    )
+    if report.skipped:
+        pytest.skip(report.skip_reason)
+    assert report.schema_ok
+    assert report.entry_count > 0
+
+
+def test_sdmx_codelist_catalog_schema() -> None:
+    skip_unless_remote_catalogs()
+    _, _, _, validate_catalog = import_catalog_validate()
+    root = catalog_url_override("hf://parsimony-dev/sdmx")
+    url = f"{root}/sdmx_codelist_ecb_cl_freq"
+    report = validate_catalog(
+        url,
+        None,
         allow_missing=allow_missing_remote(),
         catalog_root=root,
     )
