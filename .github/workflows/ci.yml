@@ -226,6 +226,15 @@ jobs:
           #   `standard-onnx` extra depends on optimum-onnx for OnnxEmbedder.
           #   Drop these ignores once optimum-onnx 0.2.0 (with transformers-5
           #   support) ships upstream and parsimony-core relocks.
+          # - CVE-2025-3000 (aliases PYSEC-2025-194 / GHSA-rrmf-rvhw-rf47):
+          #   memory corruption in `torch.jit.script`. NO fixed version exists
+          #   in any torch release — 2.12.0 (latest) is the most-patched build;
+          #   every other recent torch CVE is fixed by 2.10, this one never was,
+          #   so there is nothing to upgrade or pin to. torch is a transitive
+          #   embedding-backend dep (sentence-transformers via
+          #   parsimony-core[catalog]); the connectors only compute embeddings
+          #   and never call `torch.jit.script`, so the vulnerable path is
+          #   unreachable. Drop this ignore once upstream torch ships a fix.
           # Use uvx (isolated tool runtime) instead of `uv run --with` so
           # pip-audit doesn't try to materialize the workspace venv — which
           # would fail because the editable [tool.uv.sources] points at a
@@ -234,5 +243,6 @@ jobs:
             --ignore-vuln GHSA-4xh5-x5gv-qwph \
             --ignore-vuln PYSEC-2025-217 \
             --ignore-vuln CVE-2026-1839 \
+            --ignore-vuln CVE-2025-3000 \
             -r /tmp/audit-reqs.txt
 
