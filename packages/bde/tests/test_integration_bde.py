@@ -11,12 +11,12 @@ Run explicitly with::
 
     uv run pytest packages/bde -m integration
 
-**Bounded crawls only.** ``enumerate_bde`` normally pulls all seven catalog
-chapters (the CF / Financial-Accounts chapter alone is several thousand rows);
-the live test monkeypatches the chapter list down to a single small chapter so
-the crawl stays cheap. ``bde_search`` is covered against a locally-built 3-row
-fixture catalog rather than the published snapshot, so it never triggers a cold
-full enumerate + embed.
+**Bounded crawls only.** ``enumerate_bde`` normally pulls six catalog chapters
+(the CF / Financial-Accounts chapter alone is several thousand rows) plus the
+Bank Lending Survey ``pb.zip``; the live tests monkeypatch the chapter list down
+to a single small source so the crawl stays cheap. ``bde_search`` is covered
+against a locally-built 3-row fixture catalog rather than the published snapshot,
+so it never triggers a cold full enumerate + embed.
 """
 
 from __future__ import annotations
@@ -81,10 +81,58 @@ def test_bde_fetch_multi_series_single_request_live() -> None:
         assert sub["value"].notna().any(), f"{serie} has no real values"
 
 
+def test_bde_fetch_recovered_pb_series_live() -> None:
+    """A Bank Lending Survey series recovered from pb.zip (a real ``DPB…`` code,
+    NOT the un-fetchable ``PB_1_1.1`` alias) must be fetchable via listaSeries.
+    This is the whole point of the pb.zip recovery — the catalog key works."""
+    result = bde_fetch(key="DPBCOCCNFNOAPTOPN.T.ES", time_range="MAX")
+
+    df = result.data
+    assert list(df["key"].unique()) == ["DPBCOCCNFNOAPTOPN.T.ES"]
+    assert df["value"].notna().any(), "recovered BLS series has no real values"
+
+
+def test_bde_fetch_pb_alias_is_rejected_as_invalid_param_live() -> None:
+    """The raw catalog alias (``PB_1_1.1``) is NOT a fetchable code — BdE 412s
+    it. We surface that as InvalidParameterError carrying BdE's own message,
+    not a generic ProviderError."""
+    from parsimony.errors import InvalidParameterError
+
+    with pytest.raises(InvalidParameterError) as exc:
+        bde_fetch(key="PB_1_1.1")
+    assert "no existe" in str(exc.value).lower() or "PB_1_1.1" in str(exc.value)
+
+
+def test_enumerate_bde_recovers_bank_lending_survey_live(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bound the crawl to ONLY pb.zip (no CSV chapters) and verify the survey is
+    recovered as real fetchable ``DPB…`` codes — and that a sampled one fetches."""
+    monkeypatch.setattr(enumerate_module, "CATALOG_CHAPTERS", ())
+
+    df = enumerate_bde().data
+    assert not df.empty, "pb.zip recovery returned no rows"
+    assert (df["category"] == "Bank Lending Survey").all()
+    # Real fetchable codes, not the un-fetchable PB_x_y.z aliases.
+    assert df["key"].str.startswith("DPB").all(), "expected DPB-prefixed real codes"
+    assert (~df["key"].str.startswith("PB_")).all(), "un-fetchable alias leaked into keys"
+    # The alias is preserved as metadata for traceability.
+    assert df["alias"].str.startswith("PB_").any(), "alias metadata missing"
+    # Spot-check: a recovered code actually fetches.
+    sample = df.iloc[0]["key"]
+    fetched = bde_fetch(key=sample, time_range="MAX").data
+    assert fetched["value"].notna().any(), f"recovered code {sample} not fetchable"
+
+
 def test_enumerate_bde_bounded_single_chapter_live(monkeypatch: pytest.MonkeyPatch) -> None:
     """Crawl ONE real chapter (Interest Rates ``ti``, ~50 series) to verify the
-    live catalog CSV shape without pulling all seven chapters."""
+    live catalog CSV shape without pulling the other chapters or pb.zip."""
     monkeypatch.setattr(enumerate_module, "CATALOG_CHAPTERS", _BOUNDED_CHAPTERS)
+
+    def _no_pb(_fetcher: object) -> list[dict[str, str]]:
+        return []
+
+    monkeypatch.setattr(enumerate_module, "_fetch_pb_survey", _no_pb)
 
     result = enumerate_bde()
     df = result.data

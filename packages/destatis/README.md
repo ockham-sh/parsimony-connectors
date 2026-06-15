@@ -12,6 +12,22 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 | `enumerate_destatis` | enumerator | Enumerate GENESIS statistics and their tables (catalog indexing) by crawling `/statistics`, `/statistics/{code}/information`, and `/statistics/{code}/tables`. |
 | `destatis_search` | tool | Semantic-search the published Destatis catalog and map a natural-language query to a table code (feed it to `destatis_fetch(name=...)`). |
 
+## Coverage
+
+The keyless GENESIS-Online REST API exposes **3,009 predefined tables across 331 statistics**
+(prices, population, national accounts, labour, foreign trade, production, transport, health,
+environment, earnings, …). `enumerate_destatis` walks the authoritative path — `/statistics`
+then a per-statistic `/tables` fan-out — which is lossless (every statistic's table list comes
+back in full, no pagination cap, no table shared across statistics), so the catalog contains
+every fetchable table. Each table is itself multi-dimensional: `destatis_fetch` returns one row
+per (classification combination × period), with the classification dimensions preserved as
+columns. Time is parsed from the JSON-stat period keys (annual, monthly, quarterly, semester,
+reference-date, school-year — all normalized to ISO dates).
+
+The multidimensional **cube / custom-table** power-user surface of classic GENESIS is **not**
+part of this keyless API (it belonged to the retired registration-gated webservice) and is out
+of scope.
+
 ## Install
 
 ```bash

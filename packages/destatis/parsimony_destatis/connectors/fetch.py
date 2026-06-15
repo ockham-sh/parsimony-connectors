@@ -76,6 +76,50 @@ def _normalize_german_date(s: str) -> str:
     return s
 
 
+# GENESIS encodes the time axis as a dimension whose *category index keys* are
+# the period values themselves (the ``label`` is usually null). Those keys are
+# ISO-ish and frequency-dependent:
+#   ``2012``         year (JAHR)              ``2026-01``    year-month
+#   ``1999-12-31``   reference date (STAG/STAGV)
+#   ``2015-05P1M``   month, ISO-8601 duration (SMONAT)
+#   ``2015-04P3M``   quarter (SQUART)         ``2003-10P6M``  semester (SEMEST)
+#   ``2000-P1Y``     year / school-year (SLJAHR)
+# Crucially, name-lookalike dims are *classifications*, not the time axis:
+# ``MONAT`` keys are ``MONAT10`` (month-of-year) and ``QUARTG`` keys are
+# ``QUART3`` (quarter-of-year) — neither matches a period pattern, so they are
+# correctly excluded.
+_ISO_DURATION_RE = re.compile(r"^(\d{4})(?:-(\d{2}))?-?P\d+[DWMY]$")
+_PERIOD_RES = (
+    re.compile(r"^\d{4}$"),
+    re.compile(r"^\d{4}-\d{2}$"),
+    re.compile(r"^\d{4}-\d{2}-\d{2}$"),
+    _ISO_DURATION_RE,
+)
+
+
+def _looks_like_period(key: str) -> bool:
+    """Does a category-index key look like a time period (vs a classification)?"""
+    return any(p.match(key) for p in _PERIOD_RES)
+
+
+def _normalize_period(token: str) -> str:
+    """Coerce a GENESIS time-dimension key/label to the ISO ``YYYY-MM-DD`` period start."""
+    s = token.strip()
+    m = _ISO_DURATION_RE.match(s)
+    if m:
+        year, month = m.group(1), m.group(2)
+        return f"{year}-{month or '01'}-01"
+    if re.match(r"^\d{4}$", s):
+        return f"{s}-01-01"
+    if re.match(r"^\d{4}-\d{2}$", s):
+        return f"{s}-01"
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", s):
+        return s
+    # Legacy/defensive: the live API no longer sends German month/quarter labels
+    # at the table-data level, but tolerate them if a future table does.
+    return _normalize_german_date(s)
+
+
 def _parse_jsonstat(payload: dict[str, Any], table_code: str) -> pd.DataFrame:
     """Parse a JSON-stat 2.0 dataset into a long-format DataFrame."""
     label = str(payload.get("label") or table_code)
@@ -133,17 +177,25 @@ def _parse_jsonstat(payload: dict[str, Any], table_code: str) -> pd.DataFrame:
         dim_indices.append(ordered)
         dim_labels.append({str(k): str(v) for k, v in labels.items()})
 
-    def _is_time(idx: int, dim_id: str) -> bool:
-        upper = dim_id.upper()
-        return "ZEIT" in upper or upper in {"TIME", "JAHR", "MONAT", "QUARTAL"}
-
+    # Identify the time dimension by the *shape of its category keys*, not its
+    # name. GENESIS time dims (JAHR/STAG/STAGV/SEMEST/SMONAT/SQUART/SLJAHR) all
+    # carry period-shaped keys; name-lookalikes (MONAT="MONAT10",
+    # QUARTG="QUART3") are classifications. Pick the dimension whose keys are
+    # most period-shaped (majority), preferring the last such dim (GENESIS
+    # usually orders time last). NEVER fall back to dimension 0 — that is the
+    # constant ``statistic`` dim whose key is the table's statistic code (the
+    # old name-based code fell back to it and emitted that code as a bogus
+    # "year", hard-failing every STAG/SEMEST/SMONAT/SQUART table).
     time_dim_idx: int | None = None
-    for i, did in enumerate(dim_ids):
-        if _is_time(i, str(did)):
+    best_fraction = 0.0
+    for i in range(len(dim_ids)):
+        keys = dim_indices[i]
+        if not keys:
+            continue
+        fraction = sum(_looks_like_period(k) for k in keys) / len(keys)
+        if fraction >= 0.5 and fraction >= best_fraction:
+            best_fraction = fraction
             time_dim_idx = i
-            break
-    if time_dim_idx is None and dim_ids:
-        time_dim_idx = 0
 
     rows: list[dict[str, Any]] = []
     for flat_idx in range(total):
@@ -174,7 +226,9 @@ def _parse_jsonstat(payload: dict[str, Any], table_code: str) -> pd.DataFrame:
             cat_key = ordered[cat_pos] if 0 <= cat_pos < len(ordered) else ""
             cat_label = dim_labels[dim_pos].get(cat_key, cat_key)
             if dim_pos == time_dim_idx:
-                row["date"] = _normalize_german_date(cat_label or cat_key)
+                # The index key is the authoritative period (label is usually
+                # null); prefer it over the label.
+                row["date"] = _normalize_period(cat_key or cat_label)
             else:
                 row[dim_id] = cat_label or cat_key
 

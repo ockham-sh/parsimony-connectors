@@ -32,3 +32,5 @@ treasury_search = make_local_search_connector(
     ),
     output_columns=TREASURY_SEARCH_OUTPUT.columns,
 )
+
+__all__ = ["PARSIMONY_TREASURY_CATALOG_URL_ENV", "TREASURY_SEARCH_OUTPUT", "TreasurySearchParams", "treasury_search"]

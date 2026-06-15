@@ -1,12 +1,14 @@
 """Offline (respx-mocked) tests for the Banque de France connectors.
 
 BdF requires an api_key sent in the ``Authorization: Apikey <KEY>`` header.
-These tests fully cover every verb without touching the network:
+These tests cover every verb without touching the network:
 
-* ``bdf_fetch`` — happy path, header presence, EmptyData/ParseError guards,
-  invalid-key + no-key fast-fail, secret stripping.
-* ``enumerate_bdf`` — bounded crawl via the ``_list_datasets`` seam (no full
-  ~41K-row build), exact-column-match shape, populated metadata, no-key
+* ``bdf_fetch`` — happy path, header presence, period filtering, EmptyData /
+  Parse / InvalidParameter guards, no-key fast-fail, env fallback, secret
+  stripping.
+* ``enumerate_bdf`` — bounded crawl via the two export seams (datasets + the
+  single full ``series`` export — archetype A, never a 41k-row build), exact
+  column match, populated bilingual metadata, best-effort degradation, no-key
   fast-fail, secret stripping.
 * ``bdf_search`` — ranked retrieval over a tiny in-process fixture catalog
   (never a cold full build / network).
@@ -15,6 +17,7 @@ These tests fully cover every verb without touching the network:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pandas as pd
@@ -31,14 +34,11 @@ from parsimony.errors import (
 )
 from parsimony_test_support import CANARY_KEY, assert_no_secret_leak
 
-import parsimony_bdf
-from parsimony_bdf import (
-    BDF_ENUMERATE_OUTPUT,
-    CONNECTORS,
-    bdf_fetch,
-    enumerate_bdf,
-    load,
-)
+from parsimony_bdf import CONNECTORS, load
+from parsimony_bdf.connectors import enumerate as enum_mod
+from parsimony_bdf.connectors.enumerate import enumerate_bdf
+from parsimony_bdf.connectors.fetch import bdf_fetch
+from parsimony_bdf.outputs import BDF_ENUMERATE_OUTPUT, ENUMERATE_COLUMNS
 from parsimony_bdf.search import bdf_search
 
 _KEY = CANARY_KEY
@@ -48,67 +48,69 @@ _OBSERVATIONS_URL = f"{_BASE}/observations/exports/json"
 _DATASETS_URL = f"{_BASE}/webstat-datasets/exports/json"
 _SERIES_URL = f"{_BASE}/series/exports/json"
 
-# Real-shape Webstat observations payload (a flat JSON array of row objects,
-# one per observation — exactly what /observations/exports/json returns).
+# Real-shape observations payload (flat array, one object per observation, the
+# lean ``select`` projection the fetch connector requests).
 _BDF_OBS_JSON = [
     {
         "series_key": "EXR.M.USD.EUR.SP00.E",
-        "title_en": "USD/EUR exchange rate",
+        "title_en": "US dollar/Euro spot rate",
         "title_fr": "Taux de change USD/EUR",
-        "time_period": "2026-01",
         "time_period_start": "2026-01-01",
-        "time_period_end": "2026-01-31",
         "obs_value": 1.0832,
-        "obs_status": "A",
     },
     {
         "series_key": "EXR.M.USD.EUR.SP00.E",
-        "title_en": "USD/EUR exchange rate",
+        "title_en": "US dollar/Euro spot rate",
         "title_fr": "Taux de change USD/EUR",
-        "time_period": "2026-02",
         "time_period_start": "2026-02-01",
-        "time_period_end": "2026-02-28",
         "obs_value": 1.0874,
-        "obs_status": "A",
     },
 ]
 
-# Real-shape dataset-list payload (/webstat-datasets/exports/json).
+# Real-shape dataflow-stub payload (/webstat-datasets/exports/json).
 _BDF_DATASETS_JSON = [
     {
         "dataset_id": "EXR",
-        "description_en": "Exchange rates",
-        "description_fr": "Taux de change",
+        "name_en": "Exchange rates",
+        "name_fr": "Taux de change",
+        "description_en": "Euro foreign exchange reference rates.",
+        "description_fr": "Cours de change de référence de l'euro.",
         "series_count": 2,
-        "last_observation_date": "2026-02-01",
     },
 ]
 
-# Real-shape series-list payload (/series/exports/json?refine=dataset_id:EXR).
-# ``series_dimensions_and_values`` is a JSON-encoded *string* (not a nested
-# object), matching the real Webstat shape.
+# Real-shape series payload from the single full ``series`` export. ``path_en`` is
+# a JSON array (Webstat's real shape); ``title_long_*`` may be empty per row.
 _BDF_SERIES_JSON = [
     {
         "series_key": "EXR.M.USD.EUR.SP00.E",
+        "dataset_id": "EXR",
         "title_en": "US dollar/Euro spot rate",
         "title_fr": "Taux de change dollar US/Euro",
         "title_long_en": "US dollar (USD)/Euro (EUR) spot exchange rate, monthly average",
         "title_long_fr": "Taux de change dollar US (USD)/Euro (EUR), moyenne mensuelle",
+        "freq": "M",
+        "ref_area": "FR",
+        "source_agency": "ECB",
         "first_time_period_date": "1999-01-01",
         "last_time_period_date": "2026-02-01",
-        "source_agency": "Banque de France",
-        "series_dimensions_and_values": '{"FREQ": "M", "REF_AREA": "FR"}',
+        "path_en": ["Rates and prices/Exchange rates"],
+        "path_fr": ["Taux et cours/Taux de change"],
     },
     {
         "series_key": "EXR.M.GBP.EUR.SP00.E",
+        "dataset_id": "EXR",
         "title_en": "Pound sterling/Euro spot rate",
         "title_fr": "Taux de change livre sterling/Euro",
-        "title_long_en": "Pound sterling (GBP)/Euro (EUR) spot exchange rate, monthly average",
-        "title_long_fr": "Taux de change livre sterling (GBP)/Euro (EUR), moyenne mensuelle",
+        "title_long_en": "",
+        "title_long_fr": "",
+        "freq": "M",
+        "ref_area": "FR",
+        "source_agency": "ECB",
         "first_time_period_date": "1999-01-01",
         "last_time_period_date": "2026-02-01",
-        "source_agency": "Banque de France",
-        "series_dimensions_and_values": '{"FREQ": "M", "REF_AREA": "FR"}',
+        "path_en": ["Rates and prices/Exchange rates"],
+        "path_fr": ["Taux et cours/Taux de change"],
     },
 ]
 
@@ -146,7 +148,7 @@ def test_bdf_fetch_parses_json_response() -> None:
     df = result.data
     assert list(df.columns) == ["key", "title", "date", "value"]
     assert len(df) == 2
-    assert df.iloc[0]["title"] == "USD/EUR exchange rate"
+    assert df.iloc[0]["title"] == "US dollar/Euro spot rate"
     assert df["date"].dtype.kind == "M"  # declared dtype="datetime"
     assert df["value"].dtype.kind == "f"  # declared dtype="numeric"
     assert df["value"].tolist() == [1.0832, 1.0874]
@@ -184,6 +186,21 @@ def test_bdf_fetch_applies_period_filters_to_where_clause() -> None:
 
 
 @respx.mock
+def test_bdf_fetch_handles_null_obs_value() -> None:
+    # BdF marks missing observations with a null obs_value (OBS_STATUS=M).
+    payload = [
+        {"series_key": "X", "title_en": "X", "time_period_start": "2026-01-01", "obs_value": None},
+        {"series_key": "X", "title_en": "X", "time_period_start": "2026-01-02", "obs_value": 3.84},
+    ]
+    respx.get(_OBSERVATIONS_URL).mock(return_value=httpx.Response(200, json=payload))
+
+    df = bdf_fetch.bind(api_key=_KEY)(key="X").data
+    assert len(df) == 2
+    assert pd.isna(df.iloc[0]["value"])
+    assert df.iloc[1]["value"] == 3.84
+
+
+@respx.mock
 def test_bdf_fetch_raises_empty_data_on_empty_array() -> None:
     respx.get(_OBSERVATIONS_URL).mock(return_value=httpx.Response(200, json=[]))
 
@@ -215,6 +232,11 @@ def test_bdf_fetch_rejects_empty_key() -> None:
         bdf_fetch.bind(api_key=_KEY)(key="   ")
 
 
+def test_bdf_fetch_rejects_malformed_period() -> None:
+    with pytest.raises(InvalidParameterError):
+        bdf_fetch.bind(api_key=_KEY)(key="EXR.M.USD.EUR.SP00.E", start_period="2020")
+
+
 def test_bdf_fetch_no_key_fast_fails_unauthorized(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("BDF_API_KEY", raising=False)
     with pytest.raises(UnauthorizedError) as exc:
@@ -235,7 +257,7 @@ def test_bdf_fetch_env_fallback_supplies_key(monkeypatch: pytest.MonkeyPatch) ->
 
 
 # ---------------------------------------------------------------------------
-# enumerate_bdf  (bounded via the _list_datasets seam — never a full build)
+# enumerate_bdf  (bounded via the export seams — never a full 41k-row build)
 # ---------------------------------------------------------------------------
 
 
@@ -248,27 +270,32 @@ def test_enumerate_bdf_bounded_shape_and_metadata() -> None:
     df = result.data
 
     # @enumerator enforces an EXACT column match against the declared schema.
-    assert list(df.columns) == [c.name for c in BDF_ENUMERATE_OUTPUT.columns]
+    assert list(df.columns) == list(ENUMERATE_COLUMNS)
     # One dataset stub + two series rows.
     assert len(df) == 3
     entity_types = df["entity_type"].tolist()
     assert entity_types.count("dataset") == 1
     assert entity_types.count("series") == 2
 
-    # Dataset stub row.
     stub = df[df["entity_type"] == "dataset"].iloc[0]
     assert stub["code"] == "dataset:EXR"
     assert stub["dataset_id"] == "EXR"
+    assert "Exchange rates" in stub["description"]
 
     # Series rows carry REAL metadata, not blanks/constants (eia dead-metadata lesson).
     series = df[df["entity_type"] == "series"]
     assert set(series["code"]) == {"EXR.M.USD.EUR.SP00.E", "EXR.M.GBP.EUR.SP00.E"}
     assert series["title"].astype(str).str.len().gt(0).all()
     assert series["description"].astype(str).str.len().gt(0).all()
-    assert (series["frequency"] == "M").all()  # decoded from dimensions_json
+    assert (series["frequency"] == "M").all()
     assert (series["ref_area"] == "FR").all()
     assert series["source_agency"].astype(str).str.len().gt(0).all()
     assert series["first_time_period"].astype(str).str.len().gt(0).all()
+    # The breadcrumb path is carried (bilingual recall signal).
+    assert series["path"].astype(str).str.contains("Exchange rates").all()
+    # The description folds in the French title for cross-language recall.
+    usd = series[series["code"] == "EXR.M.USD.EUR.SP00.E"].iloc[0]
+    assert "dollar US" in usd["description"]
 
     # build_entities round-trips on the real-shape slice.
     entities = BDF_ENUMERATE_OUTPUT.build_entities(df)
@@ -279,25 +306,37 @@ def test_enumerate_bdf_bounded_shape_and_metadata() -> None:
 @respx.mock
 def test_enumerate_bdf_emits_stub_only_on_series_fetch_failure() -> None:
     respx.get(_DATASETS_URL).mock(return_value=httpx.Response(200, json=_BDF_DATASETS_JSON))
-    # Series fetch fails on every attempt — ThrottledJsonFetcher returns None,
-    # so the dataset stub is still emitted but the series rows are skipped.
+    # The series export fails on every attempt → None → stubs still emitted.
     respx.get(_SERIES_URL).mock(return_value=httpx.Response(500, text="boom"))
 
     result = enumerate_bdf.bind(api_key=_KEY)()
     df = result.data
 
-    assert list(df.columns) == [c.name for c in BDF_ENUMERATE_OUTPUT.columns]
+    assert list(df.columns) == list(ENUMERATE_COLUMNS)
     assert len(df) == 1
     assert df.iloc[0]["entity_type"] == "dataset"
 
 
 @respx.mock
-def test_enumerate_bdf_empty_catalog_when_dataset_list_fails() -> None:
+def test_enumerate_bdf_emits_series_only_when_dataset_list_fails() -> None:
+    # The two sources are independent: a failed dataflow list does NOT block the
+    # full series enumeration (the series table is the real universe).
     respx.get(_DATASETS_URL).mock(return_value=httpx.Response(500, text="boom"))
+    respx.get(_SERIES_URL).mock(return_value=httpx.Response(200, json=_BDF_SERIES_JSON))
 
-    result = enumerate_bdf.bind(api_key=_KEY)()
-    df = result.data
-    assert list(df.columns) == [c.name for c in BDF_ENUMERATE_OUTPUT.columns]
+    df = enumerate_bdf.bind(api_key=_KEY)().data
+    assert list(df.columns) == list(ENUMERATE_COLUMNS)
+    assert (df["entity_type"] == "series").all()
+    assert len(df) == 2
+
+
+@respx.mock
+def test_enumerate_bdf_empty_catalog_when_both_sources_fail() -> None:
+    respx.get(_DATASETS_URL).mock(return_value=httpx.Response(500, text="boom"))
+    respx.get(_SERIES_URL).mock(return_value=httpx.Response(500, text="boom"))
+
+    df = enumerate_bdf.bind(api_key=_KEY)().data
+    assert list(df.columns) == list(ENUMERATE_COLUMNS)
     assert df.empty
 
 
@@ -322,22 +361,22 @@ def test_enumerate_bdf_no_key_fast_fails_unauthorized(monkeypatch: pytest.Monkey
     assert exc.value.provider == "bdf"
 
 
-def test_enumerate_bdf_seam_is_monkeypatchable(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The _list_datasets seam can be swapped to bound the crawl in tests.
+def test_enumerate_bdf_series_seam_is_monkeypatchable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The _list_all_series seam can be swapped to bound the crawl in tests.
 
-    Patching it to return a small slice means only the per-dataset series
-    requests fire — never the full ~46-request, ~41K-row build.
+    Patching it means the full ~41k-row series export never fires — only the
+    dataset-list request (here mocked) and the patched slice are used.
     """
 
-    def _fake_datasets(_fetcher: object) -> list[dict[str, object]]:
-        return _BDF_DATASETS_JSON
+    def _fake_series(_fetcher: object) -> Any:
+        return _BDF_SERIES_JSON
 
-    monkeypatch.setattr(parsimony_bdf, "_list_datasets", _fake_datasets)
+    monkeypatch.setattr(enum_mod, "_list_all_series", _fake_series)
 
     with respx.mock:
-        # No dataset-list route registered — if the seam fired a real request
-        # respx would raise. Only the series route is needed.
-        respx.get(_SERIES_URL).mock(return_value=httpx.Response(200, json=_BDF_SERIES_JSON))
+        # No series route registered — if the seam fired a real request respx
+        # would raise. Only the dataset-list route is needed.
+        respx.get(_DATASETS_URL).mock(return_value=httpx.Response(200, json=_BDF_DATASETS_JSON))
         result = enumerate_bdf.bind(api_key=_KEY)()
 
     df = result.data
@@ -350,8 +389,8 @@ def test_enumerate_bdf_seam_is_monkeypatchable(monkeypatch: pytest.MonkeyPatch) 
 
 
 def _enumerate_rows() -> list[dict[str, str]]:
-    """Three real enumerator-shaped rows for a fixture catalog."""
-    base = {c.name: "" for c in BDF_ENUMERATE_OUTPUT.columns}
+    """Three real enumerator-shaped series rows for a fixture catalog."""
+    base: dict[str, str] = {name: "" for name in ENUMERATE_COLUMNS}
     return [
         {
             **base,
@@ -360,10 +399,9 @@ def _enumerate_rows() -> list[dict[str, str]]:
             "description": "US dollar (USD)/Euro (EUR) spot exchange rate, monthly average.",
             "entity_type": "series",
             "dataset_id": "EXR",
-            "series_key": "EXR.M.USD.EUR.SP00.E",
             "frequency": "M",
             "ref_area": "FR",
-            "source_agency": "Banque de France",
+            "source_agency": "ECB",
         },
         {
             **base,
@@ -372,10 +410,9 @@ def _enumerate_rows() -> list[dict[str, str]]:
             "description": "Harmonised index of consumer prices, France, annual rate of change.",
             "entity_type": "series",
             "dataset_id": "ICP",
-            "series_key": "ICP.M.FR.N.000000.4.ANR",
             "frequency": "M",
             "ref_area": "FR",
-            "source_agency": "Banque de France",
+            "source_agency": "ECB",
         },
         {
             **base,
@@ -384,16 +421,15 @@ def _enumerate_rows() -> list[dict[str, str]]:
             "description": "Residential property price index for France, quarterly.",
             "entity_type": "series",
             "dataset_id": "RPP",
-            "series_key": "RPP.Q.FR.N.A.D.00.0.0.0",
             "frequency": "Q",
             "ref_area": "FR",
-            "source_agency": "Banque de France",
+            "source_agency": "ECB",
         },
     ]
 
 
 def _build_fixture_catalog(out_dir: Path) -> None:
-    df = pd.DataFrame(_enumerate_rows(), columns=[c.name for c in BDF_ENUMERATE_OUTPUT.columns])
+    df = pd.DataFrame(_enumerate_rows(), columns=list(ENUMERATE_COLUMNS))
     entries = entities_from_raw(df, BDF_ENUMERATE_OUTPUT)
     catalog = Catalog("bdf", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)

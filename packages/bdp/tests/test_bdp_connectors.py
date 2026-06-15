@@ -1,9 +1,10 @@
-"""Happy-path + branch tests for the Banco de Portugal connectors.
+"""Offline tests for the Banco de Portugal connectors.
 
-BdP BPstat is public (no api_key); the template 401/429 contract does not
-apply. The mocks exercise the JSON-stat 2.0 response shape for ``bdp_fetch``
-and the (domains → datasets → detail) crawl for ``enumerate_bdp`` against a
-bounded, monkeypatched domain slice.
+BdP BPstat is public (no api_key); the template 401/429 contract does not apply.
+These mocks exercise the JSON-stat 2.0 response shape for ``bdp_fetch`` and the
+two-level paginated crawl for ``enumerate_bdp`` against a bounded, monkeypatched
+domain slice. Bilingual enrichment is a *build-time* concern (see
+``test_apply_enrichment``); the enumerator itself is crawl-only.
 """
 
 from __future__ import annotations
@@ -11,17 +12,17 @@ from __future__ import annotations
 from typing import Any
 
 import httpx
+import pandas as pd
 import pytest
 import respx
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 
-import parsimony_bdp
-from parsimony_bdp import (
-    BDP_ENUMERATE_OUTPUT,
-    CONNECTORS,
-    bdp_fetch,
-    enumerate_bdp,
-)
+from parsimony_bdp import CONNECTORS
+from parsimony_bdp.connectors import enumerate as enum_mod
+from parsimony_bdp.connectors._catalog import apply_enrichment
+from parsimony_bdp.connectors.enumerate import enumerate_bdp
+from parsimony_bdp.connectors.fetch import bdp_fetch
+from parsimony_bdp.outputs import BDP_ENUMERATE_OUTPUT, ENUMERATE_COLUMNS
 
 _DATASET_URL = "https://bpstat.bportugal.pt/data/v1/domains/11/datasets/ABC/"
 
@@ -32,8 +33,7 @@ _DATASET_URL = "https://bpstat.bportugal.pt/data/v1/domains/11/datasets/ABC/"
 
 
 def test_connectors_collection_exposes_expected_names() -> None:
-    names = {c.name for c in CONNECTORS}
-    assert names == {"bdp_fetch", "enumerate_bdp", "bdp_search"}
+    assert {c.name for c in CONNECTORS} == {"bdp_fetch", "enumerate_bdp", "bdp_search"}
 
 
 def test_bdp_fetch_namespace_hint() -> None:
@@ -48,10 +48,9 @@ def test_bdp_fetch_namespace_hint() -> None:
 def _json_stat(
     *,
     dates: list[str] | None = None,
-    values: list[float] | None = None,
+    values: list[float | None] | None = None,
     series: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """A minimal JSON-stat 2.0 dataset-detail payload matching the live shape."""
     dates = dates if dates is not None else ["2026-01-01", "2026-02-01"]
     values = values if values is not None else [100.0, 101.5]
     series = series if series is not None else [{"id": "s1", "label": "Consumer Prices"}]
@@ -74,7 +73,6 @@ def test_bdp_fetch_parses_json_stat_response() -> None:
     assert len(df) == 2
     assert df.iloc[0]["series_id"] == "s1"
     assert df.iloc[0]["title"] == "Consumer Prices"
-    # Real coercion: declared dtypes apply.
     assert df["date"].dtype.kind == "M"
     assert df["value"].dtype.kind == "f"
     assert df["value"].iloc[0] == pytest.approx(100.0)
@@ -102,13 +100,22 @@ def test_bdp_fetch_melts_multiple_series_single_request() -> None:
 
 
 @respx.mock
+def test_bdp_fetch_tolerates_null_value() -> None:
+    respx.get(_DATASET_URL).mock(
+        return_value=httpx.Response(200, json=_json_stat(values=[100.0, None]))
+    )
+    df = (bdp_fetch(domain_id=11, dataset_id="ABC")).data
+    assert df["value"].isna().any()
+    assert df["value"].notna().any()
+
+
+@respx.mock
 def test_bdp_fetch_drops_none_params_and_uppercases_lang() -> None:
     route = respx.get(_DATASET_URL).mock(return_value=httpx.Response(200, json=_json_stat()))
 
     bdp_fetch(domain_id=11, dataset_id="ABC")
 
     sent = route.calls.last.request
-    # fetch_json drops None-valued params — no series_ids/obs_since/obs_to leak.
     assert sent.url.params["lang"] == "EN"
     assert "series_ids" not in sent.url.params
     assert "obs_since" not in sent.url.params
@@ -141,7 +148,6 @@ def test_bdp_fetch_raises_empty_data_on_no_observations() -> None:
 
     with pytest.raises(EmptyDataError) as exc:
         bdp_fetch(domain_id=11, dataset_id="ABC")
-    # EmptyData carries query_params for parameter-adjustment hints (no DO NOT retry).
     assert exc.value.query_params["dataset_id"] == "ABC"
 
 
@@ -158,8 +164,6 @@ def test_bdp_fetch_raises_parse_error_on_non_dict_shape() -> None:
 def test_bdp_fetch_maps_404_to_provider_error() -> None:
     from parsimony.errors import ProviderError
 
-    # BPstat returns 404 (HTML body) for an unknown dataset; canonical mapping
-    # surfaces it as ProviderError(404).
     respx.get(_DATASET_URL).mock(return_value=httpx.Response(404, text="<html>Not Found</html>"))
 
     with pytest.raises(ProviderError) as exc:
@@ -177,115 +181,106 @@ def test_bdp_fetch_rejects_unknown_lang() -> None:
         bdp_fetch(domain_id=11, dataset_id="ABC", lang="fr")
 
 
+def test_bdp_fetch_rejects_malformed_period() -> None:
+    with pytest.raises(InvalidParameterError):
+        bdp_fetch(domain_id=11, dataset_id="ABC", start_date="01/2024")
+
+
 # ---------------------------------------------------------------------------
-# enumerate_bdp — bounded, mocked crawl
+# enumerate_bdp — bounded, mocked two-level paginated crawl
 # ---------------------------------------------------------------------------
 
-_DATASET_ID = "ds123"
-# A single small leaf domain to bound the offline crawl.
+_BASE = "https://bpstat.bportugal.pt/data/v1"
+_DOMAIN = 48
+_DS1 = "ds1hex"
+_DS2 = "ds2hex"
+
 _BOUNDED_DOMAINS = [
     {
-        "id": 48,
+        "id": _DOMAIN,
         "label": "Coincident indicators",
         "description": "Activity indicators",
         "has_series": True,
-        "num_series": 2,
-        "num_datasets": 1,
+        "num_series": 3,
+        "num_datasets": 2,
         "obs_updated_at": "2026-01-01",
     }
 ]
 
 
-def _mock_enumerate_routes() -> None:
-    base = "https://bpstat.bportugal.pt/data/v1"
-    # Dataset list under domain 48.
-    respx.get(f"{base}/domains/48/datasets/").mock(
+def _detail(series: list[dict[str, Any]], next_page: str | None = None) -> dict[str, Any]:
+    return {
+        "role": {"time": ["reference_date"]},
+        "dimension": {"reference_date": {"category": {"index": ["2026-01-01"]}}},
+        "value": [1.0] * len(series),
+        "extension": {"series": series, "next_page": next_page},
+    }
+
+
+def _ds_list(label: str, ds_id: str, n: int, next_page: str | None) -> dict[str, Any]:
+    """A one-item datasets-list page payload."""
+    item = {"label": label, "extension": {"id": ds_id, "num_series": n, "obs_updated_at": "2026-01-01"}}
+    return {"link": {"item": [item]}, "extension": {"next_page": next_page}}
+
+
+def _mock_two_level_crawl() -> None:
+    """A domain whose datasets list paginates (page1→page2) AND whose first
+    dataset detail paginates (page1→page2) — the two completeness levers."""
+    # Datasets list: page 1 (ds1) → next_page → page 2 (ds2), no further.
+    respx.get(f"{_BASE}/domains/{_DOMAIN}/datasets/", params={"page": "2"}).mock(
+        return_value=httpx.Response(200, json=_ds_list("Dataset two", _DS2, 1, None))
+    )
+    respx.get(f"{_BASE}/domains/{_DOMAIN}/datasets/").mock(
         return_value=httpx.Response(
             200,
-            json={
-                "link": {
-                    "item": [
-                        {
-                            "label": "Coincident indicators dataset",
-                            "extension": {
-                                "id": _DATASET_ID,
-                                "num_series": 2,
-                                "obs_updated_at": "2026-01-01",
-                            },
-                        }
-                    ]
-                }
-            },
+            json=_ds_list("Dataset one", _DS1, 2, f"{_BASE}/domains/{_DOMAIN}/datasets/?lang=EN&page=2"),
         )
     )
-    # Dataset detail (single page, two series).
-    respx.get(f"{base}/domains/48/datasets/{_DATASET_ID}/").mock(
+    # ds1 detail: page 1 (s1) → next_page → page 2 (s2).
+    respx.get(f"{_BASE}/domains/{_DOMAIN}/datasets/{_DS1}/", params={"page": "2"}).mock(
+        return_value=httpx.Response(200, json=_detail([{"id": "s2", "label": "Consumption coincident indicator"}]))
+    )
+    respx.get(f"{_BASE}/domains/{_DOMAIN}/datasets/{_DS1}/").mock(
         return_value=httpx.Response(
             200,
-            json={
-                "role": {"time": ["reference_date"]},
-                "dimension": {
-                    "reference_date": {
-                        "label": "Reference date",
-                        "category": {"index": ["2026-01-01", "2026-02-01"]},
-                    },
-                    "29": {"label": "Unit of measure", "category": {"label": {"u": "Percent"}}},
-                    "p": {"label": "Periodicity", "category": {"label": {"m": "Monthly"}}},
-                },
-                "value": [4.4, 4.2, 3.8, 3.6],
-                "extension": {
-                    "series": [
-                        {"id": "12099329", "label": "Activity coincident indicator"},
-                        {"id": "12099330", "label": "Consumption coincident indicator"},
-                    ],
-                    "next_page": None,
-                },
-            },
+            json=_detail(
+                [{"id": "s1", "label": "Activity coincident indicator"}],
+                next_page=f"{_BASE}/domains/{_DOMAIN}/datasets/{_DS1}/?lang=EN&page=2&page_size=100&obs_last_n=1",
+            ),
         )
     )
-    # PT-label sweep.
-    respx.get(f"{base}/series/").mock(
-        return_value=httpx.Response(
-            200,
-            json=[
-                {"id": "12099329", "label": "Indicador coincidente de atividade"},
-                {"id": "12099330", "label": "Indicador coincidente de consumo"},
-            ],
-        )
+    # ds2 detail: single page (s3).
+    respx.get(f"{_BASE}/domains/{_DOMAIN}/datasets/{_DS2}/").mock(
+        return_value=httpx.Response(200, json=_detail([{"id": "s3", "label": "Investment coincident indicator"}]))
     )
 
 
 @respx.mock
-def test_enumerate_bdp_bounded_crawl(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Crawl one mocked leaf domain; assert exact enumerator schema + real
-    content across domain/dataset/series rows."""
-    monkeypatch.setattr(
-        parsimony_bdp,
-        "_list_domains",
-        lambda fetcher: _async_return(_BOUNDED_DOMAINS),
-    )
-    _mock_enumerate_routes()
+def test_enumerate_bdp_two_level_paginated_crawl(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(enum_mod, "_list_domains", lambda fetcher: _async_return(_BOUNDED_DOMAINS))
+    _mock_two_level_crawl()
 
-    result = enumerate_bdp()
-    df = result.data
+    df = (enumerate_bdp()).data
 
-    # @enumerator enforces an EXACT column match against the declared schema.
-    assert list(df.columns) == [c.name for c in BDP_ENUMERATE_OUTPUT.columns]
-    # 1 domain row + 1 dataset row + 2 series rows.
-    assert len(df) == 4
+    # @enumerator enforces an EXACT column match.
+    assert list(df.columns) == list(ENUMERATE_COLUMNS)
+    # 1 domain + 2 datasets + 3 series (s1,s2 from ds1's two pages, s3 from ds2).
     assert set(df["entity_type"]) == {"domain", "dataset", "series"}
-
-    series_rows = df[df["entity_type"] == "series"]
-    assert len(series_rows) == 2
-    # Real content in declared metadata columns — not just column presence.
-    assert series_rows["title"].str.len().gt(0).all()
-    assert series_rows["description"].str.len().gt(0).all()
-    assert (series_rows["frequency"] == "Monthly").all()
-    assert (series_rows["units"] == "Percent").all()
-    # PT labels folded in.
-    assert series_rows["title_pt"].str.contains("coincidente").all()
-    # KEY shape: series codes are "{domain}:{dataset}:{series}".
-    assert (series_rows["code"] == f"48:{_DATASET_ID}:12099329").any()
+    assert (df["entity_type"] == "dataset").sum() == 2
+    series = df[df["entity_type"] == "series"]
+    assert set(series["code"]) == {
+        f"{_DOMAIN}:{_DS1}:s1",
+        f"{_DOMAIN}:{_DS1}:s2",
+        f"{_DOMAIN}:{_DS2}:s3",
+    }
+    # Datasets-list pagination fix: ds2 (page 2 of the list) is present.
+    assert any(df["code"] == f"dataset:{_DOMAIN}:{_DS2}")
+    # Dataset-detail pagination: s2 (page 2 of ds1's detail) is present.
+    assert any(series["code"] == f"{_DOMAIN}:{_DS1}:s2")
+    # Crawl-only: EN title, real description prose, empty PT/short_label.
+    assert series["title"].str.len().gt(0).all()
+    assert series["description"].str.contains("Banco de Portugal").all()
+    assert (series["title_pt"] == "").all()
     assert (df["source"] == "bpstat").all()
 
     # build_entities round-trips on the real slice (catalog-build entry point).
@@ -296,13 +291,62 @@ def test_enumerate_bdp_bounded_crawl(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @respx.mock
 def test_enumerate_bdp_empty_catalog_on_domains_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A failed /domains fetch yields a header-only frame with the declared
-    schema columns, not a crash."""
-    monkeypatch.setattr(parsimony_bdp, "_list_domains", lambda fetcher: _async_return([]))
+    monkeypatch.setattr(enum_mod, "_list_domains", lambda fetcher: _async_return([]))
 
     df = (enumerate_bdp()).data
     assert len(df) == 0
-    assert list(df.columns) == [c.name for c in BDP_ENUMERATE_OUTPUT.columns]
+    assert list(df.columns) == list(ENUMERATE_COLUMNS)
+
+
+# ---------------------------------------------------------------------------
+# Build-time bilingual enrichment (pure overlay)
+# ---------------------------------------------------------------------------
+
+
+def test_apply_enrichment_folds_bilingual_metadata() -> None:
+    base = dict.fromkeys(ENUMERATE_COLUMNS, "")
+    rows = [
+        {**base, "code": f"domain:{_DOMAIN}", "entity_type": "domain", "title": "Coincident", "description": "dom"},
+        {
+            **base,
+            "code": f"{_DOMAIN}:{_DS1}:s1",
+            "entity_type": "series",
+            "title": "Activity coincident indicator",
+            "description": "Activity coincident indicator. Banco de Portugal BPstat.",
+        },
+    ]
+    df = pd.DataFrame(rows, columns=list(ENUMERATE_COLUMNS))
+
+    enriched = apply_enrichment(
+        df,
+        enrich_en={
+            "s1": {
+                "label": "Activity coincident indicator",
+                "short_label": "Activity coinc. PT M",
+                "description": "Coincident indicators - Economic activity - Portugal - Monthly",
+            }
+        },
+        enrich_pt={
+            "s1": {
+                "label": "Indicador coincidente para a atividade",
+                "short_label": "",
+                "description": "Indicadores coincidentes - atividade economica - Portugal - Mensal",
+            }
+        },
+    )
+
+    # Input frame is not mutated (immutable overlay).
+    assert df.loc[1, "title_pt"] == ""
+
+    srow = enriched[enriched["entity_type"] == "series"].iloc[0]
+    assert srow["short_label"] == "Activity coinc. PT M"
+    assert srow["title_pt"] == "Indicador coincidente para a atividade"
+    # Both languages folded into the indexed description.
+    assert "Portugal" in srow["description"]
+    assert "Mensal" in srow["description"]
+    assert srow["description"].startswith("Activity coincident indicator")
+    # Stub rows pass through untouched.
+    assert (enriched[enriched["entity_type"] == "domain"]["title_pt"] == "").all()
 
 
 def _async_return(value: Any) -> Any:

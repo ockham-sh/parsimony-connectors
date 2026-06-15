@@ -1,6 +1,7 @@
 # parsimony-bdf
 
-Banque de France connector — French macroeconomic, monetary, and financial time series via the Webstat (Opendatasoft) API.
+Banque de France connector — French macroeconomic, monetary, and financial time
+series via the Webstat (Opendatasoft) API.
 
 Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connectors) monorepo. Distributed standalone on PyPI as `parsimony-bdf`.
 
@@ -8,8 +9,8 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 
 | Name | Kind | Description |
 |---|---|---|
-| `bdf_fetch` | connector | Fetch a Banque de France time series by SDMX key (e.g. `EXR.M.USD.EUR.SP00.E`). |
-| `enumerate_bdf` | enumerator | Enumerate every BdF series across all datasets (catalog discovery). |
+| `bdf_fetch` | connector | Fetch a Banque de France time series by SDMX key (e.g. `EXR.M.USD.EUR.SP00.E`), optionally bounded by `start_period`/`end_period`. |
+| `enumerate_bdf` | enumerator | Stream the full BdF series universe (~41.6k series across 45 dataflows) for catalog discovery. |
 | `bdf_search` | connector | Semantic-search the published BdF catalog snapshot; returns ranked series codes. |
 
 ## Install
@@ -68,11 +69,14 @@ connectors = discover.load_all()
 
 ## Catalogs
 
-`enumerate_bdf` discovers the full BdF series catalog (~46 requests fanning out
-over 45 datasets, ~41,607 series); maintainers build a `Catalog` snapshot from it
-(see `scripts/build_catalog.py`) and push it to the snapshot URL that `bdf_search`
-reads. The crawl is expensive, so it runs offline as a publish job — never at
-query time. Quota: 10,000 requests/day.
+The Webstat `series` dataset is a single flat queryable table, so `enumerate_bdf`
+discovers the **entire** universe in two requests: one `series/exports/json`
+export (~41.6k series) plus one `webstat-datasets` call for the 45 dataflow stub
+rows. Each series row carries English + French titles and a topic breadcrumb,
+folded into the catalog `description` for cross-language recall. Maintainers
+build a `Catalog` snapshot from it (`scripts/build_catalog.py`) and push it to
+the snapshot URL `bdf_search` reads — the build runs offline as a publish job,
+never at query time. Quota: 10,000 requests/day.
 
 ## Provider
 

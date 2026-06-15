@@ -2,7 +2,7 @@
 
 RBA is Akamai-protected, so the live transport is **curl_cffi** (browser
 impersonation) — plain httpx is TLS-fingerprint-blocked (403). These offline
-tests therefore mock curl_cffi (not httpx/respx): a fake ``AsyncSession.get``
+tests therefore mock curl_cffi (not httpx/respx): a fake ``Session.get``
 serves canned RBA payloads keyed by URL. The ``_FakeSession`` fixture below is
 the shared mock harness.
 """
@@ -21,6 +21,10 @@ from parsimony.errors import (
 )
 
 import parsimony_rba as pkg
+import parsimony_rba._http as rba_http
+import parsimony_rba.connectors.enumerate as rba_enum
+import parsimony_rba.outputs as rba_outputs
+import parsimony_rba.parsing as rba_parsing
 from parsimony_rba import (
     CONNECTORS,
     enumerate_rba,
@@ -84,9 +88,10 @@ class _FakeSession:
 
 
 def _install_session(monkeypatch: pytest.MonkeyPatch, routes: dict[str, Any]) -> _FakeSession:
-    """Patch ``_make_session`` to return a single shared ``_FakeSession``."""
+    """Patch ``_make_session`` (in ``parsimony_rba._http``, where the connectors look
+    it up) to return a single shared ``_FakeSession``."""
     session = _FakeSession(routes)
-    monkeypatch.setattr(pkg, "_make_session", lambda: session)
+    monkeypatch.setattr(rba_http, "_make_session", lambda: session)
     return session
 
 
@@ -285,7 +290,7 @@ def test_enumerate_rba_emits_description_table_id_unit_and_source(
     df = (enumerate_rba()).data
 
     # @enumerator enforces an EXACT column match against the declared schema.
-    assert list(df.columns) == list(pkg._ENUMERATE_COLUMNS)
+    assert list(df.columns) == list(rba_outputs._ENUMERATE_COLUMNS)
 
     f1 = df[df["series_id"] == "FIRMMCRTD"]
     assert len(f1) == 1
@@ -373,7 +378,7 @@ def test_enumerate_rba_bounding_seam_limits_fan_out(monkeypatch: pytest.MonkeyPa
     def _one_link(_session: Any) -> list[str]:
         return ["/statistics/tables/csv/f1-data.csv"]
 
-    monkeypatch.setattr(pkg, "_discover_csv_links", _one_link)
+    monkeypatch.setattr(rba_enum, "_discover_csv_links", _one_link)
     session = _install_session(
         monkeypatch,
         {
@@ -445,18 +450,22 @@ _TABLES_HTML_WITH_XLSX = """
 """
 
 
-def test_enumerate_rba_pulls_xlsx_exclusive_sub_sheet(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``a03.xlsx``'s Bond Purchase Program sheet holds series never
-    republished as a CSV. The enumerator must pick them up tagged
-    ``source='rba_xlsx'``; all other sheets are skipped to avoid duplicating
-    CSV content."""
+def test_enumerate_rba_xlsx_dynamic_exclusivity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Dynamic XLSX exclusivity: a current workbook's series are emitted ONLY when
+    not already covered by the CSV pass (no hardcoded sheet allow-list).
+
+    ``a03.xlsx``'s Bond Purchase Program sheet holds a series (``ALDBPPFVD``) never
+    republished as a CSV → it must be emitted tagged ``source='rba_xlsx'``. The
+    ``ES Balances`` sheet's series (``CSVDUP1``) *is* in the CSV pass, so the XLSX
+    pass must skip it (no duplicate row).
+    """
     xlsx_data = _make_xlsx_fixture(
         [
             (
                 "ES Balances and Repo Agreements",
                 _rba_metadata_rows(
-                    title="Should Be Skipped",
-                    description="CSV-duplicate sheet",
+                    title="ES Balances",
+                    description="Also published as a CSV",
                     unit="$m",
                     frequency="Daily",
                     series_id="CSVDUP1",
@@ -478,11 +487,24 @@ def test_enumerate_rba_pulls_xlsx_exclusive_sub_sheet(monkeypatch: pytest.Monkey
         ]
     )
 
+    # a1-data CSV declares CSVDUP1 — so the XLSX "ES Balances" sheet is a duplicate.
+    a1_csv = (
+        "A1 RESERVE BANK\n"
+        ",ES Balances\n"
+        "Title,ES Balances\n"
+        "Description,Exchange settlement balances\n"
+        "Frequency,Daily\n"
+        "Units,$m\n"
+        "Series ID,CSVDUP1\n"
+        "01-Jan-2026,100\n"
+        "02-Jan-2026,101\n"
+    )
+
     _install_session(
         monkeypatch,
         {
             _TABLES_URL: _FakeResponse(200, text=_TABLES_HTML_WITH_XLSX),
-            _csv_url("a1-data"): _FakeResponse(200, text=_F1_CSV.replace("F1 INTEREST RATES", "A1 RESERVE BANK")),
+            _csv_url("a1-data"): _FakeResponse(200, text=a1_csv),
             "https://www.rba.gov.au/statistics/tables/xls/a03.xlsx": _FakeResponse(200, content=xlsx_data),
             _HIST_URL: _FakeResponse(200, text="<html></html>"),
         },
@@ -490,6 +512,7 @@ def test_enumerate_rba_pulls_xlsx_exclusive_sub_sheet(monkeypatch: pytest.Monkey
 
     df = (enumerate_rba()).data
 
+    # The XLSX-exclusive Bond Purchase Program series is emitted (not in any CSV).
     bpp = df[df["series_id"] == "ALDBPPFVD"]
     assert len(bpp) == 1, "Bond Purchase Program series must be emitted exactly once"
     row = bpp.iloc[0]
@@ -499,8 +522,10 @@ def test_enumerate_rba_pulls_xlsx_exclusive_sub_sheet(monkeypatch: pytest.Monkey
     assert row["table_id"] == "a03/Bond Purchase Program"
     assert row["code"] == "a03/Bond Purchase Program#ALDBPPFVD"
 
-    # The non-allow-listed sheet must NOT contribute a row.
-    assert "CSVDUP1" not in set(df["series_id"])
+    # CSVDUP1 is covered by the CSV pass → the XLSX pass must NOT emit a duplicate.
+    dup = df[df["series_id"] == "CSVDUP1"]
+    assert len(dup) == 1, "covered series must appear once (from CSV, not duplicated by XLSX)"
+    assert dup.iloc[0]["source"] == "rba_csv"
 
 
 def test_enumerate_rba_pulls_xls_hist_discontinued_series(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -543,7 +568,7 @@ def test_enumerate_rba_pulls_xls_hist_discontinued_series(monkeypatch: pytest.Mo
         },
     )
 
-    monkeypatch.setattr(pkg, "_parse_xls_hist", fake_parse)
+    monkeypatch.setattr(rba_parsing, "_parse_xls_hist", fake_parse)
     df = (enumerate_rba()).data
 
     hist_rows = df[df["source"] == "rba_xlsx_hist"]
@@ -560,7 +585,7 @@ def test_metadata_from_header_rows_accepts_mnemonic_label() -> None:
     """The legacy ``xls-hist/zcr-analytical-series-hist.xls`` workbook
     labels its series ``Mnemonic`` instead of ``Series ID``. The shared
     parser must treat both tokens identically."""
-    from parsimony_rba import _metadata_from_header_rows
+    from parsimony_rba.parsing import _metadata_from_header_rows
 
     sheet_rows: list[list[object]] = [
         ["ZCR ANALYTICAL SERIES", "", ""],
@@ -585,36 +610,91 @@ def test_metadata_from_header_rows_accepts_mnemonic_label() -> None:
     assert all(r["table_id"] == "zcr-analytical/Forward rates" for r in rows)
 
 
-def test_parse_xlsx_exclusive_skips_sheets_outside_allowlist() -> None:
-    """``_parse_xlsx_exclusive`` must only emit rows from the explicit
-    allow-list (guards against double-counting CSV-republished series)."""
-    from parsimony_rba import _parse_xlsx_exclusive
+def test_parse_xlsx_workbook_exclusive_emits_only_uncovered_series() -> None:
+    """``_parse_xlsx_workbook_exclusive`` emits only series whose id is NOT already in
+    the covered (CSV-derived) set — dynamic exclusivity, no hardcoded allow-list."""
+    from parsimony_rba.parsing import _parse_xlsx_workbook_exclusive
 
     xlsx_bytes = _make_xlsx_fixture(
         [
             (
-                "In Allow List",
-                _rba_metadata_rows("Keep me", "Allow-listed sheet", "Per cent", "Daily", "KEEP1", 1.0),
+                "Sheet A",
+                _rba_metadata_rows("Covered", "Already in a CSV", "Per cent", "Daily", "COVERED1", 1.0),
             ),
             (
-                "Not In Allow List",
-                _rba_metadata_rows("Skip me", "Not allow-listed", "Per cent", "Daily", "SKIP1", 1.0),
+                "Sheet B",
+                _rba_metadata_rows("Exclusive", "XLSX-only series", "Per cent", "Daily", "EXCL1", 1.0),
             ),
+            ("Notes", [["Notes"], ["Some notes text"]]),
         ]
     )
 
-    rows = _parse_xlsx_exclusive(xlsx_bytes, table_id="example", allowed_sheets=("In Allow List",))
+    rows = _parse_xlsx_workbook_exclusive(xlsx_bytes, "example", covered_ids={"COVERED1"})
     ids = {r["series_id"] for r in rows}
-    assert ids == {"KEEP1"}
+    assert ids == {"EXCL1"}
     assert all(r["source"] == "rba_xlsx" for r in rows)
+    assert all(r["table_id"] == "example/Sheet B" for r in rows)
 
 
-def test_parse_xlsx_exclusive_returns_empty_on_invalid_bytes() -> None:
+def test_parse_xlsx_workbook_exclusive_returns_empty_on_invalid_bytes() -> None:
     """Malformed XLSX payloads must not crash the enumerator."""
-    from parsimony_rba import _parse_xlsx_exclusive
+    from parsimony_rba.parsing import _parse_xlsx_workbook_exclusive
 
-    rows = _parse_xlsx_exclusive(b"not-really-xlsx", table_id="bad", allowed_sheets=("Data",))
+    rows = _parse_xlsx_workbook_exclusive(b"not-really-xlsx", "bad", covered_ids=set())
     assert rows == []
+
+
+def test_melt_sheet_rows_handles_mnemonic_and_datetime_cells() -> None:
+    """``_melt_sheet_rows`` (the workbook-fetch melter) handles a ``Mnemonic`` id row,
+    datetime period cells (xlsx/xls), string period cells, and missing values."""
+    from datetime import datetime
+
+    from parsimony_rba.parsing import _melt_sheet_rows
+
+    rows: list[list[object]] = [
+        ["TABLE HEADING", "", ""],
+        ["Title", "Series One", "Series Two"],
+        ["Mnemonic", "AAA", "BBB"],
+        [datetime(2020, 1, 1), 1.5, 2.5],
+        ["2020-02-01", 3.0, None],
+    ]
+    df = _melt_sheet_rows(rows, "x/Sheet")
+    assert set(df["table_id"]) == {"x/Sheet"}
+    assert set(df["series_key"]) == {"AAA", "BBB"}
+    aaa = df[df["series_key"] == "AAA"].sort_values("date")
+    assert aaa["value"].tolist() == [1.5, 3.0]
+    assert "2020-01-01" in set(df["date"]), "datetime period cell not normalized"
+
+
+def test_rba_fetch_xlsx_exclusive_sheet(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``rba_fetch`` resolves a workbook+sheet table_id (``a03/Bond Purchase Program``)
+    to the XLSX host and melts that sheet's data — the closed CSV-only gap. No tables
+    index scrape is needed: the workbook URL is constructed directly from the stem."""
+    sheet_rows: list[list[object]] = [
+        ["BOND PURCHASE PROGRAM", "", ""],
+        ["Title", "Face Value", "Coupon"],
+        ["Description", "Face value of bonds", "Coupon rate"],
+        ["Frequency", "As required", "As required"],
+        ["Units", "$ million", "Per cent"],
+        ["Series ID", "ALDBPPFVD", "ALDBPPCP"],
+        ["2021-01-15", 500.0, 1.25],
+        ["2021-02-15", 750.0, 1.10],
+    ]
+    xlsx_data = _make_xlsx_fixture([("Bond Purchase Program", sheet_rows)])
+    _install_session(
+        monkeypatch,
+        {"https://www.rba.gov.au/statistics/tables/xls/a03.xlsx": _FakeResponse(200, content=xlsx_data)},
+    )
+
+    result = rba_fetch(table_id="a03/Bond Purchase Program")
+
+    assert result.provenance.source == "rba_fetch"
+    df = result.data
+    assert set(df["table_id"]) == {"a03/Bond Purchase Program"}
+    assert set(df["series_key"]) == {"ALDBPPFVD", "ALDBPPCP"}
+    fv = df[df["series_key"] == "ALDBPPFVD"].sort_values("date")
+    assert fv["value"].tolist() == [500.0, 750.0]
+    assert df["date"].dtype.kind == "M"
 
 
 # ---------------------------------------------------------------------------
@@ -636,7 +716,7 @@ def test_rba_fetch_raises_parse_error_on_unparseable_body(monkeypatch: pytest.Mo
             _csv_url("f1-data"): _FakeResponse(200, text="<html>garbage</html>"),
         },
     )
-    monkeypatch.setattr(pkg, "_parse_rba_csv", _boom)
+    monkeypatch.setattr(rba_parsing, "_parse_rba_csv", _boom)
 
     with pytest.raises(ParseError):
         rba_fetch(table_id="f1-data")

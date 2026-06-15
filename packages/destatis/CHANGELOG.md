@@ -4,6 +4,50 @@ All notable changes to `parsimony-destatis` will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] — 2026-06-09
+
+Full guidebook live-verification pass (catalog completeness + fetch coverage
+proven against the live GENESIS-Online REST API, not just documented).
+
+### Fixed
+
+- **`destatis_fetch` no longer hard-fails ~25 % of tables.** The JSON-stat time
+  axis was detected by dimension *name* (`ZEIT/JAHR/MONAT/QUARTAL`) with a
+  fallback to dimension 0 — which is the constant `statistic` dimension. Any
+  table whose time axis is named otherwise (`STAG`/`STAGV` reference dates,
+  `SEMEST` semesters, `SMONAT`/`SQUART` ISO-8601-duration month/quarter,
+  `SLJAHR` school years) emitted the *statistic code as a year* and raised
+  `ParseError: year <code> is out of range`. The detector now identifies the
+  time dimension by the **shape of its category keys** (the dimension whose keys
+  parse as periods), never falling back to dimension 0, and normalises every
+  period form — including ISO-8601 durations like `2015-05P1M` — to an ISO
+  `YYYY-MM-DD` start. Live-verified: 12/12 sampled tables across all frequencies
+  now fetch with real dates (was 9/12). The deceptive `MONAT`/`QUARTG`
+  month-/quarter-of-year *classifications* (keys `MONAT10`/`QUART3`) are
+  correctly **not** treated as the time axis.
+- **`enumerate_destatis` no longer drops a tableless statistic.** A statistic
+  whose `/tables` returns 404 and `/information` is empty (e.g. `61121`) is a
+  legitimate "zero tables", not a fetch failure — its statistic row is now
+  emitted from the index node rather than the statistic vanishing from the
+  catalog entirely.
+
+### Added
+
+- `catalog_tests/queries.yaml` — curated code + title search probes for the
+  recall gate (was missing).
+- Offline tests for key-shape time-dimension detection (reference-date /
+  ISO-duration / month-of-year-classification) and tableless-statistic
+  survival.
+
+### Verified (live, 2026-06-09)
+
+- Universe: **3,009 tables across 331 statistics** (0 cross-statistic duplicate
+  tables; max 132 tables/statistic; per-statistic `/tables` returns the full
+  list with no pagination cap). No fetchable-but-unlisted table exists (enum
+  gaps 404). The keyless REST API exposes **predefined tables only** — the
+  cube/custom-table surface is absent on this host (all `/cubes`,`/data/cube`,
+  `/metadata/*` paths 404) and out of scope by design.
+
 ## [0.5.0] — 2026-05-06
 ### Changed
 

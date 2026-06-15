@@ -6,6 +6,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from typing import Any
 
+import pandas as pd
 from parsimony.catalog import BM25Index, Catalog, CatalogIndex, Entity
 from parsimony.catalog.source import _dataframe_from_raw, entities_from_raw
 
@@ -94,6 +95,37 @@ def split_enumerated_entries(
     return databases, dict(series_by_db)
 
 
+def split_enumerated_df(
+    df: pd.DataFrame,
+) -> tuple[list[Entity], dict[str, list[Entity]]]:
+    """Split a raw enumerate DataFrame into databases + per-DB series entities.
+
+    Operates at the DataFrame level so each per-DB subset is converted to
+    entities independently. This prevents spurious "values vary within entity
+    key" errors when the same series code appears in multiple databases with
+    different breadcrumb/description values.
+    """
+    from parsimony_boj.outputs import BOJ_ENUMERATE_OUTPUT
+
+    db_mask = df["entity_type"] == "db"
+    db_df = df[db_mask].copy()
+    series_df = df[~db_mask].copy()
+
+    db_entities_raw: list[Entity] = entities_from_raw(db_df, BOJ_ENUMERATE_OUTPUT) if not db_df.empty else []
+    databases = [_database_entry(e) for e in db_entities_raw]
+
+    series_by_db: dict[str, list[Entity]] = {}
+    for raw_db_code, grp in series_df.groupby("db", sort=False):
+        if grp.empty:
+            continue
+        grp = grp.drop_duplicates(subset=["code"])
+        converted = [_series_entry(e, db_code=str(raw_db_code)) for e in entities_from_raw(grp, BOJ_ENUMERATE_OUTPUT)]
+        if converted:
+            series_by_db[str(raw_db_code)] = converted
+
+    return databases, series_by_db
+
+
 def databases_indexes(entries: Sequence[Entity]) -> dict[str, CatalogIndex]:
     return discovery_indexes(entries, include_description=True)
 
@@ -158,5 +190,6 @@ __all__ = [
     "entities_from_boj_enumeration",
     "series_indexes",
     "series_namespace",
+    "split_enumerated_df",
     "split_enumerated_entries",
 ]

@@ -38,7 +38,7 @@ from parsimony.catalog.policy import discovery_indexes
 from parsimony.catalog.source import entities_from_raw
 from parsimony_test_support import assert_provenance_shape
 
-import parsimony_rba
+import parsimony_rba.connectors.enumerate as rba_enum
 from parsimony_rba import RBA_ENUMERATE_OUTPUT, enumerate_rba, rba_fetch
 from parsimony_rba.search import rba_search
 
@@ -53,7 +53,7 @@ curl_cffi = pytest.importorskip(
 
 def _akamai_reachable() -> bool:
     """Probe the RBA tables index once; False if Akamai blocks this environment."""
-    from parsimony_rba import _make_session
+    from parsimony_rba._http import _make_session
 
     try:
         session = _make_session()
@@ -102,6 +102,43 @@ def test_rba_fetch_cash_rate_live() -> None:
     assert df["date"].notna().any(), "observation dates all NaT"
 
 
+def test_rba_fetch_xlsx_exclusive_bond_purchase_program_live() -> None:
+    """Q2: the XLSX-exclusive Bond Purchase Program sheet (catalogued ``rba_xlsx``,
+    table_id ``a03/Bond Purchase Program``) is now fetchable — it has no CSV, so the
+    prior CSV-only ``rba_fetch`` could not reach it."""
+    if not _akamai_reachable():
+        pytest.skip("⚠️ rba live skipped: Akamai blocks this environment even with curl_cffi")
+
+    result = rba_fetch(table_id="a03/Bond Purchase Program")
+
+    assert_provenance_shape(result, expected_source="rba_fetch", required_param_keys=["table_id"])
+    df = result.data
+    assert not df.empty, "Bond Purchase Program fetch returned no rows"
+    assert set(df["table_id"]) == {"a03/Bond Purchase Program"}
+    # Face value of bonds purchased under the BPP — a real BPP series id.
+    fv = df[df["series_key"] == "ALDBPPFVD"]
+    assert not fv.empty, "BPP face-value series ALDBPPFVD missing"
+    assert fv["value"].notna().any(), "BPP series carried no real values"
+    assert df["date"].dtype.kind == "M"
+
+
+def test_rba_fetch_xls_hist_discontinued_live() -> None:
+    """Q2: a legacy xls-hist table (``b03hist`` — discontinued repo agreements,
+    catalogued ``rba_xlsx_hist``) is now fetchable via the xls-hist host."""
+    if not _akamai_reachable():
+        pytest.skip("⚠️ rba live skipped: Akamai blocks this environment even with curl_cffi")
+
+    result = rba_fetch(table_id="b03hist")
+
+    assert_provenance_shape(result, expected_source="rba_fetch", required_param_keys=["table_id"])
+    df = result.data
+    assert not df.empty, "b03hist (xls-hist) fetch returned no rows"
+    assert set(df["table_id"]) == {"b03hist"}
+    assert df["value"].notna().any(), "xls-hist series carried no real values"
+    assert df["series_key"].astype(str).str.len().gt(0).all(), "blank series_key in xls-hist fetch"
+    assert df["date"].dtype.kind == "M"
+
+
 def test_enumerate_rba_bounded_live(monkeypatch: pytest.MonkeyPatch) -> None:
     """Crawl ONE real CSV (f1-data) to verify the live RBA CSV shape without the
     full ~250-request fan-out. A request counter asserts the bound held."""
@@ -118,9 +155,9 @@ def test_enumerate_rba_bounded_live(monkeypatch: pytest.MonkeyPatch) -> None:
         return []
 
     # Bound all three passes: one real CSV, and zero XLSX/xls-hist fetches.
-    monkeypatch.setattr(parsimony_rba, "_discover_csv_links", _one_link)
-    monkeypatch.setattr(parsimony_rba, "_discover_xlsx_stems", _no_xlsx)
-    monkeypatch.setattr(parsimony_rba, "_discover_xls_hist_stems", _no_xls_hist)
+    monkeypatch.setattr(rba_enum, "_discover_csv_links", _one_link)
+    monkeypatch.setattr(rba_enum, "_discover_xlsx_stems", _no_xlsx)
+    monkeypatch.setattr(rba_enum, "_discover_xls_hist_stems", _no_xls_hist)
 
     # Instrument curl_cffi Session.get so we can assert the bound held.
     from curl_cffi.requests import Session

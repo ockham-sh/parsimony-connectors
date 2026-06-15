@@ -313,14 +313,20 @@ def enumerate_destatis() -> pd.DataFrame:
 
         results = [_gather_one(s) for s in statistics]
 
-    failed: list[str] = []
+    degraded: list[str] = []
     for stat, info, tables_payload in results:
         stat_code = str(stat.get("code") or stat.get("Code") or "").strip()
         if not stat_code:
             continue
+        # A statistic with neither tables nor /information still EXISTS and must
+        # stay in the catalog. This covers the *tableless* statistic (e.g. 61121,
+        # whose /tables 404s and /information is empty) — its 404 is a legitimate
+        # "zero tables", not a fetch failure — as well as a genuinely transient
+        # double-failure. Either way we emit the statistic's own row from the
+        # index node (code/name/category/variables are all present there) rather
+        # than dropping it; only the operator log distinguishes the two.
         if info is None and tables_payload is None:
-            failed.append(stat_code)
-            continue
+            degraded.append(stat_code)
 
         rows.extend(
             _emit_rows_for_statistic(
@@ -330,12 +336,13 @@ def enumerate_destatis() -> pd.DataFrame:
             )
         )
 
-    if failed:
+    if degraded:
         logger.info(
-            "Destatis enumerate: %d/%d statistics failed metadata fetch: %s",
-            len(failed),
+            "Destatis enumerate: %d/%d statistics had no tables/description "
+            "(tableless or transient fetch failure); statistic row still emitted: %s",
+            len(degraded),
             len(statistics),
-            ", ".join(failed[:20]),
+            ", ".join(degraded[:20]),
         )
     else:
         logger.info("Destatis enumerate: %d statistics fetched successfully", len(statistics))

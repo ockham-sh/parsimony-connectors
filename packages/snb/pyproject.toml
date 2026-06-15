@@ -1,7 +1,7 @@
 [project]
 name = "parsimony-snb"
-version = "0.7.0"
-description = "Swiss National Bank connector for the parsimony framework"
+version = "0.8.0"
+description = "Swiss National Bank (SNB) connector for the parsimony framework"
 authors = [{ name = "Ockham.sh", email = "team@ockham.sh" }]
 license = "Apache-2.0"
 readme = "README.md"

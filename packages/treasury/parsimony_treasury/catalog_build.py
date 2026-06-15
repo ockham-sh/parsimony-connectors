@@ -6,7 +6,8 @@ from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
 from parsimony.catalog.source import entities_from_raw
 
-from parsimony_treasury import TREASURY_ENUMERATE_OUTPUT, enumerate_treasury
+from parsimony_treasury.connectors.enumerate import enumerate_treasury
+from parsimony_treasury.outputs import TREASURY_ENUMERATE_OUTPUT
 
 CATALOG_NAMESPACE = "treasury"
 

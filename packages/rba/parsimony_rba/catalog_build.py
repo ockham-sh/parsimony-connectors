@@ -6,7 +6,8 @@ from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
 from parsimony.catalog.source import entities_from_raw
 
-from parsimony_rba import RBA_ENUMERATE_OUTPUT, enumerate_rba
+from parsimony_rba.connectors.enumerate import enumerate_rba
+from parsimony_rba.outputs import RBA_ENUMERATE_OUTPUT
 
 CATALOG_NAMESPACE = "rba"
 

@@ -71,3 +71,9 @@ markers = [
     "slow: long-running test (subprocess / heavy I/O)",
     "eval: offline retrieval/catalog evaluation harness (opt-in)",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.4.0",
+]

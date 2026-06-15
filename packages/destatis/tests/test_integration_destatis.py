@@ -83,6 +83,30 @@ def test_destatis_fetch_year_range_live() -> None:
     assert df["value"].notna().any(), "no real values in the requested window"
 
 
+# A reference-date population table: its time axis is the ``STAG`` dimension
+# (keys like ``1999-12-31``), NOT ``JAHR``. The old name-based time detector
+# fell back to dim 0 (the constant ``statistic`` dim) and emitted the statistic
+# code ``12411`` as a "year" → ParseError. This locks the key-shape fix in live.
+_REFERENCE_DATE_TABLE = "12411-0001"
+
+
+def test_destatis_fetch_reference_date_table_live() -> None:
+    """A STAG (reference-date) table fetches with real ISO dates — the headline
+    time-dimension fix, verified against the live API (this whole class of table
+    hard-failed before the fix).
+    """
+    result = destatis_fetch(name=_REFERENCE_DATE_TABLE)
+    df = result.data
+    assert not df.empty, "reference-date table returned no rows"
+    assert df["date"].dtype.kind == "M", "STAG dates did not parse to datetimes"
+    assert df["date"].notna().any(), "all reference dates NaT"
+    years = df["date"].dropna().dt.year
+    # Real reference dates land in a plausible band — and crucially the statistic
+    # code (12411) never leaks in as a bogus year.
+    assert (years > 1800).all() and (years < 2100).all(), f"implausible years: {sorted(set(years))[:5]}"
+    assert df["value"].notna().any(), "no real population values"
+
+
 def test_enumerate_destatis_bounded_single_statistic_live(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

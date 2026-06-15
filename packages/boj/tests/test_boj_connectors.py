@@ -23,7 +23,6 @@ from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 from parsimony.result import ColumnRole
 from parsimony_shared.cb_enumerate import MetadataCrawlConfig
 
-import parsimony_boj
 from parsimony_boj import (
     BOJ_ENUMERATE_OUTPUT,
     CONNECTORS,
@@ -44,12 +43,14 @@ def _instant_metadata_crawl(monkeypatch: pytest.MonkeyPatch) -> None:
     ``time.sleep`` under respx. Zeroing the delays keeps every retry and
     backoff branch on the code path while making the suite instant.
     """
+    import parsimony_boj.connectors.enumerate as _enum_mod
+
     monkeypatch.setattr(
-        parsimony_boj,
-        "_METADATA_CRAWL",
+        _enum_mod,
+        "METADATA_CRAWL",
         MetadataCrawlConfig(
             inter_request_delay_s=0.0,
-            retry_statuses=parsimony_boj._METADATA_CRAWL.retry_statuses,
+            retry_statuses=_enum_mod.METADATA_CRAWL.retry_statuses,
             retry_backoffs_s=(0.0, 0.0, 0.0),
         ),
     )
@@ -230,6 +231,69 @@ def test_boj_fetch_rejects_too_many_codes() -> None:
     too_many = ",".join(f"C{i}" for i in range(251))
     with pytest.raises(InvalidParameterError, match="Maximum 250 codes"):
         boj_fetch(db="FM08", code=too_many)
+
+
+def _series_row(code: str, value: str) -> dict:
+    return {
+        "SERIES_CODE": code,
+        "NAME_OF_TIME_SERIES": f"Series {code}",
+        "FREQUENCY": "MONTHLY",
+        "VALUES": {"SURVEY_DATES": [202601], "VALUES": [value]},
+    }
+
+
+@respx.mock
+def test_boj_fetch_paginates_on_nextposition() -> None:
+    """A truncated response (HTTP 200 + ``NEXTPOSITION``) is resumed via
+    ``startPosition`` and all series are assembled — no silent data loss."""
+    page1 = {
+        "RESULTSET": [_series_row("S1", "1.0"), _series_row("S2", "2.0")],
+        "NEXTPOSITION": 3,
+        "STATUS": 200,
+        "MESSAGE": "Successfully completed",
+    }
+    page2 = {"RESULTSET": [_series_row("S3", "3.0")]}  # no NEXTPOSITION -> done
+    respx.get(_DATA_URL).mock(
+        side_effect=[httpx.Response(200, json=page1), httpx.Response(200, json=page2)]
+    )
+
+    result = boj_fetch(db="FM08", code="S1,S2,S3")
+    df = result.data
+
+    assert set(df["code"]) == {"S1", "S2", "S3"}, "pagination dropped series"
+    assert len(df) == 3
+
+
+@respx.mock
+def test_boj_fetch_pagination_stops_when_cursor_does_not_advance() -> None:
+    """A ``NEXTPOSITION`` that fails to advance halts the loop (no infinite
+    pagination). Exactly two responses are provided; a third request would make
+    respx raise, so success proves the loop stopped."""
+    page1 = {"RESULTSET": [_series_row("S1", "1.0")], "NEXTPOSITION": 2}
+    page2 = {"RESULTSET": [_series_row("S2", "2.0")], "NEXTPOSITION": 2}  # does NOT advance
+    respx.get(_DATA_URL).mock(
+        side_effect=[httpx.Response(200, json=page1), httpx.Response(200, json=page2)]
+    )
+
+    result = boj_fetch(db="FM08", code="S1,S2")
+    df = result.data
+    assert set(df["code"]) == {"S1", "S2"}
+
+
+def test_database_registry_is_complete_and_canonical() -> None:
+    """Floor + shape guards for the frozen archetype-C registry."""
+    from parsimony_boj.databases import _BOJ_DATABASES
+
+    codes = [c for c, _cat, _title in _BOJ_DATABASES]
+    assert len(_BOJ_DATABASES) == 50, "registry must hold exactly the 50 canonical DBs"
+    assert len(set(codes)) == 50, "duplicate DB code in the registry"
+    # The historical phantom BP02 must never reappear (the list once drifted).
+    assert "BP02" not in codes
+    # Spot-check the families the list once missed (FF/CO/BIS/DER/OT were added).
+    assert {"FF", "CO", "BIS", "DER", "OT", "FM01", "IR01"}.issubset(codes)
+    # Every entry is a well-formed (code, category, title) triple of non-empty strings.
+    for code, category, title in _BOJ_DATABASES:
+        assert code and category and title, f"malformed registry row for {code!r}"
 
 
 # ---------------------------------------------------------------------------

@@ -1,19 +1,55 @@
+# Curated search probes for the Banco de España (BdE) catalog.
+#
+# Single-bundle catalog (namespace ``bde``): ~15,635 series from 6 CSV chapters
+# (be, cf, ie, si, tc, ti) + Bank Lending Survey recovered from pb.zip.
+# Titles and descriptions are in Spanish — no English CSV variant exists.
+# With >1000 entries the adaptive index uses BM25-only, so code probes are
+# ``required`` and semantic-style title probes are ``optional``.
+#
+# Pass returned codes directly to bde_fetch(key=...).
+#
+# Regenerate drafts after a local build:
+#   uv run python tooling/validate_catalog.py --provider bde \
+#     --catalog-url file:///tmp/parsimony-catalogs/bde \
+#     --write-queries packages/bde/catalog_tests/queries.generated.yaml
+
 catalog_url: hf://parsimony-dev/bde
 
 queries:
-  - id: code_cfee_cash
-    query: "code: DMZ10S1100M.Q"
-    expected_code: DMZ10S1100M.Q
+  - id: code_euribor_1y
+    query: "code: D_1NBAF472"
+    expected_code: D_1NBAF472
     mode: code
     required: true
-    why: "Direct lookup on indexed code field"
+    why: "Direct lookup on indexed code field (one-year Euribor, a high-traffic monthly series)"
 
-  - id: title_cfee_cash
-    query: "CFEE SEC2010 Efectivo Seguros"
-    expected_code: DMZ10S1100M.Q
-    mode: title_bm25
+  - id: code_usdeur_fx
+    query: "code: DTCCBCEUSDEUR.B"
+    expected_code: DTCCBCEUSDEUR.B
+    mode: code
     required: true
-    why: "Lexical title probe"
+    why: "Direct lookup on a dotted daily FX code (USD/EUR ECB spot rate)"
+
+  - id: code_bls_dpb
+    query: "code: DPBCOCCNFNOAPTOPN.T.ES"
+    expected_code: DPBCOCCNFNOAPTOPN.T.ES
+    mode: code
+    required: true
+    why: "A Bank Lending Survey series recovered from pb.zip — proves DPB-prefixed codes are catalogued"
+
+  - id: title_euribor_spanish
+    query: "Euribor un año"
+    expected_code: D_1NBAF472
+    mode: title_bm25
+    optional: true
+    why: "Spanish lexical title probe; ranking may vary on the BM25-only title index"
+
+  - id: title_fx_dollar_euro
+    query: "tipo de cambio dólar euro"
+    expected_code: DTCCBCEUSDEUR.B
+    mode: title_bm25
+    optional: true
+    why: "Spanish lexical probe for the USD/EUR exchange rate series"
 
 thresholds:
   min_required_recall: 1.0

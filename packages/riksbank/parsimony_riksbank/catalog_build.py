@@ -8,7 +8,8 @@ from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
 from parsimony.catalog.source import entities_from_raw
 
-from parsimony_riksbank import RIKSBANK_ENUMERATE_OUTPUT, enumerate_riksbank
+from parsimony_riksbank.connectors.enumerate import enumerate_riksbank
+from parsimony_riksbank.outputs import RIKSBANK_ENUMERATE_OUTPUT
 
 CATALOG_NAMESPACE = "riksbank"
 _RIKSBANK_API_KEY_ENV = "RIKSBANK_API_KEY"

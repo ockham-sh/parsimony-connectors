@@ -26,8 +26,11 @@ snb_search = make_local_search_connector(
     build_catalog=build_snb_catalog,
     tags=["macro", "ch", "tool"],
     description=(
-        "Semantic-search the Swiss National Bank (SNB) data portal catalog. "
-        "Pass the cube_id portion (everything before #) to snb_fetch(cube_id=...)."
+        "Semantic-search the Swiss National Bank (SNB) data portal catalog — both "
+        "publication cubes and the SDMX-style data warehouse. Pass the cube_id "
+        "portion (everything before #) of a returned code to snb_fetch(cube_id=...)."
     ),
     output_columns=SNB_SEARCH_OUTPUT.columns,
 )
+
+__all__ = ["PARSIMONY_SNB_CATALOG_URL_ENV", "SNB_SEARCH_OUTPUT", "SnbSearchParams", "snb_search"]

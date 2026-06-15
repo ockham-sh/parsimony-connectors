@@ -21,7 +21,7 @@ from parsimony.errors import (
     UnauthorizedError,
 )
 
-import parsimony_rba as pkg
+import parsimony_rba._http as pkg
 
 
 class _FakeResponse:

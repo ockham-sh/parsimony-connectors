@@ -219,6 +219,102 @@ def test_destatis_fetch_all_null_values_maps_to_empty_data() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Time-dimension detection (the headline live fix)
+#
+# GENESIS marks the time axis as the dimension whose category-index KEYS are the
+# period values; ``role`` is absent and ``label`` is null. The first dim is
+# always the constant ``statistic`` dim. The detector must pick the time dim by
+# key shape, never by name (which misses STAG/SEMEST/SMONAT and false-matches
+# the MONAT/QUARTG month-/quarter-of-year classifications) and never fall back
+# to dim 0 (which emitted the statistic code as a bogus "year").
+# ---------------------------------------------------------------------------
+
+
+def _jsonstat(table_code: str, ids: list[str], index: dict[str, list[str]], value: list) -> dict:
+    """Build a minimal JSON-stat 2.0 ``{data:[ds]}`` envelope from ordered keys."""
+    return {
+        "data": [
+            {
+                "code": table_code,
+                "id": ids,
+                "size": [len(index[d]) for d in ids],
+                "value": value,
+                "dimension": {
+                    d: {"category": {"index": {k: i for i, k in enumerate(index[d])}}} for d in ids
+                },
+            }
+        ]
+    }
+
+
+@respx.mock
+def test_fetch_time_dim_is_reference_date_not_statistic_code() -> None:
+    """A reference-date (``STAG``) table: dims ``[statistic, STAG]``. The old
+    name-based detector fell back to dim 0 (``statistic``) and emitted the
+    statistic code ``12411`` as a year → ParseError. The key-shape detector
+    must pick ``STAG`` and parse the ISO dates.
+    """
+    fixture = _jsonstat(
+        "12411-0001",
+        ["statistic", "STAG"],
+        {"statistic": ["12411"], "STAG": ["1999-12-31", "2009-12-31", "2019-12-31"]},
+        [82.0, 81.8, 83.2],
+    )
+    respx.get(f"{_BASE}/tables/12411-0001/data").mock(return_value=httpx.Response(200, json=fixture))
+
+    df = (destatis_fetch(name="12411-0001")).data
+    assert df["date"].dtype.kind == "M"
+    assert set(pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")) == {
+        "1999-12-31",
+        "2009-12-31",
+        "2019-12-31",
+    }
+    # The statistic code never leaks into the date axis; it rides as its own col.
+    assert (df["statistic"] == "12411").all()
+
+
+@respx.mock
+def test_fetch_time_dim_iso_duration_period() -> None:
+    """A monthly (``SMONAT``) table keys time as ISO-8601 durations
+    (``2015-05P1M``); the period is normalised to its start month.
+    """
+    fixture = _jsonstat(
+        "42153-0001",
+        ["statistic", "SMONAT"],
+        {"statistic": ["42153"], "SMONAT": ["2015-05P1M", "2015-06P1M"]},
+        [100.1, 100.4],
+    )
+    respx.get(f"{_BASE}/tables/42153-0001/data").mock(return_value=httpx.Response(200, json=fixture))
+
+    df = (destatis_fetch(name="42153-0001")).data
+    assert set(pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")) == {"2015-05-01", "2015-06-01"}
+
+
+@respx.mock
+def test_fetch_month_of_year_classification_is_not_treated_as_time() -> None:
+    """A table with BOTH a ``MONAT`` month-of-year *classification*
+    (keys ``MONAT01``…) and a real ``JAHR`` time axis: the detector must pick
+    ``JAHR`` (period-shaped keys) for the date and keep ``MONAT`` as an ordinary
+    classification column — never the reverse.
+    """
+    fixture = _jsonstat(
+        "00000-0001",
+        ["statistic", "MONAT", "JAHR"],
+        {"statistic": ["00000"], "MONAT": ["MONAT01", "MONAT02"], "JAHR": ["2023", "2024"]},
+        # row-major over sizes [1,2,2]: (m0,j0),(m0,j1),(m1,j0),(m1,j1)
+        [1.0, 2.0, 3.0, 4.0],
+    )
+    respx.get(f"{_BASE}/tables/00000-0001/data").mock(return_value=httpx.Response(200, json=fixture))
+
+    df = (destatis_fetch(name="00000-0001")).data
+    # Dates are the real years, not the MONAT codes or the statistic code.
+    assert set(pd.to_datetime(df["date"]).dt.year) == {2023, 2024}
+    # MONAT survives as a classification column carrying its month-of-year codes.
+    assert "MONAT" in df.columns
+    assert set(df["MONAT"]) == {"MONAT01", "MONAT02"}
+
+
+# ---------------------------------------------------------------------------
 # Parameter validation
 # ---------------------------------------------------------------------------
 
@@ -374,24 +470,56 @@ def test_enumerate_destatis_lifts_parent_description_into_table_rows() -> None:
 
 
 @respx.mock
-def test_enumerate_destatis_handles_429_with_retry(
+def test_enumerate_destatis_keeps_statistic_when_subresources_fail(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Per-statistic 429s must not crash enumeration. After exhausting
-    retries we WARN and proceed; the schema stays rectangular.
+    """Per-statistic 429s must not crash enumeration AND must not drop the
+    statistic. After exhausting retries the statistic's own row is still
+    emitted from the index node (we have its code+name); only the tables/
+    description are missing. The operator log notes it as degraded.
     """
     _stub_index([{"code": "61111", "name": {"de": "VPI", "en": "CPI"}}])
     respx.get(f"{_BASE}/statistics/61111/information").mock(return_value=httpx.Response(429))
     respx.get(f"{_BASE}/statistics/61111/tables").mock(return_value=httpx.Response(429))
 
-    with caplog.at_level(logging.WARNING, logger="parsimony_destatis"):
+    with caplog.at_level(logging.INFO, logger="parsimony_destatis"):
         result = enumerate_destatis()
 
     df = result.data
     assert list(df.columns) == list(ENUMERATE_COLUMNS)
+    # The statistic survives as a single statistic row (no tables).
+    assert len(df) == 1
+    assert df.iloc[0]["code"] == "61111"
+    assert df.iloc[0]["entity_type"] == "statistic"
+    assert any("no tables/description" in r.message for r in caplog.records)
 
-    info_messages = [r.message for r in caplog.records]
-    assert any("fetch failed" in m.lower() for m in info_messages) or df.empty
+
+@respx.mock
+def test_enumerate_destatis_tableless_statistic_still_emitted(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A *tableless* statistic — live shape: ``/information`` is an empty list
+    and ``/tables`` 404s (e.g. 61121) — is a legitimate "zero tables", not a
+    fetch failure, and must still appear in the catalog as its own statistic
+    row. Previously such a statistic vanished entirely.
+    """
+    _stub_index([{"code": "61121", "name": {"de": "VPI Sonderauswertung", "en": "CPI special"}}])
+    respx.get(f"{_BASE}/statistics/61121/information").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+    respx.get(f"{_BASE}/statistics/61121/tables").mock(return_value=httpx.Response(404))
+
+    with caplog.at_level(logging.INFO, logger="parsimony_destatis"):
+        result = enumerate_destatis()
+
+    df = result.data
+    assert list(df.columns) == list(ENUMERATE_COLUMNS)
+    assert len(df) == 1
+    row = df.iloc[0]
+    assert row["code"] == "61121"
+    assert row["entity_type"] == "statistic"
+    assert row["title"] == "CPI special"
+    assert row["source"] == "genesis_online"
 
 
 @respx.mock
