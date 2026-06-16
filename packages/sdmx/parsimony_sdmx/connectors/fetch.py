@@ -38,6 +38,12 @@ _MAX_RETRIES = 2
 _RETRY_BASE_DELAY_SEC = 0.5
 _RETRY_MAX_DELAY_SEC = 4.0
 _FETCH_TIMEOUT_SEC = 45.0
+#: Upper bound on keys per batched ``sdmx_fetch`` call, and how many of them run at once.
+#: The cap keeps a single call from fanning out an unbounded request storm at one provider;
+#: the worker count keeps concurrency gentle while still collapsing a several-series fetch
+#: from sum-of-latencies down to slowest-single-latency.
+_MAX_BATCH_SERIES = 24
+_MAX_FETCH_WORKERS = 6
 
 #: Regex-style key validators — reject characters that could escape the SDMX
 #: URL path. SDMX uses ``.`` as the dimension separator and ``+`` as OR.
@@ -130,31 +136,64 @@ def _is_retryable(exc: BaseException) -> bool:
 @connector(tags=["sdmx"])
 def sdmx_fetch(
     dataset_ref: str,
-    series_ref: str,
+    series_ref: str | list[str],
     start_period: str | None = None,
     end_period: str | None = None,
 ) -> Any:
-    """Fetch an SDMX time series from the live agency endpoint.
+    """Fetch observations for one or several fully specified SDMX series of ONE flow.
 
-    Dataset_key format: ``{AGENCY}-{DATASET_ID}`` where AGENCY is one of the
-    supported SDMX sources (ECB, ESTAT, IMF_DATA, WB_WDI).
+    dataset_ref is the flow as AGENCY-DATASET_ID (agency in ECB, ESTAT, IMF_DATA, WB_WDI; e.g.
+    ECB-YC). series_ref is one complete key — every dimension filled, built positionally in
+    key_template order, no wildcards. Pass a LIST of keys of this same flow to fetch them
+    concurrently in one call instead of looping per key; start_period / end_period filter every
+    key's range.
 
-    Returns a tabular :class:`Result` with one row per observation, columns
-    series_key + title + per-dimension metadata + TIME_PERIOD + value.
-
-    Emits ``ProviderError`` on non-retryable transport failure,
-    ``EmptyDataError`` on empty observation set, ``ParseError`` when the
-    SDMX payload can't be reduced to the expected schema. Retries bounded
-    to :data:`_MAX_RETRIES` on transient 5xx / timeout / connect errors.
-    Never forwards raw upstream response bodies — they're a prompt-injection
-    surface when this tool is exposed to LLM agents.
+    Returns one row per observation: series_key, title, per-dimension codes, TIME_PERIOD, value;
+    series_key tells batched series apart. Raises ProviderError / EmptyDataError / ParseError if
+    ANY key fails — none silently dropped. A zombie cube (common on Eurostat) ⇒ move on. See the
+    sdmx_key_resolution skill.
     """
-    params = SdmxFetchParams(
-        dataset_key=dataset_ref,
-        series_key=series_ref,
-        start_period=start_period,
-        end_period=end_period,
-    )
+    keys = series_ref if isinstance(series_ref, list) else [series_ref]
+    if not keys:
+        raise InvalidParameterError("sdmx", "series_ref must name at least one series key")
+    if len(keys) > _MAX_BATCH_SERIES:
+        raise InvalidParameterError(
+            "sdmx", f"series_ref accepts at most {_MAX_BATCH_SERIES} keys per call; got {len(keys)}"
+        )
+    param_list = [
+        SdmxFetchParams(
+            dataset_key=dataset_ref,
+            series_key=key,
+            start_period=start_period,
+            end_period=end_period,
+        )
+        for key in keys
+    ]
+
+    if len(param_list) == 1:
+        return _fetch_one_series(param_list[0])
+
+    import pandas as pd
+
+    frames = _fetch_series_concurrently(param_list)
+    return pd.concat(frames, ignore_index=True)
+
+
+def _fetch_series_concurrently(param_list: list[SdmxFetchParams]) -> list[Any]:
+    """Fetch each series of a same-flow batch on its own thread, preserving request order.
+
+    Every key keeps its own per-series timeout budget and transient-retry handling, so one slow
+    round-trip cannot drag the others; the first failure (in request order) propagates, making the
+    batch all-or-nothing so no requested key is silently dropped.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=min(_MAX_FETCH_WORKERS, len(param_list))) as pool:
+        return list(pool.map(_fetch_one_series, param_list))
+
+
+def _fetch_one_series(params: SdmxFetchParams) -> Any:
+    """Fetch ONE series, budgeting the round-trip and retrying bounded transient transport errors."""
     attempt = 0
     while True:
         attempt += 1
@@ -194,10 +233,24 @@ def sdmx_fetch(
             status = 0
             if isinstance(exc, HTTPError):
                 status = getattr(getattr(exc, "response", None), "status_code", 0) or 0
+            detail = (str(exc).strip() or type(exc).__name__)[:200]
+            if 400 <= status < 500 and status != 429:
+                hint = (
+                    f"HTTP {status}: the provider rejected the key — a code in "
+                    f"{params.series_key!r} is not valid or not populated for this flow. This is a bad-key "
+                    "error, not a network failure: re-check each dimension's code against the DSD, or call "
+                    "enumerate_sdmx_series to list the keys this flow actually populates, then retry. The "
+                    "flow is reachable; do not switch flows or providers on this alone."
+                )
+            else:
+                hint = (
+                    f"HTTP {status or 'n/a'}: transient fetch error after {_MAX_RETRIES + 1} attempts "
+                    f"({detail}). Retry shortly, or move on to a sibling flow if it persists."
+                )
             raise ProviderError(
                 provider="sdmx",
                 status_code=status,
-                message=(f"SDMX fetch failed for {params.dataset_key}/{params.series_key}: {type(exc).__name__}."),
+                message=f"SDMX fetch failed for {params.dataset_key}/{params.series_key}: {hint}",
             ) from exc
 
 
@@ -254,7 +307,7 @@ def _do_sdmx_fetch(params: SdmxFetchParams) -> Any:
             raise ProviderError(
                 provider="sdmx",
                 status_code=0,
-                message=f"Failed to fetch structure for {dataset_id}: {type(exc).__name__}.",
+                message=f"Failed to fetch structure for {dataset_id}: {(str(exc).strip() or type(exc).__name__)[:200]}",
             ) from exc
 
     raw = sdmx_lib.to_pandas(data_msg.data)
