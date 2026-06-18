@@ -223,6 +223,74 @@ class TestSdmxFetch:
         assert "series_key" in result.data.columns
 
 
+class TestSdmxFetchBatch:
+    """Batched multi-series fetch: fan-out, request-order, caps, all-or-nothing.
+
+    These stub ``_fetch_one_series`` so they exercise only the orchestration the connector adds —
+    the per-series I/O path is unchanged and covered by ``TestSdmxFetch`` above.
+    """
+
+    @staticmethod
+    def _stub_one(monkeypatch: pytest.MonkeyPatch, *, fail_on: set[str] | None = None, delay_first: bool = False):
+        from parsimony.errors import ProviderError
+
+        from parsimony_sdmx.connectors import fetch as fetch_mod
+
+        calls: list[str] = []
+
+        def fake_one(params: Any) -> pd.DataFrame:
+            calls.append(params.series_key)
+            if fail_on and params.series_key in fail_on:
+                raise ProviderError(provider="sdmx", status_code=400, message=f"bad key {params.series_key}")
+            if delay_first and params.series_key.endswith("0"):
+                import time
+
+                time.sleep(0.05)  # slow the first request; order must still hold
+            return pd.DataFrame({"series_key": [params.series_key], "value": [1.0]})
+
+        monkeypatch.setattr(fetch_mod, "_fetch_one_series", fake_one)
+        return fetch_mod, calls
+
+    def test_list_of_keys_stacks_into_one_table(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fetch_mod, calls = self._stub_one(monkeypatch)
+        keys = ["M.I15.TOTAL.ES", "M.RCH_A.TOTAL.ES", "M.RCH_M.TOTAL.ES"]
+        result = fetch_mod.sdmx_fetch(dataset_ref="ESTAT-PRC_HICP_MINR", series_ref=keys)
+        assert list(result.data["series_key"]) == keys
+        assert set(calls) == set(keys)
+
+    def test_request_order_preserved_despite_concurrency(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fetch_mod, _ = self._stub_one(monkeypatch, delay_first=True)
+        keys = [f"M.K{i}" for i in range(5)]  # K0 is slowest; map must still return in input order
+        result = fetch_mod.sdmx_fetch(dataset_ref="ECB-YC", series_ref=keys)
+        assert list(result.data["series_key"]) == keys
+
+    def test_single_string_takes_unbatched_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fetch_mod, calls = self._stub_one(monkeypatch)
+        result = fetch_mod.sdmx_fetch(dataset_ref="ECB-YC", series_ref="M.DE.EUR")
+        assert list(result.data["series_key"]) == ["M.DE.EUR"]
+        assert calls == ["M.DE.EUR"]
+
+    def test_empty_list_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fetch_mod, _ = self._stub_one(monkeypatch)
+        with pytest.raises(InvalidParameterError, match="at least one series key"):
+            fetch_mod.sdmx_fetch(dataset_ref="ECB-YC", series_ref=[])
+
+    def test_over_cap_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from parsimony_sdmx.connectors.fetch import _MAX_BATCH_SERIES
+
+        fetch_mod, _ = self._stub_one(monkeypatch)
+        too_many = [f"M.X{i}" for i in range(_MAX_BATCH_SERIES + 1)]
+        with pytest.raises(InvalidParameterError, match="at most"):
+            fetch_mod.sdmx_fetch(dataset_ref="ECB-YC", series_ref=too_many)
+
+    def test_one_bad_key_fails_whole_batch_no_silent_drop(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from parsimony.errors import ProviderError
+
+        fetch_mod, _ = self._stub_one(monkeypatch, fail_on={"M.BAD.ES"})
+        with pytest.raises(ProviderError, match="bad key M.BAD.ES"):
+            fetch_mod.sdmx_fetch(dataset_ref="ECB-YC", series_ref=["M.GOOD.ES", "M.BAD.ES"])
+
+
 class TestSdmxFetchOutputBuilder:
     def test_columns_in_expected_order_and_roles(self) -> None:
         from parsimony.result import ColumnRole
