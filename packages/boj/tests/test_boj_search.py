@@ -49,7 +49,7 @@ class _FakeCatalog:
                 score=0.9,
                 metadata=self._metadata,
             )
-        ], []
+        ]
 
 
 def test_connectors_are_tool_tagged() -> None:
@@ -130,7 +130,7 @@ def test_env_overrides_catalog_root(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_empty_series_search_raises_empty_data(monkeypatch: pytest.MonkeyPatch) -> None:
     class _EmptyCatalog:
         def search(self, query, limit, *, namespaces=None):  # noqa: ARG002
-            return [], []
+            return []
 
     def _spy_load(url: str) -> Any:  # noqa: ARG001
         return _EmptyCatalog()

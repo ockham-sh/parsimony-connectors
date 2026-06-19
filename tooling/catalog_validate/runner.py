@@ -72,7 +72,7 @@ def _resolve_catalog_url(
 
 def _run_probe(catalog: Catalog, query: CatalogQuery) -> ProbeResult:
     try:
-        matches, _ = catalog.search(query.query, limit=query.limit)
+        matches = catalog.search(query.query, limit=query.limit)
         codes = [entity_key(m.namespace, m.code)[1] for m in matches]
         hit = query.expected_code in codes
         return ProbeResult(query=query, hit=hit, top_codes=codes[:5])
