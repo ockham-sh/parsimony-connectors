@@ -15,6 +15,7 @@ The plugin surfaces:
 - :func:`enumerate_sdmx_series` — scoped keys-only series discovery (live).
 - :func:`sdmx_fetch` — live SDMX retrieval.
 - :func:`sdmx_datasets_search` / :func:`sdmx_codelist_search` — catalog search.
+- :func:`sdmx_series_search` — columnar per-flow series search (catalog-backed).
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from parsimony_sdmx.connectors.search import (
     sdmx_codelist_search,
     sdmx_datasets_search,
 )
+from parsimony_sdmx.connectors.series_search import sdmx_series_search
 
 CONNECTORS: Connectors = Connectors(
     [
@@ -36,6 +38,7 @@ CONNECTORS: Connectors = Connectors(
         sdmx_fetch,
         sdmx_codelist_search,
         sdmx_datasets_search,
+        sdmx_series_search,
     ]
 )
 
@@ -58,5 +61,6 @@ __all__ = [
     "sdmx_codelist_search",
     "sdmx_datasets_search",
     "sdmx_fetch",
+    "sdmx_series_search",
     "load",
 ]

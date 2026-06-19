@@ -2,7 +2,8 @@
 
 Hits the live SDMX agency endpoint for one ``(agency, dataset_id, partial_key)``
 and returns matching series keys with labeled dimensions — no observations.
-This is the agent feedback loop replacing prebuilt per-flow series catalogs.
+Use this as a live fallback or as a narrow verifier when a prebuilt series
+catalog is unavailable.
 """
 
 from __future__ import annotations

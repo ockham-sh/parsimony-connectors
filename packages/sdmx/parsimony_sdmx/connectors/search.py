@@ -140,7 +140,7 @@ def sdmx_datasets_search(
             return build_agency_datasets_catalog(agency)
 
         catalog = _get_or_load_catalog(namespace, catalog_root=params.catalog_root, build=_build)
-        matches, _ = catalog.search(params.query, limit=params.limit)
+        matches = catalog.search(params.query, limit=params.limit)
         all_matches.extend((m.score, m) for m in matches)
 
     if not all_matches:
@@ -244,7 +244,7 @@ def sdmx_codelist_search(
 
     catalog = _get_or_load_catalog(namespace, catalog_root=params.catalog_root, build=_build)
     search_query = _normalize_codelist_query(params.query)
-    matches, _ = catalog.search(search_query, limit=params.limit)
+    matches = catalog.search(search_query, limit=params.limit)
 
     if not matches:
         raise EmptyDataError(
