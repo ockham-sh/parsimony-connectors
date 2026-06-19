@@ -48,10 +48,17 @@ def test_provider_catalog_schema_and_probes(provider_spec) -> None:
     url = catalog_url_override(provider_spec.default_url)
     queries_path = REPO_ROOT / provider_spec.queries_file
     query_set = load_queries_file(queries_path) if queries_path.exists() else None
+    catalog_root = query_set.catalog_root if query_set else None
+    entry_url = url
+    if catalog_root and query_set is not None:
+        first_ns = next((q.namespace for q in query_set.queries if q.namespace), None)
+        if first_ns and url.rstrip("/") == catalog_root.rstrip("/"):
+            entry_url = f"{catalog_root.rstrip('/')}/{first_ns}"
     report = validate_catalog(
-        url,
+        entry_url,
         query_set,
         allow_missing=allow_missing_remote(),
+        catalog_root=catalog_root,
     )
     if report.skipped:
         pytest.skip(report.skip_reason)

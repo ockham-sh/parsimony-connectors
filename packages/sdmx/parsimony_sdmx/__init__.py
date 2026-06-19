@@ -10,6 +10,7 @@ from parsimony_sdmx.connectors import (
     sdmx_codelist_search,
     sdmx_datasets_search,
     sdmx_fetch,
+    sdmx_series_search,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "sdmx_codelist_search",
     "sdmx_datasets_search",
     "sdmx_fetch",
+    "sdmx_series_search",
 ]

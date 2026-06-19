@@ -215,9 +215,7 @@ class TestExtractSeriesDimValues:
 
 class TestSeriesKeysFromDataMessage:
     def test_list_shaped_data_merges_series(self) -> None:
-        sk = TestExtractSeriesDimValues._FakeSeriesKey(
-            {"FREQ": SimpleNamespace(id="FREQ", value="M")}
-        )
+        sk = TestExtractSeriesDimValues._FakeSeriesKey({"FREQ": SimpleNamespace(id="FREQ", value="M")})
         ds = SimpleNamespace(series={sk: []})
         msg = SimpleNamespace(data=[ds])
         from parsimony_sdmx.providers.sdmx_extract import series_keys_from_data_message

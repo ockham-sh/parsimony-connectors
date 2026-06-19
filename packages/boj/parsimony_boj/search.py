@@ -98,7 +98,7 @@ def boj_databases_search(
         catalog_root=params.catalog_root,
         build=build_boj_databases_catalog_from_enumeration,
     )
-    matches, _ = catalog.search(params.query, limit=params.limit)
+    matches = catalog.search(params.query, limit=params.limit)
     if not matches:
         raise EmptyDataError(
             provider="boj",
@@ -156,7 +156,7 @@ def boj_series_search(
         return build_boj_series_catalog_for_db(db_code)
 
     catalog = _get_or_load_catalog(namespace, catalog_root=params.catalog_root, build=_build)
-    matches, _ = catalog.search(params.query, limit=params.limit)
+    matches = catalog.search(params.query, limit=params.limit)
     if not matches:
         raise EmptyDataError(
             provider="boj",
