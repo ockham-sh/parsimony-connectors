@@ -150,7 +150,9 @@ SERIES_SEARCH_OUTPUT = OutputConfig(
 class SeriesSearchParams(BaseModel):
     agency: Annotated[str, Field(min_length=1, max_length=32)]
     dataset_id: Annotated[str, Field(min_length=1, max_length=128)]
-    query: Annotated[str, Field(min_length=1, max_length=512)]
+    # Optional: omit for a pure ``filter_json`` (exact code) lookup. Free-text
+    # ``query`` is matched against titles/labels, never against SDMX codes.
+    query: str | None = Field(default=None, max_length=512)
     limit: int = Field(default=50, ge=1, le=500)
     top_k_per_dim: int = Field(default=5, ge=1, le=50)
     catalog_root: str | None = None
@@ -162,7 +164,7 @@ class SeriesSearchParams(BaseModel):
 def sdmx_series_search(
     agency: str,
     dataset_id: str,
-    query: str,
+    query: str | None = None,
     limit: int = 50,
     top_k_per_dim: int = 5,
     catalog_root: str | None = None,
@@ -171,14 +173,25 @@ def sdmx_series_search(
 ) -> pd.DataFrame:
     """Search populated series keys in a prebuilt columnar catalog for one SDMX flow.
 
-    Use ``{dim}_label`` for semantic resolve, ``{dim}_code`` for exact filters,
-    ``&&`` to combine. Returns ranked matches with the series ``title``, the
-    resolved ``{dim}_code``/``{dim}_label`` columns, and a ``refine`` JSON facet
-    column.
+    Pick the access path by what you actually have:
 
-    ``filter_json`` keys are catalog column names, i.e. ``{dim}_code`` or
-    ``{dim}_label`` (e.g. ``{"CURRENCY_code": ["USD"]}``) — never the bare
-    dimension id. ``field`` follows the same convention.
+    * ``query=`` is FREE TEXT, keyword-matched against the human-readable series
+      title/labels. Use natural language — e.g. ``"10-year government bond spot
+      rate"``. Do NOT put SDMX codes or abbreviations here (``"SR_10Y"``,
+      ``"G_N_A"``, ``"10Y"``): codes do not appear in the title text, so they
+      match nothing. Spell concepts out ("10-year", not "10Y").
+    * To match exact SDMX CODES, target the ``{dim}_code`` columns — either
+      ``filter_json`` (exact AND filter, e.g.
+      ``{"DATA_TYPE_FM_code": ["SR_10Y"], "INSTRUMENT_FM_code": ["G_N_A"]}``) or
+      ``field=`` with a single ``query=`` value scoped to one ``{dim}_code`` (or
+      ``{dim}_label``) column. ``query=`` may be omitted entirely for a pure
+      ``filter_json`` lookup.
+
+    ``filter_json``/``field`` keys are catalog column names — ``{dim}_code`` or
+    ``{dim}_label`` (e.g. ``CURRENCY_code``), never the bare dimension id.
+
+    Returns ranked matches with the series ``key``, ``title``, the resolved
+    ``{dim}_code``/``{dim}_label`` columns, and a ``refine`` JSON facet column.
     """
     params = SeriesSearchParams(
         agency=agency,
@@ -192,7 +205,14 @@ def sdmx_series_search(
     )
     agency_id = _parse_agency(params.agency)
     flow = params.dataset_id.strip()
-    q = params.query.strip()
+    q = (params.query or "").strip() or None
+    if q is None and params.filter_json is None:
+        raise InvalidParameterError(
+            "sdmx",
+            "provide query= (free-text over titles/labels) and/or filter_json= (exact {dim}_code filters)",
+        )
+    if params.field is not None and q is None:
+        raise InvalidParameterError("sdmx", "field= requires a non-empty query=")
 
     namespace = series_namespace(agency_id, flow)
     catalog_path = _resolve_catalog_path(namespace, catalog_root=params.catalog_root)
@@ -231,6 +251,8 @@ def sdmx_series_search(
         plan_field = params.field
         pinned_dims: frozenset[str] = frozenset()
     else:
+        # No field and no filter_json: the guard above guarantees q is set here.
+        assert q is not None
         plan = plan_series_search(
             q,
             catalog=catalog,
@@ -266,7 +288,8 @@ def sdmx_series_search(
     refine_json = facets_to_json(facets)
 
     if not matches:
-        raise EmptyDataError("sdmx", f"No series matched query {q!r} in {agency_id.value}/{flow}")
+        criteria = repr(q) if q is not None else f"filter {filter_spec}"
+        raise EmptyDataError("sdmx", f"No series matched {criteria} in {agency_id.value}/{flow}")
 
     # ``filtered`` already holds key+title (materialized for facets); reuse it to
     # surface the human-readable title without a second parquet scan.
