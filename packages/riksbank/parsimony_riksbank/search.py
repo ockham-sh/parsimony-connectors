@@ -1,4 +1,8 @@
-"""Semantic search over the published Sveriges Riksbank catalog."""
+"""Semantic search over the published Sveriges Riksbank catalog.
+
+Uses ``make_local_search_connector`` — FX/rate row enrichment at enumeration time
+is sufficient for relevance; no provider-specific search routing is needed.
+"""
 
 from __future__ import annotations
 

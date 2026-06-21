@@ -86,13 +86,9 @@ def build_one_series(
     save_root: str | None,
     push_root: str | None,
 ) -> None:
-    result = enumerate_boj()
-    entries = entities_from_boj_enumeration(result)
-    _, series_by_db = split_enumerated_entries(entries)
-    rows = series_by_db.get(db_code.upper()) or series_by_db.get(db_code)
-    if not rows:
-        raise ValueError(f"No series rows for db={db_code!r} after enumeration")
-    catalog = build_series_catalog(db_code.upper(), rows)
+    from parsimony_boj.catalog_build import build_boj_series_catalog_for_db
+
+    catalog = build_boj_series_catalog_for_db(db_code.strip().upper())
     _publish(catalog, save_root=save_root, push_root=push_root)
     logger.info("Built %s with %d entries", catalog.name, len(catalog))
 

@@ -1,6 +1,6 @@
-# Curated search probes for the Riksbank catalog (schema v4 snapshots).
-# Regenerate drafts: uv run python scripts/validate_catalog.py --provider riksbank \
-#   --catalog-url file:///tmp/parsimony-catalogs/riksbank --write-queries \
+# Curated search probes for the Riksbank catalog (schema v1 snapshots).
+# Regenerate drafts: uv run python tooling/validate_catalog.py --provider riksbank \
+#   --catalog-url file:///tmp/parsimony-catalogs-v1/riksbank --write-queries \
 #   packages/riksbank/catalog_tests/queries.generated.yaml
 #
 # Expected usage: hybrid title/description search (BM25 + vector on text fields).
@@ -29,6 +29,34 @@ queries:
     mode: hybrid_title
     optional: true
     why: "Semantic-style title probe; ranking may vary on hybrid index"
+
+  - id: euro_sek_exchange_rate
+    query: "euro Swedish krona exchange rate"
+    expected_code: SEKEURPMI
+    mode: hybrid_title
+    required: true
+    why: "Broad NL query for EUR/SEK FX after row enrichment"
+
+  - id: eur_sek_exchange_rate
+    query: "EUR SEK exchange rate"
+    expected_code: SEKEURPMI
+    mode: title_bm25
+    required: true
+    why: "Currency-pair title probe on enriched FX row"
+
+  - id: swestr_benchmark
+    query: "overnight reference rate SWESTR benchmark"
+    expected_code: SWESTR
+    mode: hybrid_title
+    required: true
+    why: "SWESTR static registry row should rank first"
+
+  - id: policy_rate
+    query: "policy rate"
+    expected_code: SECBREPOEFF
+    mode: title_bm25
+    required: true
+    why: "Policy rate row has strong upstream title"
 
 thresholds:
   min_required_recall: 1.0

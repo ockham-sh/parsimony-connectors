@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from datetime import date
 from typing import Annotated, Any, Literal
 
@@ -353,32 +354,211 @@ def _flatten_groups(root: Any) -> dict[str, str]:
     return lookup
 
 
-def _series_description(series: dict[str, Any]) -> str:
-    """Pick the richest description SWEA offers for a series.
+_CURRENCY_SYNONYMS: dict[str, str] = {
+    "EUR": "euro",
+    "USD": "US dollar",
+    "GBP": "British pound sterling",
+    "JPY": "Japanese yen",
+    "CHF": "Swiss franc",
+    "NOK": "Norwegian krone",
+    "DKK": "Danish krone",
+}
 
-    Order of preference: ``longDescription`` (full sentences),
-    ``midDescription`` (one-paragraph), ``shortDescription`` (label). SWEA
-    always populates at least one of the three, but we synthesise a
-    fall-back from id + provider so the DESCRIPTION column is never empty.
-    """
+
+def _counter_currency_label(ccy: str, series: dict[str, Any]) -> str:
+    if ccy in _CURRENCY_SYNONYMS:
+        return _CURRENCY_SYNONYMS[ccy]
+    mid = (series.get("midDescription") or "").strip()
+    if mid:
+        return mid.rstrip(".")
+    short = (series.get("shortDescription") or "").strip()
+    return short or ccy
+
+
+def _upstream_label_parts(series: dict[str, Any]) -> list[str]:
+    """Distinct upstream SWEA label fields in short → mid → long order."""
+    seen: set[str] = set()
+    parts: list[str] = []
+    for key in ("shortDescription", "midDescription", "longDescription"):
+        v = series.get(key)
+        if isinstance(v, str):
+            text = v.strip()
+            if text and text not in seen:
+                seen.add(text)
+                parts.append(text)
+    return parts
+
+
+_FX_GROUP_MARKERS: tuple[str, ...] = (
+    "Currencies against Swedish kronor",
+    "Cross rates",
+)
+
+_GVB_GROUP_MARKERS: tuple[str, ...] = (
+    "Government Bonds",
+    "SE GVB",
+)
+
+_FIXED_INCOME_GROUP_MARKERS: tuple[str, ...] = (
+    "Treasury Bills",
+    "SE TB",
+    "Mortgage Bonds",
+    "SE MB",
+    "Commercial Paper",
+    "SE CP",
+    "Fixing Rates",
+    "SE STFIX",
+    "STIBOR",
+    "Euribor",
+    "Euro Market Rates",
+    "Market rates",
+)
+
+# Country code → full name for international GVB series (e.g. USGVB5Y → "United States")
+_GVB_COUNTRY_NAMES: dict[str, str] = {
+    "US": "United States",
+    "DE": "Germany",
+    "JP": "Japan",
+    "GB": "United Kingdom",
+    "FR": "France",
+    "NL": "Netherlands",
+    "EM": "Euro area",
+    "NO": "Norway",
+    "DK": "Denmark",
+    "FI": "Finland",
+    "SE": "Sweden",
+}
+
+
+def _is_fx_group(group_name: str) -> bool:
+    return any(marker in group_name for marker in _FX_GROUP_MARKERS)
+
+
+def _is_gvb_group(group_name: str) -> bool:
+    return any(marker in group_name for marker in _GVB_GROUP_MARKERS)
+
+
+def _is_fixed_income_group(group_name: str) -> bool:
+    return any(marker in group_name for marker in _FIXED_INCOME_GROUP_MARKERS)
+
+
+def _gvb_country_from_series_id(sid: str) -> str | None:
+    """Extract two-letter country code from international GVB ids like ``USGVB5Y`` or ``DEGVB10Y``."""
+    upper = sid.upper()
+    if "GVB" not in upper:
+        return None
+    prefix = upper[: upper.index("GVB")]
+    if len(prefix) == 2 and prefix.isalpha():
+        return prefix
+    return None
+
+
+def _fx_currency_from_series_id(sid: str) -> str | None:
+    """Extract counter-currency from SWEA FX ids like ``SEKEURPMI`` or ``SEKUSDPMM``."""
+    upper = sid.upper()
+    if not upper.startswith("SEK"):
+        return None
+    rest = upper[3:]
+    for suffix in _FREQ_BY_SUFFIX:
+        suffix_code = suffix[0]
+        if rest.endswith(suffix_code):
+            ccy = rest[: -len(suffix_code)]
+            if 2 <= len(ccy) <= 4 and ccy.isalpha():
+                return ccy
+    return None
+
+
+def _series_description(series: dict[str, Any], sid: str, *, group_name: str = "", frequency: str = "") -> str:
+    """Pick or compose searchable description text for a SWEA series row."""
+    upstream = _upstream_label_parts(series)
+    provider = series.get("source") or "Sveriges Riksbank"
+    group_leaf = group_name.split(" > ")[-1].strip() if group_name else ""
+
+    if _is_fx_group(group_name):
+        ccy = _fx_currency_from_series_id(sid)
+        parts: list[str] = []
+        if ccy:
+            ccy_label = _counter_currency_label(ccy, series)
+            freq_hint = f"{frequency} " if frequency and frequency != "Unknown" else ""
+            parts.append(
+                f"{freq_hint}{ccy}/SEK exchange rate fixing — {ccy_label} against Swedish krona.".strip()
+            )
+        elif upstream:
+            parts.append(upstream[-1])
+        if group_leaf:
+            parts.append(f"Group: {group_leaf}.")
+        parts.append(f"Provider: {provider}.")
+        if upstream:
+            parts.append("Upstream labels: " + "; ".join(upstream) + ".")
+        return " ".join(parts)
+
+    if _is_gvb_group(group_name):
+        country_code = _gvb_country_from_series_id(sid)
+        country_name = _GVB_COUNTRY_NAMES.get(country_code or "", "") if country_code else ""
+        # Use the most informative upstream label as the base, then inject "yield" keyword.
+        base = ""
+        for key in ("longDescription", "midDescription", "shortDescription"):
+            v = series.get(key)
+            if isinstance(v, str) and v.strip():
+                base = v.strip()
+                break
+        if not base:
+            base = f"Government bond, {sid}"
+        parts_gvb: list[str] = [f"{base}."]
+        if country_name and country_name not in base:
+            parts_gvb.append(f"Country: {country_name}.")
+        parts_gvb.append("Government bond interest rate yield.")
+        return " ".join(parts_gvb)
+
+    if _is_fixed_income_group(group_name):
+        base = ""
+        for key in ("longDescription", "midDescription", "shortDescription"):
+            v = series.get(key)
+            if isinstance(v, str) and v.strip():
+                base = v.strip()
+                break
+        if base:
+            return f"{base}. Interest rate."
+        return f"{sid} — {group_leaf}. Interest rate."
+
     for key in ("longDescription", "midDescription", "shortDescription"):
         v = series.get(key)
         if isinstance(v, str) and v.strip():
             return v.strip()
-    sid = series.get("seriesId") or "series"
-    provider = series.get("source") or "Sveriges Riksbank"
     return f"{sid} — published by {provider}."
 
 
-def _series_title(series: dict[str, Any], sid: str) -> str:
-    """Resolve a human-readable title from a SWEA ``/Series`` entry.
+def _series_title(series: dict[str, Any], sid: str, *, group_name: str = "") -> str:
+    """Resolve a human-readable title from a SWEA ``/Series`` entry."""
+    short = (series.get("shortDescription") or "").strip()
+    mid = (series.get("midDescription") or "").strip()
+    long_desc = (series.get("longDescription") or "").strip()
 
-    SWEA's ``/Series`` rows carry ``shortDescription`` (the UI label) and
-    the longer description fields — there is no ``seriesName``/``name`` key
-    despite older code looking for them. Prefer the short label, then the
-    mid description, finally the id itself.
-    """
-    title = series.get("shortDescription") or series.get("midDescription") or sid
+    if _is_fx_group(group_name):
+        ccy = _fx_currency_from_series_id(sid)
+        if ccy:
+            ccy_label = _counter_currency_label(ccy, series)
+            return f"{ccy}/SEK exchange rate — {ccy_label} against Swedish krona"
+
+    if _is_gvb_group(group_name):
+        country_code = _gvb_country_from_series_id(sid)
+        # For international GVBs like "US 5 Year", prefix with full country and "Government Bond"
+        base_title = short or mid or long_desc or sid
+        if country_code and country_code != "SE":
+            country_name = _GVB_COUNTRY_NAMES.get(country_code, country_code)
+            # Strip any leading 2–3 letter region token (US, JP, EU, DE, …) from the upstream label
+            suffix = re.sub(r"^[A-Z]{2,3}\s+", "", base_title).strip() or base_title
+            return f"{country_name} Government Bond {suffix} Yield".strip()
+        # Swedish GVBs: "SE GVB 5 Year" → "Swedish Government Bond 5 Year Yield"
+        base_title_upper = base_title.upper()
+        suffix = base_title
+        for prefix in ("SE GVB", "SEGVB", "SE STFIX"):
+            if base_title_upper.startswith(prefix):
+                suffix = base_title[len(prefix) :].strip()
+                break
+        return f"Swedish Government Bond {suffix} Yield".strip()
+
+    title = short or mid or long_desc or sid
     return str(title).strip() or sid
 
 
@@ -568,6 +748,10 @@ def riksbank_fetch(
     ``from_date``/``to_date`` together to fetch a window; omit both to
     receive the latest observation. SWEA is keyless — ``api_key`` is
     optional and only raises the quota.
+
+    **Rate limit**: the keyless quota is tight (~3 requests/burst). When
+    fetching multiple series in a loop, add ``time.sleep(1.5)`` between
+    calls to avoid HTTP 429 errors.
     """
     series_id = series_id.strip()
     if not series_id:
@@ -714,17 +898,18 @@ def enumerate_riksbank(api_key: str = "") -> pd.DataFrame:
             group_id_int = int(group_id_raw) if group_id_raw != "" else None
         except (TypeError, ValueError):
             group_id_int = None
+        group_name = group_lookup.get(str(group_id_raw), "")
         frequency, frequency_source = _infer_frequency(sid, group_id_int)
 
         rows.append(
             {
                 "series_id": sid,
-                "title": _series_title(s, sid),
-                "description": _series_description(s),
+                "title": _series_title(s, sid, group_name=group_name),
+                "description": _series_description(s, sid, group_name=group_name, frequency=frequency),
                 "source": _SWEA_SOURCE,
                 "frequency": frequency,
                 "frequency_source": frequency_source,
-                "group": group_lookup.get(str(group_id_raw), ""),
+                "group": group_name,
                 "provider": s.get("source", "") or "",
                 "observation_min": _normalize_observation_date(s.get("observationMinDate")),
                 "observation_max": _normalize_observation_date(s.get("observationMaxDate")),

@@ -1,8 +1,8 @@
 """Ledger-driven release catalog build orchestrator.
 
-One flow = one short-lived ``build_catalog.py --catalog structure`` child.
-State lives in append-only JSONL ledgers under the save root; the parent
-process stays small and never imports pandas/sdmx/faiss.
+DEPRECATED: use ``packages/sdmx/scripts/build_all_catalogs.py`` for initial release.
+This script remains for structure-marker sweeps only; it does not emit codelists or
+series shards required for end-to-end SDMX search.
 """
 
 from __future__ import annotations
@@ -711,6 +711,13 @@ def _add_common_flags(parser: argparse.ArgumentParser) -> None:
 
 
 def main() -> None:
+    import warnings
+
+    warnings.warn(
+        "build_release.py is deprecated; use packages/sdmx/scripts/build_all_catalogs.py for initial release.",
+        DeprecationWarning,
+        stacklevel=1,
+    )
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 

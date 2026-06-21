@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Parsimony v1 acceptance gate (RELEASE_TECH_DEBT.md §4).
-# Run from a clean venv with all 22 connectors installed, or from the
-# connectors worktree with path-source siblings synced.
+# Parsimony v1 acceptance gate.
+# Run from parsimony-connectors with path-source siblings synced.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

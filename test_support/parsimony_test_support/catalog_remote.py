@@ -35,7 +35,7 @@ def catalog_url_override(default: str) -> str:
 
 
 def import_catalog_validate():
-    """Import maintainer validation helpers (scripts/ is not an installed package)."""
+    """Import maintainer validation helpers (tooling/ is not an installed package)."""
     import sys
 
     if str(TOOLING_DIR) not in sys.path:

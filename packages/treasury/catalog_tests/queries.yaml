@@ -15,5 +15,26 @@ queries:
     required: true
     why: "Lexical title probe on hybrid title index"
 
+  - id: par_yield_description
+    query: "description: constant maturity Treasury par yield"
+    expected_code: home/daily_treasury_yield_curve#BC_10YEAR
+    mode: description_bm25
+    required: true
+    why: "Description field indexes Treasury definition prose"
+
+  - id: tips_real_yield
+    query: "description: Treasury Inflation-Protected Securities"
+    expected_code: home/daily_treasury_real_yield_curve#TC_10YEAR
+    mode: description_bm25
+    required: true
+    why: "TIPS real yield rows searchable via description"
+
+  - id: title_10y_yield_curve
+    query: "10 year treasury yield curve"
+    expected_code: home/daily_treasury_yield_curve#BC_10YEAR
+    mode: title_bm25
+    required: true
+    why: "Broad title query for par yield curve"
+
 thresholds:
   min_required_recall: 1.0

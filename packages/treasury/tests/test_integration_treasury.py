@@ -113,10 +113,10 @@ def test_enumerate_treasury_live() -> None:
     # The static ODM rate registry must always land (does not depend on the API).
     assert len(rates) > 30, "ODM rate-feed registry rows missing"
 
-    # Real content, not just column names: code/title/definition are populated.
+    # Real content, not just column names: code/title/description are populated.
     assert df["code"].astype(str).str.len().gt(0).all(), "blank code"
     assert df["title"].astype(str).str.len().gt(0).all(), "blank title"
-    assert df["definition"].astype(str).str.len().gt(0).any(), "no real definition text"
+    assert df["description"].astype(str).str.len().gt(0).any(), "no real description text"
     # The canonical debt measure is discoverable.
     assert df["code"].str.contains("debt_to_penny").any(), "debt_to_penny not enumerated"
     # build_entities round-trips on a real slice (catalog-build entry point).
@@ -137,7 +137,7 @@ def test_treasury_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         {
             "code": "v2/accounting/od/debt_to_penny#tot_pub_debt_out_amt",
             "title": "Total Public Debt Outstanding — Debt to the Penny",
-            "definition": "Total federal debt outstanding to the penny.",
+            "description": "Total federal debt outstanding to the penny.",
             "source": "fiscal_data",
             "endpoint": "v2/accounting/od/debt_to_penny",
             "field": "tot_pub_debt_out_amt",
@@ -151,7 +151,7 @@ def test_treasury_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         {
             "code": "home/daily_treasury_yield_curve#BC_10YEAR",
             "title": "10 Year — Daily Treasury Par Yield Curve Rates",
-            "definition": "10 Year constant-maturity Treasury par yield curve rate.",
+            "description": "10 Year constant-maturity Treasury par yield curve rate.",
             "source": "treasury_rates",
             "endpoint": "home/daily_treasury_yield_curve",
             "field": "BC_10YEAR",
@@ -165,7 +165,7 @@ def test_treasury_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         {
             "code": "v1/accounting/dts/operating_cash_balance#open_today_bal",
             "title": "Opening Balance — Operating Cash Balance",
-            "definition": "Treasury operating cash opening balance for the day.",
+            "description": "Treasury operating cash opening balance for the day.",
             "source": "fiscal_data",
             "endpoint": "v1/accounting/dts/operating_cash_balance",
             "field": "open_today_bal",

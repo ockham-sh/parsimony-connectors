@@ -6,4 +6,5 @@ nav:
   - Internal notes:
       - PyPI Setup: pypi-setup.md
       - Registry: registry.md
+      - Catalog manifest: catalog-manifest.md
       - Catalog operations: catalog-operations.md

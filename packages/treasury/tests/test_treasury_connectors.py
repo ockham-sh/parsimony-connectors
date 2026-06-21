@@ -335,7 +335,7 @@ def test_enumerate_treasury_emits_one_row_per_measure_field() -> None:
     df = result.data
     # @enumerator enforces an EXACT column match — the frame carries exactly the declared columns.
     assert list(df.columns) == [c.name for c in TREASURY_ENUMERATE_OUTPUT.columns]
-    fiscal = df[~df["endpoint"].str.startswith("home/")]
+    fiscal = df[df["source"] == "fiscal_data"]
     assert len(fiscal) == 2, "one row per measure field (DATE is filtered out)"
     assert set(fiscal["code"]) == {
         "v2/accounting/od/debt_to_penny#tot_pub_debt_out_amt",
@@ -344,7 +344,7 @@ def test_enumerate_treasury_emits_one_row_per_measure_field() -> None:
     total_pub = fiscal[fiscal["field"] == "tot_pub_debt_out_amt"].iloc[0]
     assert total_pub["title"] == "Total Public Debt Outstanding — Debt to the Penny"
     assert total_pub["endpoint"] == "v2/accounting/od/debt_to_penny"
-    assert total_pub["definition"] == "All federal debt."
+    assert total_pub["description"] == "All federal debt."
     assert total_pub["data_type"] == "CURRENCY"
     assert total_pub["frequency"] == "Daily"
     assert total_pub["earliest_date"] == "1993-04-01"
@@ -440,7 +440,7 @@ def test_enumerate_treasury_keeps_tcir_string_rate_fields() -> None:
     )
 
     df = (enumerate_treasury()).data
-    fiscal = df[~df["endpoint"].str.startswith("home/")]
+    fiscal = df[df["source"] == "fiscal_data"]
     assert set(fiscal["code"]) == {"v1/accounting/od/tcir_monthly_table_2#monthly_rate"}
     row = fiscal.iloc[0]
     assert row["data_type"] == "STRING"
@@ -455,25 +455,26 @@ def test_enumerate_treasury_appends_office_of_debt_management_rates() -> None:
     respx.get(_METADATA_URL).mock(return_value=httpx.Response(200, json={"datasets": []}))
 
     df = (enumerate_treasury()).data
-    home = df[df["endpoint"].str.startswith("home/")]
-    assert len(home) > 30, "expected the full rate-feed registry to land"
+    rates = df[df["source"] == "treasury_rates"]
+    assert len(rates) > 30, "expected the full rate-feed registry to land"
 
-    par_10y = home[home["code"] == "home/daily_treasury_yield_curve#BC_10YEAR"]
+    par_10y = rates[rates["code"] == "home/daily_treasury_yield_curve#BC_10YEAR"]
     assert not par_10y.empty
     par_10y_row = par_10y.iloc[0]
     assert par_10y_row["dataset"] == "Daily Treasury Par Yield Curve Rates"
     assert par_10y_row["title"] == "10 Year — Daily Treasury Par Yield Curve Rates"
-    assert "constant-maturity" in par_10y_row["definition"]
+    assert "constant-maturity" in par_10y_row["description"]
     assert par_10y_row["frequency"] == "Daily"
     assert par_10y_row["source"] == "treasury_rates"
 
-    feeds = set(home["endpoint"])
+    # endpoint is the raw feed name, passable directly to treasury_rates_fetch
+    feeds = set(rates["endpoint"])
     assert {
-        "home/daily_treasury_yield_curve",
-        "home/daily_treasury_real_yield_curve",
-        "home/daily_treasury_bill_rates",
-        "home/daily_treasury_long_term_rate",
-        "home/daily_treasury_real_long_term",
+        "daily_treasury_yield_curve",
+        "daily_treasury_real_yield_curve",
+        "daily_treasury_bill_rates",
+        "daily_treasury_long_term_rate",
+        "daily_treasury_real_long_term",
     }.issubset(feeds)
 
 

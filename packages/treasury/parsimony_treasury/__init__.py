@@ -79,9 +79,9 @@ TREASURY_ENUMERATE_OUTPUT = OutputConfig(
         # the fetchable endpoint and the column to read off the row.
         Column(name="code", role=ColumnRole.KEY, namespace="treasury"),
         Column(name="title", role=ColumnRole.TITLE),
-        # ``definition`` is the Fiscal Data field's own descriptive text — the
-        # most useful semantic signal for retrieval.
-        Column(name="definition", role=ColumnRole.METADATA),
+        # ``description`` is the Fiscal Data field's own descriptive text — the
+        # most useful semantic signal for catalog retrieval (indexed by discovery_indexes).
+        Column(name="description", role=ColumnRole.METADATA),
         # ``source`` tells the agent which fetch connector to call —
         # ``"fiscal_data"`` → :func:`treasury_fetch`, ``"treasury_rates"`` →
         # :func:`treasury_rates_fetch`. Without this, agents would have to
@@ -260,7 +260,6 @@ def _build_treasury_rate_rows() -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for spec in _TREASURY_RATE_FEEDS:
         feed = spec["feed"]
-        endpoint = f"home/{feed}"
         dataset = spec["dataset"]
         frequency = spec["frequency"]
         template: str = spec["definition_template"]
@@ -269,12 +268,12 @@ def _build_treasury_rate_rows() -> list[dict[str, str]]:
             definition = template.format(tenor=tenor, kind=kind)
             rows.append(
                 {
-                    "code": f"{endpoint}#{column_name}",
+                    "code": f"home/{feed}#{column_name}",
                     "title": f"{tenor} — {dataset}",
                     "source": "treasury_rates",
-                    "endpoint": endpoint,
+                    "endpoint": feed,
                     "field": column_name,
-                    "definition": definition,
+                    "description": definition,
                     "data_type": "PERCENTAGE",
                     "dataset": dataset,
                     "category": _TREASURY_RATE_DATASET_CATEGORY,
@@ -599,7 +598,7 @@ def enumerate_treasury() -> pd.DataFrame:
                         "source": "fiscal_data",
                         "endpoint": endpoint,
                         "field": column_name,
-                        "definition": definition,
+                        "description": definition,
                         "data_type": field.get("data_type", "") or "",
                         "dataset": dataset_title,
                         "category": category,

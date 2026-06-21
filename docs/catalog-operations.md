@@ -25,7 +25,7 @@ search tool shapes) is an internal authoring standard — not part of the publis
 4. **Lazy load-or-build**: search connectors try the configured catalog URL, then
    `~/.cache/parsimony/connectors/<provider>/catalogs/<namespace>`, then the
    package `build_<provider>_catalog()` helper. Pre-warm under
-   `/tmp/parsimony-catalogs/` is optional — see [catalog-manifest.md](catalog-manifest.md).
+   `/tmp/parsimony-catalogs-v1-v1/` is the canonical pre-warm root — see [catalog-manifest.md](catalog-manifest.md).
 5. **Macro-only scope**: build catalogs for public macro/statistical providers in
    `tooling/catalog_validate/registry.py`. Do **not** build catalogs for commercial
    connectors with built-in upstream search (FMP, Alpha Vantage, Tiingo, etc.) —
@@ -49,14 +49,14 @@ that produces those remote artifacts. The plugin runtime never imports them.
 |-------|----------------|
 | **Plugin** (`parsimony_<provider>`) | Search/fetch connectors; default catalog URL; env override |
 | **Build script** (`packages/*/scripts/build_catalog.py`) | Enumerate source data, choose indexes, write/push snapshots |
-| **Validation** (`scripts/validate_catalog.py`) | Inspect snapshots; generate/run search probes |
+| **Validation** (`tooling/validate_catalog.py`) | Inspect snapshots; generate/run search probes |
 
 HF endpoints are always parameterized (`--push`, `--push-root`, `--catalog-url`).
 Defaults may point at `parsimony-dev` repos; use staging repos while iterating.
 
 ## v1 bulk publish (gated)
 
-After local schema-v1 snapshots exist under `/tmp/parsimony-catalogs-v1/`,
+After local schema-v1 snapshots exist under `/tmp/parsimony-catalogs-v1-v1/`,
 maintainers with `HF_TOKEN` (or `hf auth login`) run:
 
 ```bash
@@ -91,20 +91,20 @@ Do not advance to the next catalog until the current one is green.
 cd parsimony-connectors
 
 # Schema + index inspection (no curated probes)
-uv run python scripts/validate_catalog.py --catalog-url file:///tmp/parsimony-catalogs/riksbank
+uv run python tooling/validate_catalog.py --catalog-url file:///tmp/parsimony-catalogs-v1/riksbank
 
 # Generate draft probes from index shape + sampled entries
-uv run python scripts/validate_catalog.py --provider riksbank \
-  --catalog-url file:///tmp/parsimony-catalogs/riksbank \
+uv run python tooling/validate_catalog.py --provider riksbank \
+  --catalog-url file:///tmp/parsimony-catalogs-v1/riksbank \
   --write-queries packages/riksbank/catalog_tests/queries.generated.yaml
 
 # Run curated probes
-uv run python scripts/validate_catalog.py --provider riksbank \
-  --catalog-url file:///tmp/parsimony-catalogs/riksbank \
+uv run python tooling/validate_catalog.py --provider riksbank \
+  --catalog-url file:///tmp/parsimony-catalogs-v1/riksbank \
   --queries-file packages/riksbank/catalog_tests/queries.yaml
 
 # Remote canonical (may fail until rebuilt for current schema v1 snapshots)
-uv run python scripts/validate_catalog.py --provider riksbank --allow-missing-remote
+uv run python tooling/validate_catalog.py --provider riksbank --allow-missing-remote
 ```
 
 ### Probe modes (match indexes, not wishful semantics)
@@ -174,23 +174,23 @@ From `packages/<provider>/`:
 
 ```bash
 # Example: riksbank (optional --api-key or RIKSBANK_API_KEY for higher rate limits)
-uv run python scripts/build_catalog.py --save /tmp/parsimony-catalogs/riksbank
+uv run python scripts/build_catalog.py --save /tmp/parsimony-catalogs-v1/riksbank
 
 # Example: bdf (requires BDF_API_KEY or --api-key)
-uv run python scripts/build_catalog.py --save /tmp/parsimony-catalogs/bdf --api-key "$BDF_API_KEY"
-uv run python scripts/validate_catalog.py --provider riksbank \
-  --catalog-url file:///tmp/parsimony-catalogs/riksbank --write-queries \
+uv run python scripts/build_catalog.py --save /tmp/parsimony-catalogs-v1/bdf --api-key "$BDF_API_KEY"
+uv run python tooling/validate_catalog.py --provider riksbank \
+  --catalog-url file:///tmp/parsimony-catalogs-v1/riksbank --write-queries \
   catalog_tests/queries.generated.yaml
 # Curate catalog_tests/queries.yaml, then:
-uv run python scripts/validate_catalog.py --provider riksbank \
-  --catalog-url file:///tmp/parsimony-catalogs/riksbank
+uv run python tooling/validate_catalog.py --provider riksbank \
+  --catalog-url file:///tmp/parsimony-catalogs-v1/riksbank
 # Push with modern `hf` CLI (preferred; replaces deprecated huggingface-cli)
-chmod +x ../../scripts/push_catalog.sh
-../../scripts/push_catalog.sh hf://parsimony-dev-staging/riksbank /tmp/parsimony-catalogs/riksbank  # optional
-../../scripts/push_catalog.sh hf://parsimony-dev/riksbank /tmp/parsimony-catalogs/riksbank
+chmod +x ../../tooling/push_catalog.sh
+../../tooling/push_catalog.sh hf://parsimony-dev-staging/riksbank /tmp/parsimony-catalogs-v1/riksbank  # optional
+../../tooling/push_catalog.sh hf://parsimony-dev/riksbank /tmp/parsimony-catalogs-v1/riksbank
 # Or directly:
 # uv tool run hf repos create parsimony-dev/riksbank --repo-type dataset --exist-ok
-# uv tool run hf upload parsimony-dev/riksbank /tmp/parsimony-catalogs/riksbank --repo-type dataset
+# uv tool run hf upload parsimony-dev/riksbank /tmp/parsimony-catalogs-v1/riksbank --repo-type dataset
 ```
 
 Repeat with `--provider <name>` and paths from `tooling/catalog_validate/registry.py`.
@@ -215,16 +215,16 @@ cd packages/boj
 
 # All bundles (long-running; enumerates 50 DBs from live API)
 uv run python scripts/build_catalog.py --catalog all \
-  --save-root /tmp/parsimony-catalogs/boj
+  --save-root /tmp/parsimony-catalogs-v1/boj
 
 # Pilot one DB
 uv run python scripts/build_catalog.py --catalog series --db FM08 \
-  --save-root /tmp/parsimony-catalogs/boj
+  --save-root /tmp/parsimony-catalogs-v1/boj
 
 # Validate databases bundle + curated probes
-uv run python ../../scripts/validate_catalog.py --provider boj \
-  --catalog-url file:///tmp/parsimony-catalogs/boj/boj_databases \
-  --catalog-root file:///tmp/parsimony-catalogs/boj \
+uv run python ../../tooling/validate_catalog.py --provider boj \
+  --catalog-url file:///tmp/parsimony-catalogs-v1/boj/boj_databases \
+  --catalog-root file:///tmp/parsimony-catalogs-v1/boj \
   --queries-file catalog_tests/queries.yaml
 ```
 
@@ -242,13 +242,13 @@ cd packages/sdmx
 
 # Full portfolio (all agencies, structure + codelist catalogs)
 uv run python scripts/build_catalog.py --catalog portfolio \
-  --save-root /tmp/parsimony-catalogs/sdmx \
+  --save-root /tmp/parsimony-catalogs-v1/sdmx \
   --push-root hf://parsimony-dev/sdmx \
   --parallel 2 --keep-going --resume
 
 # Single agency
 uv run python scripts/build_catalog.py --catalog agency --agency ECB \
-  --save-root /tmp/parsimony-catalogs/sdmx \
+  --save-root /tmp/parsimony-catalogs-v1/sdmx \
   --push-root hf://parsimony-dev/sdmx --parallel 2 --keep-going
 ```
 
@@ -295,14 +295,14 @@ Publish or refresh the dataset card (README only — no snapshot rebuild):
 # Flat pilot (verified on parsimony-dev/riksbank)
 uv run python scripts/publish_catalog_dataset_card.py --repo-id parsimony-dev/riksbank
 
-# All providers with local trees under /tmp/parsimony-catalogs
+# All providers with local trees under /tmp/parsimony-catalogs-v1
 uv run python scripts/publish_catalog_dataset_card.py --all
 
 # Multi-bundle
-uv run python scripts/publish_catalog_dataset_card.py --provider sdmx --catalog-root /tmp/parsimony-catalogs
+uv run python scripts/publish_catalog_dataset_card.py --provider sdmx --catalog-root /tmp/parsimony-catalogs-v1
 ```
 
-`scripts/push_catalog.sh` refreshes the dataset card after repo-root uploads. For multi-bundle
+`tooling/push_catalog.sh` refreshes the dataset card after repo-root uploads. For multi-bundle
 subpath uploads, set `PARSIMONY_UPDATE_DATASET_CARD=1` and `PARSIMONY_CATALOG_ROOT` to the save root.
 
 Verify viewer indexing:
@@ -325,7 +325,7 @@ hf auth whoami                           # or: uv tool run hf auth whoami
 
 Auth options (pick one):
 
-- **`HF_TOKEN`** env var (recommended in `ockham/.env`) — passed through by `scripts/push_catalog.sh`
+- **`HF_TOKEN`** env var (recommended in `ockham/.env`) — passed through by `tooling/push_catalog.sh`
 - **`hf auth login`** — interactive token from https://huggingface.co/settings/tokens
 
 Common commands:
@@ -334,7 +334,7 @@ Common commands:
 |------|---------|
 | Whoami | `hf auth whoami` |
 | Create dataset repo | `hf repos create parsimony-dev/riksbank --repo-type dataset --exist-ok` |
-| Upload snapshot (root) | `hf upload parsimony-dev/riksbank /tmp/parsimony-catalogs/riksbank --repo-type dataset` |
+| Upload snapshot (root) | `hf upload parsimony-dev/riksbank /tmp/parsimony-catalogs-v1/riksbank --repo-type dataset` |
 | Upload SDMX sub-bundle | `hf upload parsimony-dev/sdmx /tmp/.../sdmx_datasets sdmx_datasets --repo-type dataset` |
 | Publish dataset card (viewer) | `uv run python scripts/publish_catalog_dataset_card.py --repo-id parsimony-dev/riksbank` |
 | Dataset info | `hf datasets info parsimony-dev/riksbank` |
