@@ -1,6 +1,6 @@
-# Curated search probes for the Riksbank catalog (schema v4 snapshots).
-# Regenerate drafts: uv run python scripts/validate_catalog.py --provider riksbank \
-#   --catalog-url file:///tmp/parsimony-catalogs/riksbank --write-queries \
+# Curated search probes for the Riksbank catalog (schema v1 snapshots).
+# Regenerate drafts: uv run python tooling/validate_catalog.py --provider riksbank \
+#   --catalog-url file:///tmp/parsimony-catalogs-v1/riksbank --write-queries \
 #   packages/riksbank/catalog_tests/queries.generated.yaml
 #
 # Expected usage: hybrid title/description search (BM25 + vector on text fields).
@@ -52,6 +52,20 @@ queries:
     mode: hybrid_title
     optional: true
     why: "Semantic probe surfacing the holdings family"
+
+  - id: euro_sek_exchange_rate
+    query: "euro Swedish krona exchange rate"
+    expected_code: SEKEURPMI
+    mode: hybrid_title
+    required: true
+    why: "Broad NL query for EUR/SEK FX after row enrichment"
+
+  - id: policy_rate
+    query: "policy rate"
+    expected_code: SECBREPOEFF
+    mode: title_bm25
+    required: true
+    why: "Policy-rate title probe (SECBREPOEFF)"
 
 thresholds:
   min_required_recall: 1.0

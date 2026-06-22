@@ -1,5 +1,9 @@
 # Catalog manifest
 
+> Start with [guides/building-catalogs.md](guides/building-catalogs.md) for the high-level
+> operator workflow (when a provider gets a catalog, the lifecycle, the commands). This page
+> is the per-provider snapshot manifest it links into.
+
 Operator reference for catalog bundles: which connectors ship hosted snapshots, how
 runtime load order works, and how to pre-warm locally before publishing to Hugging Face.
 
@@ -13,12 +17,12 @@ runtime load order works, and how to pre-warm locally before publishing to Huggi
 Point env vars at local trees for zero cold-start during testing:
 
 ```bash
-export PARSIMONY_TREASURY_CATALOG_URL=file:///tmp/parsimony-catalogs/treasury
-export PARSIMONY_SDMX_CATALOG_URL=file:///tmp/parsimony-catalogs/sdmx
-export PARSIMONY_BOJ_CATALOG_URL=file:///tmp/parsimony-catalogs/boj
+export PARSIMONY_TREASURY_CATALOG_URL=file:///tmp/parsimony-catalogs-v1/treasury
+export PARSIMONY_SDMX_CATALOG_URL=file:///tmp/parsimony-catalogs-v1/sdmx
+export PARSIMONY_BOJ_CATALOG_URL=file:///tmp/parsimony-catalogs-v1/boj
 ```
 
-## Catalog-backed connectors (11)
+## Catalog-backed connectors (13)
 
 All flat macros, BoJ, and SDMX publish `schema_version: 1` snapshots. Rebuild and
 republish before release — stale `parsimony-dev/*` artifacts from earlier dev builds are
@@ -34,6 +38,8 @@ not loadable.
 | rba | `hf://parsimony-dev/rba` | `packages/rba/scripts/build_catalog.py` |
 | destatis | `hf://parsimony-dev/destatis` | `packages/destatis/scripts/build_catalog.py` |
 | riksbank | `hf://parsimony-dev/riksbank` | `packages/riksbank/scripts/build_catalog.py` |
+| bls | `hf://parsimony-dev/bls` | `packages/bls/scripts/build_catalog.py` (multi-bundle, per survey) |
+| eia | `hf://parsimony-dev/eia` | `packages/eia/scripts/build_catalog.py` (needs `EIA_API_KEY`) |
 | bdf | `hf://parsimony-dev/bdf` | `packages/bdf/scripts/build_catalog.py` (needs `BDF_API_KEY`) |
 | boj | `hf://parsimony-dev/boj` | `packages/boj/scripts/build_catalog.py` (multi-bundle) |
 | sdmx | `hf://parsimony-dev/sdmx` | `packages/sdmx/scripts/build_catalog.py` |
@@ -47,7 +53,9 @@ not loadable.
 | IMF_DATA | all flows (193) | deduplicated from DSD structure |
 | WB_WDI | single flow | deduplicated from DSD structure |
 
-Series discovery is **on-demand** via scoped keys-only requests (`enumerate_sdmx_series`) — no per-flow series catalogs.
+Series discovery uses prebuilt ``sdmx_series_*`` catalogs searched via
+``sdmx_series_search`` (built by ``packages/sdmx/scripts/build_all_catalogs.py``).
+Structure markers (``sdmx_structure_*``) are build-time only and must not be published.
 
 ### BoJ bundles
 
@@ -63,8 +71,7 @@ threshold for high-cardinality fields.
 ## Summary script
 
 ```bash
-uv run python scripts/catalog_manifest_summary.py
-uv run python scripts/catalog_manifest_summary.py --catalog-root /tmp/parsimony-catalogs
+uv run python scripts/catalog_manifest_summary.py --catalog-root /tmp/parsimony-catalogs-v1 --audit
 ```
 
 See [catalog-operations.md](catalog-operations.md) for validation and HF publish steps.

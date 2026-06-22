@@ -5,14 +5,18 @@ to the kernel through entry-point metadata in its `pyproject.toml`:
 
 ```toml
 [project.entry-points."parsimony.providers"]
-<provider_id> = "parsimony_<name>:CONNECTORS"
+<provider_id> = "parsimony_<name>"
 ```
 
-Consumers (MCP hosts, agent frameworks, CLIs) discover installed
-providers at runtime via the kernel's `parsimony.discover` surface —
-see the kernel's `docs/discover.md` for the stable API. Entry-point
-metadata on the installed distribution is the authoritative source;
-this monorepo does not ship a separate index file.
+The value is a bare importable module path, not a `module:attr` target.
+The kernel imports that module and reads its top-level
+`CONNECTORS = Connectors([...])` export.
+
+Consumers (agent frameworks, CLIs) discover installed providers at
+runtime via the kernel's `parsimony.discover` surface (`discover.load_all()`
+and `discover.load(*names)`). Entry-point metadata on the installed
+distribution is the authoritative source; this monorepo does not ship a
+separate index file.
 
 ## Adding an officially-maintained connector
 

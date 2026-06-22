@@ -11,6 +11,7 @@ label is resolved with a secondary ``/Series`` request at fetch time.
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Any
 
@@ -92,30 +93,220 @@ def flatten_groups(root: Any) -> dict[str, str]:
     return lookup
 
 
-def series_description(series: dict[str, Any]) -> str:
-    """Pick the richest description SWEA offers for a series.
+_CURRENCY_SYNONYMS: dict[str, str] = {
+    "EUR": "euro",
+    "USD": "US dollar",
+    "GBP": "British pound sterling",
+    "JPY": "Japanese yen",
+    "CHF": "Swiss franc",
+    "NOK": "Norwegian krone",
+    "DKK": "Danish krone",
+}
 
-    Preference: ``longDescription`` (full sentences) > ``midDescription`` >
-    ``shortDescription`` (label). A fall-back synthesised from id + provider keeps
-    the DESCRIPTION column non-empty.
+
+def _counter_currency_label(ccy: str, series: dict[str, Any]) -> str:
+    if ccy in _CURRENCY_SYNONYMS:
+        return _CURRENCY_SYNONYMS[ccy]
+    mid = (series.get("midDescription") or "").strip()
+    if mid:
+        return mid.rstrip(".")
+    short = (series.get("shortDescription") or "").strip()
+    return short or ccy
+
+
+def _upstream_label_parts(series: dict[str, Any]) -> list[str]:
+    """Distinct upstream SWEA label fields in short → mid → long order."""
+    seen: set[str] = set()
+    parts: list[str] = []
+    for key in ("shortDescription", "midDescription", "longDescription"):
+        v = series.get(key)
+        if isinstance(v, str):
+            text = v.strip()
+            if text and text not in seen:
+                seen.add(text)
+                parts.append(text)
+    return parts
+
+
+_FX_GROUP_MARKERS: tuple[str, ...] = (
+    "Currencies against Swedish kronor",
+    "Cross rates",
+)
+
+_GVB_GROUP_MARKERS: tuple[str, ...] = (
+    "Government Bonds",
+    "SE GVB",
+)
+
+_FIXED_INCOME_GROUP_MARKERS: tuple[str, ...] = (
+    "Treasury Bills",
+    "SE TB",
+    "Mortgage Bonds",
+    "SE MB",
+    "Commercial Paper",
+    "SE CP",
+    "Fixing Rates",
+    "SE STFIX",
+    "STIBOR",
+    "Euribor",
+    "Euro Market Rates",
+    "Market rates",
+)
+
+# Country code → full name for international GVB series (e.g. USGVB5Y → "United States")
+_GVB_COUNTRY_NAMES: dict[str, str] = {
+    "US": "United States",
+    "DE": "Germany",
+    "JP": "Japan",
+    "GB": "United Kingdom",
+    "FR": "France",
+    "NL": "Netherlands",
+    "EM": "Euro area",
+    "NO": "Norway",
+    "DK": "Denmark",
+    "FI": "Finland",
+    "SE": "Sweden",
+}
+
+
+def _is_fx_group(group_name: str) -> bool:
+    return any(marker in group_name for marker in _FX_GROUP_MARKERS)
+
+
+def _is_gvb_group(group_name: str) -> bool:
+    return any(marker in group_name for marker in _GVB_GROUP_MARKERS)
+
+
+def _is_fixed_income_group(group_name: str) -> bool:
+    return any(marker in group_name for marker in _FIXED_INCOME_GROUP_MARKERS)
+
+
+def _gvb_country_from_series_id(sid: str) -> str | None:
+    """Extract two-letter country code from international GVB ids like ``USGVB5Y`` or ``DEGVB10Y``."""
+    upper = sid.upper()
+    if "GVB" not in upper:
+        return None
+    prefix = upper[: upper.index("GVB")]
+    if len(prefix) == 2 and prefix.isalpha():
+        return prefix
+    return None
+
+
+def _fx_currency_from_series_id(sid: str) -> str | None:
+    """Extract counter-currency from SWEA FX ids like ``SEKEURPMI`` or ``SEKUSDPMM``."""
+    upper = sid.upper()
+    if not upper.startswith("SEK"):
+        return None
+    rest = upper[3:]
+    for suffix in _FREQ_BY_SUFFIX:
+        suffix_code = suffix[0]
+        if rest.endswith(suffix_code):
+            ccy = rest[: -len(suffix_code)]
+            if 2 <= len(ccy) <= 4 and ccy.isalpha():
+                return ccy
+    return None
+
+
+def series_description(series: dict[str, Any], sid: str, *, group_name: str = "", frequency: str = "") -> str:
+    """Pick or compose searchable description text for a SWEA series row.
+
+    FX / Government-Bond / fixed-income groups get a synthesised, keyword-rich
+    description for retrieval; everything else falls back to the richest upstream
+    label (long > mid > short), then an id + provider synthesis.
     """
+    upstream = _upstream_label_parts(series)
+    provider = series.get("source") or "Sveriges Riksbank"
+    group_leaf = group_name.split(" > ")[-1].strip() if group_name else ""
+
+    if _is_fx_group(group_name):
+        ccy = _fx_currency_from_series_id(sid)
+        parts: list[str] = []
+        if ccy:
+            ccy_label = _counter_currency_label(ccy, series)
+            freq_hint = f"{frequency} " if frequency and frequency != "Unknown" else ""
+            parts.append(
+                f"{freq_hint}{ccy}/SEK exchange rate fixing — {ccy_label} against Swedish krona.".strip()
+            )
+        elif upstream:
+            parts.append(upstream[-1])
+        if group_leaf:
+            parts.append(f"Group: {group_leaf}.")
+        parts.append(f"Provider: {provider}.")
+        if upstream:
+            parts.append("Upstream labels: " + "; ".join(upstream) + ".")
+        return " ".join(parts)
+
+    if _is_gvb_group(group_name):
+        country_code = _gvb_country_from_series_id(sid)
+        country_name = _GVB_COUNTRY_NAMES.get(country_code or "", "") if country_code else ""
+        # Use the most informative upstream label as the base, then inject "yield" keyword.
+        base = ""
+        for key in ("longDescription", "midDescription", "shortDescription"):
+            v = series.get(key)
+            if isinstance(v, str) and v.strip():
+                base = v.strip()
+                break
+        if not base:
+            base = f"Government bond, {sid}"
+        parts_gvb: list[str] = [f"{base}."]
+        if country_name and country_name not in base:
+            parts_gvb.append(f"Country: {country_name}.")
+        parts_gvb.append("Government bond interest rate yield.")
+        return " ".join(parts_gvb)
+
+    if _is_fixed_income_group(group_name):
+        base = ""
+        for key in ("longDescription", "midDescription", "shortDescription"):
+            v = series.get(key)
+            if isinstance(v, str) and v.strip():
+                base = v.strip()
+                break
+        if base:
+            return f"{base}. Interest rate."
+        return f"{sid} — {group_leaf}. Interest rate."
+
     for key in ("longDescription", "midDescription", "shortDescription"):
         v = series.get(key)
         if isinstance(v, str) and v.strip():
             return v.strip()
-    sid = series.get("seriesId") or "series"
-    provider = series.get("source") or "Sveriges Riksbank"
     return f"{sid} — published by {provider}."
 
 
-def series_title(series: dict[str, Any], sid: str) -> str:
+def series_title(series: dict[str, Any], sid: str, *, group_name: str = "") -> str:
     """Resolve a human-readable title from a SWEA ``/Series`` entry.
 
-    SWEA rows carry ``shortDescription`` (the UI label) and the longer description
-    fields — there is no ``seriesName``/``name`` key despite older code looking for
-    them. Prefer the short label, then the mid description, finally the id.
+    FX and Government-Bond groups get a composed, search-friendly title; otherwise
+    prefer the short label, then mid/long description, finally the id.
     """
-    title = series.get("shortDescription") or series.get("midDescription") or sid
+    short = (series.get("shortDescription") or "").strip()
+    mid = (series.get("midDescription") or "").strip()
+    long_desc = (series.get("longDescription") or "").strip()
+
+    if _is_fx_group(group_name):
+        ccy = _fx_currency_from_series_id(sid)
+        if ccy:
+            ccy_label = _counter_currency_label(ccy, series)
+            return f"{ccy}/SEK exchange rate — {ccy_label} against Swedish krona"
+
+    if _is_gvb_group(group_name):
+        country_code = _gvb_country_from_series_id(sid)
+        # For international GVBs like "US 5 Year", prefix with full country and "Government Bond"
+        base_title = short or mid or long_desc or sid
+        if country_code and country_code != "SE":
+            country_name = _GVB_COUNTRY_NAMES.get(country_code, country_code)
+            # Strip any leading 2–3 letter region token (US, JP, EU, DE, …) from the upstream label
+            suffix = re.sub(r"^[A-Z]{2,3}\s+", "", base_title).strip() or base_title
+            return f"{country_name} Government Bond {suffix} Yield".strip()
+        # Swedish GVBs: "SE GVB 5 Year" → "Swedish Government Bond 5 Year Yield"
+        base_title_upper = base_title.upper()
+        suffix = base_title
+        for prefix in ("SE GVB", "SEGVB", "SE STFIX"):
+            if base_title_upper.startswith(prefix):
+                suffix = base_title[len(prefix) :].strip()
+                break
+        return f"Swedish Government Bond {suffix} Yield".strip()
+
+    title = short or mid or long_desc or sid
     return str(title).strip() or sid
 
 

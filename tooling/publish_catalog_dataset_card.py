@@ -34,7 +34,7 @@ from catalog_validate.registry import PROVIDER_SPECS, SDMX_ROOT_DEFAULT  # noqa:
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_CATALOG_ROOT = Path("/tmp/parsimony-catalogs")
+_DEFAULT_CATALOG_ROOT = Path("/tmp/parsimony-catalogs-v1")
 _MULTI_BUNDLE_PROVIDERS = frozenset({"boj", "sdmx"})
 
 

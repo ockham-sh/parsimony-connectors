@@ -49,7 +49,6 @@ GITHUB_BLOB_BASE = "https://github.com/ockham-sh/parsimony-connectors/blob/main"
 
 CONNECTOR_DECORATOR_RE = re.compile(r"@(connector|enumerator|loader)\s*\(([^)]*)\)", re.DOTALL)
 SEARCH_FACTORY_RE = re.compile(r"make_local_search_connector\s*\(", re.MULTILINE)
-TOOL_TAG_RE = re.compile(r'tags\s*=\s*\(?[^)]*["\']tool["\']')
 
 # Google's favicon service. More reliable than DDG for niche domains
 # (central banks, statistical agencies). Returns a generic icon for
@@ -67,7 +66,6 @@ class PackageInfo:
     entry_point: str
     module: str
     connector_count: int
-    tool_count: int
 
 
 def _read_pyproject(path: Path) -> dict:
@@ -116,24 +114,15 @@ def _favicon_url(homepage: str) -> str | None:
     return FAVICON_TEMPLATE.format(domain=netloc)
 
 
-def _count_connectors(module_dir: Path) -> tuple[int, int]:
+def _count_connectors(module_dir: Path) -> int:
     if not module_dir.exists():
-        return 0, 0
+        return 0
     total = 0
-    tools = 0
     for py in module_dir.rglob("*.py"):
         text = py.read_text(encoding="utf-8")
-        for match in CONNECTOR_DECORATOR_RE.finditer(text):
-            total += 1
-            if TOOL_TAG_RE.search(match.group(2)):
-                tools += 1
-        for match in SEARCH_FACTORY_RE.finditer(text):
-            total += 1
-            start = match.start()
-            window = text[start : start + 800]
-            if TOOL_TAG_RE.search(window):
-                tools += 1
-    return total, tools
+        total += len(CONNECTOR_DECORATOR_RE.findall(text))
+        total += len(SEARCH_FACTORY_RE.findall(text))
+    return total
 
 
 def _gather() -> list[PackageInfo]:
@@ -148,7 +137,7 @@ def _gather() -> list[PackageInfo]:
         if not ep_name:
             continue
         module_dir = pyproject.parent / module.split(".")[0]
-        total, tools = _count_connectors(module_dir)
+        total = _count_connectors(module_dir)
         rows.append(
             PackageInfo(
                 name=name,
@@ -157,14 +146,13 @@ def _gather() -> list[PackageInfo]:
                 entry_point=ep_name,
                 module=module,
                 connector_count=total,
-                tool_count=tools,
             )
         )
     return rows
 
 
 def _render(rows: list[PackageInfo]) -> str:
-    headers = ["", "Package", "Source", "Connectors", "Tool surface"]
+    headers = ["", "Package", "Source", "Connectors"]
     lines = [
         "| " + " | ".join(headers) + " |",
         "|" + "|".join(["---"] * len(headers)) + "|",
@@ -183,9 +171,8 @@ def _render(rows: list[PackageInfo]) -> str:
         link = f"[`{row.name}`]({pypi_url})"
         provider = _provider_name(row.description).replace("|", "\\|")
         source_md = f"[{provider}]({row.homepage})" if row.homepage else provider
-        tool_cell = f"{row.tool_count} of {row.connector_count}" if row.connector_count else "n/a"
         lines.append(
-            f"| {icon_cell} | {link} | {source_md} | {row.connector_count} | {tool_cell} |"
+            f"| {icon_cell} | {link} | {source_md} | {row.connector_count} |"
         )
     return "\n".join(lines)
 

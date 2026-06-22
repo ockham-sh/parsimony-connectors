@@ -50,7 +50,10 @@ line-length = 120
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.mypy]
-python_version = "3.11"
+# No fixed python_version: mypy targets the interpreter it runs under. The py3.12
+# CI job resolves numpy 2.5.0, whose stubs use PEP 695 `type` statements; pinning
+# 3.11 here made mypy reject those stubs as a syntax error. Each matrix job now
+# type-checks against its own interpreter (3.11 -> numpy 2.4.6, 3.12 -> 2.5.0).
 warn_return_any = true
 warn_unused_ignores = true
 ignore_missing_imports = true

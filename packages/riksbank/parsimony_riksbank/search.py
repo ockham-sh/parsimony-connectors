@@ -1,4 +1,8 @@
-"""Semantic search over the published Sveriges Riksbank catalog."""
+"""Semantic search over the published Sveriges Riksbank catalog.
+
+FX/rate row enrichment happens at enumeration time (see ``swea.py``); it is what drives
+title/description relevance, so no provider-specific search routing is needed here.
+"""
 
 from __future__ import annotations
 

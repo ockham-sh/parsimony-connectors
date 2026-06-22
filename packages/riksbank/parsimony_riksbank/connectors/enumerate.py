@@ -59,15 +59,17 @@ def _swea_rows(groups_data: Any, series_data: Any) -> list[dict[str, Any]]:
             group_id_int = int(group_id_raw) if group_id_raw != "" else None
         except (TypeError, ValueError):
             group_id_int = None
+        group_name = group_lookup.get(str(group_id_raw), "")
+        frequency = swea.infer_frequency(sid, group_id_int)
         rows.append(
             {
                 "code": sid,
-                "title": swea.series_title(s, sid),
-                "description": swea.series_description(s),
+                "title": swea.series_title(s, sid, group_name=group_name),
+                "description": swea.series_description(s, sid, group_name=group_name, frequency=frequency),
                 "source": "swea",
-                "frequency": swea.infer_frequency(sid, group_id_int),
+                "frequency": frequency,
                 "unit": "",
-                "group": group_lookup.get(str(group_id_raw), ""),
+                "group": group_name,
                 "provider": s.get("source", "") or "",
                 "observation_min": swea.normalize_observation_date(s.get("observationMinDate")),
                 "observation_max": swea.normalize_observation_date(s.get("observationMaxDate")),

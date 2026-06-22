@@ -244,10 +244,10 @@ def test_enumerate_series_emits_dimension_metadata(_patch_flatfiles) -> None:
 def test_build_series_catalog_search_offline(_patch_flatfiles) -> None:
     catalog = build_series_catalog("CU")
     assert len(catalog.entities) == 2
-    hits, _ = catalog.search("gasoline", limit=5)
+    hits = catalog.search("gasoline", limit=5)
     assert hits[0].code == "CUUR0000SETB01"
     # exact code probe
-    code_hits, _ = catalog.search("code: CUUR0000SA0", limit=3)
+    code_hits = catalog.search("code: CUUR0000SA0", limit=3)
     assert code_hits[0].code == "CUUR0000SA0"
 
 
@@ -285,7 +285,7 @@ def test_bls_series_search_shapes_rows(monkeypatch) -> None:
 
     class _Catalog:
         def search(self, query, limit=10):
-            return [_Match("CUUR0000SETB01", "Gasoline", "bls_series_cu")], None
+            return [_Match("CUUR0000SETB01", "Gasoline", "bls_series_cu")]
 
     def fake_get(namespace, *, catalog_root=None, build=None):
         return _Catalog()
@@ -303,7 +303,7 @@ def test_bls_series_search_empty_raises(monkeypatch) -> None:
 
     class _Catalog:
         def search(self, query, limit=10):
-            return [], None
+            return []
 
     def fake_get(namespace, *, catalog_root=None, build=None):
         return _Catalog()
