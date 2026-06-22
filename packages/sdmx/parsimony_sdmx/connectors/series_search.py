@@ -173,25 +173,15 @@ def sdmx_series_search(
 ) -> pd.DataFrame:
     """Search populated series keys in a prebuilt columnar catalog for one SDMX flow.
 
-    Pick the access path by what you actually have:
-
-    * ``query=`` is FREE TEXT, keyword-matched against the human-readable series
-      title/labels. Use natural language — e.g. ``"10-year government bond spot
-      rate"``. Do NOT put SDMX codes or abbreviations here (``"SR_10Y"``,
-      ``"G_N_A"``, ``"10Y"``): codes do not appear in the title text, so they
-      match nothing. Spell concepts out ("10-year", not "10Y").
-    * To match exact SDMX CODES, target the ``{dim}_code`` columns — either
-      ``filter_json`` (exact AND filter, e.g.
-      ``{"DATA_TYPE_FM_code": ["SR_10Y"], "INSTRUMENT_FM_code": ["G_N_A"]}``) or
-      ``field=`` with a single ``query=`` value scoped to one ``{dim}_code`` (or
-      ``{dim}_label``) column. ``query=`` may be omitted entirely for a pure
-      ``filter_json`` lookup.
-
-    ``filter_json``/``field`` keys are catalog column names — ``{dim}_code`` or
-    ``{dim}_label`` (e.g. ``CURRENCY_code``), never the bare dimension id.
-
-    Returns ranked matches with the series ``key``, ``title``, the resolved
-    ``{dim}_code``/``{dim}_label`` columns, and a ``refine`` JSON facet column.
+    ``query=`` is FREE TEXT matched against human-readable series titles/labels
+    (e.g. "10-year government bond spot rate") — do NOT pass SDMX codes
+    ("SR_10Y", "10Y"); they are absent from titles and match nothing. To match
+    exact codes, target the ``{dim}_code``/``{dim}_label`` columns via
+    ``filter_json`` (exact AND filter, e.g. ``{"DATA_TYPE_FM_code": ["SR_10Y"]}``)
+    or ``field=`` with a single ``query=`` scoped to one such column; ``query=``
+    may be omitted for a pure ``filter_json`` lookup. Returns ranked matches with
+    the series ``key``, ``title``, the resolved ``{dim}_code``/``{dim}_label``
+    columns, and a ``refine`` facet column.
     """
     params = SeriesSearchParams(
         agency=agency,

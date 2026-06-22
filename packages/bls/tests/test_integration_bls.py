@@ -69,6 +69,6 @@ def test_enumerate_series_live_composes_titles() -> None:
 def test_two_tier_build_and_search_live() -> None:
     catalog = build_series_catalog(_SMALL_SURVEY)
     assert len(catalog.entities) > 100
-    hits, _ = catalog.search("job openings", limit=5)
+    hits = catalog.search("job openings", limit=5)
     assert hits, "expected JOLTS series for 'job openings'"
     assert all(h.code.startswith("JT") for h in hits)

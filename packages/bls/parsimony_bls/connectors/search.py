@@ -70,7 +70,7 @@ def bls_surveys_search(query: str, limit: int = 10, catalog_root: str | None = N
         return build_surveys_catalog()
 
     catalog = _get_or_load_catalog(SURVEYS_NAMESPACE, catalog_root=catalog_root, build=_build)
-    matches, _ = catalog.search(query, limit=limit)
+    matches = catalog.search(query, limit=limit)
     if not matches:
         raise EmptyDataError("bls", message=f"No survey matches for query={query!r}.")
 
@@ -107,7 +107,7 @@ def bls_series_search(
         return build_series_catalog(sv)
 
     catalog = _get_or_load_catalog(namespace, catalog_root=catalog_root, build=_build)
-    matches, _ = catalog.search(query, limit=limit)
+    matches = catalog.search(query, limit=limit)
     if not matches:
         raise EmptyDataError(
             "bls",
