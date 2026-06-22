@@ -105,14 +105,17 @@ def riksbank_catalog_dir(tmp_path: Path) -> Path:
     with respx.mock:
         _mock_enumerate()
         df = enumerate_riksbank().data
-        # Drop the SWEA-payload SWESTR; keep the static registry row (source="swestr").
-        df = df[~((df["code"] == "SWESTR") & (df["source"] == "swea"))]
-        entries = entities_from_raw(df, RIKSBANK_ENUMERATE_OUTPUT)
-        catalog = Catalog("riksbank", indexes=discovery_indexes(entries), default_field="title")
-        catalog.set_entities(entries)
-        catalog.build()
-        out_dir = tmp_path / "riksbank_catalog"
-        catalog.save(out_dir)
+    # Drop the SWEA-payload SWESTR; keep the static registry row (source="swestr").
+    df = df[~((df["code"] == "SWESTR") & (df["source"] == "swea"))]
+    entries = entities_from_raw(df, RIKSBANK_ENUMERATE_OUTPUT)
+    # Build OUTSIDE the respx mock: the hybrid index embeds via sentence-transformers,
+    # which fetches its model from Hugging Face. Under respx (assert_all_mocked) that
+    # request errors as "not mocked"; the mock is only needed for the enumerate HTTP.
+    catalog = Catalog("riksbank", indexes=discovery_indexes(entries), default_field="title")
+    catalog.set_entities(entries)
+    catalog.build()
+    out_dir = tmp_path / "riksbank_catalog"
+    catalog.save(out_dir)
     return out_dir
 
 
