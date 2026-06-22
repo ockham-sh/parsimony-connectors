@@ -147,7 +147,6 @@ def build_treasury_rate_rows() -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for spec in _TREASURY_RATE_FEEDS:
         feed = spec["feed"]
-        endpoint = f"home/{feed}"
         dataset = spec["dataset"]
         frequency = spec["frequency"]
         template: str = spec["definition_template"]
@@ -156,10 +155,10 @@ def build_treasury_rate_rows() -> list[dict[str, str]]:
             definition = template.format(tenor=tenor, kind=kind)
             rows.append(
                 {
-                    "code": f"{endpoint}#{column_name}",
+                    "code": f"home/{feed}#{column_name}",
                     "title": f"{tenor} — {dataset}",
                     "source": "treasury_rates",
-                    "endpoint": endpoint,
+                    "endpoint": feed,
                     "field": column_name,
                     "description": definition,
                     "data_type": "PERCENTAGE",

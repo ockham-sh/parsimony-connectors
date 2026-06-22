@@ -3,7 +3,7 @@
 # Workflow:
 #   sdmx_datasets_search(query=...)
 #   -> sdmx_codelist_search(agency=..., codelist_id=..., query=...)
-#   -> enumerate_sdmx_series(agency=..., dataset_id=..., key_pattern=...)
+#   -> sdmx_series_search(agency=..., dataset_id=..., query=...)
 #   -> sdmx_fetch
 
 catalog_root: hf://parsimony-dev/sdmx

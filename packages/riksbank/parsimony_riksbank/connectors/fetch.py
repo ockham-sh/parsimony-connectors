@@ -81,6 +81,9 @@ def riksbank_fetch(
     Returns date + value with the upstream series name as title. Use ``from_date`` /
     ``to_date`` together to fetch a window; omit both to receive the latest observation.
     SWEA is keyless — ``api_key`` is optional and only raises the quota.
+
+    **Rate limit**: the keyless quota is tight (~3 requests/burst). When fetching multiple
+    series in a loop, add ``time.sleep(1.5)`` between calls to avoid HTTP 429 errors.
     """
     series_id = series_id.strip()
     if not series_id:

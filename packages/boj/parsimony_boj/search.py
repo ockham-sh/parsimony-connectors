@@ -146,7 +146,8 @@ def boj_series_search(
 ) -> pd.DataFrame:
     """Search series within one BoJ statistics database.
 
-    Requires ``db`` from ``boj_databases_search``. Returns ``code`` and ``db`` for ``boj_fetch``.
+    Requires ``db`` from ``boj_databases_search``. Returns ``code`` and ``db`` columns.
+    Dispatch: ``boj_fetch(db=r["db"], code=r["code"])``.
     """
     params = SeriesSearchParams(query=query, db=db, limit=limit, catalog_root=catalog_root)
     db_code = _normalize_db(params.db)

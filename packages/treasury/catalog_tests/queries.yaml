@@ -46,5 +46,19 @@ queries:
     optional: true
     why: "Proves the famous 10-year par-yield benchmark surfaces by title text, not just exact code"
 
+  - id: par_yield_description
+    query: "description: constant maturity Treasury par yield"
+    expected_code: "home/daily_treasury_yield_curve#BC_10YEAR"
+    mode: description_bm25
+    required: true
+    why: "Description field indexes the Treasury definition prose (the definition→description rename)"
+
+  - id: tips_real_yield
+    query: "description: Treasury Inflation-Protected Securities"
+    expected_code: "home/daily_treasury_real_yield_curve#TC_10YEAR"
+    mode: description_bm25
+    required: true
+    why: "TIPS real-yield rows searchable via description prose"
+
 thresholds:
   min_required_recall: 1.0

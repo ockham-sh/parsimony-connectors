@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# Push a local catalog snapshot to Hugging Face using the modern `hf` CLI.
+# Push a local catalog snapshot to Hugging Face (prune target path, then upload).
 #
 # Usage:
-#   ./scripts/push_catalog.sh hf://parsimony-dev/riksbank /tmp/parsimony-catalogs/riksbank
-#   ./scripts/push_catalog.sh hf://parsimony-dev/sdmx/sdmx_datasets /tmp/parsimony-catalogs/sdmx/sdmx_datasets
+#   ./tooling/push_catalog.sh hf://parsimony-dev/riksbank /tmp/parsimony-catalogs-v1/riksbank
+#   ./tooling/push_catalog.sh hf://parsimony-dev/sdmx/sdmx_datasets_ecb /tmp/parsimony-catalogs-v1/sdmx/sdmx_datasets_ecb
 #
 # Auth: HF_TOKEN env var (recommended) or `hf auth login`.
-# Install CLI: uv tool install 'huggingface_hub[cli]'  (provides `hf` on PATH via uv tool run)
 
 set -euo pipefail
 
@@ -28,13 +27,19 @@ if [[ ! -f "$LOCAL_DIR/meta.json" ]]; then
   exit 1
 fi
 
-# hf://org/repo[/subpath]
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PRUNE_ARGS=()
+if [[ "${PARSIMONY_SKIP_PRUNE:-}" == "1" ]]; then
+  PRUNE_ARGS+=(--no-prune)
+fi
+
+uv run python "$REPO_ROOT/tooling/prune_and_push_catalog.py" \
+  "$CATALOG_URL" "$LOCAL_DIR" \
+  --commit-message "$COMMIT_MSG" \
+  "${PRUNE_ARGS[@]}"
+
 REST="${CATALOG_URL#hf://}"
 IFS='/' read -ra PARTS <<< "$REST"
-if ((${#PARTS[@]} < 2)); then
-  echo "Invalid hf catalog URL (expected hf://org/repo[/subpath]): $CATALOG_URL" >&2
-  exit 1
-fi
 REPO_ID="${PARTS[0]}/${PARTS[1]}"
 SUBPATH=""
 if ((${#PARTS[@]} > 2)); then
@@ -44,28 +49,9 @@ if ((${#PARTS[@]} > 2)); then
   done
 fi
 
-HF=(uv tool run hf)
-# HF_TOKEN is read from the environment by huggingface_hub; the CLI has no global --token flag.
-
-echo "Creating dataset repo (if needed): $REPO_ID"
-"${HF[@]}" repos create "$REPO_ID" --repo-type dataset --exist-ok
-
-if [[ -n "$SUBPATH" ]]; then
-  echo "Uploading $LOCAL_DIR -> $REPO_ID (path_in_repo=$SUBPATH)"
-  "${HF[@]}" upload "$REPO_ID" "$LOCAL_DIR" "$SUBPATH" \
-    --repo-type dataset \
-    --commit-message "$COMMIT_MSG"
-else
-  echo "Uploading $LOCAL_DIR -> $REPO_ID (repo root)"
-  "${HF[@]}" upload "$REPO_ID" "$LOCAL_DIR" \
-    --repo-type dataset \
-    --commit-message "$COMMIT_MSG"
-fi
-
 echo "Done. Validate with:"
 echo "  uv run python tooling/validate_catalog.py --catalog-url $CATALOG_URL"
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [[ -z "$SUBPATH" ]] || [[ "${PARSIMONY_UPDATE_DATASET_CARD:-}" == "1" ]]; then
   CARD_ROOT="$LOCAL_DIR"
   if [[ -n "$SUBPATH" && -n "${PARSIMONY_CATALOG_ROOT:-}" ]]; then

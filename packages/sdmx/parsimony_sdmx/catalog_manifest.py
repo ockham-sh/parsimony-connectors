@@ -13,7 +13,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_ROOT = Path.home() / "sdmx-catalogs"
+DEFAULT_ROOT = Path("/tmp/parsimony-catalogs-v1/sdmx-build")
 
 PHASE_AGENCY_BATCH = "agency_batch"
 PHASE_SERIES_FETCH = "series_fetch"
