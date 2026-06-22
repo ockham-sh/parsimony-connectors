@@ -3,7 +3,22 @@ docs_dir: docs
 
 nav:
   - Overview: index.md
-  - Internal notes:
-      - PyPI Setup: pypi-setup.md
-      - Registry: registry.md
+  - Getting started: getting-started.md
+  - Concepts:
+      - The connector contract: concepts/connectors.md
+      - Discovery and catalogs: concepts/discovery-and-catalogs.md
+      - Credentials: concepts/credentials.md
+      - Typed errors: concepts/errors.md
+  - Guides:
+      - Using connectors: guides/using-connectors.md
+      - Building catalogs: guides/building-catalogs.md
+  - Reference:
+      - Providers: reference/providers.md
+      - CLI and tooling: reference/cli.md
+  - Contributing:
+      - Authoring a connector: contributing/authoring-a-connector.md
+  - Operator runbooks:
       - Catalog operations: catalog-operations.md
+      - Catalog manifest: catalog-manifest.md
+      - Connector registry: registry.md
+      - PyPI setup: pypi-setup.md

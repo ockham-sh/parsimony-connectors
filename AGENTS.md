@@ -35,7 +35,7 @@ uv run parsimony list --strict   # conformance across all installed plugins
 - Python 3.11+; `X | None` not `Optional[X]`; line length 120
 - PyPI name `parsimony-<name>` (hyphenated); Python package `parsimony_<name>` (underscored)
 - Every package declares `[project.entry-points."parsimony.providers"]`
-- Connectors are plain async callables; auth/env fallback belongs in connector implementation, not decorator metadata
+- Connectors are plain synchronous callables (`def`, not `async def`); auth/env fallback belongs in connector implementation, not decorator metadata
 - Use `Connector.bind(api_key=...)` to create an operator-bound variant that hides the bound value from call-time provenance
 - `CONNECTORS` is the required export; catalog build workflows live in provider-owned scripts
 - Pin `parsimony-core>=0.7,<0.8` (or `parsimony-core[catalog]>=0.7,<0.8` for catalog-backed packages) — contract-version pin, not a floor

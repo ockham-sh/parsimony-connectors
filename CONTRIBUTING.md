@@ -79,10 +79,10 @@ Scaffold `packages/foo/` by copying an existing small plugin (e.g.
 `packages/treasury/`) and adapting it. Each plugin must contain:
 
 - `pyproject.toml` — pin `parsimony-core>=0.7,<0.8` (or `parsimony-core[catalog]>=0.7,<0.8` for catalog-backed packages), declare a
-  `[project.entry-points."parsimony.providers"]` line, and set
-  `[project.urls] Homepage`. See the kernel's
-  [`docs/contract.md`](https://github.com/ockham-sh/parsimony/blob/main/docs/contract.md)
-  and [docs/plugins/authoring.md](https://github.com/ockham-sh/parsimony/blob/main/docs/plugins/authoring.md)
+  `[project.entry-points."parsimony.providers"]` line whose value is the
+  **bare module path** (`foo = "parsimony_foo"`, not `parsimony_foo:CONNECTORS`),
+  and set `[project.urls] Homepage`. See
+  [docs/contributing/authoring-a-connector.md](docs/contributing/authoring-a-connector.md)
   for the canonical template.
 - `parsimony_foo/__init__.py` — the connector module. Must export
   `CONNECTORS`. Catalog build workflows belong in provider-owned scripts,
@@ -94,17 +94,16 @@ Scaffold `packages/foo/` by copying an existing small plugin (e.g.
   `load(...)` / `configure(...)` helper that returns bound connectors or
   sets provider-local runtime defaults — this is a convention, not a kernel
   requirement. Do not download catalogs, enumerate upstream entities, or
-  build indexes at import time. See the kernel's
-  [`docs/contract.md`](https://github.com/ockham-sh/parsimony/blob/main/docs/contract.md)
-  for the full spec.
+  build indexes at import time. See
+  [docs/contributing/authoring-a-connector.md](docs/contributing/authoring-a-connector.md)
+  for the full build walkthrough.
 - `tests/` — a conformance test (`test_conformance.py`) plus a
   happy-path / error-mapping test file (`test_<name>_connectors.py`).
   See [§4 Testing](#4-testing) below.
 - `README.md` — see any existing plugin for the standard shape.
 - `scripts/build_catalog.py` *(only if maintainers build a hosted
   catalog)* — operator driver that calls the enumerator, converts with
-  `entries_from_result`, configures one top-level index per field (use
-  `HybridIndex` to fuse BM25 + vector within a field), sets
+  `entities_from_raw`, builds the index policy with `discovery_indexes`, sets
   `default_field`, calls `catalog.build()`, then
   `catalog.save(...)` for local paths or `hf://...` uploads.
 
@@ -134,10 +133,11 @@ Each `packages/<name>/tests/` directory contains:
 - `test_conformance.py` — calls `parsimony.testing.assert_plugin_valid`.
 - `test_<name>_connectors.py` — happy-path + error-mapping tests.
 
-For every connector in `CONNECTORS`, write one async happy-path test that mocks
+For every connector in `CONNECTORS`, write one happy-path test that mocks
 upstream HTTP with `respx`, binds deps via `connector.bind(...)`, and asserts on
 the public `Result` surface (`isinstance(result, Result)`, expected columns,
-`result.provenance.source`). For `@enumerator`, assert a non-empty
+`result.provenance.source`). Connectors are synchronous, so the tests are plain
+`def` tests — no `async`/`await`. For `@enumerator`, assert a non-empty
 ``pd.DataFrame`` with expected columns and schema roles.
 
 Key-bearing connectors also need 401 → `UnauthorizedError` and 429 →
@@ -170,19 +170,7 @@ mergeable when every item below is satisfied:
 
 ---
 
-## 6. MCP host
-
-The MCP (Model Context Protocol) host adapter now lives in its own
-repository at [`ockham-sh/parsimony-mcp`](https://github.com/ockham-sh/parsimony-mcp).
-It is a CONSUMER of the kernel contract — it receives a `Connectors`
-collection from whichever plugins the user has installed and serves
-them as MCP tools to coding agents — not a `parsimony.providers`
-plugin, so it belongs outside this monorepo. Contributions to the MCP
-host should be sent to that repository, not here.
-
----
-
-## 7. Reporting bugs
+## 6. Reporting bugs
 
 Open a GitHub issue with:
 
@@ -197,18 +185,18 @@ issue.
 
 ---
 
-## 8. Code style
+## 7. Code style
 
 - **Formatter:** `ruff format` (120-char lines, the workspace root `pyproject.toml` configures this)
 - **Linter:** `ruff check` with the rules selected in the workspace root
 - **Types:** `mypy` clean. Public connector signatures are flat top-level parameters; Pydantic models are optional internal validators. Return types are `Result` or a subclass.
 - **Catalogs:** build/push scripts under `packages/*/scripts/` are maintainer tooling only (not part of the plugin contract or `parsimony-core`). Operator workflow: [docs/catalog-operations.md](docs/catalog-operations.md).
 - **Imports:** absolute imports only; no `from parsimony.*` star imports.
-- **Docstrings:** every `@connector`-decorated function needs a one-line summary (tool-tagged connectors need ≥40 chars — the first sentence becomes the MCP tool description).
+- **Docstrings:** every `@connector`-decorated function needs a one-line summary (tool-tagged connectors need ≥40 chars — the first sentence is the agent-facing tool description).
 
 ---
 
-## 9. Taking over an abandoned connector
+## 8. Taking over an abandoned connector
 
 If a connector steward has been unresponsive to issues and PRs for 90 days,
 anyone may open a takeover PR. See [GOVERNANCE.md §2](GOVERNANCE.md#2-stewardship)
@@ -216,11 +204,11 @@ for the full policy.
 
 ---
 
-## 10. Getting help
+## 9. Getting help
 
 - Open a discussion on GitHub Discussions
 - Ask in the parsimony issue tracker
-- Read the kernel's `docs/contract.md` for the spec details
+- Read [docs/contributing/authoring-a-connector.md](docs/contributing/authoring-a-connector.md) for the full build walkthrough, and `parsimony.testing` for the conformance spec
 
 ---
 
