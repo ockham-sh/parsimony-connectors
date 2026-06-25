@@ -1,6 +1,6 @@
 [project]
 name = "parsimony-riksbank"
-version = "0.8.0"
+version = "0.0.1"
 description = "Sveriges Riksbank connector for parsimony — all five public APIs (SWEA, SWESTR, Monetary Policy, Turnover, Holdings)"
 authors = [{ name = "Ockham.sh", email = "team@ockham.sh" }]
 license = "Apache-2.0"
@@ -21,7 +21,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "parsimony-core[catalog]>=0.7,<0.8",
+    "parsimony-core[catalog]>=0.0.1",
     "pydantic>=2.11.1,<3",
     "pandas>=2.3.0,<3",
 ]

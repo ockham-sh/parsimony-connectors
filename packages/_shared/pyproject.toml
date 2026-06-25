@@ -1,6 +1,6 @@
 [project]
 name = "parsimony-shared"
-version = "0.7.0"
+version = "0.0.1"
 description = "Shared HTTP and metadata-enumeration helpers for the parsimony central-bank connector packages."
 requires-python = ">=3.11"
 dependencies = [
