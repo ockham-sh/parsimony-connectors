@@ -76,12 +76,13 @@ it is a coding task. The order matters:
 
 ## 2. Mental model
 
-**A connector is a small async Python function plus metadata.** You write an `async def` that
-fetches and shapes raw data and `return`s it (a `pandas.DataFrame`/`Series`, a scalar, or a
-`dict`). The framework wraps that return value into a `Result`/`TabularResult`, attaches
-framework-built `Provenance`, and strips declared secrets. You never construct `Result`,
-`TabularResult`, `Provenance`, or `Connector` yourself, and you never return a `(data, props)`
-tuple (both raise `TypeError`).
+**A connector is a small synchronous Python function plus metadata.** You write a plain `def`
+that fetches and shapes raw data and `return`s it (a `pandas.DataFrame`/`Series`, a scalar, or a
+`dict`). The framework wraps that return value into a `Result`, attaches framework-built
+`Provenance`, and strips declared secrets. You never construct `Result`, `Provenance`, or
+`Connector` yourself, and you never return a `(data, props)` tuple (both raise `TypeError`). An
+`async def` is rejected at decoration (`TypeError`: "async connectors are not supported in this
+release") — the runtime is sync.
 
 **Two jobs, always separate the verbs by them:**
 
@@ -143,7 +144,7 @@ series set is enumerable.
 ## 4. Framework contract (reference)
 
 Everything here is `parsimony-core`. Imports: top-level `from parsimony import …` exposes the
-~35 curated names; some names live only in submodules (noted below).
+~36 curated names; some names live only in submodules (noted below).
 
 ### 4.1 The three decorators
 
@@ -153,7 +154,8 @@ Everything here is `parsimony-core`. Imports: top-level `from parsimony import �
 | `@loader(output=…)` | **exactly one** namespaced KEY + **≥1 DATA**, **no** TITLE/METADATA | a data store (`InMemoryDataStore.load_result`) | persisting observation values |
 | `@enumerator(output=…)` | **exactly one** namespaced KEY + **≥1 TITLE**, **no DATA**; must annotate `-> pd.DataFrame` | a `Catalog` | discovering *what entities exist* |
 
-- All three decorate an `async def`. A plain `def` raises `TypeError` at decoration.
+- All three decorate a plain (synchronous) `def`. An `async def` raises `TypeError` at
+  decoration ("async connectors are not supported in this release").
 - Parameters are **flat top-level scalars**. Never expose a public parameter literally named
   `params` annotated as a Pydantic `BaseModel` (conformance check `check_flat_public_params`).
   Internal Pydantic validation is fine.
@@ -176,10 +178,10 @@ Everything here is `parsimony-core`. Imports: top-level `from parsimony import �
 
 | Check | When |
 |---|---|
-| loader/enumerator role-shape, enumerator return annotation, `secrets=` names match params, async-ness | decoration (import) |
+| loader/enumerator role-shape, enumerator return annotation, `secrets=` names match params, sync-ness (rejects `async def`) | decoration (import) |
 | `OutputConfig` "≤1 KEY / ≤1 TITLE / ≥1 KEY-or-TITLE-or-DATA" | `OutputConfig(...)` construction |
 | enumerator returned-frame **exact** column match | every call (`ValueError` → `ParseError`) |
-| returned a `Result`/`TabularResult`/tuple | every call (`TypeError`) |
+| returned a `Result`/tuple | every call (`TypeError`) |
 
 ### 4.2 Output schema: `OutputConfig`, `Column`, `ColumnRole`
 
@@ -215,10 +217,10 @@ OutputConfig(columns=[
 ### 4.3 `Result` / `Provenance`
 
 The framework builds `Provenance(source=<connector name>, source_description=<description>,
-fetched_at=<utc now>, params=<call args minus declared secrets and minus bound args>)`. A
-`TabularResult` round-trips to Arrow/Parquet with the schema + provenance embedded. Oversized
-provenance fields are replaced with a structured marker (never a prefix, which could leak a
-secret head).
+fetched_at=<utc now>, params=<call args minus declared secrets and minus bound args>)`. There is
+**one** `Result` type (`data: Any`; tabular when `data` is a DataFrame); a tabular `Result`
+round-trips to Arrow/Parquet with the schema + provenance embedded. Oversized provenance fields
+are replaced with a structured marker (never a prefix, which could leak a secret head).
 
 ### 4.4 Credentials: `secrets=` + `bind`
 
@@ -279,8 +281,10 @@ empty string falls through to the default).
   (`secrets=()` governs provenance, **not** logs). Fixes: send it in a header or POST body, or
   add the name to `_SENSITIVE_QUERY_PARAM_NAMES` (a parsimony-core change — what BLS's
   `registrationkey` needed).
-- `pooled_client(http)` yields a client backed by one pooled `AsyncClient` for fan-out /
-  enumerator loops. Built-in transient retry policy (GET/HEAD/OPTIONS; 429/5xx; exp backoff).
+- `pooled_client(http)` is a sync context manager yielding an `HttpClient` backed by one pooled
+  `httpx.Client` (sync), so TCP/TLS state is reused across a sequential fan-out / enumerator loop
+  (`with pooled_client(http) as shared: for k in keys: shared.request("GET", …)`). Built-in
+  transient retry policy (GET/HEAD/OPTIONS; 429/5xx; exp backoff).
 
 ### 4.7 Discovery & conformance
 
@@ -318,7 +322,7 @@ def _client(api_key: str) -> HttpClient:
     return make_http_client(_BASE_URL, query_params={"apikey": key, "fmt": "json"})
 
 @connector(output=…, tags=["…", "tool"], secrets=("api_key",))
-async def acme_search(query: str, api_key: str = "") -> pd.DataFrame: ...
+def acme_search(query: str, api_key: str = "") -> pd.DataFrame: ...
 
 def load(*, api_key: str) -> Connectors:
     return CONNECTORS.bind(api_key=api_key)
@@ -416,16 +420,16 @@ Many requests in one logical op (screener/loop)?   → pooled_client(http)
 reuse across XML/text feeds):
 
 ```python
-async def _get_text(http, path, *, params, op_name):                # XML/CSV/text GET
+def _get_text(http, path, *, params, op_name):                      # XML/CSV/text GET
     try:
-        r = await http.request("GET", path, params=params); r.raise_for_status()
+        r = http.request("GET", path, params=params); r.raise_for_status()
     except httpx.HTTPStatusError as e: map_http_error(e, provider="…", op_name=op_name)
     except httpx.TimeoutException as e: map_timeout_error(e, provider="…", op_name=op_name)
     return r.text
 
-async def _post_json(http, path, *, payload, op_name):              # POST JSON (no retry)
+def _post_json(http, path, *, payload, op_name):                    # POST JSON (no retry)
     try:
-        r = await http.request("POST", path, json=payload); r.raise_for_status()
+        r = http.request("POST", path, json=payload); r.raise_for_status()
     except httpx.HTTPStatusError as e: map_http_error(e, provider="…", op_name=op_name)
     except httpx.TimeoutException as e: map_timeout_error(e, provider="…", op_name=op_name)
     return r.json()
@@ -447,11 +451,11 @@ redaction are guaranteed identical across the whole surface.
 ### 6.3 Akamai / Cloudflare TLS-fingerprint blocking → `curl_cffi`
 
 Some hosts 403 stock `httpx` on TLS fingerprint, so the canonical transport **structurally
-cannot** reach them. `rba` is the reference: `curl_cffi.AsyncSession.get(url,
+cannot** reach them. `rba` is the reference: a sync `curl_cffi.requests.Session().get(url,
 impersonate="chrome")` as a **hard** dependency + a hand-written `_curl_get` mapper that
 mirrors `map_http_error`/`map_timeout_error` (429→RateLimit, 402→Payment, 401/403→Unauthorized,
-other→Provider(status); `curl_cffi` Timeout/RequestException→Provider(408)). Pool one
-`AsyncSession` across the fan-out under a `Semaphore`. **Never weaken the typed-error contract
+other→Provider(status); `curl_cffi` Timeout/RequestException→Provider(408)). Pool one sync
+`Session` across the fan-out (one per fetch call, reused across the loop). **Never weaken the typed-error contract
 just because the transport changed.** Keep the impersonation target current (old Chrome
 fingerprints start to 403). Lighter WAFs (`bdp`, `boj`) need only a browser `User-Agent` +
 `Origin`/`Referer` and `403` added to the retry-status set.
@@ -472,8 +476,12 @@ For catalog enumeration fan-outs, use the shared `ThrottledJsonFetcher` +
 `MetadataCrawlConfig` (semaphore concurrency, inter-request delay, retry-with-backoff on
 429/5xx + `Retry-After`, **best-effort returns `None` on failure**). `get_json`/`get_text`/
 `get_content` variants. `destatis`/`bde`/`bdf`/`bdp`/`boj` reuse it; tune concurrency to the
-provider's tolerance (destatis = 4 @ 0.25s; higher triggers 429/503). `boc`/`snb` hand-roll an
-equivalent `asyncio.gather` + `Semaphore` inside `pooled_client`. Also in the kit:
+provider's tolerance (destatis = 4 @ 0.25s; higher triggers 429/503). This kit runs in the
+**offline catalog-build script**, not in a connector at call time — a build script is standalone
+maintainer tooling and is free to use its own `asyncio` concurrency (e.g. `bdp`'s builder does
+exactly this) for fan-out speed; it is not bound by the sync connector contract. The connector
+runtime path stays sync: reuse one pooled `httpx.Client` across a sequential loop via
+`pooled_client(http)` (above). Also in the kit:
 `truncate_description`/`enumerate_descriptions` (cap at `DESCRIPTION_CHAR_CAP=1500` for
 embedder friendliness).
 
@@ -510,17 +518,23 @@ When a provider has no native search, three roles, cleanly separated:
 
 1. **`@enumerator`** in `parsimony_<p>/__init__.py` (or a submodule) — emits **one row per
    addressable unit** (KEY=code+namespace, TITLE, METADATA). This is the completeness surface.
-2. **`catalog_build.py:build_<p>_catalog()`** — the reusable async builder (the literal recipe):
+2. **`catalog_build.py:build_<p>_catalog()`** — the reusable builder (the literal recipe;
+   synchronous, matching `bde`'s `build_bde_catalog`):
 
    ```python
-   async def build_<p>_catalog(...) -> Catalog:
-       result   = await enumerate_<p>(...)                          # the @enumerator
-       entries  = entities_from_raw(result, <P>_ENUMERATE_OUTPUT)   # DataFrame → list[Entity]
+   def build_<p>_catalog(...) -> Catalog:
+       result   = enumerate_<p>(...)                                # the @enumerator (sync)
+       entries  = entities_from_raw(result.data, <P>_ENUMERATE_OUTPUT)  # DataFrame → list[Entity]
        catalog  = Catalog(NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
        catalog.set_entities(entries)
-       await catalog.build()
+       catalog.build()
        return catalog
    ```
+
+   (A builder that needs parallel fan-out for speed *may* instead be an `async def` running its
+   own `asyncio` concurrency — `bdp`'s `build_bdp_catalog` does this. That is fine: the build
+   script is standalone offline tooling, not bound by the sync connector runtime contract. Prefer
+   the plain sync shape above unless fan-out speed actually demands otherwise.)
 3. **`scripts/build_catalog.py`** — the **operator** CLI (`argparse --save file://… / --push
    hf://…`, `--api-key` fallback to env), which calls `catalog.save(url,
    builder="packages/<p>/scripts/build_catalog.py")`. **Build scripts are maintainer tooling,
