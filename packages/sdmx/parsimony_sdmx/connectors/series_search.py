@@ -11,11 +11,10 @@ from typing import Annotated, Any
 
 import pandas as pd
 import pyarrow.dataset as ds
-from parsimony.catalog import Catalog
+from parsimony.catalog import Catalog, resolve_catalog_dir
 from parsimony.catalog.search import resolved_catalog_url
 from parsimony.catalog.source import lazy_catalog_dir
 from parsimony.catalog.storage import read_meta
-from parsimony.catalog.urls import REPO_TYPE, parse_catalog_url
 from parsimony.connector import connector
 from parsimony.errors import ConnectorError, EmptyDataError, InvalidParameterError
 from parsimony.result import Column, ColumnRole, OutputConfig
@@ -61,6 +60,13 @@ def _clear_series_catalog_lru() -> None:
 
 
 def _resolve_catalog_path(namespace: str, *, catalog_root: str | None = None) -> Path:
+    """Resolve this flow's catalog to a local directory (for parquet + Catalog.load).
+
+    Delegates URL resolution to the framework: ``resolve_catalog_dir`` handles
+    every scheme (``file://`` and ``hf://``) and, for a sub-path ``hf://`` catalog,
+    downloads only this flow's sub-tree rather than enumerating the whole SDMX
+    monorepo. The connector holds no scheme knowledge of its own.
+    """
     root = resolved_catalog_url(
         PARSIMONY_SDMX_CATALOG_URL_ENV,
         DEFAULT_CATALOG_ROOT,
@@ -69,26 +75,12 @@ def _resolve_catalog_path(namespace: str, *, catalog_root: str | None = None) ->
     cache_path = Path(lazy_catalog_dir("sdmx", namespace))
     if cache_path.is_dir():
         return cache_path
-    parsed = parse_catalog_url(f"{root}/{namespace}")
-    if parsed.scheme == "file":
-        return Path(parsed.root) / parsed.sub
-    if parsed.scheme == "hf":
-        from huggingface_hub import snapshot_download
-        from parsimony import cache
-
-        local = Path(
-            snapshot_download(
-                repo_id=parsed.root,
-                repo_type=REPO_TYPE,
-                cache_dir=cache.catalogs_dir(),
-                allow_patterns=[f"{parsed.sub}/*"],
-            )
-        )
-        return local / parsed.sub
-    raise ConnectorError(
-        f"Unsupported SDMX catalog URL scheme {parsed.scheme!r}; expected file:// or hf://",
-        provider="sdmx",
-    )
+    try:
+        return resolve_catalog_dir(f"{root}/{namespace}")
+    except ValueError as exc:
+        # resolve_catalog_dir raises ValueError for an unsupported scheme; keep the
+        # connector's structured error type so callers catching ConnectorError see it.
+        raise ConnectorError(str(exc), provider="sdmx") from exc
 
 
 def _parse_agency(agency: str) -> AgencyId:
@@ -286,9 +278,7 @@ def sdmx_series_search(
     matched_codes = {match.code for match in matches}
     title_map = {
         key: title
-        for key, title in zip(
-            filtered.column("key").to_pylist(), filtered.column(TITLE_FIELD).to_pylist(), strict=True
-        )
+        for key, title in zip(filtered.column("key").to_pylist(), filtered.column(TITLE_FIELD).to_pylist(), strict=True)
         if key in matched_codes
     }
 

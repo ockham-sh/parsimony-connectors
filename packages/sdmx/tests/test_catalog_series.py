@@ -10,7 +10,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 from parsimony.catalog import BM25Index, Catalog
-from parsimony.errors import InvalidParameterError
+from parsimony.errors import ConnectorError, InvalidParameterError
 
 from parsimony_sdmx.catalog_manifest import BuildRoot
 from parsimony_sdmx.catalog_series import (
@@ -304,21 +304,42 @@ def test_series_search_code_filter_matches(tmp_path: Path, monkeypatch: pytest.M
 
 
 def test_resolve_catalog_path_downloads_hf_subdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Remote series search needs a real local directory so pyarrow can read series.parquet."""
-    snapshot = tmp_path / "snapshot"
-    catalog_dir = snapshot / "sdmx_series_ecb_test"
+    """Remote series search resolves to a real local dir via core's path-scoped fetch.
+
+    It must delegate to ``download_hf_subpath`` (scoped listing) rather than re-issue
+    ``snapshot_download(allow_patterns=...)``, which enumerates the whole 17k-file
+    SDMX monorepo before filtering and hangs for minutes on a cold catalog.
+    """
+    catalog_dir = tmp_path / "snapshot" / "sdmx_series_ecb_test"
     catalog_dir.mkdir(parents=True)
+    calls: dict[str, object] = {}
 
-    def fake_snapshot_download(**kwargs: object) -> str:
-        assert kwargs["repo_id"] == "parsimony-dev/sdmx"
-        assert kwargs["allow_patterns"] == ["sdmx_series_ecb_test/*"]
-        return str(snapshot)
+    def fake_resolve_catalog_dir(url: str, *, cache_dir: object = None) -> Path:
+        calls["url"] = url
+        return catalog_dir
 
-    monkeypatch.setattr("huggingface_hub.snapshot_download", fake_snapshot_download)
+    monkeypatch.setattr(series_search, "resolve_catalog_dir", fake_resolve_catalog_dir)
     monkeypatch.setattr(series_search, "lazy_catalog_dir", lambda provider, namespace: str(tmp_path / "empty-cache"))
 
     resolved = series_search._resolve_catalog_path("sdmx_series_ecb_test", catalog_root="hf://parsimony-dev/sdmx")
     assert resolved == catalog_dir
+    # The connector hands the framework a plain URL; it holds no scheme logic itself.
+    assert calls == {"url": "hf://parsimony-dev/sdmx/sdmx_series_ecb_test"}
+
+
+def test_resolve_catalog_path_unsupported_scheme_raises_connector_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bad catalog URL scheme surfaces as ConnectorError, not a bare ValueError.
+
+    Resolution is delegated to the framework, which raises ``ValueError`` for an
+    unknown scheme; the connector re-wraps it so callers catching ``ConnectorError``
+    still see the failure.
+    """
+    monkeypatch.setattr(series_search, "lazy_catalog_dir", lambda provider, namespace: str(tmp_path / "empty-cache"))
+
+    with pytest.raises(ConnectorError):
+        series_search._resolve_catalog_path("sdmx_series_ecb_test", catalog_root="ftp://example.com/repo")
 
 
 def test_fetch_done_uses_series_parquet_filename(tmp_path: Path) -> None:
