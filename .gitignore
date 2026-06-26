@@ -1,0 +1,40 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+
+.venv/
+.env
+.env.*
+!.env.example
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+uv.lock
+
+.vscode/
+.council/
+PLAN-*.md
+.idea/
+*.swp
+.DS_Store
+
+outputs/
+logs/
+# Recorded HTTP cassettes must never be committed — respx mocks are hand-authored
+# from upstream API documentation. A pre-commit / CI regex scan is the belt; this
+# ignore is the braces. Override per-file via `!` if you need a hand-authored
+# fixture checked in.
+packages/*/tests/fixtures/**
+!packages/*/tests/fixtures/README.md

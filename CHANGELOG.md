@@ -1,0 +1,75 @@
+# Changelog
+
+Monorepo-level notable changes. Per-package changes live in each
+`packages/<name>/CHANGELOG.md` — individual connectors version
+independently on PyPI per [GOVERNANCE.md §5](GOVERNANCE.md#5-graduation-policy).
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/).
+
+## [Unreleased]
+
+## [0.7.0]
+
+### Changed
+
+- **Catalog-backed connectors** now depend on `parsimony-core[catalog]>=0.7,<0.8`
+  (all 11 search-capable macro connectors pull the full hybrid catalog stack).
+- **Non-catalog connectors** pin plain `parsimony-core>=0.7,<0.8`.
+- **BLS / Riksbank**: optional `BLS_API_KEY` / `RIKSBANK_API_KEY` env fallback
+  (quota boosters; keyless when absent).
+- **Riksbank search**: surfaces `source` column for SWEA/SWESTR routing.
+- **Polymarket**: preserves `clobTokenIds` in market listings for discovery→price.
+- **SDMX**: agencies corrected to ECB, Eurostat, IMF, World Bank; ESTAT macro
+  recall fix in `series_selection.py`; remote catalog tests expect schema v1.
+- **Catalog URL override**: standardized `load(catalog_url=...)` / env override
+  convention across catalog-backed connectors.
+- **Docs**: auth/discovery matrix, refreshed catalog manifest/operations, roster
+  counts include enumerators and factory search connectors.
+
+## [0.6.0-pre]
+
+### Added
+
+- Initial public release hygiene: `CODE_OF_CONDUCT.md`, `AGENTS.md`,
+  root `CHANGELOG.md`, per-package `CHANGELOG.md`, `.github/ISSUE_TEMPLATE/`,
+  `.github/dependabot.yml`.
+
+### Changed
+
+- `GOVERNANCE.md §6` simplified — structural rules (no provider-SDK
+  copy-paste, no recorded cassettes, nominative trademark use) replace
+  the provider-by-provider ToS-audit ceremony.
+- **Ecosystem context updated across `README.md` and `docs/index.md`.**
+  "Relation to the parsimony kernel" is replaced by "Relation to the
+  parsimony ecosystem" — a three-repo table covering `parsimony`,
+  `parsimony-connectors`, and `parsimony-agents` (now Apache-2.0,
+  published independently on PyPI), plus a note on the fourth component
+  `terminal` (AGPL-3.0 with commercial self-host licensing). This
+  repo's own license and role are unchanged; the section expansion
+  reflects the full OSS ecosystem becoming publicly visible at once.
+- **`GOVERNANCE.md` revision-trigger footnote** no longer references
+  `DESIGN-distribution-model.md §11` (an internal planning file not
+  present in this repo). The trigger is now stated in terms of
+  observable events: kernel-contract or connector-model changes.
+- **`packages/sec_edgar/README.md`** corrects the PyPI distribution name
+  from `parsimony-sec_edgar` to `parsimony-sec-edgar` (hyphen, not
+  underscore, matching the published package name).
+- **`packages/sdmx/README.md`** replaces a hardcoded machine-specific
+  path (`/home/espinet/ockham/parsimony-connectors`) in the catalog-
+  publishing instructions with the generic placeholder
+  `<path-to-parsimony-connectors>`.
+
+## [0.6.0]
+
+### Removed
+
+- **`parsimony-financial-reports`**: dropped SDK wrapper with broken upstream client.
+
+### Changed
+
+- **Unified on `parsimony-core>=0.6,<0.7`** across all connector packages.
+- **`sec_edgar`**: rewritten as direct SEC HTTP (no `edgartools`); three focused connectors.
+- **`polymarket`**: typed Gamma/CLOB connectors replace generic HTTP passthroughs.
+- **Catalog search imports**: `parsimony.utils.catalog_search` → `parsimony.catalog.search`.
+- **Eval tooling** moved under top-level `tooling/` (not shipped in connector sdists).
+- **CI**: `pip-audit` failures are no longer swallowed.

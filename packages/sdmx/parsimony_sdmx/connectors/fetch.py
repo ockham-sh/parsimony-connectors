@@ -1,0 +1,370 @@
+"""``sdmx_fetch`` — live SDMX retrieval connector.
+
+Performs strict param validation against a closed agency allowlist,
+budgets the SDMX round-trip with a thread-pool timeout,
+and applies bounded retries on transient transport failures.
+
+The body imports ``sdmx`` and ``pandas`` lazily so that just importing
+``parsimony_sdmx`` to inspect ``CONNECTORS`` does not drag ``sdmx1`` into the parent
+process — guarded by ``tests/test_listing.py::test_plugin_surface_import_does_not_pull_sdmx``.
+"""
+
+from __future__ import annotations
+
+import logging
+import random
+import time
+from typing import Annotated, Any
+
+from parsimony.catalog import code_token, normalize_namespace
+from parsimony.connector import connector
+from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError, ProviderError
+from parsimony.result import (
+    Column,
+    ColumnRole,
+    OutputConfig,
+)
+from pydantic import BaseModel, Field, field_validator
+from requests.exceptions import ConnectionError as RequestsConnectionError
+from requests.exceptions import HTTPError, Timeout
+
+from parsimony_sdmx.connectors._agencies import ALL_AGENCIES
+from parsimony_sdmx.core.titles import compose_observation_title, format_code_with_label
+from parsimony_sdmx.providers.dataset_urls import build_sdmx_dataset_url
+
+logger = logging.getLogger(__name__)
+
+_MAX_RETRIES = 2
+_RETRY_BASE_DELAY_SEC = 0.5
+_RETRY_MAX_DELAY_SEC = 4.0
+_FETCH_TIMEOUT_SEC = 45.0
+#: Upper bound on keys per batched ``sdmx_fetch`` call, and how many of them run at once.
+#: The cap keeps a single call from fanning out an unbounded request storm at one provider;
+#: the worker count keeps concurrency gentle while still collapsing a several-series fetch
+#: from sum-of-latencies down to slowest-single-latency.
+_MAX_BATCH_SERIES = 24
+_MAX_FETCH_WORKERS = 6
+
+#: Regex-style key validators — reject characters that could escape the SDMX
+#: URL path. SDMX uses ``.`` as the dimension separator and ``+`` as OR.
+_DATASET_KEY_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._\-]{0,127}$"
+_SERIES_KEY_PATTERN = r"^[A-Za-z0-9._+\-]*(?:\.[A-Za-z0-9._+\-]*){0,31}$"
+
+
+class SdmxFetchParams(BaseModel):
+    """Parameters for :func:`sdmx_fetch`.
+
+    ``dataset_key`` is the SDMX ``agency-dataset_id`` form expected by the
+    live fetcher (e.g. ``"ECB-YC"``). Agency prefix is independently
+    validated against :data:`ALL_AGENCIES`.
+    """
+
+    dataset_key: Annotated[
+        str,
+        Field(
+            min_length=3,
+            max_length=192,
+            description="SDMX dataset identifier prefixed by agency (e.g. 'ECB-YC').",
+        ),
+    ]
+    series_key: Annotated[
+        str,
+        Field(
+            min_length=1,
+            max_length=256,
+            pattern=_SERIES_KEY_PATTERN,
+            description="Dot-separated dimension values identifying the series.",
+        ),
+    ]
+    start_period: str | None = Field(default=None, max_length=32, description="Start period filter (e.g. 2020-01).")
+    end_period: str | None = Field(default=None, max_length=32, description="End period filter (e.g. 2024-12).")
+
+    @field_validator("dataset_key")
+    @classmethod
+    def _validate_dataset_key(cls, v: str) -> str:
+        stripped = v.strip()
+        if "-" not in stripped:
+            raise InvalidParameterError("sdmx", "dataset_key must include agency prefix (e.g. 'ECB-YC')")
+        agency, dataset_id = stripped.split("-", 1)
+        allowed = {a.value for a in ALL_AGENCIES}
+        if agency.upper() not in allowed:
+            raise InvalidParameterError("sdmx", f"Unknown agency {agency!r}; allowed: {sorted(allowed)}")
+        import re
+
+        if not re.match(_DATASET_KEY_PATTERN, dataset_id):
+            raise InvalidParameterError("sdmx", f"dataset_id {dataset_id!r} contains disallowed characters")
+        return f"{agency.upper()}-{dataset_id}"
+
+
+def _sdmx_fetch_output(namespace: str, dimension_ids: list[str]) -> OutputConfig:
+    """Tabular schema for one dataset fetch."""
+    cols: list[Column] = [
+        Column(
+            name="series_key",
+            role=ColumnRole.KEY,
+            namespace=namespace,
+        ),
+        Column(name="title", role=ColumnRole.TITLE),
+    ]
+    for dim_id in dimension_ids:
+        cols.append(Column(name=dim_id, role=ColumnRole.METADATA))
+    cols.extend(
+        [
+            Column(name="TIME_PERIOD", dtype="datetime", role=ColumnRole.DATA),
+            Column(name="value", dtype="numeric", role=ColumnRole.DATA),
+            Column(name="series_url", role=ColumnRole.METADATA),
+        ]
+    )
+    return OutputConfig(columns=cols)
+
+
+def _sdmx_namespace_from_dataset_key(dataset_key: str) -> str:
+    """Catalog namespace for one SDMX dataset (``sdmx_<tokenized_dataset>``)."""
+    return normalize_namespace(f"sdmx_{code_token(dataset_key)}")
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Transient errors worth a bounded retry: connect / timeout / 5xx / 429."""
+    if isinstance(exc, (Timeout, RequestsConnectionError)):
+        return True
+    if isinstance(exc, HTTPError):
+        status = getattr(getattr(exc, "response", None), "status_code", 0)
+        return status in (502, 503, 504) or status == 429
+    return False
+
+
+@connector(tags=["sdmx"])
+def sdmx_fetch(
+    dataset_ref: str,
+    series_ref: str | list[str],
+    start_period: str | None = None,
+    end_period: str | None = None,
+) -> Any:
+    """Fetch observations for one or several fully specified SDMX series of ONE flow.
+
+    dataset_ref is the flow as AGENCY-DATASET_ID (agency in ECB, ESTAT, IMF_DATA, WB_WDI; e.g.
+    ECB-YC). series_ref is one complete key — every dimension filled, built positionally in
+    key_template order, no wildcards. Pass a LIST of keys of this same flow to fetch them
+    concurrently in one call instead of looping per key; start_period / end_period filter every
+    key's range.
+
+    Returns one row per observation: series_key, title, per-dimension codes, TIME_PERIOD, value;
+    series_key tells batched series apart. Raises ProviderError / EmptyDataError / ParseError if
+    ANY key fails — none silently dropped. A zombie cube (common on Eurostat) ⇒ move on. See the
+    sdmx_key_resolution skill.
+    """
+    keys = series_ref if isinstance(series_ref, list) else [series_ref]
+    if not keys:
+        raise InvalidParameterError("sdmx", "series_ref must name at least one series key")
+    if len(keys) > _MAX_BATCH_SERIES:
+        raise InvalidParameterError(
+            "sdmx", f"series_ref accepts at most {_MAX_BATCH_SERIES} keys per call; got {len(keys)}"
+        )
+    param_list = [
+        SdmxFetchParams(
+            dataset_key=dataset_ref,
+            series_key=key,
+            start_period=start_period,
+            end_period=end_period,
+        )
+        for key in keys
+    ]
+
+    if len(param_list) == 1:
+        return _fetch_one_series(param_list[0])
+
+    import pandas as pd
+
+    frames = _fetch_series_concurrently(param_list)
+    return pd.concat(frames, ignore_index=True)
+
+
+def _fetch_series_concurrently(param_list: list[SdmxFetchParams]) -> list[Any]:
+    """Fetch each series of a same-flow batch on its own thread, preserving request order.
+
+    Every key keeps its own per-series timeout budget and transient-retry handling, so one slow
+    round-trip cannot drag the others; the first failure (in request order) propagates, making the
+    batch all-or-nothing so no requested key is silently dropped.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=min(_MAX_FETCH_WORKERS, len(param_list))) as pool:
+        return list(pool.map(_fetch_one_series, param_list))
+
+
+def _fetch_one_series(params: SdmxFetchParams) -> Any:
+    """Fetch ONE series, budgeting the round-trip and retrying bounded transient transport errors."""
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            from concurrent.futures import ThreadPoolExecutor
+            from concurrent.futures import TimeoutError as FuturesTimeoutError
+
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(_do_sdmx_fetch, params)
+                try:
+                    return future.result(timeout=_FETCH_TIMEOUT_SEC)
+                except FuturesTimeoutError as exc:
+                    raise TimeoutError from exc
+        except (ProviderError, EmptyDataError, ParseError):
+            raise
+        except TimeoutError as exc:
+            raise ProviderError(
+                provider="sdmx",
+                status_code=0,
+                message=f"SDMX fetch exceeded {_FETCH_TIMEOUT_SEC:.0f}s budget for {params.dataset_key}.",
+            ) from exc
+        except Exception as exc:
+            if attempt <= _MAX_RETRIES and _is_retryable(exc):
+                delay = min(
+                    _RETRY_MAX_DELAY_SEC,
+                    _RETRY_BASE_DELAY_SEC * (2 ** (attempt - 1)) + random.uniform(0, 0.2),
+                )
+                logger.warning(
+                    "sdmx_fetch transient error (attempt %d/%d), retrying in %.2fs: %s",
+                    attempt,
+                    _MAX_RETRIES + 1,
+                    delay,
+                    exc,
+                )
+                time.sleep(delay)
+                continue
+            status = 0
+            if isinstance(exc, HTTPError):
+                status = getattr(getattr(exc, "response", None), "status_code", 0) or 0
+            detail = (str(exc).strip() or type(exc).__name__)[:200]
+            if 400 <= status < 500 and status != 429:
+                hint = (
+                    f"HTTP {status}: the provider rejected the key — a code in "
+                    f"{params.series_key!r} is not valid or not populated for this flow. This is a bad-key "
+                    "error, not a network failure: re-check each dimension's code against the DSD, or call "
+                    "enumerate_sdmx_series to list the keys this flow actually populates, then retry. The "
+                    "flow is reachable; do not switch flows or providers on this alone."
+                )
+            else:
+                hint = (
+                    f"HTTP {status or 'n/a'}: transient fetch error after {_MAX_RETRIES + 1} attempts "
+                    f"({detail}). Retry shortly, or move on to a sibling flow if it persists."
+                )
+            raise ProviderError(
+                provider="sdmx",
+                status_code=status,
+                message=f"SDMX fetch failed for {params.dataset_key}/{params.series_key}: {hint}",
+            ) from exc
+
+
+def _do_sdmx_fetch(params: SdmxFetchParams) -> Any:
+    """Inner fetch — performs SDMX I/O and shapes the observation table.
+
+    Imports ``sdmx`` / ``pandas`` and the provider helpers function-locally
+    to keep the parent ``parsimony_sdmx`` import graph free of ``sdmx1``.
+    """
+    import pandas as pd
+    import sdmx as sdmx_lib
+
+    from parsimony_sdmx.core.codelists import resolve_codelists
+    from parsimony_sdmx.core.errors import SdmxFetchError
+    from parsimony_sdmx.providers.sdmx_client import sdmx_client
+    from parsimony_sdmx.providers.sdmx_extract import (
+        extract_dsd_dim_order,
+        extract_raw_codelists,
+    )
+    from parsimony_sdmx.providers.sdmx_flow import (
+        fetch_dataflow_with_structure,
+        resolve_dsd,
+    )
+
+    agency_id, dataset_id = params.dataset_key.split("-", 1)
+
+    with sdmx_client(agency_id, wb_url_rewrite=True) as client:
+        try:
+            structure_msg = fetch_dataflow_with_structure(client, dataset_id)
+            try:
+                dataflow = structure_msg.dataflow[dataset_id]
+            except (KeyError, AttributeError, TypeError) as exc:
+                raise ProviderError(
+                    provider="sdmx",
+                    status_code=0,
+                    message=f"Dataflow {dataset_id!r} missing from structure response.",
+                ) from exc
+            dsd = resolve_dsd(client, structure_msg, dataflow, dataset_id)
+            data_msg = client.get(
+                resource_type="data",
+                resource_id=dataset_id,
+                key=params.series_key,
+                params={
+                    "startPeriod": params.start_period,
+                    "endPeriod": params.end_period,
+                },
+            )
+        except HTTPError:
+            raise
+        except SdmxFetchError as exc:
+            cause = exc.__cause__
+            if isinstance(cause, HTTPError):
+                raise cause from exc
+            raise ProviderError(
+                provider="sdmx",
+                status_code=0,
+                message=f"Failed to fetch structure for {dataset_id}: {(str(exc).strip() or type(exc).__name__)[:200]}",
+            ) from exc
+
+    raw = sdmx_lib.to_pandas(data_msg.data)
+    df = raw.rename("value").to_frame().reset_index() if isinstance(raw, pd.Series) else pd.DataFrame(raw).reset_index()
+    if df.empty:
+        raise EmptyDataError(provider="sdmx", message="No data returned for requested series.")
+
+    if "value" not in df.columns:
+        value_columns = [col for col in df.columns if col not in {"TIME_PERIOD"}]
+        if len(value_columns) != 1:
+            raise ParseError(provider="sdmx", message="Unable to determine SDMX value column")
+        df = df.rename(columns={value_columns[0]: "value"})
+
+    dsd_dim_ids = extract_dsd_dim_order(dsd, exclude_time=True)
+    if not dsd_dim_ids:
+        raise ParseError(
+            provider="sdmx",
+            message="Unable to determine SDMX series dimensions for series_key",
+        )
+    missing = [dim_id for dim_id in dsd_dim_ids if dim_id not in df.columns]
+    if missing:
+        raise ParseError(
+            provider="sdmx",
+            message=(
+                "Unable to align SDMX result columns to DSD order; missing dimension "
+                f"column(s) {missing}. Available columns: {list(df.columns)}"
+            ),
+        )
+
+    for dim_id in dsd_dim_ids:
+        df[dim_id] = df[dim_id].astype("string").fillna("")
+    df["series_key"] = df[dsd_dim_ids].agg(".".join, axis=1)
+
+    raw_codelists = extract_raw_codelists(dsd, structure_msg)
+    label_maps = resolve_codelists(raw_codelists, ("en",))
+
+    df["title"] = df.apply(
+        lambda row: compose_observation_title(
+            {dim_id: str(row.get(dim_id, "")).strip() for dim_id in dsd_dim_ids},
+            dsd_dim_ids,
+            label_maps,
+        ),
+        axis=1,
+    )
+    empty_title_mask = df["title"].astype(str).str.strip() == ""
+    if empty_title_mask.any():
+        df.loc[empty_title_mask, "title"] = df.loc[empty_title_mask, "series_key"]
+
+    for dim_id in dsd_dim_ids:
+        dim_labels = label_maps.get(dim_id, {})
+        df[dim_id] = df[dim_id].map(
+            lambda code, _labels=dim_labels: format_code_with_label(str(code), _labels.get(str(code)))
+        )
+
+    long_df = df[["series_key", "title", *dsd_dim_ids, "TIME_PERIOD", "value"]].copy()
+
+    series_url = build_sdmx_dataset_url(agency_id, dataset_id)
+    if series_url:
+        long_df["series_url"] = series_url
+    return long_df

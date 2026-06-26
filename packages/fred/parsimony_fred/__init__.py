@@ -1,0 +1,181 @@
+"""FRED (Federal Reserve Economic Data) connector for parsimony.
+
+Exports:
+
+* :data:`CONNECTORS` — the :class:`parsimony.Connectors` collection exposed
+  via the ``parsimony.providers`` entry point. Includes ``fred_search``
+  (tool-tagged for agent use) and ``fred_fetch``.
+* :func:`load` — convenience that binds an ``api_key`` across the collection.
+
+The API key is declared as a secret (stripped from provenance) and supplied
+either by binding (``load(api_key=...)`` / ``Connector.bind``) or, as a dev
+fallback, from the ``FRED_API_KEY`` environment variable. A missing key
+fails fast with :class:`UnauthorizedError` naming the env var.
+"""
+
+from __future__ import annotations
+
+from typing import Annotated
+
+import pandas as pd
+from parsimony import Namespace
+from parsimony.connector import Connectors, connector
+from parsimony.errors import (
+    EmptyDataError,
+    InvalidParameterError,
+    ParseError,
+)
+from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.transport import HttpClient
+from parsimony.transport.helpers import fetch_json, make_http_client, require_key
+
+__all__ = ["CONNECTORS", "load"]
+
+_BASE_URL = "https://api.stlouisfed.org/fred"
+_ENV_VAR = "FRED_API_KEY"
+
+# ---------------------------------------------------------------------------
+# Output schemas
+# ---------------------------------------------------------------------------
+
+FETCH_OUTPUT = OutputConfig(
+    columns=[
+        Column(name="series_id", role=ColumnRole.KEY, namespace="fred"),
+        Column(name="title", role=ColumnRole.TITLE),
+        Column(name="units_short", role=ColumnRole.METADATA),
+        Column(name="frequency_short", role=ColumnRole.METADATA),
+        Column(name="seasonal_adjustment_short", role=ColumnRole.METADATA),
+        Column(name="date", dtype="datetime", role=ColumnRole.DATA),
+        Column(name="value", dtype="numeric", role=ColumnRole.DATA),
+    ]
+)
+
+SEARCH_OUTPUT = OutputConfig(
+    columns=[
+        Column(name="id", role=ColumnRole.KEY, namespace="fred"),
+        Column(name="title", role=ColumnRole.TITLE),
+        Column(name="units", role=ColumnRole.METADATA),
+        Column(name="frequency_short", role=ColumnRole.METADATA),
+        Column(name="seasonal_adjustment_short", role=ColumnRole.METADATA),
+        Column(name="observation_start", role=ColumnRole.METADATA),
+        Column(name="observation_end", role=ColumnRole.METADATA),
+        Column(name="last_updated", role=ColumnRole.METADATA),
+    ]
+)
+
+_SEARCH_COLUMNS = [c.name for c in SEARCH_OUTPUT.columns]
+
+
+# ---------------------------------------------------------------------------
+# Transport
+# ---------------------------------------------------------------------------
+
+
+def _client(api_key: str) -> HttpClient:
+    """Resolve the API key (arg → env fallback) and build a FRED HTTP client.
+
+    The key and ``file_type=json`` are set as default query params on every
+    request; the transport layer redacts the key from logs. A missing key
+    raises :class:`UnauthorizedError` before any network call.
+    """
+    key = require_key(api_key, env_var=_ENV_VAR, provider="fred")
+    return make_http_client(_BASE_URL, query_params={"api_key": key, "file_type": "json"})
+
+
+# ---------------------------------------------------------------------------
+# Connectors
+# ---------------------------------------------------------------------------
+
+
+@connector(output=SEARCH_OUTPUT, tags=["macro", "tool"], secrets=("api_key",))
+def fred_search(search_text: str, api_key: str = "") -> pd.DataFrame:
+    """Keyword search for FRED economic time series.
+
+    Returns series metadata (id, title, units, frequency). Use short,
+    specific queries like 'US unemployment rate' or 'GDPC1'.
+    """
+    query = search_text.strip()
+    if not query:
+        raise InvalidParameterError("fred", "search_text must be non-empty")
+
+    http = _client(api_key)
+    body = fetch_json(
+        http,
+        path="series/search",
+        params={"search_text": query},
+        provider="fred",
+        op_name="series/search",
+    )
+
+    seriess = body.get("seriess") or []
+    if not seriess:
+        raise EmptyDataError("fred", query_params={"search_text": query})
+
+    df = pd.DataFrame(seriess)
+    cols = [c for c in _SEARCH_COLUMNS if c in df.columns]
+    return df[cols]
+
+
+@connector(output=FETCH_OUTPUT, tags=["macro"], secrets=("api_key",))
+def fred_fetch(
+    series_id: Annotated[str, Namespace("fred")],
+    observation_start: str | None = None,
+    observation_end: str | None = None,
+    api_key: str = "",
+) -> pd.DataFrame:
+    """Fetch FRED time series observations by series_id.
+
+    Returns date + value rows enriched with series metadata (title, units,
+    frequency, seasonal adjustment). Optional observation_start/observation_end
+    bound the window (YYYY-MM-DD).
+    """
+    sid = series_id.strip()
+    if not sid:
+        raise InvalidParameterError("fred", "series_id must be non-empty")
+
+    http = _client(api_key)
+    obs_body = fetch_json(
+        http,
+        path="series/observations",
+        params={
+            "series_id": sid,
+            "observation_start": observation_start,
+            "observation_end": observation_end,
+        },
+        provider="fred",
+        op_name="series/observations",
+    )
+
+    observations = obs_body.get("observations")
+    if observations is None:
+        raise ParseError("fred", "FRED response missing 'observations'")
+    if not observations:
+        raise EmptyDataError("fred", query_params={"series_id": sid})
+
+    meta_body = fetch_json(
+        http,
+        path="series",
+        params={"series_id": sid},
+        provider="fred",
+        op_name="series",
+    )
+    seriess = meta_body.get("seriess") or []
+    meta = seriess[0] if seriess else {}
+
+    df = pd.DataFrame(observations)
+    df["series_id"] = sid
+    df["title"] = str(meta.get("title", ""))
+    df["units_short"] = meta.get("units_short")
+    df["frequency_short"] = meta.get("frequency_short")
+    df["seasonal_adjustment_short"] = meta.get("seasonal_adjustment_short")
+    # Return only the declared schema columns — FRED observation rows also carry
+    # realtime_start/realtime_end, which would otherwise be folded in as stray DATA.
+    return df[[c.name for c in FETCH_OUTPUT.columns]]
+
+
+CONNECTORS = Connectors([fred_search, fred_fetch])
+
+
+def load(*, api_key: str) -> Connectors:
+    """Return :data:`CONNECTORS` with ``api_key`` bound on every connector that accepts it."""
+    return CONNECTORS.bind(api_key=api_key)

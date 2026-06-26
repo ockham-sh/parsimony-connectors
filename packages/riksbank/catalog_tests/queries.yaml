@@ -1,0 +1,71 @@
+# Curated search probes for the Riksbank catalog (schema v1 snapshots).
+# Regenerate drafts: uv run python tooling/validate_catalog.py --provider riksbank \
+#   --catalog-url file:///tmp/parsimony-catalogs-v1/riksbank --write-queries \
+#   packages/riksbank/catalog_tests/queries.generated.yaml
+#
+# Expected usage: hybrid title/description search (BM25 + vector on text fields).
+# Structured ``code:`` probes exercise the code BM25 index. The catalog spans all five
+# Riksbank products; ``code`` shapes route the follow-up fetch (bare SWEA/SWESTR ids vs
+# ``monetary_policy/``, ``turnover/``, ``holdings/`` prefixes).
+
+catalog_url: hf://parsimony-dev/riksbank
+
+queries:
+  - id: code_sekeurpmi
+    query: "code: SEKEURPMI"
+    expected_code: SEKEURPMI
+    mode: code
+    required: true
+    why: "Direct lookup on indexed code field (SWEA bare id)"
+
+  - id: code_mp_gdp
+    query: "code: monetary_policy/SEQGDPNAYSA"
+    expected_code: monetary_policy/SEQGDPNAYSA
+    mode: code
+    required: true
+    why: "Direct lookup on a Monetary Policy compound code"
+
+  - id: code_turnover_fx_monthly
+    query: "code: turnover/fx/monthly"
+    expected_code: turnover/fx/monthly
+    mode: code
+    required: true
+    why: "Direct lookup on a Turnover compound code"
+
+  - id: title_exchange_rate
+    query: "SEK EUR exchange rate"
+    expected_code: SEKEURPMI
+    mode: title_bm25
+    required: true
+    why: "Lexical title probe on hybrid title index"
+
+  - id: title_swestr_semantic
+    query: "Swedish overnight benchmark rate SWESTR"
+    expected_code: SWESTR
+    mode: hybrid_title
+    optional: true
+    why: "Semantic-style title probe; ranking may vary on hybrid index"
+
+  - id: title_holdings
+    query: "Riksbank securities holdings government bonds"
+    expected_code: holdings/swedish_securities_aggregated
+    mode: hybrid_title
+    optional: true
+    why: "Semantic probe surfacing the holdings family"
+
+  - id: euro_sek_exchange_rate
+    query: "euro Swedish krona exchange rate"
+    expected_code: SEKEURPMI
+    mode: hybrid_title
+    required: true
+    why: "Broad NL query for EUR/SEK FX after row enrichment"
+
+  - id: policy_rate
+    query: "policy rate"
+    expected_code: SECBREPOEFF
+    mode: title_bm25
+    required: true
+    why: "Policy-rate title probe (SECBREPOEFF)"
+
+thresholds:
+  min_required_recall: 1.0

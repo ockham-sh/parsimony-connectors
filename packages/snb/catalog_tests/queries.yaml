@@ -1,0 +1,51 @@
+# Curated search probes for the Swiss National Bank (SNB) catalog.
+#
+# Single-bundle catalog (namespace ``snb``): ~1,149 cubes discovered live from the
+# published sitemap — 237 publication cubes catalogued at series granularity
+# (compound ``cube_id#series_key`` codes, ``source=snb_data_portal``) + 912
+# warehouse cubes catalogued at cube level (``{sdmx_id}#``, ``source=snb_warehouse``).
+# With >1000 unique titles the adaptive index degrades to BM25-only (the guidebook
+# rule), so exact ``code:`` probes are ``required`` and semantic-style title probes
+# stay ``optional``.
+#
+# The agent passes the part before ``#`` to ``snb_fetch`` (which routes publication
+# vs warehouse by id shape).
+#
+# Regenerate drafts after a local build:
+#   uv run python tooling/validate_catalog.py --provider snb \
+#     --catalog-url file:///tmp/parsimony-catalogs/snb \
+#     --write-queries packages/snb/catalog_tests/queries.generated.yaml
+
+catalog_url: hf://parsimony-dev/snb
+
+queries:
+  - id: code_bond_yield_10y
+    query: "code: rendoblim#10J"
+    expected_code: rendoblim#10J
+    mode: code
+    required: true
+    why: "Direct lookup on the indexed code field (10-year Swiss Confederation bond yield)"
+
+  - id: code_warehouse_derivatives
+    query: "code: BSTA@SNB.AUR_U.ODF#"
+    expected_code: "BSTA@SNB.AUR_U.ODF#"
+    mode: code
+    required: true
+    why: "A data-warehouse cube is catalogued and findable by its compound code (Q2 gap closed)"
+
+  - id: title_bond_yields
+    query: "Swiss Confederation bond yields"
+    expected_code: rendoblim#10J
+    mode: title_bm25
+    optional: true
+    why: "Distinctive lexical title probe; ranking may vary on the BM25-only title index"
+
+  - id: title_derivatives
+    query: "outstanding derivative financial instruments banks"
+    expected_code: "BSTA@SNB.AUR_U.ODF#"
+    mode: hybrid_title
+    optional: true
+    why: "Proves a warehouse cube surfaces by description text, not just exact code"
+
+thresholds:
+  min_required_recall: 1.0

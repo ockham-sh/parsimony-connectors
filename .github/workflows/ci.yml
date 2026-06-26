@@ -1,0 +1,248 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/ci.yml"
+      - "Makefile"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# Kernel source pin. Both CI jobs check out `ockham-sh/parsimony` alongside
+# the connectors repo so the workspace-level `[tool.uv.sources]` override
+# (which points at `../parsimony`) resolves to a real path on the runner.
+# Bump KERNEL_REF when the kernel lands a new contract-v1 alpha.
+env:
+  KERNEL_REPO: ockham-sh/parsimony
+  KERNEL_REF: main
+
+jobs:
+  discover:
+    name: Discover workspace packages
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: parsimony-connectors
+    outputs:
+      packages: ${{ steps.list.outputs.packages }}
+      has_packages: ${{ steps.list.outputs.has_packages }}
+      python_versions: ${{ steps.versions.outputs.python_versions }}
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          path: parsimony-connectors
+
+      - name: Enforce plugin-only monorepo
+        # This monorepo is reserved for `parsimony.providers` plugins.
+        # Every `packages/*/pyproject.toml` must declare an entry point
+        # under `[project.entry-points."parsimony.providers"]` — fail
+        # fast on a PR that adds a non-plugin package (e.g. a consumer
+        # or an ancillary tool), which belongs in its own repo.
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in packages/*/pyproject.toml; do
+            base=$(dirname "$f")
+            case "$base" in
+              packages/_*) continue ;;
+            esac
+            if ! grep -q 'entry-points\."parsimony\.providers"' "$f"; then
+              echo "::error file=$f::missing [project.entry-points.\"parsimony.providers\"] stanza"
+              fail=1
+            fi
+          done
+          if [[ "$fail" == "1" ]]; then
+            exit 1
+          fi
+
+      - id: list
+        name: Enumerate packages/*/pyproject.toml
+        shell: bash
+        run: |
+          set -euo pipefail
+          pkgs=$(find packages -mindepth 2 -maxdepth 2 -name pyproject.toml ! -path 'packages/_*/*' -exec dirname {} \; | sed 's|^packages/||' | sort | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "packages=${pkgs}" >> "$GITHUB_OUTPUT"
+          if [[ "${pkgs}" == "[]" ]]; then
+            echo "has_packages=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_packages=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - id: versions
+        name: Select Python versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          # PR-time: run only 3.12 for fast feedback. Push-to-main: run the full
+          # 3.11/3.12 matrix so release-targeted Python versions are still
+          # protected. Informed by Dodds/Python-Perf plan recommendation.
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo 'python_versions=["3.12"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'python_versions=["3.11","3.12"]' >> "$GITHUB_OUTPUT"
+          fi
+
+  # Per-package test matrix. Only runs if at least one package exists.
+  # matrix.package values come from `find packages/*/pyproject.toml` in
+  # `discover` — directory names, not user input — but we still bind
+  # them to an env var and regex-validate before use so a rogue PR that
+  # adds a maliciously-named directory cannot inject shell commands.
+  test:
+    name: Test — ${{ matrix.package }} (py${{ matrix.python-version }})
+    needs: discover
+    if: ${{ needs.discover.outputs.has_packages == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: parsimony-connectors
+    env:
+      PKG: ${{ matrix.package }}
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJson(needs.discover.outputs.packages) }}
+        python-version: ${{ fromJson(needs.discover.outputs.python_versions) }}
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          path: parsimony-connectors
+
+      - name: Check out parsimony kernel
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          repository: ${{ env.KERNEL_REPO }}
+          ref: ${{ env.KERNEL_REF }}
+          path: parsimony
+
+      - name: Validate matrix package name
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! [[ "$PKG" =~ ^[a-z][a-z0-9_-]*$ ]]; then
+            echo "::error::Matrix package '$PKG' must match ^[a-z][a-z0-9_-]*$"
+            exit 1
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.3
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-dependency-glob: |
+            parsimony-connectors/uv.lock
+            parsimony-connectors/pyproject.toml
+            parsimony-connectors/packages/*/pyproject.toml
+
+      - name: Resolve workspace
+        run: uv sync --all-extras --all-packages
+
+      - name: Ruff
+        run: uv run ruff check "packages/$PKG"
+
+      - name: Mypy
+        run: uv run mypy "packages/$PKG"
+
+      - name: Pytest
+        run: uv run pytest "packages/$PKG" "--cov=packages/$PKG" --cov-report=term-missing
+
+      - name: Conformance verify
+        run: |
+          set -euo pipefail
+          # Every package in this monorepo is a `parsimony.providers` plugin
+          # (enforced by the `Enforce plugin-only monorepo` step in the
+          # `discover` job), so every package must pass conformance.
+          # Conformance is a library-API call: parsimony.testing.assert_plugin_valid
+          # raises ConformanceError on the first failing check. Module name
+          # follows the repo convention `parsimony_<PKG>` for every package.
+          uv run python -c "
+          import importlib, os
+          from parsimony.testing import assert_plugin_valid
+          name = 'parsimony_' + os.environ['PKG']
+          assert_plugin_valid(importlib.import_module(name))
+          print(f'Conformance OK: {name}')
+          "
+
+  # Workspace-level supply-chain audit.
+  #
+  # The audit runs once against a hashed lockfile exported from uv.lock,
+  # not per-package, because every connector pulls from the same external
+  # surface (httpx, pydantic, parsimony-core, …). A single workspace audit
+  # catches the same CVEs as 22 per-package runs at a fraction of the cost.
+  #
+  # `--no-emit-workspace` drops workspace members (connectors, _shared,
+  # test_support) from the export. `--no-sources` ignores the editable
+  # `[tool.uv.sources]` override that points at the sibling parsimony
+  # checkout, so parsimony-core resolves to its published PyPI version.
+  # `--no-dev` excludes dev-only deps. The result is a fully-hashed,
+  # exact-pinned external-deps requirements file — exactly what
+  # `pip-audit --disable-pip` accepts in modern releases.
+  audit:
+    name: pip-audit (workspace lock)
+    needs: discover
+    if: ${{ needs.discover.outputs.has_packages == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: parsimony-connectors
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          path: parsimony-connectors
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.3
+        with:
+          python-version: '3.12'
+          enable-cache: true
+          cache-dependency-glob: |
+            parsimony-connectors/uv.lock
+
+      - name: Export workspace lock to hashed requirements
+        run: |
+          uv export --format requirements-txt \
+            --no-emit-workspace --no-dev --no-sources \
+            --output-file /tmp/audit-reqs.txt
+
+      - name: pip-audit
+        run: |
+          # Ignored CVEs (revisit periodically — see comments below):
+          # - GHSA-4xh5-x5gv-qwph: pre-existing ignore (carried over from
+          #   the original per-package audit step).
+          # - PYSEC-2025-217 / CVE-2026-1839: both in transformers <5.0.
+          #   We cannot bump because optimum-onnx 0.1.0 (the only released
+          #   version) caps transformers<4.58, and parsimony-core's
+          #   `standard-onnx` extra depends on optimum-onnx for OnnxEmbedder.
+          #   Drop these ignores once optimum-onnx 0.2.0 (with transformers-5
+          #   support) ships upstream and parsimony-core relocks.
+          # - CVE-2025-3000 (aliases PYSEC-2025-194 / GHSA-rrmf-rvhw-rf47):
+          #   memory corruption in `torch.jit.script`. NO fixed version exists
+          #   in any torch release — 2.12.0 (latest) is the most-patched build;
+          #   every other recent torch CVE is fixed by 2.10, this one never was,
+          #   so there is nothing to upgrade or pin to. torch is a transitive
+          #   embedding-backend dep (sentence-transformers via
+          #   parsimony-core[catalog]); the connectors only compute embeddings
+          #   and never call `torch.jit.script`, so the vulnerable path is
+          #   unreachable. Drop this ignore once upstream torch ships a fix.
+          # Use uvx (isolated tool runtime) instead of `uv run --with` so
+          # pip-audit doesn't try to materialize the workspace venv — which
+          # would fail because the editable [tool.uv.sources] points at a
+          # sibling parsimony checkout this job intentionally doesn't have.
+          uvx pip-audit --strict --disable-pip \
+            --ignore-vuln GHSA-4xh5-x5gv-qwph \
+            --ignore-vuln PYSEC-2025-217 \
+            --ignore-vuln CVE-2026-1839 \
+            --ignore-vuln CVE-2025-3000 \
+            -r /tmp/audit-reqs.txt
+

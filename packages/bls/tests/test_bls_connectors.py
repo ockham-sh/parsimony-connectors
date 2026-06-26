@@ -1,0 +1,313 @@
+"""Offline tests for the BLS connectors (respx for the API, monkeypatch for flat files)."""
+
+from __future__ import annotations
+
+import httpx
+import pytest
+import respx
+from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError, RateLimitError
+
+from parsimony_bls import CONNECTORS
+from parsimony_bls.catalog_build import build_series_catalog, build_surveys_catalog
+from parsimony_bls.connectors import enumerate_series as es
+from parsimony_bls.connectors.enumerate_series import enumerate_bls_series
+from parsimony_bls.connectors.enumerate_surveys import enumerate_bls_surveys
+from parsimony_bls.connectors.fetch import bls_fetch
+
+# ---------------------------------------------------------------------------
+# Plugin contract shape
+# ---------------------------------------------------------------------------
+
+
+def test_connectors_collection_exposes_expected_names() -> None:
+    names = {c.name for c in CONNECTORS}
+    assert names == {
+        "bls_fetch",
+        "enumerate_bls_surveys",
+        "enumerate_bls_series",
+        "bls_surveys_search",
+        "bls_series_search",
+    }
+
+
+# ---------------------------------------------------------------------------
+# bls_fetch
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+def test_bls_fetch_returns_series_observations() -> None:
+    respx.post("https://api.bls.gov/publicAPI/v2/timeseries/data/").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "status": "REQUEST_SUCCEEDED",
+                "Results": {
+                    "series": [
+                        {
+                            "seriesID": "LNS14000000",
+                            "catalog": {"series_title": "Unemployment Rate"},
+                            "data": [
+                                {"year": "2026", "period": "M03", "value": "4.1"},
+                                {"year": "2026", "period": "M02", "value": "-"},
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+    )
+    result = bls_fetch(series_id="LNS14000000", start_year="2026", end_year="2026")
+    df = result.data
+    assert result.provenance.source == "bls_fetch"
+    assert len(df) == 2
+    assert df.iloc[0]["title"] == "Unemployment Rate"
+    assert df.iloc[0]["frequency"] == "Monthly"
+    # suppressed "-" value coerces to null
+    assert df.iloc[1]["value"] != df.iloc[1]["value"]  # NaN
+
+
+@respx.mock
+def test_bls_fetch_raises_parse_error_on_bls_status_failure() -> None:
+    # BLS signals failure in the body with HTTP 200 -- map a non-success status
+    # (that isn't a quota threshold) to ParseError, NOT a fake status_code=0.
+    respx.post("https://api.bls.gov/publicAPI/v2/timeseries/data/").mock(
+        return_value=httpx.Response(
+            200, json={"status": "REQUEST_NOT_PROCESSED", "message": ["Invalid series ID"]}
+        )
+    )
+    with pytest.raises(ParseError):
+        bls_fetch(series_id="BAD", start_year="2026", end_year="2026")
+
+
+@respx.mock
+def test_bls_fetch_raises_parse_error_on_status_failure() -> None:
+    respx.post("https://api.bls.gov/publicAPI/v2/timeseries/data/").mock(
+        return_value=httpx.Response(
+            200, json={"status": "REQUEST_NOT_PROCESSED", "message": ["Invalid series ID"]}
+        )
+    )
+    with pytest.raises(ParseError):
+        bls_fetch(series_id="BAD", start_year="2026", end_year="2026")
+
+
+@respx.mock
+def test_bls_fetch_maps_threshold_to_rate_limit() -> None:
+    respx.post("https://api.bls.gov/publicAPI/v2/timeseries/data/").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "status": "REQUEST_NOT_PROCESSED",
+                "message": ["Request could not be serviced, the daily threshold has been reached."],
+            },
+        )
+    )
+    with pytest.raises(RateLimitError) as exc_info:
+        bls_fetch(series_id="LNS14000000", start_year="2026", end_year="2026")
+    assert exc_info.value.quota_exhausted is True
+
+
+@respx.mock
+def test_bls_fetch_raises_empty_data_when_no_series_returned() -> None:
+    respx.post("https://api.bls.gov/publicAPI/v2/timeseries/data/").mock(
+        return_value=httpx.Response(200, json={"status": "REQUEST_SUCCEEDED", "Results": {"series": []}})
+    )
+    with pytest.raises(EmptyDataError):
+        bls_fetch(series_id="XYZ", start_year="2026", end_year="2026")
+
+
+@respx.mock
+def test_bls_fetch_raises_empty_when_no_series() -> None:
+    respx.post("https://api.bls.gov/publicAPI/v2/timeseries/data/").mock(
+        return_value=httpx.Response(200, json={"status": "REQUEST_SUCCEEDED", "Results": {"series": []}})
+    )
+    with pytest.raises(EmptyDataError):
+        bls_fetch(series_id="XYZ", start_year="2026", end_year="2026")
+
+
+# ---------------------------------------------------------------------------
+# Parameter validation
+# ---------------------------------------------------------------------------
+
+
+def test_bls_fetch_rejects_non_four_digit_year() -> None:
+    with pytest.raises(InvalidParameterError, match="start_year"):
+        bls_fetch(series_id="LNS14000000", start_year="26", end_year="2026")
+
+
+def test_bls_fetch_rejects_bad_year() -> None:
+    with pytest.raises(InvalidParameterError, match="start_year"):
+        bls_fetch(series_id="LNS14000000", start_year="26", end_year="2026")
+
+
+def test_bls_fetch_rejects_empty_series_id() -> None:
+    with pytest.raises(InvalidParameterError, match="series_id"):
+        bls_fetch(series_id="   ", start_year="2026", end_year="2026")
+
+
+# ---------------------------------------------------------------------------
+# enumerate_bls_surveys (tier-1, API)
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+def test_enumerate_surveys_flags_headline() -> None:
+    respx.get("https://api.bls.gov/publicAPI/v2/surveys").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "status": "REQUEST_SUCCEEDED",
+                "Results": {
+                    "survey": [
+                        {"survey_abbreviation": "CU", "survey_name": "Consumer Price Index"},
+                        {"survey_abbreviation": "WS", "survey_name": "Work Stoppages"},
+                    ]
+                },
+            },
+        )
+    )
+    result = enumerate_bls_surveys()
+    df = result.data
+    assert list(df.columns) == ["code", "title", "survey", "has_series_catalog"]
+    flags = df.set_index("code")["has_series_catalog"].to_dict()
+    assert flags["CU"] is True  # headline
+    assert flags["WS"] is False  # not headline
+
+
+# ---------------------------------------------------------------------------
+# enumerate_bls_series (tier-2, flat files) -- monkeypatched
+# ---------------------------------------------------------------------------
+
+_COLUMNS = ["series_id", "area_code", "item_code", "seasonal", "series_title", "begin_year", "end_year"]
+_ROWS = [
+    {
+        "series_id": "CUUR0000SA0",
+        "area_code": "0000",
+        "item_code": "SA0",
+        "seasonal": "U",
+        "series_title": "All items in U.S. city average",
+        "begin_year": "1913",
+        "end_year": "2026",
+    },
+    {
+        "series_id": "CUUR0000SETB01",
+        "area_code": "0000",
+        "item_code": "SETB01",
+        "seasonal": "U",
+        "series_title": "Gasoline (all types) in U.S. city average",
+        "begin_year": "1976",
+        "end_year": "2026",
+    },
+]
+_TABLES = {
+    "area": {"0000": "U.S. city average"},
+    "item": {"SA0": "All items", "SETB01": "Gasoline (all types)"},
+    "seasonal": {"U": "Not Seasonally Adjusted"},
+}
+
+
+class _FakeSession:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+@pytest.fixture
+def _patch_flatfiles(monkeypatch):
+    def fake_rows(session, survey, *, max_bytes=0, max_rows=0):
+        rows = _ROWS[:max_rows] if max_rows else _ROWS
+        return _COLUMNS, rows
+
+    def fake_tables(session, survey, columns=None):
+        return _TABLES
+
+    monkeypatch.setattr(es, "make_download_session", lambda: _FakeSession())
+    monkeypatch.setattr(es, "fetch_series_rows", fake_rows)
+    monkeypatch.setattr(es, "fetch_dimension_tables", fake_tables)
+
+
+def test_enumerate_series_emits_dimension_metadata(_patch_flatfiles) -> None:
+    result = enumerate_bls_series(survey="cu")
+    df = result.data
+    assert set(df["code"]) == {"CUUR0000SA0", "CUUR0000SETB01"}
+    row = df.set_index("code").loc["CUUR0000SETB01"]
+    assert row["title"] == "Gasoline (all types) in U.S. city average"
+    assert row["survey"] == "CU"
+    # per-dimension code + resolved label columns (dim = column minus _code)
+    assert row["area_code"] == "0000"
+    assert row["area_label"] == "U.S. city average"
+    assert row["item_label"] == "Gasoline (all types)"
+
+
+def test_build_series_catalog_search_offline(_patch_flatfiles) -> None:
+    catalog = build_series_catalog("CU")
+    assert len(catalog.entities) == 2
+    hits = catalog.search("gasoline", limit=5)
+    assert hits[0].code == "CUUR0000SETB01"
+    # exact code probe
+    code_hits = catalog.search("code: CUUR0000SA0", limit=3)
+    assert code_hits[0].code == "CUUR0000SA0"
+
+
+def test_build_surveys_catalog_attaches_manifest(monkeypatch) -> None:
+    # tier-1 enumerate is API-driven; stub it so the test stays offline.
+    import pandas as pd
+
+    from parsimony_bls import catalog_build as cb
+
+    def fake_surveys(api_key=""):
+        return pd.DataFrame(
+            [{"code": "CU", "title": "Consumer Price Index", "survey": "CU", "has_series_catalog": True}]
+        )
+
+    monkeypatch.setattr(cb, "enumerate_bls_surveys", fake_surveys)
+
+    manifest = [{"id": "item", "values": [{"code": "SA0", "label": "All items"}]}]
+    catalog = build_surveys_catalog(manifests={"CU": manifest})
+    entity = catalog.entities[0]
+    assert entity.code == "CU"
+    assert entity.metadata["dimensions"] == manifest
+
+
+# ---------------------------------------------------------------------------
+# search connectors -- row shaping (catalog stubbed)
+# ---------------------------------------------------------------------------
+
+
+def test_bls_series_search_shapes_rows(monkeypatch) -> None:
+    from parsimony_bls.connectors import search as se
+
+    class _Match:
+        def __init__(self, code, title, ns):
+            self.code, self.title, self.score, self.namespace, self.metadata = code, title, 0.5, ns, {}
+
+    class _Catalog:
+        def search(self, query, limit=10):
+            return [_Match("CUUR0000SETB01", "Gasoline", "bls_series_cu")]
+
+    def fake_get(namespace, *, catalog_root=None, build=None):
+        return _Catalog()
+
+    monkeypatch.setattr(se, "_get_or_load_catalog", fake_get)
+    result = se.bls_series_search(query="gasoline", survey="CU")
+    df = result.data
+    assert list(df.columns) == ["series_id", "title", "score", "survey", "namespace"]
+    assert df.iloc[0]["series_id"] == "CUUR0000SETB01"
+    assert df.iloc[0]["survey"] == "CU"
+
+
+def test_bls_series_search_empty_raises(monkeypatch) -> None:
+    from parsimony_bls.connectors import search as se
+
+    class _Catalog:
+        def search(self, query, limit=10):
+            return []
+
+    def fake_get(namespace, *, catalog_root=None, build=None):
+        return _Catalog()
+
+    monkeypatch.setattr(se, "_get_or_load_catalog", fake_get)
+    with pytest.raises(EmptyDataError):
+        se.bls_series_search(query="nothingmatches", survey="CU")

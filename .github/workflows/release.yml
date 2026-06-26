@@ -1,0 +1,289 @@
+name: Release
+
+# Single-trigger release model: workflow_dispatch with a package name.
+# Publishes one parsimony-<name> via the per-package PyPI OIDC trusted
+# publisher (see docs/pypi-setup.md). Tag-based release triggers can be
+# added later if cadence makes them worthwhile.
+#
+# Naming standards (root cause of the underscore/hyphen split below):
+#   - Folder name (the input, e.g. `alpha_vantage`) follows PEP 8
+#     module-name rules — lowercase + underscores — because it mirrors
+#     the importable `parsimony_<pkg>/` subpackage inside.
+#   - Distribution name (pyproject `name`, PyPI URL, GitHub environment
+#     name, e.g. `parsimony-alpha-vantage`) follows PEP 503 canonical
+#     form — lowercase + hyphens.
+# A `normalize` job validates the input and emits both forms as outputs:
+#   - pkg      → underscore form, used for filesystem paths
+#   - pkg_dist → `parsimony-<hyphen>`, used for pyproject name check
+#   - pkg_env  → `pypi-<hyphen>`, used as the GitHub environment name
+# The `publish` job consumes those via `needs.normalize.outputs.*`.
+# (GitHub Actions expressions have no string `replace`, so we cannot
+# normalize inline at the workflow/job header — hence the setup job.)
+#
+# Security posture: the `package` input flows into shell / Python / URLs
+# in many places. The `normalize` job validates it once with a strict
+# regex; downstream jobs only ever see the validated, normalized values
+# via `needs.normalize.outputs.*`. Inside `run:` blocks, always use the
+# bound env vars ($PKG, $PKG_DIST), never `github.event.inputs.package`.
+#
+# All third-party actions pinned by commit SHA (not tag) to defeat tag
+# mutation / hostile retag. Version comment shows the human-readable tag.
+#
+# Kernel source pin: the workspace resolves `parsimony-core` from a sibling
+# `ockham-sh/parsimony` checkout via `[tool.uv.sources]`. This job checks
+# out the kernel alongside the connectors so `../parsimony` resolves.
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Package folder name to release (e.g. 'fred', 'alpha_vantage'). Must match ^[a-z][a-z0-9_-]*$."
+        required: true
+
+concurrency:
+  # Literal interpolation is fine here: the same input string always
+  # serializes against itself. Normalization isn't required for grouping.
+  group: release-${{ github.event.inputs.package }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  KERNEL_REPO: ockham-sh/parsimony
+  KERNEL_REF: main
+
+jobs:
+  normalize:
+    # Validate the input and emit both naming forms so downstream jobs
+    # never have to do the underscore/hyphen dance themselves.
+    name: Normalize package name
+    runs-on: ubuntu-latest
+    outputs:
+      pkg: ${{ steps.compute.outputs.pkg }}
+      pkg_dist: ${{ steps.compute.outputs.pkg_dist }}
+      pkg_env: ${{ steps.compute.outputs.pkg_env }}
+    steps:
+      - name: Validate and normalize package input
+        id: compute
+        shell: bash
+        env:
+          PKG_INPUT: ${{ github.event.inputs.package }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$PKG_INPUT" =~ ^_?[a-z][a-z0-9_-]*$ ]]; then
+            echo "::error::Input 'package' must match ^_?[a-z][a-z0-9_-]*$ (got: $PKG_INPUT)"
+            exit 1
+          fi
+          # Folder form (PEP 8 module): underscores. Accept either form
+          # of input and translate to the canonical folder name on disk.
+          # A leading underscore is preserved (e.g. the internal `_shared`
+          # package directory, which is excluded from connector discovery).
+          pkg="${PKG_INPUT//-/_}"
+          # PEP 503 canonical form (distribution name + env name). Strip a
+          # leading underscore first: `_shared` publishes as `parsimony-shared`
+          # (not `parsimony--shared`); the underscore is an in-repo
+          # sorts-first / discovery-excluded marker, not part of the dist name.
+          pkg_base="${PKG_INPUT#_}"
+          pkg_hyphen="${pkg_base//_/-}"
+          {
+            echo "pkg=${pkg}"
+            echo "pkg_dist=parsimony-${pkg_hyphen}"
+            echo "pkg_env=pypi-${pkg_hyphen}"
+          } >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: normalize
+    name: Publish ${{ needs.normalize.outputs.pkg_dist }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: parsimony-connectors
+    env:
+      PKG: ${{ needs.normalize.outputs.pkg }}
+      PKG_DIST: ${{ needs.normalize.outputs.pkg_dist }}
+    environment:
+      name: ${{ needs.normalize.outputs.pkg_env }}
+      url: https://pypi.org/p/${{ needs.normalize.outputs.pkg_dist }}
+    permissions:
+      id-token: write  # required for OIDC trusted publishing
+      contents: read
+    steps:
+
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          path: parsimony-connectors
+
+      - name: Check out parsimony kernel
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          repository: ${{ env.KERNEL_REPO }}
+          ref: ${{ env.KERNEL_REF }}
+          path: parsimony
+
+      - name: Validate package exists
+        run: |
+          set -euo pipefail
+          if [[ ! -d "packages/$PKG" ]]; then
+            echo "::error::packages/$PKG/ does not exist."
+            exit 1
+          fi
+
+      - name: Validate build backend
+        run: |
+          set -euo pipefail
+          backend=$(python3 -c "
+          import os, tomllib
+          pkg = os.environ['PKG']
+          with open(f'packages/{pkg}/pyproject.toml', 'rb') as fp:
+              data = tomllib.load(fp)
+          print(data['build-system']['build-backend'])
+          ")
+          if [[ "$backend" != "hatchling.build" ]]; then
+            echo "::error::build-backend must be hatchling.build (got: $backend)"
+            exit 1
+          fi
+
+      - name: Forbid direct-URL / VCS dependencies
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, sys, tomllib
+          pkg = os.environ["PKG"]
+          with open(f"packages/{pkg}/pyproject.toml", "rb") as fp:
+              data = tomllib.load(fp)
+          deps = data["project"].get("dependencies", [])
+          bad = [d for d in deps if "@" in d or "file:" in d or "git+" in d]
+          if bad:
+              print(f"::error::direct-URL/VCS deps forbidden in packages/{pkg}: {bad}")
+              sys.exit(1)
+          PY
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.3
+        with:
+          python-version: "3.12"
+
+      - name: Check version is not already published
+        shell: bash
+        run: |
+          set -euo pipefail
+          pkg_name=$(python3 -c "
+          import os, tomllib
+          pkg = os.environ['PKG']
+          with open(f'packages/{pkg}/pyproject.toml', 'rb') as fp:
+              data = tomllib.load(fp)
+          print(data['project']['name'])
+          ")
+          pkg_version=$(python3 -c "
+          import os, tomllib
+          pkg = os.environ['PKG']
+          with open(f'packages/{pkg}/pyproject.toml', 'rb') as fp:
+              data = tomllib.load(fp)
+          print(data['project']['version'])
+          ")
+          # Defence against a rogue pyproject.toml claiming an unrelated PyPI name.
+          # PKG_DIST is the PEP 503 canonical (hyphen-form) of the input,
+          # computed once in the `normalize` job. This handles multi-word
+          # folders like `alpha_vantage` whose distribution name is the
+          # hyphen-form `parsimony-alpha-vantage`.
+          if [[ "$pkg_name" != "$PKG_DIST" ]]; then
+            echo "::error::pyproject name '$pkg_name' must equal '$PKG_DIST'."
+            exit 1
+          fi
+          if python3 -c "
+          import urllib.request, sys
+          try:
+              r = urllib.request.urlopen(f'https://pypi.org/pypi/${pkg_name}/${pkg_version}/json', timeout=10)
+              sys.exit(0 if r.status == 200 else 1)
+          except Exception:
+              sys.exit(1)
+          " 2>/dev/null; then
+            echo "::error::${pkg_name}==${pkg_version} is already on PyPI. Bump the version."
+            exit 1
+          fi
+
+      - name: Resolve workspace
+        run: uv sync --all-extras --all-packages
+
+      - name: Run package tests
+        run: uv run pytest "packages/$PKG"
+
+      - name: Conformance verify
+        run: |
+          set -euo pipefail
+          # Packages that are adapters / consumers of the kernel contract
+          # (not `parsimony.providers` plugins) opt out via
+          # `[tool.parsimony.conformance] skip = true` in their own
+          # pyproject.toml. Same logic as ci.yml.
+          skip=$(python3 -c "
+          import os, tomllib
+          pkg = os.environ['PKG']
+          with open(f'packages/{pkg}/pyproject.toml', 'rb') as fp:
+              data = tomllib.load(fp)
+          print('1' if data.get('tool', {}).get('parsimony', {}).get('conformance', {}).get('skip') else '0')
+          ")
+          if [[ "$skip" == "1" ]]; then
+            echo "::notice::Skipping conformance verify for $PKG — package opts out via [tool.parsimony.conformance] skip=true"
+            exit 0
+          fi
+          # Conformance is a library-API call after the kernel CLI removal —
+          # parsimony.testing.assert_plugin_valid raises ConformanceError on
+          # the first failing check. Module name follows the repo convention
+          # `parsimony_<PKG>` for every package.
+          uv run python -c "
+          import importlib, os
+          from parsimony.testing import assert_plugin_valid
+          name = 'parsimony_' + os.environ['PKG']
+          assert_plugin_valid(importlib.import_module(name))
+          print(f'Conformance OK: {name}')
+          "
+
+      - name: Build wheel + sdist
+        working-directory: parsimony-connectors/packages/${{ needs.normalize.outputs.pkg }}
+        # uv build invoked from a workspace member writes artifacts to the
+        # WORKSPACE ROOT's dist/ by default, not the member's dist/. Pin the
+        # output explicitly so the publish step below finds them.
+        run: uv build --out-dir dist
+
+      - name: Published-resolution smoke (gate on the real dependency graph)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Every step above resolves parsimony-core from the kernel checkout
+          # (KERNEL_REF=main), so they only prove the wheel works against
+          # parsimony *main* — not against the parsimony-core a user installs
+          # from PyPI. Gate the publish on that real combination: a venv OUTSIDE
+          # the uv workspace makes pip resolve parsimony-core (+ parsimony-shared)
+          # from the PyPI index, then we install the freshly-built wheel into it
+          # and exercise import + discovery — so the dependency graph a user
+          # actually gets is verified before the artifact ships.
+          venv="$RUNNER_TEMP/smoke"
+          python3 -m venv "$venv"
+          "$venv/bin/python" -m pip install --quiet --upgrade pip
+          wheel="$(ls packages/"$PKG"/dist/*.whl)"
+          "$venv/bin/python" -m pip install "$wheel"
+          # Import name maps from the dist name (parsimony-foo-bar -> parsimony_foo_bar),
+          # which is correct for _shared (parsimony-shared -> parsimony_shared) too.
+          module="${PKG_DIST//-/_}"
+          skip=$(python3 -c "
+          import os, tomllib
+          pkg = os.environ['PKG']
+          with open(f'packages/{pkg}/pyproject.toml', 'rb') as fp:
+              data = tomllib.load(fp)
+          print('1' if data.get('tool', {}).get('parsimony', {}).get('conformance', {}).get('skip') else '0')
+          ")
+          if [[ "$skip" == "1" ]]; then
+            # Helper-only dist (e.g. parsimony-shared): not a parsimony.providers
+            # plugin and does not depend on parsimony-core, so just prove the
+            # published-resolution install imports.
+            "$venv/bin/python" -c "import importlib; importlib.import_module('$module'); print('published-resolution smoke OK (import-only):', '$module')"
+          else
+            "$venv/bin/python" -c "import importlib; importlib.import_module('$module'); from parsimony.discover import load_all; load_all(); print('published-resolution smoke OK:', '$module')"
+          fi
+
+      - name: Publish to PyPI (OIDC trusted publisher)
+        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc  # v1.12.4
+        with:
+          packages-dir: parsimony-connectors/packages/${{ needs.normalize.outputs.pkg }}/dist/
+          attestations: true

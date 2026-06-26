@@ -1,0 +1,35 @@
+"""Build the Banco de España catalog snapshot."""
+
+from __future__ import annotations
+
+import logging
+
+from parsimony.catalog import Catalog
+from parsimony.catalog.policy import discovery_indexes
+from parsimony.catalog.source import entities_from_raw
+
+from parsimony_bde.connectors.enumerate import enumerate_bde
+from parsimony_bde.outputs import BDE_ENUMERATE_OUTPUT
+
+logger = logging.getLogger(__name__)
+
+CATALOG_NAMESPACE = "bde"
+
+
+def build_bde_catalog() -> Catalog:
+    """Enumerate and build the Banco de España catalog.
+
+    Titles and descriptions are in Spanish — BdE's published catalog CSV
+    chapters have no English variant.
+    """
+    result = enumerate_bde()
+    df = result.data
+
+    entries = entities_from_raw(df, BDE_ENUMERATE_OUTPUT)
+    catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
+    catalog.set_entities(entries)
+    catalog.build()
+    return catalog
+
+
+__all__ = ["CATALOG_NAMESPACE", "build_bde_catalog"]

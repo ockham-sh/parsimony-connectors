@@ -1,0 +1,30 @@
+# Extended rerank eval — every probe must return ``expected`` within ``recall_limit``.
+# Retrieval-gap cases are in ``queries_negative.yaml``.
+
+dataset_title_nl:
+  - id: wb_gdp
+    query: "World Bank development indicators GDP"
+    namespace: sdmx_datasets_wb_wdi
+    expected: "WB_WDI|WDI"
+
+dataset_structured:
+  - id: dataset_code_ecb_yc
+    query: "code: ECB|YC"
+    namespace: sdmx_datasets_ecb
+    expected: "ECB|YC"
+
+codelist_label_nl:
+  - id: geo_germany
+    query: "Germany"
+    namespace: sdmx_codelist_estat_cl_geo
+    expected: "DE"
+    optional: true
+  - id: freq_monthly
+    query: "monthly"
+    namespace: sdmx_codelist_ecb_cl_freq
+    expected: "M"
+    optional: true
+
+thresholds:
+  recall_limit: 30
+  min_required_recall: 0.0

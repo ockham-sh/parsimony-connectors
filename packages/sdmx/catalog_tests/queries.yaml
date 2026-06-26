@@ -1,0 +1,45 @@
+# Curated probes for SDMX DSD/codelist catalogs.
+#
+# Workflow:
+#   sdmx_datasets_search(query=...)
+#   -> sdmx_codelist_search(agency=..., codelist_id=..., query=...)
+#   -> sdmx_series_search(agency=..., dataset_id=..., query=...)
+#   -> sdmx_fetch
+
+catalog_root: hf://parsimony-dev/sdmx
+
+queries:
+  - id: dataset_code_ecb_yc
+    query: "code: ECB|YC"
+    namespace: sdmx_datasets_ecb
+    expected_code: ECB|YC
+    mode: structured_field
+    required: true
+    why: "Per-agency datasets catalog; structured code lookup"
+
+  - id: dataset_title_ecb_yield
+    query: "yield curve"
+    namespace: sdmx_datasets_ecb
+    expected_code: ECB|YC
+    mode: title_bm25
+    optional: true
+    why: "Title probe on ECB agency dataset catalog"
+
+  - id: codelist_geo_germany
+    query: "Germany"
+    namespace: sdmx_codelist_estat_cl_geo
+    expected_code: DE
+    mode: label_semantic
+    optional: true
+    why: "Codelist label search for geo dimension"
+
+  - id: codelist_freq_monthly
+    query: "monthly"
+    namespace: sdmx_codelist_ecb_cl_freq
+    expected_code: M
+    mode: label_semantic
+    optional: true
+    why: "Shared frequency codelist"
+
+thresholds:
+  min_required_recall: 1.0

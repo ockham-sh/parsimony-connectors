@@ -1,0 +1,62 @@
+# Curated search probes for the Destatis (GENESIS-Online) catalog.
+#
+# Single-bundle catalog (namespace ``destatis``): ~331 statistic rows + ~3,009
+# table rows, built from the live ``/statistics`` index + the per-statistic
+# ``/information`` + ``/tables`` fan-out. Titles are bilingual DE/EN with the
+# long German description folded into the indexed text; with >1000 unique titles
+# the adaptive index degrades to BM25-only, so semantic-style title probes stay
+# ``optional`` (the guidebook rule) and only exact ``code:`` and short
+# distinctive lexical probes are ``required``.
+#
+# Regenerate drafts after a local build:
+#   uv run python scripts/validate_catalog.py --provider destatis \
+#     --catalog-url file:///tmp/parsimony-catalogs/destatis \
+#     --write-queries packages/destatis/catalog_tests/queries.generated.yaml
+
+catalog_url: hf://parsimony-dev/destatis
+
+queries:
+  - id: code_cpi_table
+    query: "code: 61111-0001"
+    expected_code: 61111-0001
+    mode: code
+    required: true
+    why: "Direct lookup on the indexed code field (Consumer Price Index table)"
+
+  - id: code_cpi_statistic
+    query: "code: 61111"
+    expected_code: 61111
+    mode: code
+    required: true
+    why: "The parent statistic row is present and findable by its 5-char code"
+
+  - id: code_population_table
+    query: "code: 12411-0001"
+    expected_code: 12411-0001
+    mode: code
+    required: true
+    why: "A reference-date (STAG) population table is catalogued by code"
+
+  - id: title_consumer_prices
+    query: "consumer price index inflation Germany"
+    expected_code: 61111-0001
+    mode: title_bm25
+    required: true
+    why: "Distinctive lexical title probe on the BM25 title index (EN query, DE+EN titles)"
+
+  - id: title_foreign_trade
+    query: "foreign trade exports imports"
+    expected_code: 51000-0001
+    mode: hybrid_title
+    optional: true
+    why: "Semantic-style title probe; ranking may vary on the BM25-only title index"
+
+  - id: title_unemployment
+    query: "unemployment labour market"
+    expected_code: 13211-0001
+    mode: hybrid_title
+    optional: true
+    why: "Semantic-style title probe over the labour-market statistic's tables"
+
+thresholds:
+  min_required_recall: 1.0

@@ -1,0 +1,56 @@
+# Curated search probes for the Banco de Portugal (BdP) catalog.
+#
+# Single-bundle catalog (namespace ``bdp``): ~72 K series rows + 212
+# ``dataset:<domain>:<id>`` stubs + 65 ``domain:<id>`` stubs, built from the
+# paginated BPstat hierarchy crawl and a bilingual ``/series/`` enrichment pass
+# (English title + EN/PT descriptions folded into the indexed ``description``).
+# With >1000 unique titles the adaptive index degrades to BM25-only, so
+# semantic-style title probes stay ``optional`` (the guidebook rule); only exact
+# ``code:`` and short distinctive lexical probes are ``required``.
+#
+# Series codes are compound ``domain_id:dataset_id:series_id``. Regenerate
+# drafts after a local build:
+#   uv run python scripts/validate_catalog.py --provider bdp \
+#     --catalog-url file:///tmp/parsimony-catalogs/bdp \
+#     --write-queries packages/bdp/catalog_tests/queries.generated.yaml
+
+catalog_url: hf://parsimony-dev/bdp
+
+queries:
+  - id: code_activity_coincident
+    query: "code: 48:aea9d7f70ddf9c6de29feaeba86a9456:12099329"
+    expected_code: "48:aea9d7f70ddf9c6de29feaeba86a9456:12099329"
+    mode: code
+    required: true
+    why: "Direct lookup on the indexed compound code (economic-activity coincident indicator)"
+
+  - id: code_dataset_stub
+    query: "code: dataset:48:aea9d7f70ddf9c6de29feaeba86a9456"
+    expected_code: "dataset:48:aea9d7f70ddf9c6de29feaeba86a9456"
+    mode: code
+    required: true
+    why: "The synthetic dataset stub rows are present and findable by code"
+
+  - id: code_domain_stub
+    query: "code: domain:48"
+    expected_code: "domain:48"
+    mode: code
+    required: true
+    why: "The synthetic domain stub rows are present and findable by code"
+
+  - id: title_activity_coincident
+    query: "economic activity coincident indicator Portugal"
+    expected_code: "48:aea9d7f70ddf9c6de29feaeba86a9456:12099329"
+    mode: title_bm25
+    required: true
+    why: "Distinctive lexical title probe on the BM25 title index"
+
+  - id: title_consumption_coincident
+    query: "private consumption coincident indicator monthly year-on-year"
+    expected_code: "48:aea9d7f70ddf9c6de29feaeba86a9456:12099330"
+    mode: hybrid_title
+    optional: true
+    why: "Semantic-style title probe; ranking may vary on the BM25-only title index"
+
+thresholds:
+  min_required_recall: 1.0

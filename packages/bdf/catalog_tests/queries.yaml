@@ -1,0 +1,55 @@
+# Curated search probes for the Banque de France (BdF) catalog.
+#
+# Single-bundle catalog (namespace ``bdf``): ~41.6k series rows + 45
+# ``dataset:<id>`` stub rows, built from the live ``series`` / ``webstat-datasets``
+# exports. Titles are single-language English (French + breadcrumb fold into the
+# indexed ``description``); with >1000 unique titles the adaptive index degrades
+# to BM25-only, so semantic-style title probes stay ``optional`` (the guidebook
+# rule), and only exact ``code:`` and short distinctive lexical probes are
+# ``required``.
+#
+# Regenerate drafts after a local build:
+#   uv run python scripts/validate_catalog.py --provider bdf \
+#     --catalog-url file:///tmp/parsimony-catalogs/bdf \
+#     --write-queries packages/bdf/catalog_tests/queries.generated.yaml
+
+catalog_url: hf://parsimony-dev/bdf
+
+queries:
+  - id: code_usd_eur_spot
+    query: "code: EXR.M.USD.EUR.SP00.E"
+    expected_code: EXR.M.USD.EUR.SP00.E
+    mode: code
+    required: true
+    why: "Direct lookup on the indexed code field (ECB USD/EUR reference rate)"
+
+  - id: code_inflation_expectations
+    query: "code: PAI.M.FR.N.PR._Z.INPR03.TX"
+    expected_code: PAI.M.FR.N.PR._Z.INPR03.TX
+    mode: code
+    required: true
+    why: "Direct lookup on a news-based French inflation-expectations series"
+
+  - id: code_dataset_stub
+    query: "code: dataset:EXR"
+    expected_code: dataset:EXR
+    mode: code
+    required: true
+    why: "The synthetic dataflow stub rows are present and findable by code"
+
+  - id: title_usd_eur_reference_rate
+    query: "US dollar Euro ECB reference exchange rate"
+    expected_code: EXR.M.USD.EUR.SP00.E
+    mode: title_bm25
+    required: true
+    why: "Distinctive lexical title probe on the BM25 title index"
+
+  - id: title_inflation_expectations
+    query: "French news-based inflation expectations indicator"
+    expected_code: PAI.M.FR.N.PR._Z.INPR03.TX
+    mode: hybrid_title
+    optional: true
+    why: "Semantic-style title probe; ranking may vary on the BM25-only title index"
+
+thresholds:
+  min_required_recall: 1.0

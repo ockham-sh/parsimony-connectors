@@ -1,0 +1,42 @@
+# Curated probes for BoJ multi-bundle catalogs (structured search first).
+#
+# Workflow:
+#   boj_databases_search (this file: database title probes)
+#   -> boj_series_search(db=..., namespace boj_series_<db>)
+#   -> boj_fetch(db=..., code=...)
+#
+# Regenerate drafts after a local build:
+#   uv run python scripts/validate_catalog.py --provider boj \
+#     --catalog-url file:///tmp/parsimony-catalogs/boj/boj_databases \
+#     --catalog-root file:///tmp/parsimony-catalogs/boj \
+#     --write-queries packages/boj/catalog_tests/queries.generated.yaml
+
+catalog_root: hf://parsimony-dev/boj
+
+queries:
+  - id: database_fx_rates
+    query: "foreign exchange rates"
+    namespace: boj_databases
+    expected_code: FM08
+    mode: title_bm25
+    required: true
+    why: "Step 1: discover FM08 from databases catalog title index"
+
+  - id: database_discount_rate
+    query: "basic discount rate"
+    namespace: boj_databases
+    expected_code: IR01
+    mode: title_bm25
+    optional: true
+    why: "Lexical title probe on IR01 database row"
+
+  - id: series_fx_usd_spot
+    query: "JPY USD spot"
+    namespace: boj_series_fm08
+    expected_code: FXERD01
+    mode: title_bm25
+    optional: true
+    why: "Step 2: per-DB series catalog; curate after FM08 bundle is built locally"
+
+thresholds:
+  min_required_recall: 1.0

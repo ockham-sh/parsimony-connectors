@@ -1,0 +1,19 @@
+name: "parsimony-connectors CodeQL config"
+
+# Inherit the default security-and-quality query suite (set on the action via
+# `queries: security-and-quality`) and prune the rules below.
+#
+# Suppressions:
+# - Test code is deliberately exercised under dangerous conditions to verify
+#   our hardening rejects them — e.g. `os.chmod(bad_dir, 0o777)` in
+#   `test_world_writable_cache_dir_rejected`. Treating those patterns as
+#   findings in test code is noise. `pytest.skip` flow also confuses
+#   CodeQL's uninitialized-variable analysis. Production code keeps full
+#   coverage.
+
+paths-ignore:
+  - "**/tests/**"
+  - "**/test_*.py"
+  - "**/.venv/**"
+  - "**/dist/**"
+  - "**/build/**"

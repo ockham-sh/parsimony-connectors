@@ -1,0 +1,60 @@
+name: Bug Report
+description: Report a bug in a parsimony connector
+labels: ["bug"]
+body:
+  - type: input
+    id: connector
+    attributes:
+      label: Connector
+      description: The affected connector's PyPI name (e.g. `parsimony-fred`)
+      placeholder: "parsimony-<name>"
+    validations:
+      required: true
+
+  - type: input
+    id: connector-version
+    attributes:
+      label: Connector version
+      description: Output of `pip show parsimony-<name>` → Version
+      placeholder: "0.4.0"
+    validations:
+      required: true
+
+  - type: input
+    id: kernel-version
+    attributes:
+      label: parsimony-core version
+      description: Output of `pip show parsimony-core` → Version
+      placeholder: "0.4.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      placeholder: "3.12"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: The shortest code or command that triggers the bug.
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: error
+    attributes:
+      label: Full traceback
+      description: Paste the full traceback or error output (redact any API keys).
+      render: text
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: OS, env, related issues, hypotheses.

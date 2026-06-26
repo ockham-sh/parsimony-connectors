@@ -1,0 +1,31 @@
+name: Feature Request
+description: Suggest a change to an existing connector or the monorepo
+labels: ["enhancement"]
+body:
+  - type: input
+    id: scope
+    attributes:
+      label: Scope
+      description: Which connector (e.g. `parsimony-sdmx`) or is this monorepo-level?
+      placeholder: "parsimony-<name> or monorepo"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would the API / behavior look like?
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds exist today?

@@ -1,0 +1,64 @@
+# Curated search probes for the Bank of Canada (BoC) catalog.
+#
+# Single-bundle catalog (namespace ``boc``): ~15.6k series rows + ~2.4k live
+# ``group:<NAME>`` rows, built from the live ``/lists/series`` + ``/lists/groups``
+# endpoints (archetype A). With >1000 unique titles the adaptive index degrades
+# to BM25-only (the guidebook rule), so exact ``code:`` probes and short
+# distinctive lexical title probes are ``required``, while longer semantic-style
+# probes stay ``optional``.
+#
+# A ``group:``-prefixed code routes to ``boc_fetch(series_name="group:...")``; a
+# bare code routes to ``boc_fetch(series_name="...")``.
+#
+# Regenerate drafts after a local build:
+#   uv run python scripts/validate_catalog.py --provider boc \
+#     --catalog-url file:///tmp/parsimony-catalogs/boc \
+#     --write-queries packages/boc/catalog_tests/queries.generated.yaml
+
+catalog_url: hf://parsimony-dev/boc
+
+queries:
+  - id: code_usd_cad_fx
+    query: "code: FXUSDCAD"
+    expected_code: FXUSDCAD
+    mode: code
+    required: true
+    why: "Direct lookup on the indexed code field (USD/CAD daily exchange rate)"
+
+  - id: code_total_cpi
+    query: "code: V41690973"
+    expected_code: V41690973
+    mode: code
+    required: true
+    why: "Direct lookup on a headline macro series (Total CPI)"
+
+  - id: code_fx_group_panel
+    query: "code: group:FX_RATES_DAILY"
+    expected_code: group:FX_RATES_DAILY
+    mode: code
+    required: true
+    why: "Group panels are first-class catalog entities, findable by their group: code"
+
+  - id: title_prime_rate
+    query: "Prime rate"
+    expected_code: V80691311
+    mode: title_bm25
+    required: true
+    why: "Distinctive two-token lexical title probe on the BM25 title index"
+
+  - id: title_total_cpi
+    query: "Total CPI"
+    expected_code: V41690973
+    mode: title_bm25
+    required: true
+    why: "Distinctive lexical title probe (consumer price index headline)"
+
+  - id: title_daily_exchange_rates_group
+    query: "Daily exchange rates"
+    expected_code: group:FX_RATES_DAILY
+    mode: hybrid_title
+    optional: true
+    why: "Group-level title probe; ranking may vary on the BM25-only title index"
+
+thresholds:
+  min_required_recall: 1.0

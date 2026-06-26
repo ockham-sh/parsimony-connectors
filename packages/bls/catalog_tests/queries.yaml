@@ -1,0 +1,54 @@
+# Curated search probes for the two-tier BLS catalogs (structured search first).
+#
+# Workflow:
+#   bls_surveys_search(query=...)          -> namespace bls_surveys (tier 1)
+#   -> bls_series_search(survey='CU', ...) -> namespace bls_series_cu (tier 2)
+#   -> bls_fetch(series_id=...)
+#
+# The surveys catalog is small (full title/hybrid recall). Per-survey series
+# catalogs are large (~thousands of titles) so the adaptive index degrades to
+# BM25-only: exact ``code:`` and structured ``FIELD: value`` clauses are
+# ``required``; semantic-style title probes stay ``optional`` (guidebook rule).
+#
+# Validate against a local build:
+#   uv run python scripts/build_catalog.py --survey CU --save-root /tmp/bls
+#   uv run python scripts/validate_catalog.py --provider bls \
+#     --catalog-url file:///tmp/bls --queries-file packages/bls/catalog_tests/queries.yaml
+
+catalog_root: hf://parsimony-dev/bls
+
+queries:
+  - id: survey_code_cu
+    query: "code: CU"
+    namespace: bls_surveys
+    expected_code: CU
+    mode: structured_field
+    required: true
+    why: "Tier-1: a survey is findable by its abbreviation"
+
+  - id: survey_title_cpi
+    query: "consumer price index all urban"
+    namespace: bls_surveys
+    expected_code: CU
+    mode: title_bm25
+    optional: true
+    why: "Tier-1: survey discoverable by name"
+
+  - id: series_code_cu_allitems
+    query: "code: CUUR0000SA0"
+    namespace: bls_series_cu
+    expected_code: CUUR0000SA0
+    mode: code
+    required: true
+    why: "Tier-2: exact series-id lookup (CPI all items, U.S. city average, NSA)"
+
+  - id: series_title_cu_gasoline
+    query: "gasoline all types U.S. city average"
+    namespace: bls_series_cu
+    expected_code: CUUR0000SETB01
+    mode: title_bm25
+    optional: true
+    why: "Tier-2: distinctive lexical title probe on the BM25 title index"
+
+thresholds:
+  min_required_recall: 1.0

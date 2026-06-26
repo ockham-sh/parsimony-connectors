@@ -1,0 +1,50 @@
+# Curated search probes for the Reserve Bank of Australia (RBA) catalog.
+#
+# Single-bundle catalog (namespace ``rba``): ~4,165 series rows built from the
+# 3-pass HTML scrape (archetype E) — CSV index (~3,958) + one XLSX-exclusive sheet
+# (Bond Purchase Program, ``source=rba_xlsx``) + ~200 discontinued xls-hist series
+# (``source=rba_xlsx_hist``). With >1000 unique titles the adaptive index degrades
+# to BM25-only (the guidebook rule), so exact ``code:`` probes are ``required`` and
+# semantic-style title probes stay ``optional``.
+#
+# The compound code is ``{table_id}#{series_id}``; the agent passes the part before
+# ``#`` to ``rba_fetch`` (which resolves CSV / XLSX-exclusive / xls-hist).
+#
+# Regenerate drafts after a local build:
+#   uv run python tooling/validate_catalog.py --provider rba \
+#     --catalog-url file:///tmp/parsimony-catalogs/rba \
+#     --write-queries packages/rba/catalog_tests/queries.generated.yaml
+
+catalog_url: hf://parsimony-dev/rba
+
+queries:
+  - id: code_cash_rate_target
+    query: "code: f1-data#FIRMMCRTD"
+    expected_code: f1-data#FIRMMCRTD
+    mode: code
+    required: true
+    why: "Direct lookup on the indexed code field (the canonical RBA cash-rate target)"
+
+  - id: code_xls_hist_repo
+    query: "code: b03hist#BOSRRSB"
+    expected_code: b03hist#BOSRRSB
+    mode: code
+    required: true
+    why: "An xls-hist discontinued series is catalogued and findable by its compound code"
+
+  - id: title_cash_rate
+    query: "Cash Rate Target"
+    expected_code: f1-data#FIRMMCRTD
+    mode: title_bm25
+    optional: true
+    why: "Distinctive lexical title probe; ranking may vary on the BM25-only title index"
+
+  - id: title_bond_purchase_program
+    query: "Bond Purchase Program face value"
+    expected_code: "a03/Bond Purchase Program#ALDBPPFVD"
+    mode: hybrid_title
+    optional: true
+    why: "Proves the XLSX-exclusive Bond Purchase Program series is searchable"
+
+thresholds:
+  min_required_recall: 1.0

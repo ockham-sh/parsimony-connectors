@@ -1,0 +1,62 @@
+# Curated search probes for the EIA dataset catalog.
+#
+# Single-bundle catalog (namespace ``eia``): one row per leaf dataset (~232),
+# built by walking the live v2 route tree. The KEY is the route path; the
+# indexed description folds in each dataset's measure + facet vocabulary. With
+# only ~232 rows the title field stays under the 1000-unique adaptive-index
+# threshold, so hybrid title probes are usable — but semantic-style probes still
+# stay ``optional`` per the guidebook rule; exact ``code:`` and short distinctive
+# lexical probes are ``required``.
+#
+# Regenerate drafts after a local build:
+#   uv run python scripts/validate_catalog.py --provider eia \
+#     --catalog-url file:///tmp/parsimony-catalogs/eia \
+#     --write-queries packages/eia/catalog_tests/queries.generated.yaml
+
+catalog_url: hf://parsimony-dev/eia
+
+queries:
+  - id: code_petroleum_spot
+    query: "code: petroleum/pri/spt"
+    expected_code: petroleum/pri/spt
+    mode: code
+    required: true
+    why: "Direct lookup on the indexed code field (petroleum spot prices route)"
+
+  - id: code_retail_sales
+    query: "code: electricity/retail-sales"
+    expected_code: electricity/retail-sales
+    mode: code
+    required: true
+    why: "A route whose measures are price/sales/revenue/customers (not value)"
+
+  - id: code_crude_imports
+    query: "code: crude-oil-imports"
+    expected_code: crude-oil-imports
+    mode: code
+    required: true
+    why: "A top-level dataset (route node that is itself a leaf) is catalogued"
+
+  - id: title_retail_sales
+    query: "electricity retail sales price by state"
+    expected_code: electricity/retail-sales
+    mode: title_bm25
+    required: true
+    why: "Distinctive lexical title probe on the BM25 title index"
+
+  - id: title_spot_prices
+    query: "crude oil petroleum spot prices"
+    expected_code: petroleum/pri/spt
+    mode: hybrid_title
+    optional: true
+    why: "Semantic-style title probe; ranking may vary"
+
+  - id: title_co2_emissions
+    query: "carbon dioxide CO2 emissions aggregates"
+    expected_code: co2-emissions/co2-emissions-aggregates
+    mode: hybrid_title
+    optional: true
+    why: "Semantic-style probe over a real emissions leaf dataset (co2-emissions is a parent route with two leaves)"
+
+thresholds:
+  min_required_recall: 1.0
