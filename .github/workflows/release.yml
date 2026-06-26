@@ -246,6 +246,42 @@ jobs:
         # output explicitly so the publish step below finds them.
         run: uv build --out-dir dist
 
+      - name: Published-resolution smoke (gate on the real dependency graph)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Every step above resolves parsimony-core from the kernel checkout
+          # (KERNEL_REF=main), so they only prove the wheel works against
+          # parsimony *main* — not against the parsimony-core a user installs
+          # from PyPI. Gate the publish on that real combination: a venv OUTSIDE
+          # the uv workspace makes pip resolve parsimony-core (+ parsimony-shared)
+          # from the PyPI index, then we install the freshly-built wheel into it
+          # and exercise import + discovery — so the dependency graph a user
+          # actually gets is verified before the artifact ships.
+          venv="$RUNNER_TEMP/smoke"
+          python3 -m venv "$venv"
+          "$venv/bin/python" -m pip install --quiet --upgrade pip
+          wheel="$(ls packages/"$PKG"/dist/*.whl)"
+          "$venv/bin/python" -m pip install "$wheel"
+          # Import name maps from the dist name (parsimony-foo-bar -> parsimony_foo_bar),
+          # which is correct for _shared (parsimony-shared -> parsimony_shared) too.
+          module="${PKG_DIST//-/_}"
+          skip=$(python3 -c "
+          import os, tomllib
+          pkg = os.environ['PKG']
+          with open(f'packages/{pkg}/pyproject.toml', 'rb') as fp:
+              data = tomllib.load(fp)
+          print('1' if data.get('tool', {}).get('parsimony', {}).get('conformance', {}).get('skip') else '0')
+          ")
+          if [[ "$skip" == "1" ]]; then
+            # Helper-only dist (e.g. parsimony-shared): not a parsimony.providers
+            # plugin and does not depend on parsimony-core, so just prove the
+            # published-resolution install imports.
+            "$venv/bin/python" -c "import importlib; importlib.import_module('$module'); print('published-resolution smoke OK (import-only):', '$module')"
+          else
+            "$venv/bin/python" -c "import importlib; importlib.import_module('$module'); from parsimony.discover import load_all; load_all(); print('published-resolution smoke OK:', '$module')"
+          fi
+
       - name: Publish to PyPI (OIDC trusted publisher)
         uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc  # v1.12.4
         with:
