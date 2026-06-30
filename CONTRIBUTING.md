@@ -24,6 +24,11 @@ See [GOVERNANCE.md §6](GOVERNANCE.md#6-licence) for the full statement.
 **Check whether someone is already working on it.** Open an issue with the
 provider name and a one-line description before you invest time.
 
+### Claiming work, and what we won't merge
+
+- **Comment before you code.** Say which provider you're taking and a one-line description before investing time. We don't formally assign issues and we don't run them as races: the first PR that meets the bar below gets reviewed and merged, and stale claims lapse so nobody is blocked. One provider per PR.
+- **Run it before you open it.** Every connector PR must have been executed against the live provider API, with hand-written tests (no recorded response dumps) and the typed-error mapping in place. PRs with no evidence they were run against the real API will be closed. This library's whole value is that the data it returns is trustworthy; unverified code works against that, so the bar is firm and applies to everyone equally.
+
 ---
 
 ## 2. Local development
