@@ -77,12 +77,13 @@ def test_search_connector_has_correct_metadata() -> None:
 
     # Output columns
     col_names = [col.name for col in conn.output_config.columns]
-    expected = ["indicator_id", "indicator_name", "source_note", "source_org", "page"]
+    expected = ["indicator_id", "indicator_name", "source_id", "source_name", "topic_ids"]
     assert col_names == expected
 
     # Expected roles
     roles = {col.name: col.role.value for col in conn.output_config.columns}
     assert roles["indicator_id"] == "key"
     assert roles["indicator_name"] == "title"
-    assert roles["source_note"] == "metadata"
-    assert roles["page"] == "metadata"
+    assert roles["source_id"] == "metadata"
+    assert roles["source_name"] == "metadata"
+    assert roles["topic_ids"] == "metadata"
