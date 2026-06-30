@@ -25,7 +25,7 @@ dependencies = [
 members = ["packages/*", "test_support"]
 
 [tool.uv.sources]
-# The kernel pin is `parsimony-core[catalog]>=0.7,<0.8` on PyPI. The editable
+# The kernel pin is `parsimony-core[catalog]>=0.0.1` on PyPI. The editable
 # override below keeps local dev + CI wired against the sibling
 # `ockham-sh/parsimony` checkout at `../parsimony`, so the monorepo
 # can test against unreleased kernel changes. CI achieves this by
