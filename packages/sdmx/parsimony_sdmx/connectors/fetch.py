@@ -14,7 +14,9 @@ from __future__ import annotations
 import logging
 import random
 import time
-from typing import Annotated, Any
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Annotated, Any, TypeVar
 
 from parsimony.catalog import code_token, normalize_namespace
 from parsimony.connector import connector
@@ -44,6 +46,8 @@ _FETCH_TIMEOUT_SEC = 45.0
 #: from sum-of-latencies down to slowest-single-latency.
 _MAX_BATCH_SERIES = 24
 _MAX_FETCH_WORKERS = 6
+
+_T = TypeVar("_T")
 
 #: Regex-style key validators — reject characters that could escape the SDMX
 #: URL path. SDMX uses ``.`` as the dimension separator and ``+`` as OR.
@@ -96,6 +100,22 @@ class SdmxFetchParams(BaseModel):
         return f"{agency.upper()}-{dataset_id}"
 
 
+@dataclass(frozen=True)
+class _ResolvedStructure:
+    """DSD + codelists for one dataset — resolved once, shared across every key in a same-flow batch.
+
+    ``sdmx_fetch``'s per-series worker only depends on this for its dimension order and
+    code→label maps; it never depends on ``series_key``, so every key in one call can share
+    a single instance instead of each re-fetching and re-parsing it (see :func:`_resolve_structure`).
+    """
+
+    dataset_id: str
+    dsd: Any
+    structure_msg: Any
+    dsd_dim_ids: list[str]
+    label_maps: dict[str, dict[str, str]]
+
+
 def _sdmx_fetch_output(namespace: str, dimension_ids: list[str]) -> OutputConfig:
     """Tabular schema for one dataset fetch."""
     cols: list[Column] = [
@@ -133,6 +153,33 @@ def _is_retryable(exc: BaseException) -> bool:
     return False
 
 
+def _dataset_id_from_ref(dataset_ref: str) -> str | None:
+    """Best-effort ``dataset_id`` half of ``AGENCY-DATASET_ID``; ``None`` if malformed.
+
+    Used only for the defensive flow-prefix strip below — real validation of the whole
+    ``dataset_ref`` happens in :class:`SdmxFetchParams`, so a malformed ref just falls through
+    to that validator's proper error instead of failing here.
+    """
+    if "-" not in dataset_ref:
+        return None
+    return dataset_ref.split("-", 1)[1] or None
+
+
+def _strip_flow_prefix(key: str, dataset_id: str) -> str:
+    """Strip a redundant leading ``<dataset_id>.`` flow prefix from a caller-supplied key.
+
+    ``sdmx_series_search``'s ``key`` column is documented to paste directly into ``series_ref``
+    (discover → search → fetch); older catalogs (or a key copy-pasted from a provider's raw
+    SDMX-CSV ``KEY`` column, which some agencies — observed on ECB — prefix with the flow id)
+    can still carry that prefix. ``sdmx_fetch`` wants the bare, unprefixed key: passing the
+    prefixed form straight through 400s at the provider (duplicated flow id in the URL path).
+    Case-insensitive since ECB/IMF request the flow uppercased but don't guarantee the export
+    echoes that same case back.
+    """
+    prefix, sep, rest = key.partition(".")
+    return rest if sep and prefix.upper() == dataset_id.upper() else key
+
+
 @connector(tags=["sdmx"])
 def sdmx_fetch(
     dataset_ref: str,
@@ -160,6 +207,11 @@ def sdmx_fetch(
         raise InvalidParameterError(
             "sdmx", f"series_ref accepts at most {_MAX_BATCH_SERIES} keys per call; got {len(keys)}"
         )
+
+    dataset_id = _dataset_id_from_ref(dataset_ref)
+    if dataset_id:
+        keys = [_strip_flow_prefix(key, dataset_id) for key in keys]
+
     param_list = [
         SdmxFetchParams(
             dataset_key=dataset_ref,
@@ -170,39 +222,49 @@ def sdmx_fetch(
         for key in keys
     ]
 
+    structure = _resolve_structure(param_list[0].dataset_key)
+
     if len(param_list) == 1:
-        return _fetch_one_series(param_list[0])
+        return _fetch_one_series(param_list[0], structure)
 
     import pandas as pd
 
-    frames = _fetch_series_concurrently(param_list)
+    frames = _fetch_series_concurrently(param_list, structure)
     return pd.concat(frames, ignore_index=True)
 
 
-def _fetch_series_concurrently(param_list: list[SdmxFetchParams]) -> list[Any]:
+def _fetch_series_concurrently(param_list: list[SdmxFetchParams], structure: _ResolvedStructure) -> list[Any]:
     """Fetch each series of a same-flow batch on its own thread, preserving request order.
 
     Every key keeps its own per-series timeout budget and transient-retry handling, so one slow
     round-trip cannot drag the others; the first failure (in request order) propagates, making the
-    batch all-or-nothing so no requested key is silently dropped.
+    batch all-or-nothing so no requested key is silently dropped. All keys share the one already-
+    resolved *structure* — see :func:`_resolve_structure`.
     """
     from concurrent.futures import ThreadPoolExecutor
+    from functools import partial
 
+    worker = partial(_fetch_one_series, structure=structure)
     with ThreadPoolExecutor(max_workers=min(_MAX_FETCH_WORKERS, len(param_list))) as pool:
-        return list(pool.map(_fetch_one_series, param_list))
+        return list(pool.map(worker, param_list))
 
 
-def _fetch_one_series(params: SdmxFetchParams) -> Any:
-    """Fetch ONE series, budgeting the round-trip and retrying bounded transient transport errors."""
+def _run_budgeted(fn: Callable[[], _T], *, op_label: str, hint_fn: Callable[[int, str], str]) -> _T:
+    """Shared timeout + bounded-retry policy for one budgeted SDMX network operation.
+
+    Used by both the per-series data fetch and the once-per-batch structure resolution — same
+    transport-failure handling and retry policy; *hint_fn* tailors the final error framing
+    (``(status_code, detail) -> hint text``) to whichever operation failed.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import TimeoutError as FuturesTimeoutError
+
     attempt = 0
     while True:
         attempt += 1
         try:
-            from concurrent.futures import ThreadPoolExecutor
-            from concurrent.futures import TimeoutError as FuturesTimeoutError
-
             with ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(_do_sdmx_fetch, params)
+                future = pool.submit(fn)
                 try:
                     return future.result(timeout=_FETCH_TIMEOUT_SEC)
                 except FuturesTimeoutError as exc:
@@ -213,7 +275,7 @@ def _fetch_one_series(params: SdmxFetchParams) -> Any:
             raise ProviderError(
                 provider="sdmx",
                 status_code=0,
-                message=f"SDMX fetch exceeded {_FETCH_TIMEOUT_SEC:.0f}s budget for {params.dataset_key}.",
+                message=f"SDMX fetch exceeded {_FETCH_TIMEOUT_SEC:.0f}s budget for {op_label}.",
             ) from exc
         except Exception as exc:
             if attempt <= _MAX_RETRIES and _is_retryable(exc):
@@ -234,35 +296,70 @@ def _fetch_one_series(params: SdmxFetchParams) -> Any:
             if isinstance(exc, HTTPError):
                 status = getattr(getattr(exc, "response", None), "status_code", 0) or 0
             detail = (str(exc).strip() or type(exc).__name__)[:200]
-            if 400 <= status < 500 and status != 429:
-                hint = (
-                    f"HTTP {status}: the provider rejected the key — a code in "
-                    f"{params.series_key!r} is not valid or not populated for this flow. This is a bad-key "
-                    "error, not a network failure: re-check each dimension's code against the DSD, or call "
-                    "enumerate_sdmx_series to list the keys this flow actually populates, then retry. The "
-                    "flow is reachable; do not switch flows or providers on this alone."
-                )
-            else:
-                hint = (
-                    f"HTTP {status or 'n/a'}: transient fetch error after {_MAX_RETRIES + 1} attempts "
-                    f"({detail}). Retry shortly, or move on to a sibling flow if it persists."
-                )
             raise ProviderError(
                 provider="sdmx",
                 status_code=status,
-                message=f"SDMX fetch failed for {params.dataset_key}/{params.series_key}: {hint}",
+                message=f"SDMX fetch failed for {op_label}: {hint_fn(status, detail)}",
             ) from exc
 
 
-def _do_sdmx_fetch(params: SdmxFetchParams) -> Any:
-    """Inner fetch — performs SDMX I/O and shapes the observation table.
+def _fetch_one_series(params: SdmxFetchParams, structure: _ResolvedStructure) -> Any:
+    """Fetch ONE series' observations against an already-resolved *structure* (see :func:`_resolve_structure`)."""
 
-    Imports ``sdmx`` / ``pandas`` and the provider helpers function-locally
-    to keep the parent ``parsimony_sdmx`` import graph free of ``sdmx1``.
+    def _hint(status: int, detail: str) -> str:
+        if 400 <= status < 500 and status != 429:
+            return (
+                f"HTTP {status}: the provider rejected the key — a code in "
+                f"{params.series_key!r} is not valid or not populated for this flow. This is a bad-key "
+                "error, not a network failure: re-check each dimension's code against the DSD, or call "
+                "enumerate_sdmx_series to list the keys this flow actually populates, then retry. The "
+                "flow is reachable; do not switch flows or providers on this alone."
+            )
+        return (
+            f"HTTP {status or 'n/a'}: transient fetch error after {_MAX_RETRIES + 1} attempts "
+            f"({detail}). Retry shortly, or move on to a sibling flow if it persists."
+        )
+
+    return _run_budgeted(
+        lambda: _do_sdmx_fetch(params, structure),
+        op_label=f"{params.dataset_key}/{params.series_key}",
+        hint_fn=_hint,
+    )
+
+
+def _resolve_structure(dataset_key: str) -> _ResolvedStructure:
+    """Resolve the DSD + codelists for *dataset_key*, with the same retry/timeout budget as a series fetch.
+
+    Hoisted out of the per-series worker: every key in one ``sdmx_fetch(series_ref=[...])`` call
+    depends on the exact same structure (it's a function of ``dataset_key`` alone), so having each
+    key independently re-fetch and re-parse the whole DSD + every codelist was pure waste — and
+    pathological on flows with large codelists (e.g. ECB's ``YC``, 1000+ codes in one dimension).
     """
-    import pandas as pd
-    import sdmx as sdmx_lib
 
+    def _hint(status: int, detail: str) -> str:
+        if 400 <= status < 500 and status != 429:
+            return (
+                f"HTTP {status}: the provider rejected dataset {dataset_key!r}'s structure request — "
+                "re-check dataset_ref against the agency's dataflow list."
+            )
+        return (
+            f"HTTP {status or 'n/a'}: transient structure-fetch error after {_MAX_RETRIES + 1} attempts "
+            f"({detail}). Retry shortly, or move on to a sibling flow if it persists."
+        )
+
+    return _run_budgeted(
+        lambda: _fetch_structure(dataset_key),
+        op_label=f"structure/{dataset_key}",
+        hint_fn=_hint,
+    )
+
+
+def _fetch_structure(dataset_key: str) -> _ResolvedStructure:
+    """Single-attempt structure fetch — see :func:`_resolve_structure` for the retry wrapper.
+
+    Imports ``sdmx`` and the provider helpers function-locally to keep the parent
+    ``parsimony_sdmx`` import graph free of ``sdmx1``.
+    """
     from parsimony_sdmx.core.codelists import resolve_codelists
     from parsimony_sdmx.core.errors import SdmxFetchError
     from parsimony_sdmx.providers.sdmx_client import sdmx_client
@@ -275,7 +372,7 @@ def _do_sdmx_fetch(params: SdmxFetchParams) -> Any:
         resolve_dsd,
     )
 
-    agency_id, dataset_id = params.dataset_key.split("-", 1)
+    agency_id, dataset_id = dataset_key.split("-", 1)
 
     with sdmx_client(agency_id, wb_url_rewrite=True) as client:
         try:
@@ -289,15 +386,6 @@ def _do_sdmx_fetch(params: SdmxFetchParams) -> Any:
                     message=f"Dataflow {dataset_id!r} missing from structure response.",
                 ) from exc
             dsd = resolve_dsd(client, structure_msg, dataflow, dataset_id)
-            data_msg = client.get(
-                resource_type="data",
-                resource_id=dataset_id,
-                key=params.series_key,
-                params={
-                    "startPeriod": params.start_period,
-                    "endPeriod": params.end_period,
-                },
-            )
         except HTTPError:
             raise
         except SdmxFetchError as exc:
@@ -310,6 +398,51 @@ def _do_sdmx_fetch(params: SdmxFetchParams) -> Any:
                 message=f"Failed to fetch structure for {dataset_id}: {(str(exc).strip() or type(exc).__name__)[:200]}",
             ) from exc
 
+    dsd_dim_ids = extract_dsd_dim_order(dsd, exclude_time=True)
+    if not dsd_dim_ids:
+        raise ParseError(
+            provider="sdmx",
+            message="Unable to determine SDMX series dimensions for series_key",
+        )
+
+    raw_codelists = extract_raw_codelists(dsd, structure_msg)
+    label_maps = resolve_codelists(raw_codelists, ("en",))
+
+    return _ResolvedStructure(
+        dataset_id=dataset_id,
+        dsd=dsd,
+        structure_msg=structure_msg,
+        dsd_dim_ids=dsd_dim_ids,
+        label_maps=label_maps,
+    )
+
+
+def _do_sdmx_fetch(params: SdmxFetchParams, structure: _ResolvedStructure) -> Any:
+    """Inner fetch — issues the data-only SDMX request and shapes the observation table.
+
+    ``structure`` (DSD + codelists) is pre-resolved by :func:`_resolve_structure` and shared
+    across the whole batch; this only performs the per-series ``data`` request and projection.
+    Imports ``sdmx`` / ``pandas`` function-locally to keep the parent ``parsimony_sdmx`` import
+    graph free of ``sdmx1``.
+    """
+    import pandas as pd
+    import sdmx as sdmx_lib
+
+    from parsimony_sdmx.providers.sdmx_client import sdmx_client
+
+    agency_id, dataset_id = params.dataset_key.split("-", 1)
+
+    with sdmx_client(agency_id, wb_url_rewrite=True) as client:
+        data_msg = client.get(
+            resource_type="data",
+            resource_id=dataset_id,
+            key=params.series_key,
+            params={
+                "startPeriod": params.start_period,
+                "endPeriod": params.end_period,
+            },
+        )
+
     raw = sdmx_lib.to_pandas(data_msg.data)
     df = raw.rename("value").to_frame().reset_index() if isinstance(raw, pd.Series) else pd.DataFrame(raw).reset_index()
     if df.empty:
@@ -321,12 +454,7 @@ def _do_sdmx_fetch(params: SdmxFetchParams) -> Any:
             raise ParseError(provider="sdmx", message="Unable to determine SDMX value column")
         df = df.rename(columns={value_columns[0]: "value"})
 
-    dsd_dim_ids = extract_dsd_dim_order(dsd, exclude_time=True)
-    if not dsd_dim_ids:
-        raise ParseError(
-            provider="sdmx",
-            message="Unable to determine SDMX series dimensions for series_key",
-        )
+    dsd_dim_ids = structure.dsd_dim_ids
     missing = [dim_id for dim_id in dsd_dim_ids if dim_id not in df.columns]
     if missing:
         raise ParseError(
@@ -341,9 +469,7 @@ def _do_sdmx_fetch(params: SdmxFetchParams) -> Any:
         df[dim_id] = df[dim_id].astype("string").fillna("")
     df["series_key"] = df[dsd_dim_ids].agg(".".join, axis=1)
 
-    raw_codelists = extract_raw_codelists(dsd, structure_msg)
-    label_maps = resolve_codelists(raw_codelists, ("en",))
-
+    label_maps = structure.label_maps
     df["title"] = df.apply(
         lambda row: compose_observation_title(
             {dim_id: str(row.get(dim_id, "")).strip() for dim_id in dsd_dim_ids},

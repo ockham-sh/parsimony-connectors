@@ -105,6 +105,19 @@ def _parse_csv_header(header: list[str], dsd_order: Sequence[str]) -> tuple[list
     return [idx for idx, _ in col_dims], dim_ids
 
 
+def _strip_flow_prefix(key: str, dataset_id: str) -> str:
+    """Strip a redundant leading ``<dataset_id>.`` flow prefix from a raw SDMX-CSV ``KEY`` value.
+
+    Some agencies' SDMX-CSV export (observed on ECB) prefixes the ``KEY`` column with the
+    dataflow id (e.g. ``"YC.B.U2.EUR..."``), which is not the bare key ``sdmx_fetch``'s
+    ``series_ref`` expects — passing it straight through duplicates the flow id in the request
+    URL and 400s at the provider. Case-insensitive since ECB/IMF request the flow uppercased but
+    the export isn't guaranteed to echo that same case back.
+    """
+    prefix, sep, rest = key.partition(".")
+    return rest if sep and prefix.upper() == dataset_id.upper() else key
+
+
 def _series_row_dict(
     *,
     row: list[str],
@@ -113,6 +126,7 @@ def _series_row_dict(
     dsd_order: Sequence[str],
     labels: Mapping[str, Mapping[str, str]],
     key_idx: int | None,
+    dataset_id: str,
 ) -> dict[str, str] | None:
     dim_values: dict[str, str] = {}
     for col_idx, dim_id in zip(col_indices, dim_ids, strict=True):
@@ -127,7 +141,7 @@ def _series_row_dict(
         key = row[key_idx].strip()
     else:
         key = ".".join(dim_values.get(d, "") for d in dsd_order)
-    key = key.strip(".")
+    key = _strip_flow_prefix(key.strip("."), dataset_id)
     if not key:
         return None
     title = compose_series_title(dim_values, dsd_order, labels)
@@ -209,6 +223,7 @@ def build_series_parquet_columns(
                 dsd_order=dsd_order,
                 labels=labels,
                 key_idx=key_idx,
+                dataset_id=dataset_id,
             )
             if record is None:
                 continue

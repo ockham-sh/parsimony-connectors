@@ -351,3 +351,86 @@ def test_fetch_done_uses_series_parquet_filename(tmp_path: Path) -> None:
     (staging / SERIES_PARQUET).write_text("", encoding="utf-8")
 
     assert _load_build_all_catalogs()._fetch_done(layout, namespace)  # type: ignore[attr-defined]
+
+
+class TestStripFlowPrefix:
+    """A raw SDMX-CSV ``KEY`` column value is not always the bare key ``sdmx_fetch`` expects.
+
+    Regression coverage for the ECB export prefixing ``KEY`` with the flow id
+    (``"YC.B.U2...."`` instead of ``"B.U2...."``), which broke the documented
+    ``sdmx_series_search`` → ``sdmx_fetch`` idiom.
+    """
+
+    def test_strips_matching_prefix(self) -> None:
+        from parsimony_sdmx.catalog_series import _strip_flow_prefix
+
+        assert _strip_flow_prefix("YC.B.U2.EUR", "YC") == "B.U2.EUR"
+
+    def test_case_insensitive(self) -> None:
+        from parsimony_sdmx.catalog_series import _strip_flow_prefix
+
+        assert _strip_flow_prefix("yc.B.U2.EUR", "YC") == "B.U2.EUR"
+
+    def test_leaves_bare_key_untouched(self) -> None:
+        from parsimony_sdmx.catalog_series import _strip_flow_prefix
+
+        assert _strip_flow_prefix("B.U2.EUR", "YC") == "B.U2.EUR"
+
+    def test_does_not_touch_unrelated_leading_segment(self) -> None:
+        from parsimony_sdmx.catalog_series import _strip_flow_prefix
+
+        # A dimension code that happens to equal the dataset_id is not a flow prefix.
+        assert _strip_flow_prefix("YC.YC.EUR", "YC") == "YC.EUR"
+
+
+class TestSeriesRowDictKeyPrefix:
+    """``_series_row_dict`` must emit the bare key even when the CSV's own ``KEY`` column is flow-prefixed."""
+
+    def test_key_column_with_flow_prefix_is_stripped(self) -> None:
+        from parsimony_sdmx.catalog_series import _series_row_dict
+
+        row = ["YC.M.DE", "M", "DE"]
+        record = _series_row_dict(
+            row=row,
+            col_indices=[1, 2],
+            dim_ids=["FREQ", "REF_AREA"],
+            dsd_order=("FREQ", "REF_AREA"),
+            labels={},
+            key_idx=0,
+            dataset_id="YC",
+        )
+        assert record is not None
+        assert record["key"] == "M.DE"
+
+    def test_key_column_without_prefix_is_unaffected(self) -> None:
+        from parsimony_sdmx.catalog_series import _series_row_dict
+
+        row = ["M.DE", "M", "DE"]
+        record = _series_row_dict(
+            row=row,
+            col_indices=[1, 2],
+            dim_ids=["FREQ", "REF_AREA"],
+            dsd_order=("FREQ", "REF_AREA"),
+            labels={},
+            key_idx=0,
+            dataset_id="YC",
+        )
+        assert record is not None
+        assert record["key"] == "M.DE"
+
+    def test_fallback_key_from_dim_values_is_already_bare(self) -> None:
+        """No ``KEY`` column at all: the dim-values-joined fallback never carried the bug."""
+        from parsimony_sdmx.catalog_series import _series_row_dict
+
+        row = ["M", "DE"]
+        record = _series_row_dict(
+            row=row,
+            col_indices=[0, 1],
+            dim_ids=["FREQ", "REF_AREA"],
+            dsd_order=("FREQ", "REF_AREA"),
+            labels={},
+            key_idx=None,
+            dataset_id="YC",
+        )
+        assert record is not None
+        assert record["key"] == "M.DE"

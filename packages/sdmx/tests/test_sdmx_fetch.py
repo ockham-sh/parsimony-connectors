@@ -238,7 +238,7 @@ class TestSdmxFetchBatch:
 
         calls: list[str] = []
 
-        def fake_one(params: Any) -> pd.DataFrame:
+        def fake_one(params: Any, structure: Any = None) -> pd.DataFrame:
             calls.append(params.series_key)
             if fail_on and params.series_key in fail_on:
                 raise ProviderError(provider="sdmx", status_code=400, message=f"bad key {params.series_key}")
@@ -249,6 +249,9 @@ class TestSdmxFetchBatch:
             return pd.DataFrame({"series_key": [params.series_key], "value": [1.0]})
 
         monkeypatch.setattr(fetch_mod, "_fetch_one_series", fake_one)
+        # Structure resolution is orthogonal to the orchestration these tests exercise —
+        # stub it out so it doesn't reach the network (see TestStructureSharing for its own tests).
+        monkeypatch.setattr(fetch_mod, "_resolve_structure", lambda dataset_key: None)
         return fetch_mod, calls
 
     def test_list_of_keys_stacks_into_one_table(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -289,6 +292,95 @@ class TestSdmxFetchBatch:
         fetch_mod, _ = self._stub_one(monkeypatch, fail_on={"M.BAD.ES"})
         with pytest.raises(ProviderError, match="bad key M.BAD.ES"):
             fetch_mod.sdmx_fetch(dataset_ref="ECB-YC", series_ref=["M.GOOD.ES", "M.BAD.ES"])
+
+
+class TestStructureSharing:
+    """A same-flow batch must resolve the DSD/codelists once, not once per key.
+
+    Regression coverage for the ECB ``YC`` flow report: a 12-key batch re-fetched and
+    re-parsed the whole structure (incl. a 1000+ code codelist) independently per key.
+    """
+
+    def test_structure_fetched_once_across_a_batch(self, patch_sdmx: dict[str, Any]) -> None:
+        from parsimony_sdmx.connectors.fetch import sdmx_fetch
+
+        dim_ids = ["FREQ", "REF_AREA"]
+        structure_msg = _structure_msg(dim_ids, "YC")
+        data_msg = SimpleNamespace(data="<observations>")
+        patch_sdmx["client"] = _make_fake_client(structure_msg=structure_msg, data_msg=data_msg)
+        patch_sdmx["to_pandas_output"] = pd.DataFrame(
+            {"FREQ": ["M"], "REF_AREA": ["DE"], "TIME_PERIOD": ["2024-01"], "value": [1.0]}
+        ).set_index(["FREQ", "REF_AREA", "TIME_PERIOD"])["value"]
+
+        result = sdmx_fetch(dataset_ref="ECB-YC", series_ref=["M.DE", "M.FR", "M.ES"])
+
+        client = patch_sdmx["client"]
+        # One structure resolution shared by the whole batch...
+        assert client.dataflow.call_count == 1
+        # ...but every key still gets its own data request.
+        assert client.get.call_count == 3
+        assert len(result.data) == 3
+
+    def test_single_key_call_also_resolves_structure_once(self, patch_sdmx: dict[str, Any]) -> None:
+        from parsimony_sdmx.connectors.fetch import sdmx_fetch
+
+        dim_ids = ["FREQ", "REF_AREA"]
+        structure_msg = _structure_msg(dim_ids, "YC")
+        data_msg = SimpleNamespace(data="<observations>")
+        patch_sdmx["client"] = _make_fake_client(structure_msg=structure_msg, data_msg=data_msg)
+        patch_sdmx["to_pandas_output"] = pd.DataFrame(
+            {"FREQ": ["M"], "REF_AREA": ["DE"], "TIME_PERIOD": ["2024-01"], "value": [1.0]}
+        ).set_index(["FREQ", "REF_AREA", "TIME_PERIOD"])["value"]
+
+        sdmx_fetch(dataset_ref="ECB-YC", series_ref="M.DE")
+
+        client = patch_sdmx["client"]
+        assert client.dataflow.call_count == 1
+        assert client.get.call_count == 1
+
+
+class TestFlowPrefixStrip:
+    """``series_ref`` may still carry a flow-id prefix (e.g. from an older ``sdmx_series_search``
+    result, or copy-pasted from a provider's raw SDMX-CSV ``KEY`` column); ``sdmx_fetch`` should
+    defensively strip it rather than 400 at the provider on a duplicated flow id."""
+
+    def test_strip_flow_prefix_removes_matching_prefix(self) -> None:
+        from parsimony_sdmx.connectors.fetch import _strip_flow_prefix
+
+        assert _strip_flow_prefix("YC.B.U2.EUR", "YC") == "B.U2.EUR"
+        assert _strip_flow_prefix("yc.B.U2.EUR", "YC") == "B.U2.EUR"
+
+    def test_strip_flow_prefix_leaves_bare_key_untouched(self) -> None:
+        from parsimony_sdmx.connectors.fetch import _strip_flow_prefix
+
+        assert _strip_flow_prefix("B.U2.EUR", "YC") == "B.U2.EUR"
+
+    def test_strip_flow_prefix_does_not_touch_unrelated_leading_segment(self) -> None:
+        from parsimony_sdmx.connectors.fetch import _strip_flow_prefix
+
+        # A dimension code that happens to equal the dataset_id is not a flow prefix.
+        assert _strip_flow_prefix("YC.YC.EUR", "YC") == "YC.EUR"
+
+    def test_sdmx_fetch_strips_prefixed_series_ref_before_request(self, patch_sdmx: dict[str, Any]) -> None:
+        from parsimony_sdmx.connectors.fetch import sdmx_fetch
+
+        dim_ids = ["FREQ", "REF_AREA"]
+        structure_msg = _structure_msg(dim_ids, "YC")
+        data_msg = SimpleNamespace(data="<observations>")
+        patch_sdmx["client"] = _make_fake_client(structure_msg=structure_msg, data_msg=data_msg)
+        patch_sdmx["to_pandas_output"] = pd.DataFrame(
+            {"FREQ": ["M"], "REF_AREA": ["DE"], "TIME_PERIOD": ["2024-01"], "value": [1.0]}
+        ).set_index(["FREQ", "REF_AREA", "TIME_PERIOD"])["value"]
+
+        sdmx_fetch(dataset_ref="ECB-YC", series_ref="YC.M.DE")
+
+        client = patch_sdmx["client"]
+        assert client.get.call_args.kwargs["key"] == "M.DE"
+
+    def test_sdmx_fetch_strips_prefix_from_every_key_in_a_batch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fetch_mod, calls = TestSdmxFetchBatch._stub_one(monkeypatch)
+        fetch_mod.sdmx_fetch(dataset_ref="ECB-YC", series_ref=["YC.M.DE", "M.FR"])
+        assert calls == ["M.DE", "M.FR"]
 
 
 class TestSdmxFetchOutputBuilder:
