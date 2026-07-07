@@ -21,9 +21,8 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-import httpx
 from parsimony.errors import ConnectorError
-from parsimony.transport import HttpClient, map_http_error, map_timeout_error
+from parsimony.transport import HttpClient, check_status
 from parsimony.transport.helpers import fetch_json, make_http_client
 
 logger = logging.getLogger(__name__)
@@ -47,7 +46,7 @@ _CUBE_INFO_PATH = "/json/table/getCubeInfo"
 
 def client(timeout: float = _TIMEOUT) -> HttpClient:
     """Build the keyless SNB client (used for every endpoint family)."""
-    return make_http_client(_BASE_URL, headers=_AJAX_HEADERS, timeout=timeout)
+    return make_http_client(_BASE_URL, provider=PROVIDER, headers=_AJAX_HEADERS, timeout=timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -103,17 +102,11 @@ def get_text(
 ) -> str:
     """GET *path* and return the raw text body (SNB cubes + the sitemap are not JSON).
 
-    The raw-transport shape: ``request("GET")`` + ``raise_for_status()`` mapping
-    both ``HTTPStatusError`` (via :func:`map_http_error`) and ``TimeoutException``
-    (via :func:`map_timeout_error`). The body is parsed separately.
+    The raw-transport shape: ``request("GET")`` then :func:`~parsimony.transport.check_status`
+    maps any non-2xx from the response status. The body is parsed separately.
     """
-    try:
-        response = http.request("GET", path, params=params)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider=PROVIDER, op_name=op_name)
-    except httpx.TimeoutException as exc:
-        map_timeout_error(exc, provider=PROVIDER, op_name=op_name)
+    response = http.request("GET", path, params=params, op_name=op_name)
+    check_status(response, provider=PROVIDER, op_name=op_name)
     return response.text
 
 
@@ -129,7 +122,6 @@ def get_dimensions(http: HttpClient, cube_id: str, *, lang: str) -> dict[str, An
             http,
             path=cube_dimensions_path(cube_id, lang=lang),
             params=None,
-            provider=PROVIDER,
             op_name="cube/dimensions",
         )
     except Exception as exc:  # noqa: BLE001 — best-effort enrichment; skip on any failure
@@ -157,7 +149,6 @@ def get_cube_info(http: HttpClient, cube_id: str, *, lang: str) -> dict[str, Any
             http,
             path=_CUBE_INFO_PATH,
             params=params,
-            provider=PROVIDER,
             op_name="getCubeInfo",
         )
     except (ConnectorError, ValueError) as exc:

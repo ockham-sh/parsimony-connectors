@@ -99,7 +99,6 @@ def boc_fetch(
         make_valet_client(),
         path=path,
         params={"start_date": start_date, "end_date": end_date},
-        provider=PROVIDER,
         op_name="observations",
     )
     if not isinstance(json_data, dict):

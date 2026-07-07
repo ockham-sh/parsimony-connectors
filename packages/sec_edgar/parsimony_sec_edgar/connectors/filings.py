@@ -60,9 +60,7 @@ def sec_edgar_submissions(
     limit_clamped = max(1, min(limit, 1000))
 
     http = data_client()
-    payload = fetch_json(
-        http, path=f"/submissions/CIK{cik_norm}.json", provider=PROVIDER, op_name="submissions"
-    )
+    payload = fetch_json(http, path=f"/submissions/CIK{cik_norm}.json", op_name="submissions")
     if not isinstance(payload, dict):
         raise ParseError(PROVIDER, "submissions response was not a JSON object")
 
@@ -76,9 +74,7 @@ def sec_edgar_submissions(
                 continue
             # A failed page is fatal (not best-effort): silently dropping a page
             # would under-report a filer's history. fetch_json raises a typed error.
-            page = fetch_json(
-                http, path=f"/submissions/{name}", provider=PROVIDER, op_name="submissions_page"
-            )
+            page = fetch_json(http, path=f"/submissions/{name}", op_name="submissions_page")
             if isinstance(page, dict):
                 frames.append(_recent_frame(page))
 
@@ -156,7 +152,7 @@ def sec_edgar_fetch_filing(
 
     doc_name = document
     if not doc_name:
-        index = fetch_json(www, path=f"{folder}/index.json", provider=PROVIDER, op_name="filing_index")
+        index = fetch_json(www, path=f"{folder}/index.json", op_name="filing_index")
         items = index.get("directory", {}).get("item", []) if isinstance(index, dict) else []
         doc_name = _pick_primary_document(items if isinstance(items, list) else [])
     if not doc_name:

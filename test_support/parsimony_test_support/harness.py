@@ -17,13 +17,13 @@ from parsimony.result import Provenance, Result
 # Canonical HTTP → ConnectorError mapping
 # ---------------------------------------------------------------------------
 #
-# Every connector that routes HTTP errors through
-# ``parsimony.transport.map_http_error`` must satisfy this table. It's the
+# Every connector that maps HTTP statuses through
+# ``parsimony.transport.check_status`` must satisfy this table. It's the
 # merge gate across the monorepo; parametrize your error-mapping test with
 # it.
 #
-# 403 is intentionally treated the same as 401 (UnauthorizedError) by the
-# kernel's mapper, so we only pin the primary ones.
+# 403 is intentionally treated the same as 401 (UnauthorizedError) by
+# ``check_status``, so we only pin the primary ones.
 STATUS_TO_EXC: list[tuple[int, type[ConnectorError]]] = [
     (401, UnauthorizedError),
     (402, PaymentRequiredError),
@@ -53,12 +53,18 @@ def assert_no_secret_leak(target: Any, secret: str = CANARY_KEY) -> None:
 
     Checks :func:`str` and :func:`repr` of the target. For a
     :class:`Result` we additionally check ``to_llm()`` and the provenance
-    params (the agent-facing serialisations). For a :class:`ConnectorError`
-    we check only ``str()`` — the chained ``__cause__`` (the raw
-    ``httpx.HTTPStatusError``) commonly embeds the query-string API key,
-    but redacting the chain is the consumer's job — not the connector's.
-    The contract at this layer is "the ConnectorError's own message is
-    safe"; the chain is for debugging with secrets masked by the caller.
+    params (the agent-facing serialisations).
+
+    For a :class:`ConnectorError` we check its own message **and its chained
+    ``__cause__``/``__context__``** (typically the raw ``httpx.HTTPStatusError``):
+    both ``str()`` of each link and its ``request.url``. The chain is what
+    reaches every traceback and ``logging.exception()``, so masking it is the
+    library's job, not the caller's. Status errors now come from
+    ``parsimony.transport.check_status`` (raised fresh from the status code, no
+    chained ``httpx`` cause to leak); the only remaining key-bearing ``httpx``
+    object is a transport-failure exception, which ``HttpClient.request`` maps
+    and scrubs internally. This chain walk stays as the regression guard for
+    that surviving path.
     """
     needles: list[str] = [str(target)]
 
@@ -66,6 +72,21 @@ def assert_no_secret_leak(target: Any, secret: str = CANARY_KEY) -> None:
     # repr may include args containing the chain.
     if not isinstance(target, ConnectorError):
         needles.append(repr(target))
+
+    if isinstance(target, BaseException):
+        seen: set[int] = set()
+        link: BaseException | None = target
+        while link is not None and id(link) not in seen:
+            seen.add(id(link))
+            needles.append(str(link))
+            try:
+                # httpx exposes .request as a property that raises when unset.
+                request = getattr(link, "request", None)
+                if request is not None:
+                    needles.append(str(request.url))
+            except RuntimeError:
+                pass
+            link = link.__cause__ or link.__context__
 
     if isinstance(target, Result):
         try:

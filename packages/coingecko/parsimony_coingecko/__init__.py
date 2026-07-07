@@ -351,6 +351,10 @@ def coingecko_market_chart(
     the last N days. Auto-granularity: 1d→5-min intervals, 2-90d→hourly, 90d+→daily.
     Pass interval='daily' to force daily candles regardless of range. Use
     coingecko_market_chart_range for a precise date range with ISO start/end dates.
+
+    Demo plan: days is capped at 365 — days>365 (and days='max') return
+    PaymentRequiredError, so the deepest Demo history is days='365'. The Pro plan
+    removes the cap.
     """
     c = _safe_coin_id(coin_id)
     if not days.strip():
@@ -376,8 +380,9 @@ def coingecko_market_chart_range(
     daily for longer). Use from_date='YYYY-MM-DD' and to_date='YYYY-MM-DD'.
 
     Demo plan: limited to data within the last 365 days (older ranges return
-    PaymentRequiredError). Use coingecko_market_chart with days='max' on Demo for
-    full history (the Pro plan removes the restriction).
+    PaymentRequiredError). coingecko_market_chart is capped the same way on Demo
+    (days>365 / days='max' → PaymentRequiredError), so neither entry point reaches
+    full history there; the Pro plan removes the cap on both.
     """
     c = _safe_coin_id(coin_id)
 

@@ -8,10 +8,10 @@ auto-redacted from logs) and is also stripped from provenance via
 ``eia_get`` is the per-package mapper chokepoint: EIA returns a clean HTTP 400
 with a useful JSON body for a bad measure / frequency / facet argument
 (``{"error": "Invalid data 'x' ... valid data are 'value'", "code": 400}``).
-``fetch_json`` would collapse that into a generic ``ProviderError(400)`` and drop
-the actionable text, so this chokepoint reads the 400 body and raises
-``InvalidParameterError`` preserving EIA's message; every other status falls
-through to the canonical kernel mappers.
+``check_status`` would collapse that into a generic ``ProviderError(400)`` and
+drop the actionable text, so this chokepoint reads the 400 body with a plain
+``if`` and raises ``InvalidParameterError`` preserving EIA's message; every other
+status falls through to the canonical ``check_status`` table.
 """
 
 from __future__ import annotations
@@ -19,9 +19,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
-import httpx
 from parsimony.errors import InvalidParameterError, UnauthorizedError
-from parsimony.transport import HttpClient, map_http_error, map_timeout_error
+from parsimony.transport import HttpClient, check_status
 from parsimony.transport.helpers import make_http_client
 
 PROVIDER = "eia"
@@ -52,10 +51,10 @@ def resolve_key(api_key: str) -> str:
 def make_eia_client(api_key: str, *, timeout: float = 60.0) -> HttpClient:
     """Build the EIA client with the key fixed as a (redacted) default query param."""
     key = resolve_key(api_key)
-    return make_http_client(BASE_URL, query_params={"api_key": key}, timeout=timeout)
+    return make_http_client(BASE_URL, provider=PROVIDER, query_params={"api_key": key}, timeout=timeout)
 
 
-def _extract_400_message(response: httpx.Response) -> str:
+def _extract_400_message(response: Any) -> str:
     """Pull EIA's human-readable error string out of a 400 body (bounded length)."""
     try:
         err = response.json().get("error")
@@ -75,21 +74,19 @@ def eia_get(
 ) -> dict[str, Any]:
     """GET ``{BASE_URL}/{path}`` and return the ``response`` object (dict).
 
-    Drops ``None`` params, raises for status, maps a 400 to a message-preserving
-    ``InvalidParameterError`` and every other error family to the canonical typed
-    errors. ``HttpClient.request`` never calls ``raise_for_status`` itself, so we
-    do it here and feed both error families to the kernel mappers.
+    Drops ``None`` params. ``HttpClient.request`` maps transport failures itself
+    and returns the response for any status, so a 400 is inspected here with a
+    plain ``if`` and mapped to a message-preserving ``InvalidParameterError``;
+    every other non-2xx defers to ``check_status`` (the canonical typed-error
+    table). Neither path embeds the query-string key: the 400 message comes from
+    the response body and ``check_status`` maps from the status code, not a
+    chained exception.
     """
     filtered = {k: v for k, v in (params or {}).items() if v is not None}
-    try:
-        response = http.request("GET", f"/{path.lstrip('/')}", params=filtered or None)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code == 400:
-            raise InvalidParameterError(PROVIDER, _extract_400_message(exc.response)) from exc
-        map_http_error(exc, provider=PROVIDER, op_name=op_name)
-    except httpx.TimeoutException as exc:
-        map_timeout_error(exc, provider=PROVIDER, op_name=op_name)
+    response = http.request("GET", f"/{path.lstrip('/')}", params=filtered or None, op_name=op_name)
+    if response.status_code == 400:
+        raise InvalidParameterError(PROVIDER, _extract_400_message(response))
+    check_status(response, provider=PROVIDER, op_name=op_name)
 
     body = response.json()
     inner = body.get("response") if isinstance(body, dict) else None

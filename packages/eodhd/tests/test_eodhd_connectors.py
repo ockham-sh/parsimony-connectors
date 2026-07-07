@@ -23,6 +23,7 @@ from parsimony.errors import (
     RateLimitError,
     UnauthorizedError,
 )
+from parsimony_test_support import assert_no_secret_leak
 
 from parsimony_eodhd import (
     CONNECTORS,
@@ -175,7 +176,8 @@ def test_403_maps_to_payment_required() -> None:
         eodhd_fundamentals.bind(api_key=_KEY)(ticker="AAPL.US")
     assert exc_info.value.provider == "eodhd"
     assert not isinstance(exc_info.value, UnauthorizedError)
-    assert _KEY not in str(exc_info.value)
+    # The key must not survive in the chained httpx cause either (F1 repro).
+    assert_no_secret_leak(exc_info.value, secret=_KEY)
 
 
 @respx.mock
@@ -187,7 +189,7 @@ def test_423_maps_to_payment_required() -> None:
     with pytest.raises(PaymentRequiredError) as exc_info:
         eodhd_bulk_eod.bind(api_key=_KEY)(exchange="US")
     assert exc_info.value.provider == "eodhd"
-    assert _KEY not in str(exc_info.value)
+    assert_no_secret_leak(exc_info.value, secret=_KEY)
 
 
 # ---------------------------------------------------------------------------

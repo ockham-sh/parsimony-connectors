@@ -79,7 +79,9 @@ def _client(api_key: str) -> HttpClient:
     raises :class:`UnauthorizedError` before any network call.
     """
     key = require_key(api_key, env_var=_ENV_VAR, provider="fred")
-    return make_http_client(_BASE_URL, query_params={"api_key": key, "file_type": "json"})
+    return make_http_client(
+        _BASE_URL, provider="fred", query_params={"api_key": key, "file_type": "json"}
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +105,6 @@ def fred_search(search_text: str, api_key: str = "") -> pd.DataFrame:
         http,
         path="series/search",
         params={"search_text": query},
-        provider="fred",
         op_name="series/search",
     )
 
@@ -142,7 +143,6 @@ def fred_fetch(
             "observation_start": observation_start,
             "observation_end": observation_end,
         },
-        provider="fred",
         op_name="series/observations",
     )
 
@@ -156,7 +156,6 @@ def fred_fetch(
         http,
         path="series",
         params={"series_id": sid},
-        provider="fred",
         op_name="series",
     )
     seriess = meta_body.get("seriess") or []

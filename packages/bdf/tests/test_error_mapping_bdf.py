@@ -1,6 +1,6 @@
 """Error-mapping contract for parsimony-bdf.
 
-``bdf_fetch`` routes HTTP errors through ``parsimony.transport.map_http_error``
+``bdf_fetch`` routes HTTP errors through ``parsimony.transport.check_status``
 (via ``fetch_json``); this pins the canonical status → ConnectorError mapping,
 the Retry-After contract, and the no-leak defence. ``env_key`` defaults to
 ``api_key`` so the suite binds a canary key before driving the mocked statuses.

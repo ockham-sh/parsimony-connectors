@@ -37,7 +37,6 @@ import re
 import zipfile
 from typing import Annotated, Any
 
-import httpx
 import pandas as pd
 from parsimony import Namespace
 from parsimony.connector import Connectors, connector, enumerator
@@ -47,7 +46,7 @@ from parsimony.errors import (
     ParseError,
     PaymentRequiredError,
 )
-from parsimony.transport import HttpClient, map_http_error, map_timeout_error
+from parsimony.transport import HttpClient, check_status
 from parsimony.transport.helpers import fetch_json, make_http_client, require_key
 
 from parsimony_tiingo.outputs import (
@@ -98,7 +97,9 @@ def _client(api_key: str) -> HttpClient:
     key raises :class:`UnauthorizedError` before any network call.
     """
     key = require_key(api_key, env_var=_ENV_VAR, provider=_PROVIDER)
-    return make_http_client(_BASE_URL, headers={"Authorization": f"Token {key}"}, timeout=_TIMEOUT)
+    return make_http_client(
+        _BASE_URL, provider=_PROVIDER, headers={"Authorization": f"Token {key}"}, timeout=_TIMEOUT
+    )
 
 
 def _safe_ticker(ticker: str) -> str:
@@ -136,7 +137,6 @@ def tiingo_search(query: str, limit: int = 25, api_key: str = "") -> pd.DataFram
         http,
         path="tiingo/utilities/search",
         params={"query": q, "limit": limit},
-        provider=_PROVIDER,
         op_name="tiingo_search",
     )
 
@@ -186,7 +186,6 @@ def tiingo_eod(
         http,
         path=f"tiingo/daily/{t}/prices",
         params=req,
-        provider=_PROVIDER,
         op_name="tiingo_eod",
     )
 
@@ -239,7 +238,6 @@ def tiingo_iex(tickers: str, api_key: str = "") -> pd.DataFrame:
         http,
         path="iex/",
         params={"tickers": t},
-        provider=_PROVIDER,
         op_name="tiingo_iex",
     )
 
@@ -298,7 +296,6 @@ def tiingo_iex_historical(
         http,
         path=f"iex/{t}/prices",
         params=req,
-        provider=_PROVIDER,
         op_name="tiingo_iex_historical",
     )
 
@@ -340,7 +337,6 @@ def tiingo_meta(ticker: Annotated[str, Namespace("tiingo_ticker")], api_key: str
     data = fetch_json(
         http,
         path=f"tiingo/daily/{t}",
-        provider=_PROVIDER,
         op_name="tiingo_meta",
     )
 
@@ -372,7 +368,6 @@ def tiingo_fundamentals_meta(tickers: str, api_key: str = "") -> list[dict[str, 
         http,
         path="tiingo/fundamentals/meta",
         params={"tickers": t},
-        provider=_PROVIDER,
         op_name="tiingo_fundamentals_meta",
     )
 
@@ -400,7 +395,6 @@ def tiingo_fundamentals_definitions(api_key: str = "") -> pd.DataFrame:
     data = fetch_json(
         http,
         path="tiingo/fundamentals/definitions",
-        provider=_PROVIDER,
         op_name="tiingo_fundamentals_definitions",
     )
 
@@ -440,17 +434,12 @@ def _fetch_news(http: HttpClient, params: dict[str, Any]) -> Any:
     (a status-only 403→Payment mapping would mis-diagnose a typo'd/revoked key).
     """
     clean = {k: v for k, v in params.items() if v is not None}
-    try:
-        response = http.request("GET", "tiingo/news", params=clean or None)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code == 403:
-            body = (exc.response.text or "").lower()
-            if "permission" in body or "news api" in body:
-                raise PaymentRequiredError(_PROVIDER) from exc
-        map_http_error(exc, provider=_PROVIDER, op_name="tiingo_news")
-    except httpx.TimeoutException as exc:
-        map_timeout_error(exc, provider=_PROVIDER, op_name="tiingo_news")
+    response = http.request("GET", "tiingo/news", params=clean or None, op_name="tiingo_news")
+    if response.status_code == 403:
+        body = (response.text or "").lower()
+        if "permission" in body or "news api" in body:
+            raise PaymentRequiredError(_PROVIDER)
+    check_status(response, provider=_PROVIDER, op_name="tiingo_news")
     return response.json()
 
 
@@ -538,7 +527,6 @@ def tiingo_crypto_prices(
         http,
         path="tiingo/crypto/prices",
         params=req,
-        provider=_PROVIDER,
         op_name="tiingo_crypto_prices",
     )
 
@@ -589,7 +577,6 @@ def tiingo_crypto_top(tickers: str, api_key: str = "") -> pd.DataFrame:
         http,
         path="tiingo/crypto/top",
         params={"tickers": t},
-        provider=_PROVIDER,
         op_name="tiingo_crypto_top",
     )
 
@@ -655,7 +642,6 @@ def tiingo_fx_prices(
         http,
         path="tiingo/fx/prices",
         params=req,
-        provider=_PROVIDER,
         op_name="tiingo_fx_prices",
     )
 
@@ -696,7 +682,6 @@ def tiingo_fx_top(tickers: str, api_key: str = "") -> pd.DataFrame:
         http,
         path="tiingo/fx/top",
         params={"tickers": t},
-        provider=_PROVIDER,
         op_name="tiingo_fx_top",
     )
 
@@ -736,14 +721,9 @@ def _download_supported_tickers(api_key: str) -> bytes:
     :class:`UnauthorizedError` like every other keyed verb.
     """
     _client(api_key)  # enforce the symmetric no-key fast-fail
-    cdn = make_http_client(_TICKERS_CDN_BASE, timeout=_TICKERS_TIMEOUT)
-    try:
-        response = cdn.request("GET", _TICKERS_ZIP_PATH)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider=_PROVIDER, op_name="enumerate_tiingo")
-    except httpx.TimeoutException as exc:
-        map_timeout_error(exc, provider=_PROVIDER, op_name="enumerate_tiingo")
+    cdn = make_http_client(_TICKERS_CDN_BASE, provider=_PROVIDER, timeout=_TICKERS_TIMEOUT)
+    response = cdn.request("GET", _TICKERS_ZIP_PATH, op_name="enumerate_tiingo")
+    check_status(response, provider=_PROVIDER, op_name="enumerate_tiingo")
     return response.content
 
 

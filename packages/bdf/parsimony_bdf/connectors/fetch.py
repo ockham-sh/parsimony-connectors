@@ -110,7 +110,6 @@ def bdf_fetch(
             "where": _build_where(series_key, start, end),
             "order_by": "time_period_start",
         },
-        provider="bdf",
         op_name="observations",
     )
     return _parse_observations(payload, series_key)

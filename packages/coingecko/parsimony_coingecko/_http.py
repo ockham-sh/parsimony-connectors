@@ -36,11 +36,10 @@ from typing import Any, NoReturn
 import httpx
 from parsimony.errors import (
     PaymentRequiredError,
-    ProviderError,
     RateLimitError,
     UnauthorizedError,
 )
-from parsimony.transport import HttpClient, map_timeout_error, parse_retry_after
+from parsimony.transport import HttpClient, check_status, parse_retry_after
 from parsimony.transport.helpers import make_http_client, require_key
 
 _PROVIDER = "coingecko"
@@ -73,6 +72,7 @@ def _client(api_key: str, *, timeout: float = _DEFAULT_TIMEOUT_SECONDS) -> HttpC
     key = require_key(api_key, env_var=_ENV_VAR, provider=_PROVIDER)
     return make_http_client(
         _BASE_URL,
+        provider=_PROVIDER,
         headers={"x-cg-demo-api-key": key},
         timeout=timeout,
     )
@@ -109,34 +109,36 @@ def _extract_plan_error_code(response: httpx.Response) -> int:
         return 0
 
 
-def _raise_mapped_status(exc: httpx.HTTPStatusError, op_name: str) -> NoReturn:
-    """Translate an HTTP error status into a typed connector exception.
+def _raise_mapped_status(response: httpx.Response, op_name: str) -> NoReturn:
+    """Translate a non-2xx *response* into a typed connector exception.
 
     401 is dual-meaning on CoinGecko (bad key vs plan gate), so the 401 branch
     inspects the body's ``error_code`` before deciding. 402 and any other
     non-2xx that still carries a plan-restriction code map to
     :class:`PaymentRequiredError`; 429 → :class:`RateLimitError`; everything
-    else → :class:`ProviderError` with the real status.
+    else falls through to :func:`~parsimony.transport.check_status` for the
+    standard status-code table (``ProviderError`` with the real status).
     """
-    status = exc.response.status_code
-    code = _extract_plan_error_code(exc.response)
+    status = response.status_code
+    code = _extract_plan_error_code(response)
 
     if code in _PLAN_RESTRICTION_CODES:
-        raise PaymentRequiredError(_PROVIDER, message=f"coingecko plan restriction (error_code={code})") from exc
+        raise PaymentRequiredError(_PROVIDER, message=f"coingecko plan restriction (error_code={code})")
 
     match status:
         case 401 | 403:
             # No plan-restriction code → a genuinely invalid / missing key.
-            raise UnauthorizedError(_PROVIDER, env_var=_ENV_VAR) from exc
+            raise UnauthorizedError(_PROVIDER, env_var=_ENV_VAR)
         case 402:
-            raise PaymentRequiredError(
-                _PROVIDER, message=f"coingecko plan does not grant access to '{op_name}'"
-            ) from exc
+            raise PaymentRequiredError(_PROVIDER, message=f"coingecko plan does not grant access to '{op_name}'")
         case 429:
-            retry_after = parse_retry_after(exc.response)
-            raise RateLimitError(_PROVIDER, retry_after=retry_after) from exc
+            retry_after = parse_retry_after(response)
+            raise RateLimitError(_PROVIDER, retry_after=retry_after)
         case _:
-            raise ProviderError(_PROVIDER, status_code=status) from exc
+            check_status(response, provider=_PROVIDER, op_name=op_name)
+            # check_status always raises for a non-2xx status; this is
+            # unreachable but keeps the function's NoReturn contract explicit.
+            raise AssertionError("unreachable: check_status did not raise for a non-2xx response")
 
 
 def coingecko_fetch(
@@ -148,18 +150,16 @@ def coingecko_fetch(
 ) -> Any:
     """Shared CoinGecko GET with coingecko-specific error mapping; returns JSON.
 
-    Drops ``None``-valued params, raises for status, then maps via
-    :func:`_raise_mapped_status` (401-body-disambiguation, 402/plan → Payment,
-    429 → RateLimit, other → Provider). Timeouts become ``ProviderError(408)``.
+    Drops ``None``-valued params, issues the request (transport failures,
+    including timeouts, are mapped to ``ProviderError`` inside
+    :meth:`HttpClient.request` itself), then maps any non-2xx status via
+    :func:`_raise_mapped_status` (401-body-disambiguation, 402/plan →
+    Payment, 429 → RateLimit, other → :func:`~parsimony.transport.check_status`).
     """
     filtered = {k: v for k, v in (params or {}).items() if v is not None}
-    try:
-        response = http.request("GET", f"/{path.lstrip('/')}", params=filtered or None)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        _raise_mapped_status(exc, op_name)
-    except httpx.TimeoutException as exc:
-        map_timeout_error(exc, provider=_PROVIDER, op_name=op_name)
+    response = http.request("GET", f"/{path.lstrip('/')}", params=filtered or None, op_name=op_name)
+    if response.status_code >= 400:
+        _raise_mapped_status(response, op_name)
     return response.json()
 
 

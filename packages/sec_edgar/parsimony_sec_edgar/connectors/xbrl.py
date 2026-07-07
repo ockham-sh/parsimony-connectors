@@ -55,7 +55,6 @@ def sec_edgar_company_concept(
     payload = fetch_json(
         data_client(),
         path=f"/api/xbrl/companyconcept/CIK{cik_norm}/{tax}/{tag_s}.json",
-        provider=PROVIDER,
         op_name="company_concept",
     )
     units = payload.get("units", {}) if isinstance(payload, dict) else {}
@@ -106,7 +105,6 @@ def sec_edgar_company_facts(cik: str) -> dict[str, Any]:
     payload = fetch_json(
         data_client(),
         path=f"/api/xbrl/companyfacts/CIK{cik_norm}.json",
-        provider=PROVIDER,
         op_name="company_facts",
     )
     if not isinstance(payload, dict) or not payload.get("facts"):
@@ -144,7 +142,6 @@ def sec_edgar_frames(
     payload = fetch_json(
         data_client(),
         path=f"/api/xbrl/frames/{tax}/{tag_s}/{uom}/{period_s}.json",
-        provider=PROVIDER,
         op_name="frames",
     )
     data = payload.get("data", []) if isinstance(payload, dict) else None

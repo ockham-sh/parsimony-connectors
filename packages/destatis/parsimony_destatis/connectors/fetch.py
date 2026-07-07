@@ -13,7 +13,6 @@ import json
 import re
 from typing import Annotated, Any
 
-import httpx
 import pandas as pd
 from parsimony import Namespace
 from parsimony.connector import connector
@@ -23,7 +22,7 @@ from parsimony.errors import (
     ParseError,
     RateLimitError,
 )
-from parsimony.transport import map_http_error, map_timeout_error
+from parsimony.transport import check_status
 
 from parsimony_destatis._http import looks_like_html, make_client
 from parsimony_destatis.outputs import DESTATIS_FETCH_OUTPUT
@@ -260,19 +259,14 @@ def _get_text(path: str, *, params: dict[str, str] | None = None, op_name: str) 
     The single-table data endpoint is JSON-stat, but we read it as text first so
     we can distinguish a real dataset from a 200-with-error body (HTML
     maintenance shell or a throttle notice) per §5.8 before handing it to the
-    JSON parser. ``HttpClient.request`` never raises on status, so we call
-    ``raise_for_status()`` ourselves and feed both error families to the kernel
-    mappers.
+    JSON parser. ``HttpClient.request`` never raises on status (transport
+    failures are mapped internally); ``check_status`` raises the typed error
+    from the status code for everything else.
     """
     http = make_client()
     filtered = {k: v for k, v in (params or {}).items() if v is not None}
-    try:
-        response = http.request("GET", f"/{path.lstrip('/')}", params=filtered or None)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider="destatis", op_name=op_name)
-    except httpx.TimeoutException as exc:
-        map_timeout_error(exc, provider="destatis", op_name=op_name)
+    response = http.request("GET", f"/{path.lstrip('/')}", params=filtered or None, op_name=op_name)
+    check_status(response, provider="destatis", op_name=op_name)
     return response.text
 
 

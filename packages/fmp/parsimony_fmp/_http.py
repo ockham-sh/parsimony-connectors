@@ -7,37 +7,47 @@ enrichment fan-out reuses :func:`fmp_get` directly.
 
 FMP's status semantics (verified live 2026-06-04) differ from the canonical
 transport table on one point, which is why this package drops to a raw
-``HttpClient`` plus a hand-written mapper instead of
+``HttpClient`` plus two plain ``if`` branches on the response status instead of
 :func:`parsimony.transport.helpers.fetch_json`:
 
 * an **invalid / missing** key returns **401** (body ``"Invalid API KEY. ..."``)
-  → :class:`UnauthorizedError`, and
+  → :class:`UnauthorizedError`,
 * a **plan / legacy restriction** (an endpoint or tier not in the caller's plan)
   returns **403** (body ``"Legacy Endpoint : ..."`` / plan messages) — and FMP
   also uses **402** for payment — both meaning "your plan does not grant this"
-  → :class:`PaymentRequiredError`.
+  → :class:`PaymentRequiredError`, and
+* the **free-tier rolling quota** *also* returns **403**, but with a
+  ``"Limit Reach ..."`` body — a temporary throttle, not an entitlement failure
+  → :class:`RateLimitError`, so a caller backs off and retries instead of giving
+  up permanently.
 
-The canonical mapper folds 403 into :class:`UnauthorizedError`; for FMP a 403
-(or 402) means a plan restriction, so both map to :class:`PaymentRequiredError`.
-Because invalid-key is unambiguously **401**, this is a status-only
-disambiguation (the finnhub / eodhd case), not a body-sniffing one (the tiingo
-dual-403 case). The 401 path still maps to :class:`UnauthorizedError`. Every
-other status flows through the canonical :func:`map_http_error` /
-:func:`map_timeout_error`.
+The canonical :func:`check_status` table folds 403 into
+:class:`UnauthorizedError`; for FMP a 403 (or 402) is never a credential failure
+(invalid-key is unambiguously 401), so the status narrows it to "plan or quota"
+and the body settles which: a ``"Limit Reach"`` body is the quota throttle,
+anything else is a plan restriction. Those two cases are handled by an ``if`` on
+``resp.status_code`` *before* :func:`check_status`, which then maps every other
+status via the canonical table (401 → Unauthorized, 429 → RateLimit, other →
+Provider; FMP premium per-minute limits arrive as 429).
 
 Auth rides as the ``apikey`` query parameter (FMP's convention). ``apikey`` is in
 the transport layer's sensitive-param set, so it is redacted from every log line
-and never appears in a request URL surfaced to the agent. Error bodies are JSON
-but are never parsed here — this module branches on the HTTP status alone.
+and never appears in a request URL surfaced to the agent. The branch reads only
+``resp.status_code`` and ``resp.text`` (never a raised exception), so no path can
+leak the credential into a traceback.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-import httpx
-from parsimony.errors import PaymentRequiredError
-from parsimony.transport import HttpClient, map_http_error, map_timeout_error, pooled_client
+from parsimony.errors import PaymentRequiredError, RateLimitError
+from parsimony.transport import (
+    HttpClient,
+    check_status,
+    parse_retry_after,
+    pooled_client,
+)
 from parsimony.transport.helpers import make_api_key_client, require_key
 
 _PROVIDER = "fmp"
@@ -52,9 +62,16 @@ _BULK_TIMEOUT_SECONDS: float = 60.0
 
 # HTTP statuses FMP uses for a plan-tier / legacy restriction (not a credential
 # failure): 402 (payment required) and 403 ("Legacy Endpoint" / plan messages).
-# Both map to PaymentRequiredError. Invalid-key is 401, so this is unambiguous
-# on status alone — no body sniffing.
+# Invalid-key is unambiguously 401, so on status alone a 402/403 is a plan issue.
 _PLAN_RESTRICTION_STATUSES: frozenset[int] = frozenset({402, 403})
+
+# ...but FMP overloads 403 for a *second* thing: the free tier's rolling request
+# quota comes back as a 403 whose body reads "Limit Reach ..." (the same string
+# FinanceToolkit and others match on). That is a *temporary* throttle, not a
+# terminal entitlement failure — telling them apart needs the body, not the
+# status. A quota body maps to RateLimitError so a caller retries later instead
+# of giving up permanently on transient throttling.
+_QUOTA_BODY_MARKER = "limit reach"
 
 
 def _client(api_key: str, *, timeout: float = _DEFAULT_TIMEOUT_SECONDS) -> HttpClient:
@@ -66,7 +83,9 @@ def _client(api_key: str, *, timeout: float = _DEFAULT_TIMEOUT_SECONDS) -> HttpC
     (which sets exactly that param) fits.
     """
     key = require_key(api_key, env_var=_ENV_VAR, provider=_PROVIDER)
-    return make_api_key_client(_BASE_URL, api_key=key, api_key_param="apikey", timeout=timeout)
+    return make_api_key_client(
+        _BASE_URL, provider=_PROVIDER, api_key=key, api_key_param="apikey", timeout=timeout
+    )
 
 
 def fmp_get(
@@ -78,30 +97,32 @@ def fmp_get(
 ) -> Any:
     """Shared FMP GET with FMP-specific error mapping; returns parsed JSON.
 
-    Drops ``None``-valued params, raises for status, then maps:
+    Drops ``None``-valued params, then disambiguates FMP's overloaded plan
+    statuses on the returned response *before* :func:`check_status`:
 
-    * 402 / 403 → :class:`PaymentRequiredError` (plan / legacy restriction),
-    * everything else → :func:`map_http_error` (401 → Unauthorized, 429 →
-      RateLimit, other → Provider),
-    * timeout → :func:`map_timeout_error` (→ ``ProviderError(408)``).
+    * 402 / 403 with a "Limit Reach" body → :class:`RateLimitError` (the free
+      tier's rolling quota, a temporary throttle),
+    * other 402 / 403 → :class:`PaymentRequiredError` (plan / legacy restriction),
+    * everything else → :func:`check_status`'s canonical table (401 →
+      Unauthorized, 429 → RateLimit, other → Provider). Transport failures
+      (timeout, connection) are mapped inside :meth:`HttpClient.request`.
 
-    Error bodies carry the FMP key only via the (redacted) query string, never in
-    the parsed body, so this module never parses an error body.
+    The branch reads only ``resp.status_code`` / ``resp.text`` — never a raised
+    exception carrying the request URL — so the ``apikey`` on the query string
+    cannot leak into a traceback.
     """
     filtered = {k: v for k, v in (params or {}).items() if v is not None}
-    try:
-        response = http.request("GET", f"/{path.lstrip('/')}", params=filtered or None)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code in _PLAN_RESTRICTION_STATUSES:
-            raise PaymentRequiredError(
+    resp = http.request("GET", f"/{path.lstrip('/')}", params=filtered or None, op_name=op_name)
+    if resp.status_code in _PLAN_RESTRICTION_STATUSES:
+        if _QUOTA_BODY_MARKER in resp.text.lower():
+            raise RateLimitError(
                 _PROVIDER,
-                message=f"fmp plan does not grant access to '{op_name}'",
-            ) from exc
-        map_http_error(exc, provider=_PROVIDER, op_name=op_name)
-    except httpx.TimeoutException as exc:
-        map_timeout_error(exc, provider=_PROVIDER, op_name=op_name)
-    return response.json()
+                retry_after=parse_retry_after(resp),
+                message=f"fmp free-tier request quota reached on '{op_name}' (rolling limit; retry later)",
+            )
+        raise PaymentRequiredError(_PROVIDER, message=f"fmp plan does not grant access to '{op_name}'")
+    check_status(resp, provider=_PROVIDER, op_name=op_name)
+    return resp.json()
 
 
 __all__ = [

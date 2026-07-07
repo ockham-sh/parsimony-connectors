@@ -103,7 +103,7 @@ def bls_fetch(
     if api_key:
         payload["registrationkey"] = api_key
 
-    http = make_http_client(API_BASE, timeout=API_TIMEOUT)
+    http = make_http_client(API_BASE, provider="bls", timeout=API_TIMEOUT)
     body = post_api_json(http, "/timeseries/data/", payload, op_name="timeseries/data")
 
     status = body.get("status", "")

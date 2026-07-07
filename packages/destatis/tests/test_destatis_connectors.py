@@ -138,7 +138,7 @@ def test_destatis_fetch_forwards_year_range_params() -> None:
 @respx.mock
 def test_destatis_fetch_maps_404_to_provider_error() -> None:
     """An unknown table code returns a real HTTP 404 (verified live) → mapped
-    to ``ProviderError(404)`` by ``map_http_error``.
+    to ``ProviderError(404)`` by ``check_status``.
     """
     respx.get(f"{_BASE}/tables/ZZZZZ-9999/data").mock(return_value=httpx.Response(404))
 

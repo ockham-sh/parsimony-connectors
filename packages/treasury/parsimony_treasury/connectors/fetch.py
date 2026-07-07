@@ -41,7 +41,6 @@ def treasury_fetch(
         _http.fiscal_client(),
         path=endpoint,
         params=req_params,
-        provider="treasury",
         op_name=endpoint,
     )
 

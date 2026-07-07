@@ -187,18 +187,18 @@ def sdmx_fetch(
     start_period: str | None = None,
     end_period: str | None = None,
 ) -> Any:
-    """Fetch observations for one or several fully specified SDMX series of ONE flow.
+    """Fetch observations for SDMX series of ONE flow.
 
-    dataset_ref is the flow as AGENCY-DATASET_ID (agency in ECB, ESTAT, IMF_DATA, WB_WDI; e.g.
-    ECB-YC). series_ref is one complete key — every dimension filled, built positionally in
-    key_template order, no wildcards. Pass a LIST of keys of this same flow to fetch them
-    concurrently in one call instead of looping per key; start_period / end_period filter every
-    key's range.
+    dataset_ref is the flow as AGENCY-DATASET_ID (e.g. ECB-YC, ESTAT-PRC_HICP).
+    series_ref fills each dimension positionally in key_template order; OR-list codes in a
+    dimension with '+' (e.g. AT+BE+DE). An EMPTY dimension wildcards it — allowed but it explodes
+    the series count and is slow, so avoid it normally: use sdmx_series_search to find series,
+    then fetch by key or OR-list; wildcard only when the axis is small. A LIST of keys fetches
+    concurrently; start_period / end_period filter each range.
 
-    Returns one row per observation: series_key, title, per-dimension codes, TIME_PERIOD, value;
-    series_key tells batched series apart. Raises ProviderError / EmptyDataError / ParseError if
-    ANY key fails — none silently dropped. A zombie cube (common on Eurostat) ⇒ move on. See the
-    sdmx_key_resolution skill.
+    Returns one row per observation: series_key, title, per-dim codes, TIME_PERIOD, value.
+    Raises ProviderError / EmptyDataError / ParseError if ANY key fails (none dropped); a zombie
+    cube (common on Eurostat) ⇒ move on.
     """
     keys = series_ref if isinstance(series_ref, list) else [series_ref]
     if not keys:

@@ -6,9 +6,9 @@ non-obvious transport fact, the **observations request-URI limit**.
 
 ``boc_fetch`` and the list endpoints all speak GET + JSON, so they go through
 the kernel's canonical ``make_http_client`` + ``fetch_json`` pair (GET +
-``raise_for_status`` + ``map_http_error`` / ``map_timeout_error`` + ``json()`` +
-``None``-param dropping). There is no provider-specific status semantics to
-intercept, so there is no per-package mapper chokepoint here.
+status→typed-error mapping + ``json()`` + ``None``-param dropping). There is no
+provider-specific status semantics to intercept, so there is no per-package
+mapper chokepoint here.
 
 Endpoints (base ``https://www.bankofcanada.ca/valet``):
 
@@ -56,7 +56,7 @@ OBSERVATIONS_MAX_URL_BYTES = 4000
 
 def make_valet_client(timeout: float = FETCH_TIMEOUT) -> HttpClient:
     """Build the canonical keyless Valet client (GET + JSON via ``fetch_json``)."""
-    return make_http_client(BASE_URL, timeout=timeout)
+    return make_http_client(BASE_URL, provider=PROVIDER, timeout=timeout)
 
 
 def guard_observations_path(path: str, *, series_name: str) -> None:

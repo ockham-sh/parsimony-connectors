@@ -1,7 +1,7 @@
 """Error-mapping contract for parsimony-eia.
 
 ``eia_fetch`` routes HTTP errors through a per-package chokepoint (``eia_get``):
-the canonical statuses (401/402/429/5xx) go through ``map_http_error`` and pin
+the canonical statuses (401/402/429/5xx) go through ``check_status`` and pin
 the standard ConnectorError table + the no-leak defence; the non-canonical
 **400** carries EIA's useful JSON error body, so it maps to a message-preserving
 ``InvalidParameterError`` (asserted separately below). ``env_key`` defaults to

@@ -68,9 +68,7 @@ def sec_edgar_full_text_search(
     if offset > 0:
         params["from"] = offset
 
-    payload = fetch_json(
-        efts_client(), path=_FTS_PATH, params=params, provider=PROVIDER, op_name="full_text_search"
-    )
+    payload = fetch_json(efts_client(), path=_FTS_PATH, params=params, op_name="full_text_search")
     if not isinstance(payload, dict):
         raise ParseError(PROVIDER, "full-text search response was not a JSON object")
 
@@ -104,7 +102,6 @@ def _load_company_tickers() -> list[dict[str, Any]]:
     payload = fetch_json(
         www_client(),
         path="/files/company_tickers.json",
-        provider=PROVIDER,
         op_name="company_tickers",
     )
     if isinstance(payload, dict):

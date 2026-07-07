@@ -26,12 +26,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import httpx
 import pandas as pd
 from parsimony.connector import enumerator
-from parsimony.transport import HttpClient, pooled_client
+from parsimony.errors import ConnectorError
+from parsimony.transport import HttpClient, check_status, pooled_client
 
-from parsimony_eia._http import make_eia_client
+from parsimony_eia._http import PROVIDER, make_eia_client
 from parsimony_eia.outputs import EIA_ENUMERATE_OUTPUT, ENUMERATE_COLUMNS
 
 logger = logging.getLogger(__name__)
@@ -49,10 +49,10 @@ def _get_node(
     """Best-effort GET of one route node's metadata. ``None`` on any failure."""
     path = f"/{route}" if route else "/"
     try:
-        resp = client.request("GET", path)
-        resp.raise_for_status()
+        resp = client.request("GET", path, op_name="eia_enumerate")
+        check_status(resp, provider=PROVIDER, op_name="eia_enumerate")
         body = resp.json()
-    except (httpx.HTTPError, ValueError) as exc:
+    except (ConnectorError, ValueError) as exc:
         logger.warning("EIA enumerate: node %r failed: %s", route or "<root>", exc)
         return None
     inner = body.get("response") if isinstance(body, dict) else None

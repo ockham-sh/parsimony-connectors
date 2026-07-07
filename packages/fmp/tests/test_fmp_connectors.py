@@ -20,8 +20,10 @@ from parsimony.errors import (
     InvalidParameterError,
     ParseError,
     PaymentRequiredError,
+    RateLimitError,
     UnauthorizedError,
 )
+from parsimony_test_support import assert_no_secret_leak
 
 from parsimony_fmp import (
     CONNECTORS,
@@ -686,6 +688,64 @@ def test_401_maps_to_unauthorized() -> None:
         fmp_company_profile.bind(api_key=_KEY)(symbol="AAPL")
     assert not isinstance(exc_info.value, PaymentRequiredError)
     assert _KEY not in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# Free-tier throttle disambiguation (F3): FMP overloads 403 for BOTH a plan
+# restriction AND a rolling free-tier quota. The quota body says "Limit Reach";
+# it is a *temporary* condition and must surface as a retry-able RateLimitError,
+# not a terminal PaymentRequiredError (which makes an unattended agent give up
+# permanently on a transient throttle). Status alone can't tell them apart.
+# ---------------------------------------------------------------------------
+
+_LIMIT_BODY = {"Error Message": "Limit Reach . Please upgrade your plan or visit our documentation."}
+
+
+@respx.mock
+def test_403_limit_reach_maps_to_rate_limit() -> None:
+    respx.get(f"{_BASE}/profile").mock(return_value=httpx.Response(403, json=_LIMIT_BODY))
+    with pytest.raises(RateLimitError) as exc_info:
+        fmp_company_profile.bind(api_key=_KEY)(symbol="AAPL")
+    assert not isinstance(exc_info.value, PaymentRequiredError)
+    assert exc_info.value.provider == "fmp"
+    # A retry-able error must carry something to schedule against.
+    assert exc_info.value.retry_after is not None
+    assert exc_info.value.retry_after > 0
+    assert _KEY not in str(exc_info.value)
+
+
+@respx.mock
+def test_403_limit_reach_is_case_insensitive() -> None:
+    respx.get(f"{_BASE}/profile").mock(
+        return_value=httpx.Response(403, json={"Error Message": "LIMIT REACHED for the day"})
+    )
+    with pytest.raises(RateLimitError):
+        fmp_company_profile.bind(api_key=_KEY)(symbol="AAPL")
+
+
+@respx.mock
+def test_403_plan_restriction_is_not_a_throttle() -> None:
+    # A genuine plan/legacy restriction has no quota language → stays terminal.
+    respx.get(f"{_BASE}/profile").mock(
+        return_value=httpx.Response(403, json={"Error Message": "Legacy Endpoint : ..."})
+    )
+    with pytest.raises(PaymentRequiredError) as exc_info:
+        fmp_company_profile.bind(api_key=_KEY)(symbol="AAPL")
+    assert not isinstance(exc_info.value, RateLimitError)
+    assert _KEY not in str(exc_info.value)
+
+
+@respx.mock
+@pytest.mark.parametrize("body", [{"Error Message": "Limit Reach ."}, {"Error Message": "Legacy Endpoint : ..."}])
+def test_403_does_not_leak_key_through_chained_exception(body: dict[str, str]) -> None:
+    # Both the quota and plan 403s are raised fresh from the response status
+    # (read via resp.status_code / resp.text), never from a raised httpx error
+    # carrying request.url — so the apikey on the query string can never reach a
+    # traceback / logging.exception. Status errors have no __cause__.
+    respx.get(f"{_BASE}/profile").mock(return_value=httpx.Response(403, json=body))
+    with pytest.raises((RateLimitError, PaymentRequiredError)) as exc_info:
+        fmp_company_profile.bind(api_key=_KEY)(symbol="AAPL")
+    assert_no_secret_leak(exc_info.value, secret=_KEY)
 
 
 # ---------------------------------------------------------------------------

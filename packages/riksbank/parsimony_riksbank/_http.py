@@ -2,9 +2,8 @@
 
 Every public Riksbank REST API lives behind the same Azure API Management gateway
 (``api.riksbank.se``) and returns JSON, so all five product families read through
-:func:`parsimony.transport.helpers.fetch_json` (GET + ``raise_for_status`` +
-``map_http_error`` / ``map_timeout_error`` + ``json()`` + ``None``-param dropping).
-A single client factory differs only in base URL.
+:func:`parsimony.transport.helpers.fetch_json` (GET + status-code mapping +
+``json()`` + ``None``-param dropping). A single client factory differs only in base URL.
 
 The optional ``Ocp-Apim-Subscription-Key`` header rides on every client; it is never
 required (all five products are open) and only raises the keyless quota of **5
@@ -26,7 +25,8 @@ from typing import Any
 from urllib.parse import urlencode
 
 import httpx
-from parsimony.transport import HttpClient, map_http_error, map_timeout_error
+from parsimony.errors import ProviderError
+from parsimony.transport import HttpClient, check_status
 from parsimony.transport.helpers import make_http_client
 
 PROVIDER = "riksbank"
@@ -44,7 +44,7 @@ def _client(base: str, api_key: str = "") -> HttpClient:
     headers: dict[str, str] = {}
     if api_key:
         headers["Ocp-Apim-Subscription-Key"] = api_key
-    return make_http_client(base, headers=headers, timeout=_TIMEOUT)
+    return make_http_client(base, provider=PROVIDER, headers=headers, timeout=_TIMEOUT)
 
 
 def swea_client(api_key: str = "") -> HttpClient:
@@ -80,20 +80,18 @@ def get_json_literal_query(
     The shared :class:`HttpClient` hands query values to httpx's encoder, which
     percent-encodes the colon in a Monetary Policy ``policy_round_name`` (``2026:1`` ->
     ``2026%3A1``) — and the gateway 404s on the encoded form. So the URL is built with
-    ``safe=":"`` and issued directly, mapping ``HTTPStatusError`` / ``TimeoutException``
-    exactly as :func:`parsimony.transport.helpers.fetch_json` does. The optional key
-    rides as a header.
+    ``safe=":"`` and issued directly through a raw ``httpx.Client``, mapping the status
+    code through :func:`parsimony.transport.check_status` (the typed-error taxonomy) and
+    a timeout to ``ProviderError(status_code=408)``. The optional key rides as a header.
     """
     url = f"{base_url}?{urlencode(query, safe=':')}" if query else base_url
     headers = {"Ocp-Apim-Subscription-Key": api_key} if api_key else {}
     try:
         with httpx.Client(timeout=_TIMEOUT) as client:
             response = client.get(url, headers=headers)
-            response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider=PROVIDER, op_name=op_name)
     except httpx.TimeoutException as exc:
-        map_timeout_error(exc, provider=PROVIDER, op_name=op_name)
+        raise ProviderError(PROVIDER, status_code=408) from exc
+    check_status(response, provider=PROVIDER, op_name=op_name)
     return response.json()
 
 

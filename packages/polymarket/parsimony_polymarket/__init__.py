@@ -71,12 +71,12 @@ _EVENTS_COLUMNS = [c.name for c in _EVENTS_OUTPUT.columns]
 
 def _gamma_http() -> HttpClient:
     """Build a keyless Gamma HTTP client."""
-    return make_http_client(_GAMMA_BASE)
+    return make_http_client(_GAMMA_BASE, provider="polymarket")
 
 
 def _clob_http() -> HttpClient:
     """Build a keyless CLOB HTTP client."""
-    return make_http_client(_CLOB_BASE)
+    return make_http_client(_CLOB_BASE, provider="polymarket")
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +98,6 @@ def polymarket_markets(limit: int = 20, active: bool = True) -> pd.DataFrame:
         _gamma_http(),
         path="markets",
         params={"limit": limit, "active": str(active).lower()},
-        provider="polymarket",
         op_name="markets",
     )
 
@@ -129,7 +128,6 @@ def polymarket_events(limit: int = 20) -> pd.DataFrame:
         _gamma_http(),
         path="events",
         params={"limit": limit},
-        provider="polymarket",
         op_name="events",
     )
 
@@ -161,7 +159,6 @@ def polymarket_market_prices(token_id: str) -> dict[str, object]:
         _clob_http(),
         path="price",
         params={"token_id": token, "side": "buy"},
-        provider="polymarket",
         op_name="price",
     )
 

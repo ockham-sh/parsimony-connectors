@@ -12,7 +12,8 @@ The Riksbank publishes five keyless JSON APIs behind one Azure APIM gateway
    Fetch via :func:`riksbank_monetary_policy_fetch`.
 4. **Turnover Statistics** (``turnover-statistics/v1``) — aggregated turnover on the
    Swedish fixed-income, FX and interest-rate-derivative markets (6 market x frequency
-   datasets, history since 1987). Fetch via :func:`riksbank_turnover_fetch`.
+   datasets; coverage varies by dataset, some only a rolling recent window). Fetch via
+   :func:`riksbank_turnover_fetch`.
 5. **Holdings** (``holdings/v1``) — the Riksbank's holdings of Swedish securities
    (per-security and aggregated). Fetch via :func:`riksbank_holdings_fetch`.
 

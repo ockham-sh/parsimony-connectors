@@ -1,6 +1,6 @@
 """Error-mapping contract for parsimony-fred.
 
-FRED connectors route HTTP errors through ``parsimony.transport.map_http_error``;
+FRED connectors map HTTP statuses through ``parsimony.transport.check_status``;
 this file pins the canonical mapping via :class:`ErrorMappingSuite`.
 """
 

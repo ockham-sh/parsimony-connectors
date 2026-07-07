@@ -16,28 +16,29 @@ hand-written mapper instead of :func:`parsimony.transport.helpers.fetch_json`
 * a **bulk** plan restriction returns **423 Locked** (body
   ``Bulk requests are prohibited for free users``).
 
-The canonical mapper folds 403 into :class:`UnauthorizedError`; for EODHD a 403
-(and a 423) means "your plan does not grant this," so both map to
-:class:`PaymentRequiredError`. Because invalid-key is unambiguously 401, this is
-a status-only disambiguation (the finnhub case), not a body-sniffing one (the
-tiingo dual-403 case). The 401 path still maps to :class:`UnauthorizedError`.
-Every other status flows through the canonical :func:`map_http_error` /
-:func:`map_timeout_error`.
+The canonical :func:`check_status` table folds 403 into
+:class:`UnauthorizedError`; for EODHD a 403 (and a 423) means "your plan does
+not grant this," so both map to :class:`PaymentRequiredError`. Because
+invalid-key is unambiguously 401, this is a status-only disambiguation (the
+finnhub case), not a body-sniffing one (the tiingo dual-403 case), handled by an
+``if`` on ``resp.status_code`` *before* :func:`check_status`. The 401 path still
+maps to :class:`UnauthorizedError` via the canonical table. Transport failures
+(timeout, connection) are mapped inside :meth:`HttpClient.request`.
 
 Auth rides as the ``api_token`` query parameter (alongside EODHD's ``fmt=json``
 convention). ``api_token`` is in the transport layer's sensitive-param set, so
 it is redacted from every log line and never appears in a request URL surfaced
-to the agent. Error bodies are ``text/html`` even on failures, so this module
-never parses an error body — it branches on the HTTP status alone.
+to the agent. The branch reads only the HTTP status (error bodies are
+``text/html`` even on failures) and never a raised exception, so no path can
+leak the credential.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-import httpx
 from parsimony.errors import PaymentRequiredError
-from parsimony.transport import HttpClient, map_http_error, map_timeout_error
+from parsimony.transport import HttpClient, check_status
 from parsimony.transport.helpers import make_http_client, require_key
 
 _PROVIDER = "eodhd"
@@ -69,6 +70,7 @@ def _client(api_key: str, *, timeout: float = _DEFAULT_TIMEOUT_SECONDS) -> HttpC
     key = require_key(api_key, env_var=_ENV_VAR, provider=_PROVIDER)
     return make_http_client(
         _BASE_URL,
+        provider=_PROVIDER,
         query_params={"api_token": key, "fmt": "json"},
         timeout=timeout,
     )
@@ -83,30 +85,24 @@ def eodhd_get(
 ) -> Any:
     """Shared EODHD GET with EODHD-specific error mapping; returns parsed JSON.
 
-    Drops ``None``-valued params, raises for status, then maps:
+    Drops ``None``-valued params, then maps EODHD's plan-restriction statuses on
+    the returned response *before* :func:`check_status`:
 
     * 403 / 423 → :class:`PaymentRequiredError` (plan restriction — EODHD-specific),
-    * everything else → :func:`map_http_error` (401 → Unauthorized, 402 →
-      Payment, 429 → RateLimit, other → Provider),
-    * timeout → :func:`map_timeout_error` (→ ``ProviderError(408)``).
+    * everything else → :func:`check_status`'s canonical table (401 →
+      Unauthorized, 402 → Payment, 429 → RateLimit, other → Provider). Transport
+      failures (timeout, connection) are mapped inside :meth:`HttpClient.request`.
 
-    Error bodies are ``text/html`` and are never parsed (the EODHD API token is
-    a query param, redacted, and never reaches an exception message).
+    The branch reads only ``resp.status_code`` — never a raised exception
+    carrying the request URL — so the ``api_token`` on the query string cannot
+    leak into a traceback.
     """
     filtered = {k: v for k, v in (params or {}).items() if v is not None}
-    try:
-        response = http.request("GET", f"/{path.lstrip('/')}", params=filtered or None)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code in _PLAN_RESTRICTION_STATUSES:
-            raise PaymentRequiredError(
-                _PROVIDER,
-                message=f"eodhd plan does not grant access to '{op_name}'",
-            ) from exc
-        map_http_error(exc, provider=_PROVIDER, op_name=op_name)
-    except httpx.TimeoutException as exc:
-        map_timeout_error(exc, provider=_PROVIDER, op_name=op_name)
-    return response.json()
+    resp = http.request("GET", f"/{path.lstrip('/')}", params=filtered or None, op_name=op_name)
+    if resp.status_code in _PLAN_RESTRICTION_STATUSES:
+        raise PaymentRequiredError(_PROVIDER, message=f"eodhd plan does not grant access to '{op_name}'")
+    check_status(resp, provider=_PROVIDER, op_name=op_name)
+    return resp.json()
 
 
 __all__ = ["_client", "eodhd_get"]

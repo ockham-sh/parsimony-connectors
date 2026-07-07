@@ -24,10 +24,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import httpx
 import pandas as pd
 from parsimony.connector import enumerator
-from parsimony.errors import ParseError
+from parsimony.errors import ConnectorError, ParseError
 from parsimony.transport import HttpClient, pooled_client
 from parsimony.transport.helpers import fetch_json
 
@@ -45,7 +44,7 @@ def _list_groups(client: HttpClient) -> dict[str, dict[str, Any]]:
     never the full ~2,400-request crawl. ``enumerate_boc`` reads it as a module
     global at call time so the monkeypatch takes.
     """
-    payload = fetch_json(client, path="lists/groups/json", provider=PROVIDER, op_name="groups/list")
+    payload = fetch_json(client, path="lists/groups/json", op_name="groups/list")
     if not isinstance(payload, dict):
         raise ParseError(PROVIDER, "unexpected /lists/groups/json shape (expected object)")
     groups = payload.get("groups") or {}
@@ -65,18 +64,18 @@ def _fetch_group_membership(
     network blip never silently shrinks the catalog.
     """
     try:
-        resp = client.request("GET", f"/groups/{group_name}/json")
-        resp.raise_for_status()
-        body = resp.json()
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code == 404:
+        resp = client.request("GET", f"/groups/{group_name}/json", op_name="boc_enumerate")
+        if resp.status_code == 404:
             # Retired-but-indexed group: prune it.
             return group_name, [], False
-        logger.warning("BoC group fetch failed for %r: HTTP %s", group_name, exc.response.status_code)
-        return group_name, [], True
-    except (httpx.HTTPError, ValueError) as exc:
-        # Transport failure OR a 200-with-non-JSON body (BoC sometimes serves
-        # an HTML stub) — keep the group, drop only its membership this run.
+        elif resp.status_code >= 400:
+            logger.warning("BoC group fetch failed for %r: HTTP %s", group_name, resp.status_code)
+            return group_name, [], True
+        body = resp.json()
+    except (ConnectorError, ValueError) as exc:
+        # Transport failure (mapped to a typed ConnectorError by request()) OR a
+        # 200-with-non-JSON body (BoC sometimes serves an HTML stub) — keep the
+        # group, drop only its membership this run.
         logger.warning("BoC group fetch failed for %r: %s", group_name, exc)
         return group_name, [], True
 
@@ -138,7 +137,7 @@ def enumerate_boc() -> pd.DataFrame:
     """
     client = make_valet_client()
 
-    series_payload = fetch_json(client, path="lists/series/json", provider=PROVIDER, op_name="series/list")
+    series_payload = fetch_json(client, path="lists/series/json", op_name="series/list")
     if not isinstance(series_payload, dict):
         raise ParseError(PROVIDER, "unexpected /lists/series/json shape (expected object)")
 

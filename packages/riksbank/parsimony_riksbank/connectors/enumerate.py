@@ -29,15 +29,15 @@ from parsimony_riksbank.outputs import ENUMERATE_COLUMNS, RIKSBANK_ENUMERATE_OUT
 def _list_swea(api_key: str) -> tuple[Any, Any]:
     """Live SWEA discovery: ``/Groups`` (hierarchy) + ``/Series`` (every series)."""
     http = _http.swea_client(api_key)
-    groups_data = fetch_json(http, path="Groups", provider="riksbank", op_name="Groups")
-    series_data = fetch_json(http, path="Series", provider="riksbank", op_name="Series")
+    groups_data = fetch_json(http, path="Groups", op_name="Groups")
+    series_data = fetch_json(http, path="Series", op_name="Series")
     return groups_data, series_data
 
 
 def _list_monetary_policy_series(api_key: str) -> Any:
     """Live Monetary Policy discovery: ``/forecasts/series_ids``."""
     http = _http.monetary_policy_client(api_key)
-    return fetch_json(http, path="forecasts/series_ids", provider="riksbank", op_name="series_ids")
+    return fetch_json(http, path="forecasts/series_ids", op_name="series_ids")
 
 
 def _swea_rows(groups_data: Any, series_data: Any) -> list[dict[str, Any]]:

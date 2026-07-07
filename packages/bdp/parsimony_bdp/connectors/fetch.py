@@ -141,10 +141,9 @@ def bdp_fetch(
         "obs_to": obs_to,
     }
     json_data = fetch_json(
-        make_http_client(BASE_URL, headers=HEADERS, timeout=60.0),
+        make_http_client(BASE_URL, provider="bdp", headers=HEADERS, timeout=60.0),
         path=f"domains/{domain_id}/datasets/{dataset_id}/",
         params=req_params,
-        provider="bdp",
         op_name="observations",
     )
 
