@@ -219,8 +219,8 @@ def fred_fetch(
     if not sid:
         raise InvalidParameterError("fred", "series_id must be non-empty")
 
-    http = make_http_client(_BASE_URL, query_params={"api_key": require_key(api_key, env_var="FRED_API_KEY", provider="fred")})
-    body = fetch_json(http, path="series/observations", params={"series_id": sid}, provider="fred", op_name="series/observations")
+    http = make_http_client(_BASE_URL, provider="fred", query_params={"api_key": require_key(api_key, env_var="FRED_API_KEY", provider="fred")})
+    body = fetch_json(http, path="series/observations", params={"series_id": sid}, op_name="series/observations")
 
     observations = body.get("observations")
     if observations is None:

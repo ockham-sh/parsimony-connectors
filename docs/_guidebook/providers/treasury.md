@@ -106,8 +106,8 @@
   `https://api.fiscaldata.treasury.gov/services/dtg` (metadata),
   `https://home.treasury.gov/resource-center/.../interest-rates/pages/xml` (ODM feeds).
 - **Formats:** Fiscal Data = JSON (`fetch_json`). ODM = **OData/Atom XML** → cannot use
-  `fetch_json`; raw `HttpClient.request("GET")` + `raise_for_status()` +
-  `map_http_error`/`map_timeout_error` (the §6 `get_text` shape), then `ElementTree` parse.
+  `fetch_json`; raw `HttpClient.request("GET", op_name=...)` + `check_status` (the §6
+  `get_text` shape), then `ElementTree` parse.
 - **Numeric coercion (fetch):** coerce only the columns the API's `meta.dataTypes` types as
   `CURRENCY*`/`NUMBER`/`PERCENTAGE*` (prefix match — live `meta.dataTypes` returns *base*
   types, but prefix-match is used for safety), comma-stripped. Never blanket-coerce.
