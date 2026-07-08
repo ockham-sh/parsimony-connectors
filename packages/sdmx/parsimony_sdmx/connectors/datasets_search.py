@@ -128,10 +128,15 @@ def sdmx_datasets_search(
 ) -> pd.DataFrame:
     """Discover SDMX flows within one or all agency dataset catalogs.
 
+    Prefer scoping with ``agency=`` (e.g. "ECB", "ESTAT") whenever you know the source: a
+    single-agency search is markedly more relevant. Unscoped (``agency`` omitted) searches and
+    merges every ``sdmx_datasets_<agency>`` catalog, and on broad/compound queries its top hits
+    often miss the obvious flow ("euro area GDP growth" surfacing trade tables, not GDP) — so
+    make agency-scoping the default first move, not a fallback after a weak result.
+
     Step 1 of the usual path: pass a hit's flow to ``sdmx_series_search`` (find/filter series)
     or ``sdmx_dimension_search`` (a dimension's codes). Each hit's ``dsd`` is the flow's shape
-    (dimension order + codelist refs). When ``agency`` is omitted, searches every
-    ``sdmx_datasets_<agency>`` catalog and merges ranked matches. Relevance-ranked top-N.
+    (dimension order + codelist refs). Relevance-ranked top-N.
     """
     params = DatasetsSearchParams(query=query, agency=agency, limit=limit, catalog_root=catalog_root)
     agencies = _agencies_for_search(params.agency)
