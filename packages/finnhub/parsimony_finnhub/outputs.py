@@ -18,6 +18,27 @@ SEARCH_OUTPUT = OutputConfig(
     ]
 )
 
+# Company profile for one symbol — a one-row frame (the raw endpoint returns a
+# single JSON record). The three share/cap figures are the quantitative DATA.
+PROFILE_OUTPUT = OutputConfig(
+    columns=[
+        Column(name="ticker", role=ColumnRole.KEY, namespace="finnhub_symbol"),
+        Column(name="name", role=ColumnRole.TITLE),
+        Column(name="marketCapitalization", dtype="numeric"),
+        Column(name="shareOutstanding", dtype="numeric"),
+        Column(name="floatingShare", dtype="numeric"),
+        Column(name="country", role=ColumnRole.METADATA),
+        Column(name="currency", role=ColumnRole.METADATA),
+        Column(name="estimateCurrency", role=ColumnRole.METADATA),
+        Column(name="exchange", role=ColumnRole.METADATA),
+        Column(name="ipo", role=ColumnRole.METADATA),
+        Column(name="finnhubIndustry", role=ColumnRole.METADATA),
+        Column(name="phone", role=ColumnRole.METADATA),
+        Column(name="weburl", role=ColumnRole.METADATA),
+        Column(name="logo", role=ColumnRole.METADATA, exclude_from_llm_view=True),
+    ]
+)
+
 QUOTE_OUTPUT = OutputConfig(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace="finnhub_symbol"),

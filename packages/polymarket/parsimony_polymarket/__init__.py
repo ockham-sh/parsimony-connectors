@@ -145,11 +145,13 @@ def polymarket_events(limit: int = 20) -> pd.DataFrame:
 
 
 @connector(tags=["polymarket", "tool"])
-def polymarket_market_prices(token_id: str) -> dict[str, object]:
+def polymarket_market_prices(token_id: str) -> dict[str, float]:
     """Fetch the current CLOB buy-side price for a Polymarket outcome token.
 
     `token_id` is a CLOB ERC-1155 token id (the `clobTokenIds` field on a
-    Gamma market). Returns the raw price dict, e.g. ``{"price": "0.5"}``.
+    Gamma market). Returns a single-key dict with the price as a float, e.g.
+    ``{"price": 0.51}`` (the CLOB API sends it as a string; it is coerced here).
+    A lone scalar is left as a dict rather than wrapped in a one-cell DataFrame.
     """
     token = token_id.strip()
     if not token:
@@ -168,7 +170,11 @@ def polymarket_market_prices(token_id: str) -> dict[str, object]:
             message=f"No price returned for token_id={token!r}",
             query_params={"token_id": token},
         )
-    return data
+    try:
+        price = float(data["price"])
+    except (TypeError, ValueError) as exc:
+        raise ParseError("polymarket", f"price was not a number: {data['price']!r}") from exc
+    return {"price": price}
 
 
 CONNECTORS = Connectors([polymarket_markets, polymarket_events, polymarket_market_prices])

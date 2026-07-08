@@ -21,6 +21,43 @@ SEARCH_OUTPUT = OutputConfig(
     ]
 )
 
+# Company metadata for one ticker — a one-row frame (the raw endpoint returns a
+# single JSON record).
+META_OUTPUT = OutputConfig(
+    columns=[
+        Column(name="ticker", role=ColumnRole.KEY, namespace="tiingo_ticker"),
+        Column(name="name", role=ColumnRole.TITLE),
+        Column(name="description", role=ColumnRole.METADATA),
+        Column(name="startDate", role=ColumnRole.METADATA),
+        Column(name="endDate", role=ColumnRole.METADATA),
+        Column(name="exchangeCode", role=ColumnRole.METADATA),
+    ]
+)
+
+# Fundamentals reference metadata — one row per ticker (the raw endpoint returns
+# a JSON array). All fields are reference attributes, so none is DATA.
+FUNDAMENTALS_META_OUTPUT = OutputConfig(
+    columns=[
+        Column(name="ticker", role=ColumnRole.KEY, namespace="tiingo_ticker"),
+        Column(name="name", role=ColumnRole.TITLE),
+        Column(name="sector", role=ColumnRole.METADATA),
+        Column(name="industry", role=ColumnRole.METADATA),
+        Column(name="sicCode", role=ColumnRole.METADATA),
+        Column(name="sicSector", role=ColumnRole.METADATA),
+        Column(name="sicIndustry", role=ColumnRole.METADATA),
+        Column(name="reportingCurrency", role=ColumnRole.METADATA),
+        Column(name="location", role=ColumnRole.METADATA),
+        Column(name="companyWebsite", role=ColumnRole.METADATA),
+        Column(name="secFilingWebsite", role=ColumnRole.METADATA),
+        Column(name="isActive", role=ColumnRole.METADATA, dtype="bool"),
+        Column(name="isADR", role=ColumnRole.METADATA, dtype="bool"),
+        Column(name="statementLastUpdated", role=ColumnRole.METADATA),
+        Column(name="dailyLastUpdated", role=ColumnRole.METADATA),
+        Column(name="permaTicker", role=ColumnRole.METADATA, exclude_from_llm_view=True),
+        Column(name="dataProviderPermaTicker", role=ColumnRole.METADATA, exclude_from_llm_view=True),
+    ]
+)
+
 EOD_OUTPUT = OutputConfig(
     columns=[
         Column(name="ticker", role=ColumnRole.KEY, namespace="tiingo_ticker"),

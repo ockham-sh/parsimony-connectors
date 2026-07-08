@@ -18,7 +18,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Annotated, Any, TypeVar
 
-from parsimony.catalog import code_token, normalize_namespace
 from parsimony.connector import connector
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError, ProviderError
 from parsimony.result import (
@@ -116,31 +115,25 @@ class _ResolvedStructure:
     label_maps: dict[str, dict[str, str]]
 
 
-def _sdmx_fetch_output(namespace: str, dimension_ids: list[str]) -> OutputConfig:
-    """Tabular schema for one dataset fetch."""
-    cols: list[Column] = [
-        Column(
-            name="series_key",
-            role=ColumnRole.KEY,
-            namespace=namespace,
-        ),
+# Static tabular schema for a fetch. The per-flow dimension columns vary by flow,
+# so they (plus the optional series_url) are caught by the ``"*"`` wildcard as
+# METADATA rather than enumerated — which also lets a flow without a URL omit that
+# column without tripping the strict presence check. series_key carries no
+# namespace, matching sdmx_series_search's key column (the join target).
+# TIME_PERIOD stays the raw SDMX period label (``2020`` / ``2020-Q1`` / ``2020-01``
+# / ``2020-01-01``), NOT coerced to datetime: granularity rides on the flow's FREQ
+# dimension and a key list can mix frequencies, so there is no honest single-instant
+# form — coercing would fabricate precision and outright fails on quarterly/weekly
+# labels. Consumers parse to a datetime axis on demand (``pd.PeriodIndex``).
+SDMX_FETCH_OUTPUT = OutputConfig(
+    columns=[
+        Column(name="series_key", role=ColumnRole.KEY),
         Column(name="title", role=ColumnRole.TITLE),
+        Column(name="TIME_PERIOD", role=ColumnRole.DATA),
+        Column(name="value", dtype="numeric", role=ColumnRole.DATA),
+        Column(name="*", role=ColumnRole.METADATA),
     ]
-    for dim_id in dimension_ids:
-        cols.append(Column(name=dim_id, role=ColumnRole.METADATA))
-    cols.extend(
-        [
-            Column(name="TIME_PERIOD", dtype="datetime", role=ColumnRole.DATA),
-            Column(name="value", dtype="numeric", role=ColumnRole.DATA),
-            Column(name="series_url", role=ColumnRole.METADATA),
-        ]
-    )
-    return OutputConfig(columns=cols)
-
-
-def _sdmx_namespace_from_dataset_key(dataset_key: str) -> str:
-    """Catalog namespace for one SDMX dataset (``sdmx_<tokenized_dataset>``)."""
-    return normalize_namespace(f"sdmx_{code_token(dataset_key)}")
+)
 
 
 def _is_retryable(exc: BaseException) -> bool:
@@ -180,7 +173,7 @@ def _strip_flow_prefix(key: str, dataset_id: str) -> str:
     return rest if sep and prefix.upper() == dataset_id.upper() else key
 
 
-@connector(tags=["sdmx"])
+@connector(output=SDMX_FETCH_OUTPUT, tags=["sdmx"])
 def sdmx_fetch(
     dataset_ref: str,
     series_ref: str | list[str],

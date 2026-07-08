@@ -297,6 +297,10 @@ def coingecko_coin_detail(
     genesis date, hashing algorithm, current market data, and optional community/
     developer stats. Returns a rich dict — use coingecko_markets for tabular price
     listings across many coins, and coingecko_market_chart for time-series history.
+
+    Nested shape: market_data figures (current_price, market_cap, total_volume,
+    ath, …) are dicts keyed by ~60 currency codes — index one, e.g.
+    result.data['market_data']['current_price']['usd'].
     """
     c = _safe_coin_id(coin_id)
 

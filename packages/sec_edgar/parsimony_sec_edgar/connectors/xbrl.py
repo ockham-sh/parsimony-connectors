@@ -100,6 +100,9 @@ def sec_edgar_company_facts(cik: str) -> dict[str, Any]:
     financial concepts keyed by taxonomy (us-gaap, dei, …). Returned verbatim
     as a dict for downstream extraction. (For one concept's history as a tidy
     table, use `sec_edgar_company_concept`.)
+
+    Nested shape: facts[taxonomy][concept] = {label, description, units:
+    {unit_code: [{end, val, fy, fp, form, …}]}} — hundreds of concepts per CIK.
     """
     cik_norm = normalize_cik(cik)
     payload = fetch_json(

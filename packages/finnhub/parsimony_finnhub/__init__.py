@@ -48,6 +48,7 @@ from parsimony_finnhub.outputs import ENUMERATE_OUTPUT as _ENUMERATE_OUTPUT
 from parsimony_finnhub.outputs import IPO_CAL_OUTPUT as _IPO_CAL_OUTPUT
 from parsimony_finnhub.outputs import NEWS_OUTPUT as _NEWS_OUTPUT
 from parsimony_finnhub.outputs import PEERS_OUTPUT as _PEERS_OUTPUT
+from parsimony_finnhub.outputs import PROFILE_OUTPUT as _PROFILE_OUTPUT
 from parsimony_finnhub.outputs import QUOTE_OUTPUT as _QUOTE_OUTPUT
 from parsimony_finnhub.outputs import RECOMMENDATION_OUTPUT as _RECOMMENDATION_OUTPUT
 from parsimony_finnhub.outputs import SEARCH_OUTPUT as _SEARCH_OUTPUT
@@ -144,11 +145,11 @@ def finnhub_quote(symbol: Annotated[str, Namespace("finnhub_symbol")], api_key: 
 # ---------------------------------------------------------------------------
 
 
-@connector(tags=["equities"], secrets=("api_key",))
-def finnhub_profile(symbol: Annotated[str, Namespace("finnhub_symbol")], api_key: str = "") -> dict[str, Any]:
+@connector(output=_PROFILE_OUTPUT, tags=["equities"], secrets=("api_key",))
+def finnhub_profile(symbol: Annotated[str, Namespace("finnhub_symbol")], api_key: str = "") -> pd.DataFrame:
     """Fetch company profile for a stock: name, exchange, country, currency,
     IPO date, industry, market cap (in millions USD), shares outstanding
-    (millions), website, phone, and logo URL. Returns a single record (dict).
+    (millions), website, phone, and logo URL. Returns a one-row DataFrame.
     Use finnhub_search to resolve ticker symbols. For time-series fundamentals
     use finnhub_basic_financials.
     """
@@ -160,7 +161,10 @@ def finnhub_profile(symbol: Annotated[str, Namespace("finnhub_symbol")], api_key
         raise ParseError(_PROVIDER, "profile response was not a JSON object")
     if not data.get("name"):
         raise EmptyDataError(_PROVIDER, query_params={"symbol": s})
-    return data
+    # Conform to the declared schema — profile2 omits fields for some symbols,
+    # so absent columns are materialised as NA (the schema is a contract, and
+    # the strict column check would otherwise crash).
+    return pd.DataFrame([data]).reindex(columns=[c.name for c in _PROFILE_OUTPUT.columns])
 
 
 @connector(output=_PEERS_OUTPUT, tags=["equities"], secrets=("api_key",))
@@ -252,7 +256,9 @@ def finnhub_basic_financials(symbol: Annotated[str, Namespace("finnhub_symbol")]
     Also includes annual and quarterly time-series (going back to ~2007 for
     mature companies) for 37+ metrics: book value, EV/EBITDA, net margin, etc.
     Each time-series entry has period (ISO date) and v (float value).
-    Response is a large dict with 'metric' (flat KPIs) and 'series' (time series).
+    Response is a large dict with 'metric' (flat KPIs) and 'series' (time series);
+    'series' splits into 'annual' and 'quarterly', each mapping a metric name to a
+    list of those {period, v} entries.
     """
     s = _require(symbol, "symbol")
     http = _client(api_key)

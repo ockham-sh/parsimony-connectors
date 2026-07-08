@@ -55,10 +55,12 @@ from parsimony_tiingo.outputs import (
     DEFINITIONS_OUTPUT,
     ENUMERATE_OUTPUT,
     EOD_OUTPUT,
+    FUNDAMENTALS_META_OUTPUT,
     FX_PRICES_OUTPUT,
     FX_TOP_OUTPUT,
     IEX_HIST_OUTPUT,
     IEX_OUTPUT,
+    META_OUTPUT,
     NEWS_OUTPUT,
     SEARCH_OUTPUT,
 )
@@ -329,10 +331,10 @@ def tiingo_iex_historical(
 # ---------------------------------------------------------------------------
 
 
-@connector(tags=["equities"], secrets=("api_key",))
-def tiingo_meta(ticker: Annotated[str, Namespace("tiingo_ticker")], api_key: str = "") -> dict[str, Any]:
+@connector(output=META_OUTPUT, tags=["equities"], secrets=("api_key",))
+def tiingo_meta(ticker: Annotated[str, Namespace("tiingo_ticker")], api_key: str = "") -> pd.DataFrame:
     """Fetch company metadata for a stock: ticker, name, description, exchange
-    code, and listing start/end dates. Returns a single record (dict). Use
+    code, and listing start/end dates. Returns a one-row DataFrame. Use
     tiingo_search to resolve ticker symbols. For sector/industry data use
     tiingo_fundamentals_meta.
     """
@@ -349,7 +351,10 @@ def tiingo_meta(ticker: Annotated[str, Namespace("tiingo_ticker")], api_key: str
         raise ParseError(_PROVIDER, "metadata response was not a JSON object")
     if not data.get("ticker"):
         raise EmptyDataError(_PROVIDER, query_params={"ticker": t})
-    return data
+    # Conform to the declared schema — the endpoint omits optional fields for
+    # some tickers, so absent columns are materialised as NA (the schema is a
+    # contract, and the strict column check would otherwise crash).
+    return pd.DataFrame([data]).reindex(columns=[c.name for c in META_OUTPUT.columns])
 
 
 # ---------------------------------------------------------------------------
@@ -357,12 +362,12 @@ def tiingo_meta(ticker: Annotated[str, Namespace("tiingo_ticker")], api_key: str
 # ---------------------------------------------------------------------------
 
 
-@connector(tags=["equities"], secrets=("api_key",))
-def tiingo_fundamentals_meta(tickers: str, api_key: str = "") -> list[dict[str, Any]]:
+@connector(output=FUNDAMENTALS_META_OUTPUT, tags=["equities"], secrets=("api_key",))
+def tiingo_fundamentals_meta(tickers: str, api_key: str = "") -> pd.DataFrame:
     """Fetch fundamentals metadata for one or more stocks: sector, industry,
     SIC code/sector/industry, reporting currency, location, company website,
-    SEC filing link, ADR flag, and data freshness timestamps. Returns a list
-    of records. Comma-separate tickers; use tiingo_search to resolve them.
+    SEC filing link, ADR flag, and data freshness timestamps. Returns one row
+    per ticker. Comma-separate tickers; use tiingo_search to resolve them.
     """
     t = tickers.strip()
     if not t:
@@ -380,8 +385,9 @@ def tiingo_fundamentals_meta(tickers: str, api_key: str = "") -> list[dict[str, 
         raise ParseError(_PROVIDER, "fundamentals meta response was not a JSON array")
     if not data:
         raise EmptyDataError(_PROVIDER, query_params={"tickers": t})
-    # Always return a list (one record per ticker) for a stable downstream shape.
-    return data
+    # One row per ticker, conformed to the declared schema (absent optional
+    # fields → NA; the schema is a contract, strict column check enforces it).
+    return pd.DataFrame(data).reindex(columns=[c.name for c in FUNDAMENTALS_META_OUTPUT.columns])
 
 
 # ---------------------------------------------------------------------------
