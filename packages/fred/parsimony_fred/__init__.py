@@ -15,7 +15,7 @@ fails fast with :class:`UnauthorizedError` naming the env var.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 import pandas as pd
 from parsimony import Namespace
@@ -26,8 +26,8 @@ from parsimony.errors import (
     ParseError,
 )
 from parsimony.result import Column, ColumnRole, OutputConfig
-from parsimony.transport import HttpClient
-from parsimony.transport.helpers import fetch_json, make_http_client, require_key
+from parsimony.transport import HttpClient, check_status
+from parsimony.transport.helpers import make_http_client, require_key
 
 __all__ = ["CONNECTORS", "load"]
 
@@ -84,6 +84,33 @@ def _client(api_key: str) -> HttpClient:
     )
 
 
+def _get_json(http: HttpClient, *, path: str, params: dict[str, Any], op_name: str) -> Any:
+    """GET *path* and return parsed JSON, surfacing FRED's actionable 400 body.
+
+    FRED reports a bad ``series_id`` or parameter as a clean HTTP 400 whose
+    ``error_message`` names the problem ("Invalid value for variable series_id",
+    "Invalid value for parameter frequency"). The shared ``check_status`` maps a
+    400 to an opaque ``ProviderError`` from the status alone, dropping that text,
+    so it is read here and raised as a message-preserving ``InvalidParameterError``;
+    every other status defers to the canonical mapping. Kept local (mirroring the
+    EIA chokepoint) so the framework's shared ``fetch_json`` stays provider-agnostic.
+    """
+    filtered = {k: v for k, v in params.items() if v is not None}
+    response = http.request("GET", f"/{path.lstrip('/')}", params=filtered or None, op_name=op_name)
+    if response.status_code == 400:
+        try:
+            message = response.json().get("error_message")
+        except ValueError:
+            message = None
+        if isinstance(message, str) and message.strip():
+            raise InvalidParameterError("fred", message.strip()[:300])
+    check_status(response, provider="fred", op_name=op_name)
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise ParseError("fred", f"fred: '{op_name}' returned a non-JSON response body") from exc
+
+
 # ---------------------------------------------------------------------------
 # Connectors
 # ---------------------------------------------------------------------------
@@ -101,7 +128,7 @@ def fred_search(search_text: str, api_key: str = "") -> pd.DataFrame:
         raise InvalidParameterError("fred", "search_text must be non-empty")
 
     http = _client(api_key)
-    body = fetch_json(
+    body = _get_json(
         http,
         path="series/search",
         params={"search_text": query},
@@ -135,7 +162,7 @@ def fred_fetch(
         raise InvalidParameterError("fred", "series_id must be non-empty")
 
     http = _client(api_key)
-    obs_body = fetch_json(
+    obs_body = _get_json(
         http,
         path="series/observations",
         params={
@@ -152,7 +179,7 @@ def fred_fetch(
     if not observations:
         raise EmptyDataError("fred", query_params={"series_id": sid})
 
-    meta_body = fetch_json(
+    meta_body = _get_json(
         http,
         path="series",
         params={"series_id": sid},

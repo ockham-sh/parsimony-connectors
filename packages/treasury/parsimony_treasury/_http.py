@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from parsimony.errors import InvalidParameterError, ParseError
 from parsimony.transport import HttpClient, check_status
 from parsimony.transport.helpers import make_http_client
 
@@ -63,6 +64,50 @@ def get_text(http: HttpClient, path: str, *, params: dict[str, Any], op_name: st
     return response.text
 
 
+def _actionable_400(response: Any) -> str | None:
+    """Pull Fiscal Data's human-readable error out of a 400 body (bounded length).
+
+    Prefers ``message`` (which names the offending field/filter) over the less
+    specific ``error`` category. Returns ``None`` when the body is not a JSON
+    object or carries neither key as a non-empty string.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    if not isinstance(body, dict):
+        return None
+    for key in ("message", "error"):
+        value = body.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()[:300]
+    return None
+
+
+def fiscal_get(http: HttpClient, path: str, *, params: dict[str, Any], op_name: str) -> Any:
+    """GET *path* and return parsed JSON, surfacing Fiscal Data's actionable 400 body.
+
+    Fiscal Data answers a bad field/filter with a clean HTTP 400 whose ``message``
+    names the offending parameter ("Invalid query parameter: Field 'X' does not
+    exist."). ``check_status`` maps a 400 to an opaque ``ProviderError`` from the
+    status alone, dropping that text, so it is read here and raised as a
+    message-preserving ``InvalidParameterError``; every other status defers to the
+    canonical mapping. Kept local (mirroring the EIA chokepoint) so the framework's
+    shared ``fetch_json`` stays provider-agnostic.
+    """
+    filtered = {k: v for k, v in params.items() if v is not None}
+    response = http.request("GET", f"/{path.lstrip('/')}", params=filtered or None, op_name=op_name)
+    if response.status_code == 400:
+        message = _actionable_400(response)
+        if message:
+            raise InvalidParameterError(PROVIDER, message)
+    check_status(response, provider=PROVIDER, op_name=op_name)
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise ParseError(PROVIDER, f"{PROVIDER}: '{op_name}' returned a non-JSON response body") from exc
+
+
 __all__ = [
     "PROVIDER",
     "RATES_PATH",
@@ -72,4 +117,5 @@ __all__ = [
     "metadata_client",
     "rates_client",
     "get_text",
+    "fiscal_get",
 ]
