@@ -220,6 +220,13 @@ def test_treasury_rates_fetch_parses_xml_and_normalises_record_date() -> None:
     assert result.provenance.source == "treasury_rates_fetch"
     assert result.provenance.params == {"feed": "daily_treasury_yield_curve", "year": 2026}
     assert "field_tdr_date_value=2026" in str(df["source_url"].iloc[0])
+    # ``source_url`` is declared METADATA so it doesn't fold in as a data measure
+    # alongside the feed-specific rate columns (which are DATA).
+    from parsimony.result import ColumnRole
+
+    roles = {c.name: c.role for c in result.output_schema.columns}
+    assert roles["source_url"] == ColumnRole.METADATA
+    assert roles["BC_10YEAR"] == ColumnRole.DATA
 
 
 @respx.mock

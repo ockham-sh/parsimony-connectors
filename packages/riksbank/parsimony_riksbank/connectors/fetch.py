@@ -120,8 +120,11 @@ def riksbank_swestr_fetch(
     Dispatches across three URL families: ``SWESTR`` -> ``/latest`` or ``/all``;
     ``SWESTRAVG*`` -> ``/avg/...``; ``SWESTRINDEX`` -> ``/index/...``. ``from_date`` /
     ``to_date`` together request a window; omit both for the latest published value.
-    Returns date + value plus SWESTR's native metadata (publication time, percentiles,
-    transaction volumes) on additional columns. Keyless — ``api_key`` is optional.
+    SWESTR was first published 2021-09-01, so a ``from_date`` earlier than that
+    returns only the available observations (the effective start is the earliest
+    ``date`` in the returned frame). Returns date + value plus SWESTR's native
+    metadata (publication time, percentiles, transaction volumes) on additional
+    columns. Keyless — ``api_key`` is optional.
     """
     if series not in swestr.SWESTR_IDS:
         raise InvalidParameterError(

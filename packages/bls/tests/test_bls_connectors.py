@@ -63,8 +63,55 @@ def test_bls_fetch_returns_series_observations() -> None:
     assert len(df) == 2
     assert df.iloc[0]["title"] == "Unemployment Rate"
     assert df.iloc[0]["frequency"] == "Monthly"
-    # suppressed "-" value coerces to null
-    assert df.iloc[1]["value"] != df.iloc[1]["value"]  # NaN
+    # Rows are sorted ascending by date, so the earlier M02 observation (whose
+    # suppressed "-" value coerces to null) is first and the M03 value is last.
+    # ``date`` is coerced to datetime by the output config (dtype="datetime").
+    assert list(df["date"].dt.strftime("%Y-%m-%d")) == ["2026-02-01", "2026-03-01"]
+    assert df.iloc[0]["value"] != df.iloc[0]["value"]  # NaN
+    assert df.iloc[1]["value"] == 4.1
+
+
+def test_bls_fetch_refuses_span_over_unkeyed_cap() -> None:
+    # BLS serves at most ~10 years per unkeyed call and silently truncates a
+    # wider request; the connector refuses loud before making the call rather
+    # than returning a silently-capped window. No network mock: it must raise
+    # before any HTTP request.
+    with pytest.raises(InvalidParameterError) as exc:
+        bls_fetch(series_id="LNS14000000", start_year="2000", end_year="2026")
+    assert "10 calendar years" in str(exc.value)
+    assert "unkeyed" in str(exc.value)
+
+
+def test_bls_fetch_refuses_span_over_keyed_cap() -> None:
+    # With a key the cap is ~20 years; a 21-year span still refuses.
+    with pytest.raises(InvalidParameterError) as exc:
+        bls_fetch(series_id="LNS14000000", start_year="2000", end_year="2020", api_key="k")
+    assert "20 calendar years" in str(exc.value)
+    assert "keyed" in str(exc.value)
+
+
+@respx.mock
+def test_bls_fetch_allows_span_at_unkeyed_cap() -> None:
+    # Exactly 10 years (2000..2009 inclusive) is at the cap and must go through.
+    respx.post("https://api.bls.gov/publicAPI/v2/timeseries/data/").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "status": "REQUEST_SUCCEEDED",
+                "Results": {
+                    "series": [
+                        {
+                            "seriesID": "LNS14000000",
+                            "catalog": {"series_title": "Unemployment Rate"},
+                            "data": [{"year": "2009", "period": "M01", "value": "9.0"}],
+                        }
+                    ]
+                },
+            },
+        )
+    )
+    result = bls_fetch(series_id="LNS14000000", start_year="2000", end_year="2009")
+    assert len(result.data) == 1
 
 
 @respx.mock

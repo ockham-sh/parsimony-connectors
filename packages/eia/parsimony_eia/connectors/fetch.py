@@ -217,9 +217,11 @@ def eia_fetch(
     electricity, ``heat-content`` etc. for coal). ``facets`` is a
     ``{facet_id: value | [values]}`` dict (read the dataset's facet ids from the
     catalog, and their valid values from ``eia_facets``) that narrows the result
-    to a series. The full result is paged in (EIA's 5,000-row page cap is handled
-    internally); a match above the row ceiling raises ``InvalidParameterError``
-    asking you to narrow it.
+    to a series. ``frequency``, ``start``, and ``end`` are **top-level parameters,
+    not keys inside the ``facets`` dict** — passing them as facets is rejected by
+    EIA as unknown facets. The full result is paged in (EIA's 5,000-row page cap is
+    handled internally); a match above the row ceiling raises
+    ``InvalidParameterError`` asking you to narrow it.
     """
     r = route.strip()
     if not r:

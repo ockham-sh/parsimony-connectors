@@ -291,6 +291,10 @@ def tiingo_iex_historical(
     frequency (1min/5min/15min/30min/1hour/2hour/4hour). Returns the most
     recent ~2000 data points at the specified frequency — cannot request
     arbitrarily old data. Free tier supported. Use tiingo_search first.
+
+    The ``date`` column is tz-aware UTC (Tiingo emits ISO-8601 ``…Z`` timestamps,
+    preserved faithfully) — intraday bars are timezone-meaningful, so it is not
+    coerced to a naive date.
     """
     t = _safe_ticker(ticker)
     freq = resample_freq.strip()

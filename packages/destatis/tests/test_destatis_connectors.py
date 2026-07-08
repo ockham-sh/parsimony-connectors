@@ -135,6 +135,53 @@ def test_destatis_fetch_forwards_year_range_params() -> None:
     assert "endyear" not in request.url.params
 
 
+#: JSON-stat fixture spanning two years (2025-01 and 2026-01), used to prove the
+#: client-side year filter drops rows GENESIS returned outside the window.
+_JSONSTAT_TWO_YEARS = {
+    "data": [
+        {
+            "code": "DS_002",
+            "id": ["Zeit"],
+            "size": [2],
+            "value": [100.0, 200.0],
+            "dimension": {
+                "Zeit": {"category": {"index": {"2025-01": 0, "2026-01": 1}}}
+            },
+        }
+    ]
+}
+
+
+@respx.mock
+def test_destatis_fetch_applies_client_side_year_filter() -> None:
+    """GENESIS ignores ``startyear`` on some tables and returns the full span, so
+    the connector re-applies the window client-side: a 2025+2026 payload narrowed
+    to ``start_year=2026`` keeps only the 2026 row.
+    """
+    respx.get(f"{_BASE}/tables/61111-0001/data").mock(
+        return_value=httpx.Response(200, json=_JSONSTAT_TWO_YEARS)
+    )
+
+    df = destatis_fetch(name="61111-0001", start_year="2026").data
+
+    assert len(df) == 1
+    assert pd.to_datetime(df["date"]).dt.year.tolist() == [2026]
+    assert df.iloc[0]["value"] == 200.0
+
+
+@respx.mock
+def test_destatis_fetch_empty_window_raises_empty_data() -> None:
+    """A window that filters every row away raises ``EmptyDataError`` (matching
+    the existing no-observations path) rather than returning an empty frame.
+    """
+    respx.get(f"{_BASE}/tables/61111-0001/data").mock(
+        return_value=httpx.Response(200, json=_JSONSTAT_TWO_YEARS)
+    )
+
+    with pytest.raises(EmptyDataError):
+        destatis_fetch(name="61111-0001", start_year="2030")
+
+
 @respx.mock
 def test_destatis_fetch_maps_404_to_provider_error() -> None:
     """An unknown table code returns a real HTTP 404 (verified live) → mapped

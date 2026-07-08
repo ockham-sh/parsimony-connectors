@@ -281,7 +281,13 @@ def destatis_fetch(
     Hits the public ``genesis.destatis.de/genesis/api/rest/tables/{code}/data``
     endpoint (anonymous, keyless) and parses the JSON-stat 2.0 response into a
     long-format DataFrame with one row per observation (series_id, title, date,
-    value). ``start_year`` / ``end_year`` are best-effort range filters.
+    value). ``start_year`` / ``end_year`` (4-digit years) bound the ``date``
+    axis: they are forwarded to GENESIS *and* re-applied client-side, because
+    GENESIS ignores the bound on some tables and returns the full span.
+
+    Note: on ``JAHR`` (annual) tables the sub-annual axis (month/quarter) lives
+    in a *classification* column (e.g. ``MONAT``/``QUARTG``), not in ``date`` —
+    ``date`` carries the year; read the classification column for the finer grain.
     """
     table_code = name.strip()
     if not table_code:
@@ -336,4 +342,20 @@ def destatis_fetch(
         )
 
     frames = [_parse_jsonstat(d, table_code) for d in datasets]
-    return pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+    df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+
+    # GENESIS honours ``startyear``/``endyear`` inconsistently (some tables return
+    # the full span regardless), so enforce the window client-side. ``date`` is
+    # normalized to ISO ``YYYY-MM-DD``, so lexical string comparison is a correct
+    # date filter.
+    if start_year:
+        df = df[df["date"] >= f"{start_year}-01-01"]
+    if end_year:
+        df = df[df["date"] <= f"{end_year}-12-31"]
+    if (start_year or end_year) and df.empty:
+        raise EmptyDataError(
+            "destatis",
+            message=f"No observations in {start_year or '..'}–{end_year or '..'} for table {table_code}",
+            query_params={"name": table_code, "start_year": start_year, "end_year": end_year},
+        )
+    return df.reset_index(drop=True)

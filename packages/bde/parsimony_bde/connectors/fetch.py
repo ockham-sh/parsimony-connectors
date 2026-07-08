@@ -167,4 +167,7 @@ def bde_fetch(
             query_params={"key": key, "time_range": time_range, "lang": lang},
         )
 
-    return df
+    # BdE returns observations newest-first; sort ascending so downstream joins
+    # don't need to re-sort. Sort by (key, date) so a multi-series request keeps
+    # each series contiguous instead of interleaving them by date.
+    return df.sort_values(["key", "date"], ignore_index=True)
