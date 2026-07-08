@@ -174,6 +174,72 @@ jobs:
           print(f'Conformance OK: {name}')
           "
 
+  # Cross-platform import smoke test.
+  #
+  # The Linux `test` job never catches import-time platform breakage (a
+  # module-level reference to a Linux-only stdlib constant, say), which is how
+  # parsimony-sdmx shipped an `AttributeError: TCP_KEEPIDLE` on macOS/Windows in
+  # 0.0.1 (#44). This job imports every published package on the two OSes the
+  # Linux matrix omits. It deliberately does NOT run pytest — the failure class
+  # is import-time crashes, so a single `import` per package is the whole gate;
+  # a full 3-OS test matrix would be far heavier and network-flaky for no added
+  # signal. py3.12 only: import-time platform breakage is not Python-minor
+  # specific.
+  import-smoke:
+    name: Import — ${{ matrix.package }} (${{ matrix.os }})
+    needs: discover
+    if: ${{ needs.discover.outputs.has_packages == 'true' }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: parsimony-connectors
+    env:
+      PKG: ${{ matrix.package }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+        package: ${{ fromJson(needs.discover.outputs.packages) }}
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          path: parsimony-connectors
+
+      - name: Check out parsimony kernel
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+        with:
+          repository: ${{ env.KERNEL_REPO }}
+          ref: ${{ env.KERNEL_REF }}
+          path: parsimony
+
+      - name: Validate matrix package name
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! [[ "$PKG" =~ ^[a-z][a-z0-9_-]*$ ]]; then
+            echo "::error::Matrix package '$PKG' must match ^[a-z][a-z0-9_-]*$"
+            exit 1
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.3
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: |
+            parsimony-connectors/uv.lock
+            parsimony-connectors/pyproject.toml
+            parsimony-connectors/packages/*/pyproject.toml
+
+      - name: Resolve workspace
+        run: uv sync --all-extras --all-packages
+
+      - name: Import package
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -c "import importlib, os; m = importlib.import_module('parsimony_' + os.environ['PKG']); print('Import OK:', m.__name__)"
+
   # Workspace-level supply-chain audit.
   #
   # The audit runs once against a hashed lockfile exported from uv.lock,

@@ -62,14 +62,32 @@ RETRY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 # TCP keepalive: detect CLOSE-WAIT connections (remote sent FIN mid-transfer)
 # that the read_timeout never catches, because EOF is not a timeout event.
-# After TCP_KEEPIDLE seconds idle the kernel probes; after TCP_KEEPCNT failed
-# probes it raises ETIMEDOUT → requests surfaces ConnectionError → retry.
-_KEEPALIVE_SOCKET_OPTIONS = [
-    (_socket.SOL_SOCKET, _socket.SO_KEEPALIVE, 1),
-    (_socket.IPPROTO_TCP, _socket.TCP_KEEPIDLE, 30),  # idle before first probe
-    (_socket.IPPROTO_TCP, _socket.TCP_KEEPINTVL, 10),  # interval between probes
-    (_socket.IPPROTO_TCP, _socket.TCP_KEEPCNT, 3),  # probes before giving up
-]
+# After the idle timer the kernel probes; after TCP_KEEPCNT failed probes it
+# raises ETIMEDOUT → requests surfaces ConnectionError → retry.
+#
+# Only SO_KEEPALIVE is portable. The per-probe knobs are platform-specific: the
+# idle timer is TCP_KEEPIDLE on Linux but TCP_KEEPALIVE on macOS (same job,
+# different name); TCP_KEEPINTVL/TCP_KEEPCNT exist on Linux and macOS but not
+# reliably on Windows. Probe for each constant and append only what the platform
+# exposes, so import never raises an AttributeError on non-Linux hosts (#44) —
+# an unsupported platform simply gets plain keepalive.
+def _keepalive_socket_options() -> list[tuple[int, int, int]]:
+    opts = [(_socket.SOL_SOCKET, _socket.SO_KEEPALIVE, 1)]
+    idle = getattr(_socket, "TCP_KEEPIDLE", None)
+    if idle is None:
+        idle = getattr(_socket, "TCP_KEEPALIVE", None)  # macOS spelling
+    if idle is not None:
+        opts.append((_socket.IPPROTO_TCP, idle, 30))  # idle before first probe
+    intvl = getattr(_socket, "TCP_KEEPINTVL", None)
+    if intvl is not None:
+        opts.append((_socket.IPPROTO_TCP, intvl, 10))  # interval between probes
+    cnt = getattr(_socket, "TCP_KEEPCNT", None)
+    if cnt is not None:
+        opts.append((_socket.IPPROTO_TCP, cnt, 3))  # probes before giving up
+    return opts
+
+
+_KEEPALIVE_SOCKET_OPTIONS = _keepalive_socket_options()
 
 
 def build_session(config: HttpConfig | None = None) -> requests.Session:

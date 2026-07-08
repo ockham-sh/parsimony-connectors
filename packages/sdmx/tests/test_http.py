@@ -1,3 +1,4 @@
+import socket
 from collections.abc import Iterator
 from unittest.mock import MagicMock, patch
 
@@ -11,6 +12,7 @@ from parsimony_sdmx.io.http import (
     DEFAULT_USER_AGENT,
     RETRY_STATUS_FORCELIST,
     HttpConfig,
+    _keepalive_socket_options,
     bounded_get,
     build_session,
 )
@@ -80,6 +82,55 @@ class TestBuildSession:
         # HTTPAdapter stores these on _pool_connections / _pool_maxsize
         assert adapter._pool_connections == 4  # type: ignore[attr-defined]
         assert adapter._pool_maxsize == 4  # type: ignore[attr-defined]
+
+
+class TestKeepaliveSocketOptions:
+    """Regression guard for #44: the option list is built by probing for
+    platform constants, so import must not raise on macOS/Windows where
+    TCP_KEEPIDLE (and friends) are absent. These tests reproduce the non-Linux
+    paths on the Linux CI box by stripping the constants with monkeypatch.
+    """
+
+    def test_always_starts_with_so_keepalive(self) -> None:
+        opts = _keepalive_socket_options()
+        assert opts[0] == (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+
+    def test_no_none_option_codes(self) -> None:
+        # A None opt-code would mean getattr fell through into the tuple —
+        # setsockopt would raise. Every appended code must be a real int.
+        for _level, opt, _val in _keepalive_socket_options():
+            assert isinstance(opt, int)
+
+    def test_linux_has_full_probe_tuning(self) -> None:
+        # On the Linux CI host all four knobs are present.
+        if not hasattr(socket, "TCP_KEEPIDLE"):
+            pytest.skip("TCP_KEEPIDLE not available on this platform")
+        opts = _keepalive_socket_options()
+        codes = {opt for _level, opt, _val in opts}
+        assert socket.TCP_KEEPIDLE in codes
+        assert socket.TCP_KEEPINTVL in codes
+        assert socket.TCP_KEEPCNT in codes
+
+    def test_macos_falls_back_to_tcp_keepalive(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # macOS has no TCP_KEEPIDLE but exposes TCP_KEEPALIVE for the idle timer.
+        monkeypatch.delattr(socket, "TCP_KEEPIDLE", raising=False)
+        monkeypatch.setattr(socket, "TCP_KEEPALIVE", 0x10, raising=False)
+        opts = _keepalive_socket_options()
+        codes = {opt for _level, opt, _val in opts}
+        assert 0x10 in codes  # the fake TCP_KEEPALIVE idle knob was used
+        assert opts[0] == (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+
+    def test_windows_degrades_to_plain_keepalive(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Windows exposes none of the per-probe setsockopt knobs; only
+        # SO_KEEPALIVE should remain and import must not raise.
+        for name in ("TCP_KEEPIDLE", "TCP_KEEPALIVE", "TCP_KEEPINTVL", "TCP_KEEPCNT"):
+            monkeypatch.delattr(socket, name, raising=False)
+        opts = _keepalive_socket_options()
+        assert opts == [(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)]
 
 
 class TestBoundedGet:
