@@ -2,22 +2,17 @@
 
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, cast
 
 from parsimony.catalog import Catalog
 from parsimony.catalog.storage import read_meta
-from parsimony.catalog.validation import ReleaseManifest, ReleaseManifestEntry, validate_catalog_snapshot
-from pydantic import ValidationError
+from parsimony.catalog.validation import validate_catalog_snapshot
 
 from parsimony_sdmx.catalog_manifest import BuildRoot
 from parsimony_sdmx.catalog_series import CATALOG_KIND, SERIES_AGENCIES, is_series_catalog
 from parsimony_sdmx.core.agencies import ALL_AGENCIES
 from parsimony_sdmx.core.namespaces import datasets_namespace
-
-VALIDATOR_VERSION = "sdmx_release_v1"
 
 _FORBIDDEN_SUBDIRS = frozenset({"resolver"})
 _FORBIDDEN_META_KEYS = frozenset({"store_kind", "migrated_from"})
@@ -58,20 +53,6 @@ class ValidationReport:
     def fail(self, message: str) -> None:
         self.ok = False
         self.errors.append(message)
-
-
-def _git_commit_sha() -> str | None:
-    try:
-        proc = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd=Path(__file__).resolve().parents[1],
-        )
-        return proc.stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
-        return None
 
 
 def validate_release_catalog_dir(catalog_dir: Path) -> list[str]:
@@ -167,74 +148,3 @@ def validate_release_root(
         report.fail(f"release root has unresolved build debt: {debt_log}")
 
     return report
-
-
-def build_release_manifest(
-    layout: BuildRoot,
-    *,
-    release_id: str,
-    skipped_flows: list[dict[str, str]] | None = None,
-) -> ReleaseManifest:
-    entries: list[ReleaseManifestEntry] = []
-    structure_marker_count = 0
-    for child in sorted(layout.catalogs.iterdir()):
-        if not child.is_dir():
-            continue
-        if child.name.startswith("sdmx_structure_"):
-            if (child / "structure.json").is_file():
-                structure_marker_count += 1
-            continue
-        if not (child / "meta.json").is_file():
-            continue
-        try:
-            meta = read_meta(child)
-        except (OSError, ValidationError, ValueError):
-            continue
-        if child.name.startswith("sdmx_series_"):
-            catalog_kind = "series"
-        elif child.name.startswith("sdmx_datasets_"):
-            catalog_kind = "datasets"
-        elif child.name.startswith("sdmx_codelist_"):
-            catalog_kind = "codelist"
-        else:
-            continue
-        sdmx = meta.sdmx or {}
-        agency_val = sdmx.get("agency")
-        flow_val = sdmx.get("flow_id")
-        entries.append(
-            ReleaseManifestEntry(
-                namespace=child.name,
-                catalog_kind=cast(Literal["datasets", "codelist", "series"], catalog_kind),
-                agency=str(agency_val) if agency_val is not None else None,
-                flow_id=str(flow_val) if flow_val is not None else None,
-                entry_count=meta.entry_count,
-                content_sha256=meta.build.content_sha256,
-                manifest_contract_sha256=meta.build.manifest_contract_sha256,
-                path=str(child.relative_to(layout.root)),
-            )
-        )
-
-    built_at = ""
-    if entries:
-        first_meta = read_meta(layout.catalogs / entries[0].namespace)
-        built_at = first_meta.build.built_at.isoformat()
-
-    return ReleaseManifest(
-        release_id=release_id,
-        built_at=built_at,
-        package_commit_sha=_git_commit_sha(),
-        validator_version=VALIDATOR_VERSION,
-        agencies=[a.value for a in ALL_AGENCIES],
-        dataset_catalogs=[e.namespace for e in entries if e.catalog_kind == "datasets"],
-        codelist_count=sum(1 for e in entries if e.catalog_kind == "codelist"),
-        structure_marker_count=structure_marker_count,
-        series_catalog_count=sum(1 for e in entries if e.catalog_kind == "series"),
-        skipped_flows=skipped_flows or [],
-        catalogs=entries,
-    )
-
-
-def write_release_manifest(layout: BuildRoot, manifest: ReleaseManifest) -> Path:
-    path = layout.root / "RELEASE_MANIFEST.json"
-    path.write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
-    return path

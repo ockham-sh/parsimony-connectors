@@ -25,19 +25,13 @@ from parsimony_sdmx.core.models import (
     CodelistRecord,
     DatasetRecord,
     DimensionStructure,
-    SeriesRecord,
     StructureRecord,
-)
-from parsimony_sdmx.core.projection import (
-    SeriesTitleProvider,
-    project_series,
 )
 from parsimony_sdmx.providers.sdmx_extract import (
     extract_dimension_codelist_ids,
     extract_dsd_dim_order,
     extract_flow_title,
     extract_raw_codelists,
-    extract_series_dim_values,
 )
 
 TitleDecorator = Callable[[str, str], str]
@@ -151,40 +145,6 @@ def list_structure_flow(
         dataset_id=dataset_id,
         language_prefs=language_prefs,
         max_sample_codes=max_sample_codes,
-    )
-
-
-def list_series_flow(
-    client: Any,
-    agency_id: str,
-    dataset_id: str,
-    language_prefs: Sequence[str] = ("en",),
-    source_title: SeriesTitleProvider | None = None,
-) -> Iterator[SeriesRecord]:
-    """Fetch DSD + codelists + series keys, yield ``SeriesRecord`` per series."""
-    msg = fetch_dataflow_with_structure(client, dataset_id)
-
-    try:
-        dataflow = msg.dataflow[dataset_id]
-    except (KeyError, AttributeError, TypeError) as exc:
-        raise SdmxFetchError(f"Dataflow {dataset_id!r} missing from response for {agency_id}") from exc
-
-    dsd = resolve_dsd(client, msg, dataflow, dataset_id)
-    dsd_order = extract_dsd_dim_order(dsd, exclude_time=True)
-    raw_codelists = extract_raw_codelists(dsd, msg)
-    labels = resolve_codelists(raw_codelists, language_prefs)
-
-    try:
-        series_keys = client.series_keys(dataset_id)
-    except Exception as exc:
-        raise SdmxFetchError(f"Failed to fetch series keys for {dataset_id}: {exc}") from exc
-
-    yield from project_series(
-        dataset_id=dataset_id,
-        series_dim_values=extract_series_dim_values(series_keys),
-        dsd_order=dsd_order,
-        labels=labels,
-        source_title=source_title,
     )
 
 

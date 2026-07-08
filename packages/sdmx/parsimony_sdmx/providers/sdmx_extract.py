@@ -128,20 +128,6 @@ def extract_series_dim_values(series_keys: Any) -> Iterator[dict[str, str]]:
         yield _series_key_to_dict(sk)
 
 
-def series_keys_from_data_message(data_msg: Any) -> dict[Any, Any]:
-    """Merge ``series`` maps from a ``DataMessage`` (handles list-shaped ``.data``)."""
-    data = getattr(data_msg, "data", None)
-    if data is None:
-        return {}
-    datasets = data if isinstance(data, list) else [data]
-    merged: dict[Any, Any] = {}
-    for ds in datasets:
-        series = getattr(ds, "series", None) or {}
-        if isinstance(series, dict):
-            merged.update(series)
-    return merged
-
-
 def _series_key_to_dict(sk: Any) -> dict[str, str]:
     """Convert one ``SeriesKey`` to ``{dim_id: code}``.
 

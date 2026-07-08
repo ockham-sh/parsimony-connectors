@@ -211,14 +211,3 @@ class TestExtractSeriesDimValues:
         sks: dict[Any, list[object]] = {sk: []}
         out = list(extract_series_dim_values(sks))
         assert out == [{"freq": "M", "geo": "DE"}]
-
-
-class TestSeriesKeysFromDataMessage:
-    def test_list_shaped_data_merges_series(self) -> None:
-        sk = TestExtractSeriesDimValues._FakeSeriesKey({"FREQ": SimpleNamespace(id="FREQ", value="M")})
-        ds = SimpleNamespace(series={sk: []})
-        msg = SimpleNamespace(data=[ds])
-        from parsimony_sdmx.providers.sdmx_extract import series_keys_from_data_message
-
-        merged = series_keys_from_data_message(msg)
-        assert sk in merged

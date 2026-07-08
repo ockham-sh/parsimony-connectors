@@ -1,14 +1,12 @@
 from types import SimpleNamespace
-from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
 from parsimony_sdmx.core.errors import SdmxFetchError
-from parsimony_sdmx.core.models import DatasetRecord, DimensionValue, SeriesRecord
+from parsimony_sdmx.core.models import DatasetRecord
 from parsimony_sdmx.providers.sdmx_flow import (
     list_datasets_flow,
-    list_series_flow,
 )
 
 
@@ -31,11 +29,6 @@ def _code(cid: str, label: str) -> SimpleNamespace:
 def _dim(dim_id: str, codelist_id: str | None = None) -> SimpleNamespace:
     local = SimpleNamespace(enumerated=SimpleNamespace(id=codelist_id)) if codelist_id else None
     return SimpleNamespace(id=dim_id, local_representation=local, concept_identity=None)
-
-
-def _sk(values: dict[str, str]) -> SimpleNamespace:
-    kvs = {d: SimpleNamespace(id=d, value=v) for d, v in values.items()}
-    return SimpleNamespace(values=kvs)
 
 
 class TestListDatasetsFlow:
@@ -120,121 +113,3 @@ class TestListStructureFlow:
         assert "CL_FREQ" in cl_ids
         assert "CL_AREA" in cl_ids
         assert record.dimensions[0].sample[0].code == "A"
-
-
-class TestListSeriesFlow:
-    def _build_msg(
-        self,
-        dataset_id: str,
-        dsd_id: str = "DSD_YC",
-        dims: list[tuple[str, str | None]] | None = None,
-        codelists: dict[str, list[SimpleNamespace]] | None = None,
-    ) -> SimpleNamespace:
-        dims = dims or [("FREQ", "CL_FREQ"), ("REF_AREA", "CL_AREA"), ("TIME_PERIOD", None)]
-        codelists = codelists or {
-            "CL_FREQ": [_code("A", "Annual"), _code("M", "Monthly")],
-            "CL_AREA": [_code("U2", "Euro area")],
-        }
-        flow = SimpleNamespace(
-            id=dataset_id,
-            name=_named({"en": "dummy"}),
-            description=_named({}),
-            structure=SimpleNamespace(id=dsd_id),
-        )
-        dsd = SimpleNamespace(
-            id=dsd_id,
-            dimensions=[_dim(did, cid) for did, cid in dims],
-        )
-        return SimpleNamespace(
-            dataflow={dataset_id: flow},
-            structure={dsd_id: dsd},
-            codelist=codelists,
-        )
-
-    def test_yields_series_records(self) -> None:
-        client = MagicMock()
-        client.dataflow.return_value = self._build_msg("YC")
-        client.series_keys.return_value = [
-            _sk({"FREQ": "A", "REF_AREA": "U2"}),
-            _sk({"FREQ": "M", "REF_AREA": "U2"}),
-        ]
-        out = list(list_series_flow(client, "ECB", "YC"))
-        assert out == [
-            SeriesRecord(
-                id="A.U2",
-                dataset_id="YC",
-                title="Annual - Euro area",
-                dimensions=(
-                    DimensionValue(id="FREQ", code="A", label="Annual"),
-                    DimensionValue(id="REF_AREA", code="U2", label="Euro area"),
-                ),
-            ),
-            SeriesRecord(
-                id="M.U2",
-                dataset_id="YC",
-                title="Monthly - Euro area",
-                dimensions=(
-                    DimensionValue(id="FREQ", code="M", label="Monthly"),
-                    DimensionValue(id="REF_AREA", code="U2", label="Euro area"),
-                ),
-            ),
-        ]
-
-    def test_source_title_hook_applied(self) -> None:
-        client = MagicMock()
-        client.dataflow.return_value = self._build_msg("YC")
-        client.series_keys.return_value = [_sk({"FREQ": "A", "REF_AREA": "U2"})]
-        out = list(
-            list_series_flow(
-                client,
-                "ECB",
-                "YC",
-                source_title=lambda sid: f"ECB:{sid}",
-            )
-        )
-        assert out[0].title == "ECB:A.U2"
-
-    def test_dsd_fetched_separately_if_not_in_msg(self) -> None:
-        client = MagicMock()
-        msg = self._build_msg("YC")
-        # Clear DSD from the main message so flow falls back to datastructure()
-        separate_dsd = msg.structure["DSD_YC"]
-        msg.structure = {}
-        client.dataflow.return_value = msg
-        client.datastructure.return_value = SimpleNamespace(structure={"DSD_YC": separate_dsd})
-        client.series_keys.return_value = [_sk({"FREQ": "A", "REF_AREA": "U2"})]
-        out = list(list_series_flow(client, "ECB", "YC"))
-        assert len(out) == 1
-        client.datastructure.assert_called_once()
-
-    def test_missing_dataflow_in_response_raises(self) -> None:
-        client = MagicMock()
-        client.dataflow.return_value = SimpleNamespace(dataflow={}, structure={})
-        with pytest.raises(SdmxFetchError, match="missing from response"):
-            list(list_series_flow(client, "ECB", "YC"))
-
-    def test_client_exception_on_series_keys_wrapped(self) -> None:
-        client = MagicMock()
-        client.dataflow.return_value = self._build_msg("YC")
-        client.series_keys.side_effect = RuntimeError("timeout")
-        with pytest.raises(SdmxFetchError, match="Failed to fetch series keys"):
-            list(list_series_flow(client, "ECB", "YC"))
-
-    def test_descendants_param_retry_on_type_error(self) -> None:
-        """Agencies that reject the `references=descendants` param fall back."""
-        client = MagicMock()
-        msg = self._build_msg("YC")
-
-        call_count = 0
-
-        def flaky_dataflow(**kwargs: Any) -> Any:
-            nonlocal call_count
-            call_count += 1
-            if "params" in kwargs:
-                raise TypeError("no descendants support")
-            return msg
-
-        client.dataflow.side_effect = flaky_dataflow
-        client.series_keys.return_value = [_sk({"FREQ": "A", "REF_AREA": "U2"})]
-        list(list_series_flow(client, "ECB", "YC"))
-        assert call_count == 2

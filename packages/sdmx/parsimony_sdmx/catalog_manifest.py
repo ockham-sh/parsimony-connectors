@@ -7,7 +7,6 @@ import logging
 import sqlite3
 import time
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -24,14 +23,6 @@ STATUS_RUNNING = "running"
 STATUS_DONE = "done"
 STATUS_FAILED = "failed"
 STATUS_DEBT = "debt"
-
-
-class TaskStatus(StrEnum):
-    PENDING = STATUS_PENDING
-    RUNNING = STATUS_RUNNING
-    DONE = STATUS_DONE
-    FAILED = STATUS_FAILED
-    DEBT = STATUS_DEBT
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,33 +162,6 @@ class Manifest:
             return None
         keys = ("agency", "phase", "flow_id", "status", "attempts", "series_count", "error", "updated_at")
         return dict(zip(keys, row, strict=True))
-
-    def list_tasks(
-        self,
-        *,
-        agency: str | None = None,
-        phase: str | None = None,
-        status: str | None = None,
-    ) -> list[dict[str, Any]]:
-        clauses: list[str] = []
-        params: list[Any] = []
-        if agency is not None:
-            clauses.append("agency=?")
-            params.append(agency)
-        if phase is not None:
-            clauses.append("phase=?")
-            params.append(phase)
-        if status is not None:
-            clauses.append("status=?")
-            params.append(status)
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        cur = self._conn.execute(
-            f"SELECT agency, phase, flow_id, status, attempts, series_count, error, updated_at "
-            f"FROM tasks {where} ORDER BY agency, phase, flow_id",
-            params,
-        )
-        keys = ("agency", "phase", "flow_id", "status", "attempts", "series_count", "error", "updated_at")
-        return [dict(zip(keys, row, strict=True)) for row in cur.fetchall()]
 
     def count_by_status(self, *, agency: str | None = None, phase: str | None = None) -> dict[str, int]:
         clauses: list[str] = []
