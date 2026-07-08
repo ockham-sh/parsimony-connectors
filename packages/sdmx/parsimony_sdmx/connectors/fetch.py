@@ -18,7 +18,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Annotated, Any, TypeVar
 
-from parsimony.catalog import code_token, normalize_namespace
 from parsimony.connector import connector
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError, ProviderError
 from parsimony.result import (
@@ -30,7 +29,7 @@ from pydantic import BaseModel, Field, field_validator
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import HTTPError, Timeout
 
-from parsimony_sdmx.connectors._agencies import ALL_AGENCIES
+from parsimony_sdmx.core.agencies import ALL_AGENCIES
 from parsimony_sdmx.core.titles import compose_observation_title, format_code_with_label
 from parsimony_sdmx.providers.dataset_urls import build_sdmx_dataset_url
 
@@ -46,6 +45,10 @@ _FETCH_TIMEOUT_SEC = 45.0
 #: from sum-of-latencies down to slowest-single-latency.
 _MAX_BATCH_SERIES = 24
 _MAX_FETCH_WORKERS = 6
+#: Hard cap on the length of a single ``series_ref`` string (one key, which may carry ``+``
+#: OR-lists within a dimension). SDMX's REST path has a practical URL-length limit; past this
+#: a caller splits the pull into several ``<=256``-char OR-strings and passes them as a list.
+_SERIES_KEY_MAX_CHARS = 256
 
 _T = TypeVar("_T")
 
@@ -75,7 +78,7 @@ class SdmxFetchParams(BaseModel):
         str,
         Field(
             min_length=1,
-            max_length=256,
+            max_length=_SERIES_KEY_MAX_CHARS,
             pattern=_SERIES_KEY_PATTERN,
             description="Dot-separated dimension values identifying the series.",
         ),
@@ -88,7 +91,7 @@ class SdmxFetchParams(BaseModel):
     def _validate_dataset_key(cls, v: str) -> str:
         stripped = v.strip()
         if "-" not in stripped:
-            raise InvalidParameterError("sdmx", "dataset_key must include agency prefix (e.g. 'ECB-YC')")
+            raise InvalidParameterError("sdmx", "dataset_ref must include agency prefix (e.g. 'ECB-YC')")
         agency, dataset_id = stripped.split("-", 1)
         allowed = {a.value for a in ALL_AGENCIES}
         if agency.upper() not in allowed:
@@ -116,31 +119,25 @@ class _ResolvedStructure:
     label_maps: dict[str, dict[str, str]]
 
 
-def _sdmx_fetch_output(namespace: str, dimension_ids: list[str]) -> OutputConfig:
-    """Tabular schema for one dataset fetch."""
-    cols: list[Column] = [
-        Column(
-            name="series_key",
-            role=ColumnRole.KEY,
-            namespace=namespace,
-        ),
+# Static tabular schema for a fetch. The per-flow dimension columns vary by flow,
+# so they (plus the optional series_url) are caught by the ``"*"`` wildcard as
+# METADATA rather than enumerated — which also lets a flow without a URL omit that
+# column without tripping the strict presence check. series_key carries no
+# namespace, matching sdmx_series_search's key column (the join target).
+# TIME_PERIOD stays the raw SDMX period label (``2020`` / ``2020-Q1`` / ``2020-01``
+# / ``2020-01-01``), NOT coerced to datetime: granularity rides on the flow's FREQ
+# dimension and a key list can mix frequencies, so there is no honest single-instant
+# form — coercing would fabricate precision and outright fails on quarterly/weekly
+# labels. Consumers parse to a datetime axis on demand (``pd.PeriodIndex``).
+SDMX_FETCH_OUTPUT = OutputConfig(
+    columns=[
+        Column(name="series_key", role=ColumnRole.KEY),
         Column(name="title", role=ColumnRole.TITLE),
+        Column(name="TIME_PERIOD", role=ColumnRole.DATA),
+        Column(name="value", dtype="numeric", role=ColumnRole.DATA),
+        Column(name="*", role=ColumnRole.METADATA),
     ]
-    for dim_id in dimension_ids:
-        cols.append(Column(name=dim_id, role=ColumnRole.METADATA))
-    cols.extend(
-        [
-            Column(name="TIME_PERIOD", dtype="datetime", role=ColumnRole.DATA),
-            Column(name="value", dtype="numeric", role=ColumnRole.DATA),
-            Column(name="series_url", role=ColumnRole.METADATA),
-        ]
-    )
-    return OutputConfig(columns=cols)
-
-
-def _sdmx_namespace_from_dataset_key(dataset_key: str) -> str:
-    """Catalog namespace for one SDMX dataset (``sdmx_<tokenized_dataset>``)."""
-    return normalize_namespace(f"sdmx_{code_token(dataset_key)}")
+)
 
 
 def _is_retryable(exc: BaseException) -> bool:
@@ -180,37 +177,54 @@ def _strip_flow_prefix(key: str, dataset_id: str) -> str:
     return rest if sep and prefix.upper() == dataset_id.upper() else key
 
 
-@connector(tags=["sdmx"])
+@connector(output=SDMX_FETCH_OUTPUT, tags=["sdmx"])
 def sdmx_fetch(
     dataset_ref: str,
     series_ref: str | list[str],
     start_period: str | None = None,
     end_period: str | None = None,
 ) -> Any:
-    """Fetch observations for one or several fully specified SDMX series of ONE flow.
+    """Fetch observations for SDMX series of ONE flow.
 
-    dataset_ref is the flow as AGENCY-DATASET_ID (agency in ECB, ESTAT, IMF_DATA, WB_WDI; e.g.
-    ECB-YC). series_ref is one complete key — every dimension filled, built positionally in
-    key_template order, no wildcards. Pass a LIST of keys of this same flow to fetch them
-    concurrently in one call instead of looping per key; start_period / end_period filter every
-    key's range.
+    dataset_ref is the flow as AGENCY-DATASET_ID (e.g. ECB-YC), from sdmx_datasets_search.
+    series_ref is one or more keys; dimensions are positional in DSD order (paste
+    sdmx_series_search's `key` straight in).
 
-    Returns one row per observation: series_key, title, per-dimension codes, TIME_PERIOD, value;
-    series_key tells batched series apart. Raises ProviderError / EmptyDataError / ParseError if
-    ANY key fails — none silently dropped. A zombie cube (common on Eurostat) ⇒ move on. See the
-    sdmx_key_resolution skill.
+    FAST wide pull: one '+'-joined OR-string. SDMX reads '+' as OR *within a dimension*, so
+    "M.CP01+CP02.DE+FR" fetches the cross-product in ONE round trip — cheaper than a key list.
+    A string is capped at 256 chars; past that, pass several <=256-char
+    OR-strings as a LIST (capped at 24, fetched concurrently). An empty dimension wildcards it
+    (slow); prefer sdmx_series_search then fetch by key. start/end_period filter each range.
+
+    Raises ProviderError/EmptyDataError/ParseError if any key fails (none dropped).
     """
     keys = series_ref if isinstance(series_ref, list) else [series_ref]
     if not keys:
         raise InvalidParameterError("sdmx", "series_ref must name at least one series key")
     if len(keys) > _MAX_BATCH_SERIES:
         raise InvalidParameterError(
-            "sdmx", f"series_ref accepts at most {_MAX_BATCH_SERIES} keys per call; got {len(keys)}"
+            "sdmx",
+            f"series_ref accepts at most {_MAX_BATCH_SERIES} keys per list; got {len(keys)}. "
+            "For a wider pull, OR-list codes within a dimension using '+' in a single key "
+            "(e.g. 'M.RCH_A.CP01+CP02+CP03.DE+FR+IT') — SDMX treats '+' as OR within a dimension, "
+            "so one such string fetches the whole cross-product in one round trip. To fetch more "
+            f"than that spans, split into multiple <={_SERIES_KEY_MAX_CHARS}-char OR-strings and "
+            f"pass up to {_MAX_BATCH_SERIES} of them as a list.",
         )
 
     dataset_id = _dataset_id_from_ref(dataset_ref)
     if dataset_id:
         keys = [_strip_flow_prefix(key, dataset_id) for key in keys]
+
+    over = next((key for key in keys if len(key) > _SERIES_KEY_MAX_CHARS), None)
+    if over is not None:
+        raise InvalidParameterError(
+            "sdmx",
+            f"a single series_ref string is capped at {_SERIES_KEY_MAX_CHARS} chars (got "
+            f"{len(over)}); split it into multiple <={_SERIES_KEY_MAX_CHARS}-char '+'-joined "
+            f"OR-strings and pass them as a list (up to {_MAX_BATCH_SERIES} items) to fetch them "
+            "together.",
+        )
 
     param_list = [
         SdmxFetchParams(
@@ -311,8 +325,8 @@ def _fetch_one_series(params: SdmxFetchParams, structure: _ResolvedStructure) ->
             return (
                 f"HTTP {status}: the provider rejected the key — a code in "
                 f"{params.series_key!r} is not valid or not populated for this flow. This is a bad-key "
-                "error, not a network failure: re-check each dimension's code against the DSD, or call "
-                "enumerate_sdmx_series to list the keys this flow actually populates, then retry. The "
+                "error, not a network failure: re-check each dimension's code against the DSD "
+                "(sdmx_dimension_search lists a dimension's valid codes), then retry. The "
                 "flow is reachable; do not switch flows or providers on this alone."
             )
         return (

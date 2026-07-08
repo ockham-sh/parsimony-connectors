@@ -115,14 +115,16 @@ class TestSdmxFetch:
         result = _call_sdmx_fetch(params)
 
         df = result.data
+        # Declared columns lead in config order; the per-flow dims + series_url
+        # trail (caught by the greedy-last "*" wildcard as METADATA).
         assert list(df.columns) == [
             "series_key",
             "title",
+            "TIME_PERIOD",
+            "value",
             "FREQ",
             "REF_AREA",
             "CURRENCY",
-            "TIME_PERIOD",
-            "value",
             "series_url",
         ]
         assert list(df["series_key"]) == ["M.DE.EUR", "M.FR.EUR"]
@@ -199,16 +201,13 @@ class TestSdmxFetch:
         result = _call_sdmx_fetch(params)
         assert "series_url" not in result.data.columns or result.data["series_url"].isna().all()
 
-    def test_namespace_uses_normalized_dataset_key(self, patch_sdmx: dict[str, Any]) -> None:
-        from parsimony_sdmx.connectors.fetch import (
-            SdmxFetchParams,
-            _sdmx_namespace_from_dataset_key,
-        )
+    def test_fetch_result_carries_output_schema(self, patch_sdmx: dict[str, Any]) -> None:
+        from parsimony.result import ColumnRole
 
-        ns = _sdmx_namespace_from_dataset_key("ECB-YC")
-        assert ns.startswith("sdmx_")
+        from parsimony_sdmx.connectors.fetch import SdmxFetchParams
 
-        # Round-trip through the actual fetch to confirm the namespace shows up.
+        # Round-trip through the actual (decorated) fetch to confirm the static
+        # OutputConfig is applied to the result.
         dim_ids = ["FREQ"]
         structure_msg = _structure_msg(dim_ids, "YC")
         data_msg = SimpleNamespace(data="<observations>")
@@ -219,8 +218,19 @@ class TestSdmxFetch:
 
         params = SdmxFetchParams(dataset_key="ECB-YC", series_key="M")
         result = _call_sdmx_fetch(params)
-        # The series_key column carries the namespace via OutputConfig.
-        assert "series_key" in result.data.columns
+
+        roles = {c.name: c.role for c in result.output_schema.columns}
+        assert roles["series_key"] == ColumnRole.KEY
+        assert roles["title"] == ColumnRole.TITLE
+        assert roles["value"] == ColumnRole.DATA
+        assert roles["TIME_PERIOD"] == ColumnRole.DATA
+        # The per-flow dimension is caught as METADATA by the wildcard.
+        assert roles["FREQ"] == ColumnRole.METADATA
+        # series_key carries no namespace — matches sdmx_series_search's key column.
+        key_col = next(c for c in result.output_schema.columns if c.name == "series_key")
+        assert key_col.namespace is None
+        # TIME_PERIOD stays the raw SDMX period string, not coerced to datetime.
+        assert result.data["TIME_PERIOD"].iloc[0] == "2024-01"
 
 
 class TestSdmxFetchBatch:
@@ -246,7 +256,16 @@ class TestSdmxFetchBatch:
                 import time
 
                 time.sleep(0.05)  # slow the first request; order must still hold
-            return pd.DataFrame({"series_key": [params.series_key], "value": [1.0]})
+            # Include the columns the output schema declares (series_key, title,
+            # TIME_PERIOD, value); dims are absent here, which the "*" wildcard tolerates.
+            return pd.DataFrame(
+                {
+                    "series_key": [params.series_key],
+                    "title": [params.series_key],
+                    "TIME_PERIOD": ["2024-01"],
+                    "value": [1.0],
+                }
+            )
 
         monkeypatch.setattr(fetch_mod, "_fetch_one_series", fake_one)
         # Structure resolution is orthogonal to the orchestration these tests exercise —
@@ -283,8 +302,28 @@ class TestSdmxFetchBatch:
 
         fetch_mod, _ = self._stub_one(monkeypatch)
         too_many = [f"M.X{i}" for i in range(_MAX_BATCH_SERIES + 1)]
-        with pytest.raises(InvalidParameterError, match="at most"):
+        # The cap error must signpost the OR-string fast path, not just refuse the list —
+        # a blocked caller should learn the escape hatch at the point of failure.
+        with pytest.raises(InvalidParameterError, match="at most") as exc:
             fetch_mod.sdmx_fetch(dataset_ref="ECB-YC", series_ref=too_many)
+        msg = str(exc.value)
+        assert "OR" in msg and "'+'" in msg
+
+    def test_over_length_string_rejected_names_or_split(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from parsimony_sdmx.connectors.fetch import _SERIES_KEY_MAX_CHARS
+
+        fetch_mod, _ = self._stub_one(monkeypatch)
+        # A single OR-string past the char cap must translate to a typed, actionable error
+        # (not a raw pydantic ValidationError) that names the "split into <=N-char OR-strings,
+        # pass a list" remedy.
+        codes = "+".join(f"CP{i:02d}" for i in range(60))
+        long_key = f"M.N.{codes}.DE"
+        assert len(long_key) > _SERIES_KEY_MAX_CHARS
+        with pytest.raises(InvalidParameterError, match="capped at") as exc:
+            fetch_mod.sdmx_fetch(dataset_ref="ECB-ICP", series_ref=long_key)
+        msg = str(exc.value)
+        assert str(_SERIES_KEY_MAX_CHARS) in msg
+        assert "OR-string" in msg and "list" in msg
 
     def test_one_bad_key_fails_whole_batch_no_silent_drop(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from parsimony.errors import ProviderError
@@ -383,21 +422,22 @@ class TestFlowPrefixStrip:
         assert calls == ["M.DE", "M.FR"]
 
 
-class TestSdmxFetchOutputBuilder:
-    def test_columns_in_expected_order_and_roles(self) -> None:
+class TestSdmxFetchOutput:
+    def test_static_schema_roles_and_wildcard(self) -> None:
         from parsimony.result import ColumnRole
 
-        from parsimony_sdmx.connectors.fetch import _sdmx_fetch_output
+        from parsimony_sdmx.connectors.fetch import SDMX_FETCH_OUTPUT
 
-        out = _sdmx_fetch_output("sdmx_test", ["FREQ", "REF_AREA"])
-        names = [c.name for c in out.columns]
-        assert names == ["series_key", "title", "FREQ", "REF_AREA", "TIME_PERIOD", "value", "series_url"]
-
-        roles = {c.name: c.role for c in out.columns}
-        assert roles["series_key"] == ColumnRole.KEY
-        assert roles["title"] == ColumnRole.TITLE
-        assert roles["FREQ"] == ColumnRole.METADATA
-        assert roles["REF_AREA"] == ColumnRole.METADATA
-        assert roles["TIME_PERIOD"] == ColumnRole.DATA
-        assert roles["value"] == ColumnRole.DATA
-        assert roles["series_url"] == ColumnRole.METADATA
+        by_name = {c.name: c for c in SDMX_FETCH_OUTPUT.columns}
+        assert by_name["series_key"].role == ColumnRole.KEY
+        # No namespace — matches sdmx_series_search's key column (the join target).
+        assert by_name["series_key"].namespace is None
+        assert by_name["title"].role == ColumnRole.TITLE
+        # TIME_PERIOD stays a raw SDMX period string (dtype 'auto' = no coercion).
+        assert by_name["TIME_PERIOD"].role == ColumnRole.DATA
+        assert by_name["TIME_PERIOD"].dtype == "auto"
+        assert by_name["value"].role == ColumnRole.DATA
+        assert by_name["value"].dtype == "numeric"
+        # Per-flow dimension columns + optional series_url are caught by the
+        # wildcard as METADATA rather than enumerated statically.
+        assert by_name["*"].role == ColumnRole.METADATA

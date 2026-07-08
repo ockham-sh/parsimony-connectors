@@ -26,9 +26,8 @@ from __future__ import annotations
 import os
 import re
 
-import httpx
 from parsimony.errors import InvalidParameterError, UnauthorizedError
-from parsimony.transport import HttpClient, map_http_error, map_timeout_error
+from parsimony.transport import HttpClient, check_status
 from parsimony.transport.helpers import make_http_client
 
 PROVIDER = "sec_edgar"
@@ -65,6 +64,7 @@ def user_agent() -> str:
 def _client(base_url: str) -> HttpClient:
     return make_http_client(
         base_url,
+        provider=PROVIDER,
         headers={"User-Agent": user_agent(), **_EXTRA_HEADERS},
         timeout=_TIMEOUT,
     )
@@ -95,11 +95,6 @@ def normalize_cik(raw: str) -> str:
 
 def get_text(http: HttpClient, path: str, *, op_name: str) -> str:
     """GET *path* and return the raw text body (a non-JSON filing document)."""
-    try:
-        response = http.request("GET", path)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider=PROVIDER, op_name=op_name)
-    except httpx.TimeoutException as exc:
-        map_timeout_error(exc, provider=PROVIDER, op_name=op_name)
+    response = http.request("GET", path, op_name=op_name)
+    check_status(response, provider=PROVIDER, op_name=op_name)
     return response.text

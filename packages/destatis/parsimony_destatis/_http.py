@@ -42,7 +42,7 @@ METADATA_CRAWL = MetadataCrawlConfig(inter_request_delay_s=0.25)
 
 def make_client(timeout: float = 60.0) -> HttpClient:
     """Build the canonical core HTTP client for the single-table fetch path."""
-    return HttpClient(BASE_URL, timeout=timeout, headers=HEADERS)
+    return HttpClient(BASE_URL, provider="destatis", timeout=timeout, headers=HEADERS)
 
 
 def get_path_json(fetcher: ThrottledJsonFetcher, path: str) -> dict[str, Any] | list[Any] | None:

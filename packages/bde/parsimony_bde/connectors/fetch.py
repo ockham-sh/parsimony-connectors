@@ -10,14 +10,14 @@ from __future__ import annotations
 
 import contextlib
 from datetime import datetime
-from typing import Annotated, Any, NoReturn
+from typing import Annotated, Any
 
 import httpx
 import pandas as pd
 from parsimony import Namespace
 from parsimony.connector import connector
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
-from parsimony.transport import map_http_error, map_timeout_error
+from parsimony.transport import check_status
 from parsimony.transport.helpers import make_http_client
 
 from parsimony_bde._http import BASE_URL
@@ -30,7 +30,7 @@ from parsimony_bde.outputs import BDE_FETCH_OUTPUT
 # A single request may mix frequencies, so the connector can't know the right
 # vocabulary up front. We accept the union of literal codes here and let BdE
 # reject a code that doesn't apply to a series' frequency — its HTTP 412 is
-# surfaced as InvalidParameterError (see ``_raise_bde_http_error``).
+# surfaced as InvalidParameterError (see ``_check_bde_response``).
 _VALID_RANGES = frozenset({"3M", "12M", "36M", "30M", "60M", "MAX"})
 _VALID_LANGS = frozenset({"en", "es"})
 
@@ -59,25 +59,25 @@ def _validate_time_range(time_range: str | None) -> str | None:
     )
 
 
-def _raise_bde_http_error(exc: httpx.HTTPStatusError, keys: list[str]) -> NoReturn:
-    """Map a BdE ``listaSeries`` HTTP error to a typed connector error.
+def _check_bde_response(response: httpx.Response, keys: list[str], *, op_name: str) -> None:
+    """Map a BdE ``listaSeries`` response to a typed connector error, if any.
 
     BdE answers an invalid series code or a frequency-incompatible ``rango`` with
     HTTP 412 and a ``{"errNum", "errMsgUsr", "errMsgDebug"}`` body — a caller
     input problem, so it surfaces as :class:`InvalidParameterError` carrying
-    BdE's own message. Everything else defers to the canonical mapping.
+    BdE's own message. Everything else defers to ``check_status``.
     """
-    if exc.response.status_code == 412:
+    if response.status_code == 412:
         detail = ""
         with contextlib.suppress(Exception):
-            body = exc.response.json()
+            body = response.json()
             if isinstance(body, dict):
                 detail = (body.get("errMsgDebug") or body.get("errMsgUsr") or "").strip()
         raise InvalidParameterError(
             "bde",
             detail or f"BdE rejected the request for series: {','.join(keys)}",
-        ) from exc
-    map_http_error(exc, provider="bde", op_name="series")
+        )
+    check_status(response, provider="bde", op_name=op_name)
 
 
 def _parse_bde_response(json_data: list[dict[str, Any]]) -> pd.DataFrame:
@@ -141,15 +141,10 @@ def bde_fetch(
         "series": ",".join(keys),
         "rango": resolved_range,
     }
-    http = make_http_client(BASE_URL, timeout=60.0)
+    http = make_http_client(BASE_URL, provider="bde", timeout=60.0)
     filtered = {k: v for k, v in req_params.items() if v is not None}
-    try:
-        response = http.request("GET", "/listaSeries", params=filtered or None)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        _raise_bde_http_error(exc, keys)
-    except httpx.TimeoutException as exc:
-        map_timeout_error(exc, provider="bde", op_name="series")
+    response = http.request("GET", "/listaSeries", params=filtered or None, op_name="series")
+    _check_bde_response(response, keys, op_name="series")
     try:
         body = response.json()
     except ValueError as exc:
@@ -172,4 +167,7 @@ def bde_fetch(
             query_params={"key": key, "time_range": time_range, "lang": lang},
         )
 
-    return df
+    # BdE returns observations newest-first; sort ascending so downstream joins
+    # don't need to re-sort. Sort by (key, date) so a multi-series request keeps
+    # each series contiguous instead of interleaving them by date.
+    return df.sort_values(["key", "date"], ignore_index=True)

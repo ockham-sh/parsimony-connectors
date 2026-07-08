@@ -121,9 +121,9 @@
 
 - **Base URL:** `https://data.snb.ch`. Single host; plain `httpx` (no curl_cffi).
 - **Formats:** CSV (fetch, long-format), JSON (`/dimensions`, `/data/json`, `/json/...`).
-- **`fetch_json` vs raw:** CSV needs the raw `_get_text` helper (`GET` +
-  `raise_for_status` + `map_http_error`/`map_timeout_error` → text). JSON endpoints use a
-  `_get_json` helper (so the `x-epb-ajax` header can be attached for `/json/...`).
+- **`fetch_json` vs raw:** CSV needs the raw `_get_text` helper (`GET` + `check_status` →
+  text). JSON endpoints use a `_get_json` helper (so the `x-epb-ajax` header can be attached
+  for `/json/...`).
 - **The WAF (Airlock) on `/json/...`:** the portal's internal API
   (`/json/table/getCubeInfo`, `/json/topic/...`) is fronted by an **Airlock WAF**. A stock
   request gets a 200/400 **`/error_path/` HTML page** (`waf.css`) instead of JSON — this

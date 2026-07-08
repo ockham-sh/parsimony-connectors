@@ -10,7 +10,7 @@ import time
 
 from parsimony_sdmx._isolation import list_datasets
 from parsimony_sdmx.catalog_build import build_structure_for_flow
-from parsimony_sdmx.connectors._agencies import AgencyId
+from parsimony_sdmx.core.agencies import AgencyId
 from parsimony_sdmx.core.models import DatasetRecord
 
 logger = logging.getLogger(__name__)

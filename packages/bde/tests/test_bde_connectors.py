@@ -104,6 +104,52 @@ def test_bde_fetch_parses_single_series_response() -> None:
 
 
 @respx.mock
+def test_bde_fetch_sorts_observations_ascending_by_date() -> None:
+    # BdE returns rows newest-first; the connector sorts ascending so downstream
+    # joins don't need to re-sort.
+    respx.get(_LISTA_SERIES_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                _series_record(
+                    dates=["2026-03-01T08:15:00Z", "2026-01-01T08:15:00Z", "2026-02-01T08:15:00Z"],
+                    values=[3.0, 1.0, 2.0],
+                )
+            ],
+        )
+    )
+
+    df = bde_fetch(key="D_1NBAF472").data
+
+    assert list(df["value"]) == [1.0, 2.0, 3.0]
+    assert list(df["date"]) == [
+        pd.Timestamp("2026-01-01"),
+        pd.Timestamp("2026-02-01"),
+        pd.Timestamp("2026-03-01"),
+    ]
+
+
+@respx.mock
+def test_bde_fetch_multi_series_kept_contiguous_when_sorting() -> None:
+    # A multi-series request sorts by (key, date): each series stays contiguous
+    # and ascending, rather than interleaving the two series by date.
+    respx.get(_LISTA_SERIES_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                _series_record("BBB", dates=["2026-02-01T00:00:00Z", "2026-01-01T00:00:00Z"], values=[2.0, 1.0]),
+                _series_record("AAA", dates=["2026-02-01T00:00:00Z", "2026-01-01T00:00:00Z"], values=[20.0, 10.0]),
+            ],
+        )
+    )
+
+    df = bde_fetch(key="AAA,BBB").data
+
+    assert list(df["key"]) == ["AAA", "AAA", "BBB", "BBB"]
+    assert list(df["value"]) == [10.0, 20.0, 1.0, 2.0]
+
+
+@respx.mock
 def test_bde_fetch_sends_one_request_for_comma_joined_keys() -> None:
     """Multiple comma-separated codes go out in a SINGLE request (BdE supports
     a comma-joined ``series`` param) — not one request per key."""

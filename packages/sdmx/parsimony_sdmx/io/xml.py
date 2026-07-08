@@ -100,17 +100,3 @@ def iter_elements(
                     root.remove(child)
     except etree.XMLSyntaxError as exc:
         raise SdmxFetchError(f"Malformed XML: {exc}") from exc
-
-
-def parse_xml(xml_bytes: bytes) -> Any:
-    """Parse a small XML document into a root element with hardened settings.
-
-    For bulk payloads prefer :func:`iter_elements`. This helper is for
-    cases where the whole tree must be inspected at once (metadata
-    responses, small structure messages).
-    """
-    parser = etree.XMLParser(**_SAFE_PARSER_KWARGS)
-    try:
-        return etree.fromstring(xml_bytes, parser)
-    except etree.XMLSyntaxError as exc:
-        raise SdmxFetchError(f"Malformed XML: {exc}") from exc

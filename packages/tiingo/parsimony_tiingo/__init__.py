@@ -37,7 +37,6 @@ import re
 import zipfile
 from typing import Annotated, Any
 
-import httpx
 import pandas as pd
 from parsimony import Namespace
 from parsimony.connector import Connectors, connector, enumerator
@@ -47,7 +46,7 @@ from parsimony.errors import (
     ParseError,
     PaymentRequiredError,
 )
-from parsimony.transport import HttpClient, map_http_error, map_timeout_error
+from parsimony.transport import HttpClient, check_status
 from parsimony.transport.helpers import fetch_json, make_http_client, require_key
 
 from parsimony_tiingo.outputs import (
@@ -56,10 +55,12 @@ from parsimony_tiingo.outputs import (
     DEFINITIONS_OUTPUT,
     ENUMERATE_OUTPUT,
     EOD_OUTPUT,
+    FUNDAMENTALS_META_OUTPUT,
     FX_PRICES_OUTPUT,
     FX_TOP_OUTPUT,
     IEX_HIST_OUTPUT,
     IEX_OUTPUT,
+    META_OUTPUT,
     NEWS_OUTPUT,
     SEARCH_OUTPUT,
 )
@@ -98,7 +99,9 @@ def _client(api_key: str) -> HttpClient:
     key raises :class:`UnauthorizedError` before any network call.
     """
     key = require_key(api_key, env_var=_ENV_VAR, provider=_PROVIDER)
-    return make_http_client(_BASE_URL, headers={"Authorization": f"Token {key}"}, timeout=_TIMEOUT)
+    return make_http_client(
+        _BASE_URL, provider=_PROVIDER, headers={"Authorization": f"Token {key}"}, timeout=_TIMEOUT
+    )
 
 
 def _safe_ticker(ticker: str) -> str:
@@ -124,6 +127,11 @@ def tiingo_search(query: str, limit: int = 25, api_key: str = "") -> pd.DataFram
     Mutual Fund), is_active, and country_code. Use the ticker with tiingo_eod,
     tiingo_iex, tiingo_meta, or tiingo_fundamentals_meta for further data.
     Example: query='apple' → ticker='AAPL'; query='bitcoin' → ticker='BTCUSD'.
+
+    Matching is a substring match on Tiingo's side, so a full punctuated legal name can
+    miss: 'coca cola' does not match 'Coca-Cola', and multi-word queries like
+    'bank america' return nothing. Search one distinctive token ('coca', 'nvidia') or a
+    known ticker, not the whole company name.
     """
     q = query.strip()
     if not q:
@@ -136,7 +144,6 @@ def tiingo_search(query: str, limit: int = 25, api_key: str = "") -> pd.DataFram
         http,
         path="tiingo/utilities/search",
         params={"query": q, "limit": limit},
-        provider=_PROVIDER,
         op_name="tiingo_search",
     )
 
@@ -186,7 +193,6 @@ def tiingo_eod(
         http,
         path=f"tiingo/daily/{t}/prices",
         params=req,
-        provider=_PROVIDER,
         op_name="tiingo_eod",
     )
 
@@ -239,7 +245,6 @@ def tiingo_iex(tickers: str, api_key: str = "") -> pd.DataFrame:
         http,
         path="iex/",
         params={"tickers": t},
-        provider=_PROVIDER,
         op_name="tiingo_iex",
     )
 
@@ -286,6 +291,10 @@ def tiingo_iex_historical(
     frequency (1min/5min/15min/30min/1hour/2hour/4hour). Returns the most
     recent ~2000 data points at the specified frequency — cannot request
     arbitrarily old data. Free tier supported. Use tiingo_search first.
+
+    The ``date`` column is tz-aware UTC (Tiingo emits ISO-8601 ``…Z`` timestamps,
+    preserved faithfully) — intraday bars are timezone-meaningful, so it is not
+    coerced to a naive date.
     """
     t = _safe_ticker(ticker)
     freq = resample_freq.strip()
@@ -298,7 +307,6 @@ def tiingo_iex_historical(
         http,
         path=f"iex/{t}/prices",
         params=req,
-        provider=_PROVIDER,
         op_name="tiingo_iex_historical",
     )
 
@@ -327,10 +335,10 @@ def tiingo_iex_historical(
 # ---------------------------------------------------------------------------
 
 
-@connector(tags=["equities"], secrets=("api_key",))
-def tiingo_meta(ticker: Annotated[str, Namespace("tiingo_ticker")], api_key: str = "") -> dict[str, Any]:
+@connector(output=META_OUTPUT, tags=["equities"], secrets=("api_key",))
+def tiingo_meta(ticker: Annotated[str, Namespace("tiingo_ticker")], api_key: str = "") -> pd.DataFrame:
     """Fetch company metadata for a stock: ticker, name, description, exchange
-    code, and listing start/end dates. Returns a single record (dict). Use
+    code, and listing start/end dates. Returns a one-row DataFrame. Use
     tiingo_search to resolve ticker symbols. For sector/industry data use
     tiingo_fundamentals_meta.
     """
@@ -340,7 +348,6 @@ def tiingo_meta(ticker: Annotated[str, Namespace("tiingo_ticker")], api_key: str
     data = fetch_json(
         http,
         path=f"tiingo/daily/{t}",
-        provider=_PROVIDER,
         op_name="tiingo_meta",
     )
 
@@ -348,7 +355,10 @@ def tiingo_meta(ticker: Annotated[str, Namespace("tiingo_ticker")], api_key: str
         raise ParseError(_PROVIDER, "metadata response was not a JSON object")
     if not data.get("ticker"):
         raise EmptyDataError(_PROVIDER, query_params={"ticker": t})
-    return data
+    # Conform to the declared schema — the endpoint omits optional fields for
+    # some tickers, so absent columns are materialised as NA (the schema is a
+    # contract, and the strict column check would otherwise crash).
+    return pd.DataFrame([data]).reindex(columns=[c.name for c in META_OUTPUT.columns])
 
 
 # ---------------------------------------------------------------------------
@@ -356,12 +366,12 @@ def tiingo_meta(ticker: Annotated[str, Namespace("tiingo_ticker")], api_key: str
 # ---------------------------------------------------------------------------
 
 
-@connector(tags=["equities"], secrets=("api_key",))
-def tiingo_fundamentals_meta(tickers: str, api_key: str = "") -> list[dict[str, Any]]:
+@connector(output=FUNDAMENTALS_META_OUTPUT, tags=["equities"], secrets=("api_key",))
+def tiingo_fundamentals_meta(tickers: str, api_key: str = "") -> pd.DataFrame:
     """Fetch fundamentals metadata for one or more stocks: sector, industry,
     SIC code/sector/industry, reporting currency, location, company website,
-    SEC filing link, ADR flag, and data freshness timestamps. Returns a list
-    of records. Comma-separate tickers; use tiingo_search to resolve them.
+    SEC filing link, ADR flag, and data freshness timestamps. Returns one row
+    per ticker. Comma-separate tickers; use tiingo_search to resolve them.
     """
     t = tickers.strip()
     if not t:
@@ -372,7 +382,6 @@ def tiingo_fundamentals_meta(tickers: str, api_key: str = "") -> list[dict[str, 
         http,
         path="tiingo/fundamentals/meta",
         params={"tickers": t},
-        provider=_PROVIDER,
         op_name="tiingo_fundamentals_meta",
     )
 
@@ -380,8 +389,9 @@ def tiingo_fundamentals_meta(tickers: str, api_key: str = "") -> list[dict[str, 
         raise ParseError(_PROVIDER, "fundamentals meta response was not a JSON array")
     if not data:
         raise EmptyDataError(_PROVIDER, query_params={"tickers": t})
-    # Always return a list (one record per ticker) for a stable downstream shape.
-    return data
+    # One row per ticker, conformed to the declared schema (absent optional
+    # fields → NA; the schema is a contract, strict column check enforces it).
+    return pd.DataFrame(data).reindex(columns=[c.name for c in FUNDAMENTALS_META_OUTPUT.columns])
 
 
 # ---------------------------------------------------------------------------
@@ -400,7 +410,6 @@ def tiingo_fundamentals_definitions(api_key: str = "") -> pd.DataFrame:
     data = fetch_json(
         http,
         path="tiingo/fundamentals/definitions",
-        provider=_PROVIDER,
         op_name="tiingo_fundamentals_definitions",
     )
 
@@ -440,17 +449,12 @@ def _fetch_news(http: HttpClient, params: dict[str, Any]) -> Any:
     (a status-only 403→Payment mapping would mis-diagnose a typo'd/revoked key).
     """
     clean = {k: v for k, v in params.items() if v is not None}
-    try:
-        response = http.request("GET", "tiingo/news", params=clean or None)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code == 403:
-            body = (exc.response.text or "").lower()
-            if "permission" in body or "news api" in body:
-                raise PaymentRequiredError(_PROVIDER) from exc
-        map_http_error(exc, provider=_PROVIDER, op_name="tiingo_news")
-    except httpx.TimeoutException as exc:
-        map_timeout_error(exc, provider=_PROVIDER, op_name="tiingo_news")
+    response = http.request("GET", "tiingo/news", params=clean or None, op_name="tiingo_news")
+    if response.status_code == 403:
+        body = (response.text or "").lower()
+        if "permission" in body or "news api" in body:
+            raise PaymentRequiredError(_PROVIDER)
+    check_status(response, provider=_PROVIDER, op_name="tiingo_news")
     return response.json()
 
 
@@ -538,7 +542,6 @@ def tiingo_crypto_prices(
         http,
         path="tiingo/crypto/prices",
         params=req,
-        provider=_PROVIDER,
         op_name="tiingo_crypto_prices",
     )
 
@@ -589,7 +592,6 @@ def tiingo_crypto_top(tickers: str, api_key: str = "") -> pd.DataFrame:
         http,
         path="tiingo/crypto/top",
         params={"tickers": t},
-        provider=_PROVIDER,
         op_name="tiingo_crypto_top",
     )
 
@@ -655,7 +657,6 @@ def tiingo_fx_prices(
         http,
         path="tiingo/fx/prices",
         params=req,
-        provider=_PROVIDER,
         op_name="tiingo_fx_prices",
     )
 
@@ -696,7 +697,6 @@ def tiingo_fx_top(tickers: str, api_key: str = "") -> pd.DataFrame:
         http,
         path="tiingo/fx/top",
         params={"tickers": t},
-        provider=_PROVIDER,
         op_name="tiingo_fx_top",
     )
 
@@ -736,14 +736,9 @@ def _download_supported_tickers(api_key: str) -> bytes:
     :class:`UnauthorizedError` like every other keyed verb.
     """
     _client(api_key)  # enforce the symmetric no-key fast-fail
-    cdn = make_http_client(_TICKERS_CDN_BASE, timeout=_TICKERS_TIMEOUT)
-    try:
-        response = cdn.request("GET", _TICKERS_ZIP_PATH)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider=_PROVIDER, op_name="enumerate_tiingo")
-    except httpx.TimeoutException as exc:
-        map_timeout_error(exc, provider=_PROVIDER, op_name="enumerate_tiingo")
+    cdn = make_http_client(_TICKERS_CDN_BASE, provider=_PROVIDER, timeout=_TICKERS_TIMEOUT)
+    response = cdn.request("GET", _TICKERS_ZIP_PATH, op_name="enumerate_tiingo")
+    check_status(response, provider=_PROVIDER, op_name="enumerate_tiingo")
     return response.content
 
 

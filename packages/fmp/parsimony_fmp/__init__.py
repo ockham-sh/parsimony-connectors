@@ -210,10 +210,14 @@ def fmp_taxonomy(
     type: Literal["sectors", "industries", "exchanges", "symbols_with_financials"],
     api_key: str = "",
 ) -> pd.DataFrame:
-    """[All plans] Return valid values for a taxonomy type: sectors, industries,
+    """[Paid] Return valid values for a taxonomy type: sectors, industries,
     exchanges, or symbols_with_financials.
 
     Use before building screener filters to ensure field values are valid.
+
+    Tier: despite FMP's docs implying these list endpoints are free, a live
+    free-tier key gets HTTP 402 (paid-only, verified 2026-07-08) — hence
+    [Paid], not [All plans]. Re-verify if FMP tiering changes.
     """
     http = _client(api_key, timeout=_BULK_TIMEOUT_SECONDS)
     data = fmp_get(http, path=_TAXONOMY_DISPATCH[type], op_name="fmp_taxonomy")

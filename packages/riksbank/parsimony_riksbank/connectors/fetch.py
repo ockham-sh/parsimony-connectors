@@ -55,7 +55,7 @@ def _resolve_swea_title(http: HttpClient, series_id: str) -> str:
     used as a fall-back. Programmer errors still propagate.
     """
     try:
-        series_list = fetch_json(http, path="Series", provider="riksbank", op_name="Series")
+        series_list = fetch_json(http, path="Series", op_name="Series")
     except ConnectorError as exc:
         logger.warning("riksbank: title lookup for %s failed (%s); using id", series_id, type(exc).__name__)
         return series_id
@@ -96,7 +96,7 @@ def riksbank_fetch(
     else:
         path = f"Observations/Latest/{series_id}"
 
-    data = fetch_json(http, path=path, provider="riksbank", op_name="Observations")
+    data = fetch_json(http, path=path, op_name="Observations")
     title = _resolve_swea_title(http, series_id)
     rows = swea.parse_observations(series_id, title, data)
     if not rows:
@@ -120,8 +120,11 @@ def riksbank_swestr_fetch(
     Dispatches across three URL families: ``SWESTR`` -> ``/latest`` or ``/all``;
     ``SWESTRAVG*`` -> ``/avg/...``; ``SWESTRINDEX`` -> ``/index/...``. ``from_date`` /
     ``to_date`` together request a window; omit both for the latest published value.
-    Returns date + value plus SWESTR's native metadata (publication time, percentiles,
-    transaction volumes) on additional columns. Keyless — ``api_key`` is optional.
+    SWESTR was first published 2021-09-01, so a ``from_date`` earlier than that
+    returns only the available observations (the effective start is the earliest
+    ``date`` in the returned frame). Returns date + value plus SWESTR's native
+    metadata (publication time, percentiles, transaction volumes) on additional
+    columns. Keyless — ``api_key`` is optional.
     """
     if series not in swestr.SWESTR_IDS:
         raise InvalidParameterError(
@@ -138,7 +141,7 @@ def riksbank_swestr_fetch(
         query = None
         path = f"latest/{series}" if kind == "rate" else f"{kind}/latest/{series}"
 
-    payload = fetch_json(http, path=path, params=query, provider="riksbank", op_name=path)
+    payload = fetch_json(http, path=path, params=query, op_name=path)
     rows = swestr.parse_swestr_rows(series, payload)
     if not rows:
         raise EmptyDataError(
@@ -201,9 +204,13 @@ def riksbank_turnover_fetch(
     """Fetch a Riksbank turnover-statistics dataset for one market and frequency.
 
     ``market`` is ``fi`` (fixed income), ``fx`` (foreign exchange) or ``ird`` (interest
-    rate derivatives); ``frequency`` is ``daily`` or ``monthly``. Returns the full
-    history (since 1987) as a tidy long table: ``period`` + ``amount`` plus the facet
-    columns ``asset`` / ``contract`` / ``counterparty``. Keyless — ``api_key`` is optional.
+    rate derivatives); ``frequency`` is ``daily`` or ``monthly``. Returns a tidy long
+    table: ``period`` + ``amount`` plus the facet columns
+    ``asset`` / ``contract`` / ``counterparty``. Keyless — ``api_key`` is optional.
+
+    Coverage is whatever the upstream dataset serves and there are no date
+    parameters — for some markets/frequencies (e.g. fx and fi monthly) that is a
+    limited rolling window of recent months, not the full history.
     """
     if market not in turnover.MARKETS:
         raise InvalidParameterError(
@@ -216,7 +223,7 @@ def riksbank_turnover_fetch(
 
     http = _http.turnover_client(api_key)
     path = f"markets/{market}/frequencies/{frequency}"
-    payload = fetch_json(http, path=path, provider="riksbank", op_name=path)
+    payload = fetch_json(http, path=path, op_name=path)
 
     rows = turnover.parse_turnover_rows(market, frequency, payload)
     if not rows:
@@ -253,7 +260,7 @@ def riksbank_holdings_fetch(
 
     http = _http.holdings_client(api_key)
     params = {"start_date": start_date or holdings.DEFAULT_START_DATE, "end_date": end_date}
-    payload = fetch_json(http, path=dataset, params=params, provider="riksbank", op_name=f"holdings/{dataset}")
+    payload = fetch_json(http, path=dataset, params=params, op_name=f"holdings/{dataset}")
 
     rows = holdings.parse_holdings_rows(dataset, payload)
     if not rows:

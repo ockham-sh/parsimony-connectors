@@ -202,12 +202,16 @@ def test_finnhub_quote_no_price_raises_empty_data() -> None:
 
 
 @respx.mock
-def test_finnhub_profile_returns_dict() -> None:
+def test_finnhub_profile_returns_frame() -> None:
     respx.get(f"{_BASE}/stock/profile2").mock(
         return_value=httpx.Response(200, json={"name": "Apple Inc", "ticker": "AAPL", "country": "US"})
     )
     result = finnhub_profile.bind(api_key=_KEY)(symbol="AAPL")
-    assert result.data["name"] == "Apple Inc"
+    # One-row frame (the raw endpoint returns a single record).
+    assert len(result.data) == 1
+    assert result.data.iloc[0]["name"] == "Apple Inc"
+    # A declared field absent from this payload is materialised (schema is a contract).
+    assert "marketCapitalization" in result.data.columns
 
 
 @respx.mock

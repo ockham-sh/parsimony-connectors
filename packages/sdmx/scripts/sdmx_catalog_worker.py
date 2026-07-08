@@ -23,9 +23,9 @@ from parsimony_sdmx.catalog_series import (
     build_series_parquet,
     collect_distinct_from_columnar,
     load_structure_marker,
-    series_namespace,
 )
-from parsimony_sdmx.connectors._agencies import AgencyId
+from parsimony_sdmx.core.agencies import AgencyId
+from parsimony_sdmx.core.namespaces import series_namespace
 from parsimony_sdmx.io.http import HttpConfig, build_session
 from parsimony_sdmx.series_fields import SERIES_PARQUET
 

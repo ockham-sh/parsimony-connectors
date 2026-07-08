@@ -3,13 +3,14 @@
 Finnhub's status semantics differ from the canonical table on a single point,
 verified live: an **invalid key returns 401** (→ ``UnauthorizedError``) and a
 **premium-only endpoint on a free plan returns 403** (→ ``PaymentRequiredError``).
-The canonical kernel mapper folds 403 into ``UnauthorizedError``, so this
-package routes through a custom ``finnhub_get`` mapper. 401/402/429/5xx all
-follow the canonical table; only 403 is special-cased.
+The canonical ``check_status`` table folds 403 into ``UnauthorizedError``, so
+``finnhub_get`` special-cases 403 with a plain ``if`` on the response status
+*before* ``check_status``. 401/402/429/5xx all follow the canonical table; only
+403 is special-cased.
 
-The full canonical ``status_map`` (401, 402, 429, 500, 503) is exercised via
+The full canonical status table (401, 402, 429, 500, 503) is exercised via
 ``ErrorMappingSuite`` because ``finnhub_get`` delegates everything except 403 to
-``map_http_error``. The 403 → PaymentRequired case has its own assertion below,
+``check_status``. The 403 → PaymentRequired case has its own assertion below,
 and an explicit 401 → Unauthorized assertion pins the dual-meaning distinction.
 """
 

@@ -124,7 +124,7 @@ Date params follow the series frequency: `YYYY` (annual/fiscal), `YYYYHH` (half)
 ## 3. Transport & quirks
 
 - Base URL: `https://www.stat-search.boj.or.jp/api/v1`. `fetch_json` fits (GET + JSON +
-  `raise_for_status` + typed-error mapping). gzip is negotiated transparently by httpx.
+  `check_status` + typed-error mapping). gzip is negotiated transparently by httpx.
 - **`getDataCode` 250-code / 60,000-point cap with `NEXTPOSITION` pagination — the headline
   finding.** A request whose `(series × periods)` exceeds **60,000 data points** returns
   **HTTP 200 + `STATUS:200, MESSAGE:"Successfully completed"`** but with only the first *K*

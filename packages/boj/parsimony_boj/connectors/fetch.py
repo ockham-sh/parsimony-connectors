@@ -188,7 +188,6 @@ def boj_fetch(
             client,
             path="getDataCode",
             params=req_params,
-            provider=PROVIDER,
             op_name="series",
         )
         if not isinstance(body, dict):

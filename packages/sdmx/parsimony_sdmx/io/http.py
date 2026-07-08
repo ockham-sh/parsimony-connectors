@@ -15,8 +15,6 @@ from __future__ import annotations
 import json
 import logging
 import socket as _socket
-from collections.abc import Iterator
-from contextlib import contextmanager
 from dataclasses import dataclass
 
 import requests
@@ -170,43 +168,6 @@ def bounded_get(
 def _require_https(url: str) -> None:
     if not url.startswith("https://"):
         raise SdmxFetchError(f"Non-HTTPS URL rejected: {url}")
-
-
-@contextmanager
-def bounded_stream(
-    session: requests.Session,
-    url: str,
-    config: HttpConfig | None = None,
-    extra_headers: dict[str, str] | None = None,
-) -> Iterator[requests.Response]:
-    """Context manager yielding a streamed response with HTTPS enforcement.
-
-    Unlike :func:`bounded_get`, this does not buffer the body — callers
-    consume ``response.raw`` (or ``response.iter_content``) directly and
-    are responsible for enforcing their own byte cap as they read. The
-    caller should use ``response.raw`` with an ``iterparse`` or similar
-    streaming consumer to keep peak memory below ``max_response_bytes``.
-
-    The response is always closed on context exit.
-    """
-    cfg = config or HttpConfig()
-    _require_https(url)
-    try:
-        response = session.get(
-            url,
-            timeout=cfg.timeout,
-            stream=True,
-            headers=extra_headers or None,
-        )
-    except requests.RequestException as exc:
-        raise SdmxFetchError(f"GET {url} failed: {exc}") from exc
-    try:
-        response.raise_for_status()
-        # Decode gzip/deflate transparently — raw must reflect decoded bytes.
-        response.raw.decode_content = True
-        yield response
-    finally:
-        response.close()
 
 
 def classify_exception(exc: BaseException) -> FailureKind:

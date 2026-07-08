@@ -90,7 +90,7 @@ def auth_headers(key: str) -> dict[str, str]:
 def make_fetch_client(api_key: str) -> HttpClient:
     """Resolve the key (fast-fail) and build the canonical client for ``bdf_fetch``."""
     key = resolve_key(api_key)
-    return make_http_client(BASE_URL, headers=auth_headers(key), timeout=60.0)
+    return make_http_client(BASE_URL, provider=PROVIDER, headers=auth_headers(key), timeout=60.0)
 
 
 __all__ = [

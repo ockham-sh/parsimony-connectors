@@ -148,10 +148,12 @@ archetype E is *structural*, not a shortcut.
 
 - **Base URL:** `https://www.rba.gov.au`
 - **Formats:** HTML (index pages), CSV (per-sheet), XLSX (openpyxl), legacy XLS (xlrd).
-- **Transport:** raw curl_cffi + hand-written mapper (`_curl_get`): 429→RateLimit
-  (+Retry-After), 402→Payment, 401/403→Unauthorized, other≥400→Provider(status);
-  curl_cffi Timeout/RequestException→Provider(408). NOT httpx ⇒ kernel `map_http_error`
-  doesn't apply (the §6 carve-out; same recipe BLS reused for its flat-file host).
+- **Transport:** raw curl_cffi + a hand-written wrapper (`_curl_get`) that hands the response
+  to `check_status`: 429→RateLimit (+Retry-After), 402→Payment, 401/403→Unauthorized,
+  other≥400→Provider(status); curl_cffi Timeout/RequestException→Provider(408) (hand-mapped,
+  since `check_status` never sees a transport-level failure). `check_status` is duck-typed on
+  `.status_code`/`.headers`, so the non-httpx curl_cffi response works with no mirroring (the
+  §6 carve-out; same recipe BLS reused for its flat-file host).
 - **Date formats:** `%d-%b-%Y` (`01-Jan-2026`) and `%d/%m/%Y`; normalized to ISO.
 - **CSV header block:** fixed-shape metadata rows precede the data; the data section
   starts after the `Series ID` row. Some workbooks have a leading title line.

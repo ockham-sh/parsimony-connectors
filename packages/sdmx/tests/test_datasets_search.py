@@ -1,4 +1,4 @@
-"""Tests for ``sdmx_datasets_search`` / ``sdmx_codelist_search`` MCP tools."""
+"""Tests for the ``sdmx_datasets_search`` connector."""
 
 from __future__ import annotations
 
@@ -9,12 +9,11 @@ import pytest
 from parsimony.catalog import Catalog, Entity
 from parsimony.errors import EmptyDataError, InvalidParameterError
 
-from parsimony_sdmx.connectors import search as search_module
-from parsimony_sdmx.connectors.search import (
+from parsimony_sdmx.connectors import datasets_search as search_module
+from parsimony_sdmx.connectors.datasets_search import (
     DEFAULT_CATALOG_ROOT,
     PARSIMONY_SDMX_CATALOG_URL_ENV,
     _clear_catalog_lru,
-    sdmx_codelist_search,
     sdmx_datasets_search,
 )
 
@@ -88,24 +87,6 @@ def test_sdmx_datasets_search_empty_raises(monkeypatch: pytest.MonkeyPatch) -> N
     )
     with pytest.raises(EmptyDataError):
         sdmx_datasets_search(query="nonsense", agency="ECB")
-
-
-def test_sdmx_codelist_search_returns_codes(monkeypatch: pytest.MonkeyPatch) -> None:
-    ns = "sdmx_codelist_ecb_cl_freq"
-
-    def fake_get_or_load(namespace: str, **kwargs: Any) -> Catalog:
-        return _catalog_with_entities(
-            ns,
-            [Entity(namespace=ns, code="DE", title="Germany", metadata={"label": "Germany"})],
-        )
-
-    monkeypatch.setattr(search_module, "_get_or_load_catalog", fake_get_or_load)
-    df = sdmx_codelist_search(query="Germany", agency="ECB", codelist_id="CL_FREQ").data
-    assert df.iloc[0]["code"] == "DE"
-
-
-def test_sdmx_codelist_search_is_tool_tagged() -> None:
-    assert "tool" in sdmx_codelist_search.tags
 
 
 def test_set_catalog_lru_size_rejects_zero() -> None:

@@ -48,12 +48,14 @@ TREASURY_FETCH_OUTPUT = OutputConfig(
 
 # ODM rate feeds return one row per business day; the rate columns vary per feed
 # (``BC_10YEAR`` for the par curve, ``ROUND_B1_YIELD_4WK_2`` for bills). The schema
-# names only the columns we always materialise; the feed-specific rate columns fold in.
+# names only the columns we always materialise; the feed-specific rate columns fold in
+# as DATA. ``source_url`` is declared METADATA so it does not fold in as a data measure.
 TREASURY_RATES_FETCH_OUTPUT = OutputConfig(
     columns=[
         Column(name="feed", role=ColumnRole.KEY, namespace="treasury"),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="record_date", dtype="datetime", role=ColumnRole.DATA),
+        Column(name="source_url", role=ColumnRole.METADATA),
     ]
 )
 

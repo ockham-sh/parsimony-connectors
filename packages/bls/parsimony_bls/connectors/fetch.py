@@ -84,15 +84,36 @@ def bls_fetch(
 ) -> pd.DataFrame:
     """Fetch a single BLS time series by ``series_id``.
 
-    Returns date + value rows with series metadata (title, frequency). The api_key
-    is optional but raises the daily quota and (when present) enriches the title
-    from the API catalog. Reaches **any** series in the BLS universe by id.
+    Returns date + value rows (ascending by date) with series metadata (title,
+    frequency). The api_key is optional but raises the daily quota and (when
+    present) enriches the title from the API catalog. Reaches **any** series in
+    the BLS universe by id.
+
+    BLS serves at most ~10 calendar years per call unkeyed (~20 keyed) and
+    silently truncates a wider request, so ``end_year - start_year`` above that
+    cap is refused with ``InvalidParameterError`` — fetch in windows within the
+    cap and concatenate.
     """
     sid = (series_id or "").strip()
     if not sid:
         raise InvalidParameterError("bls", "series_id must be non-empty")
     start = _validate_year(start_year, "start_year")
     end = _validate_year(end_year, "end_year")
+
+    # BLS caps the served window per call (~10 unkeyed / ~20 keyed years) and
+    # silently anchors it at start_year, dropping the recent tail — a 2000–2026
+    # request comes back 2000–2009 with no signal. Refuse loud instead: the caller
+    # can't tell a truncated series from a genuinely short one. The cap is derived
+    # from state we already hold (api_key presence), so this never false-positives.
+    cap = 20 if api_key else 10
+    requested = int(end) - int(start) + 1
+    if requested > cap:
+        raise InvalidParameterError(
+            "bls",
+            f"BLS serves at most {cap} calendar years per call "
+            f"({'keyed' if api_key else 'unkeyed'}); requested {start}-{end} "
+            f"({requested} years). Fetch in <={cap}-year windows and concatenate.",
+        )
 
     payload: dict[str, Any] = {
         "seriesid": [sid],
@@ -103,7 +124,7 @@ def bls_fetch(
     if api_key:
         payload["registrationkey"] = api_key
 
-    http = make_http_client(API_BASE, timeout=API_TIMEOUT)
+    http = make_http_client(API_BASE, provider="bls", timeout=API_TIMEOUT)
     body = post_api_json(http, "/timeseries/data/", payload, op_name="timeseries/data")
 
     status = body.get("status", "")
@@ -142,7 +163,9 @@ def bls_fetch(
     if not rows:
         raise EmptyDataError("bls", query_params={"series_id": sid})
 
-    return pd.DataFrame(rows)
+    # BLS returns observations newest-first; sort ascending so downstream joins
+    # don't need to re-sort.
+    return pd.DataFrame(rows).sort_values("date", ignore_index=True)
 
 
 __all__ = ["bls_fetch"]

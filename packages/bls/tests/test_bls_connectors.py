@@ -63,8 +63,55 @@ def test_bls_fetch_returns_series_observations() -> None:
     assert len(df) == 2
     assert df.iloc[0]["title"] == "Unemployment Rate"
     assert df.iloc[0]["frequency"] == "Monthly"
-    # suppressed "-" value coerces to null
-    assert df.iloc[1]["value"] != df.iloc[1]["value"]  # NaN
+    # Rows are sorted ascending by date, so the earlier M02 observation (whose
+    # suppressed "-" value coerces to null) is first and the M03 value is last.
+    # ``date`` is coerced to datetime by the output config (dtype="datetime").
+    assert list(df["date"].dt.strftime("%Y-%m-%d")) == ["2026-02-01", "2026-03-01"]
+    assert df.iloc[0]["value"] != df.iloc[0]["value"]  # NaN
+    assert df.iloc[1]["value"] == 4.1
+
+
+def test_bls_fetch_refuses_span_over_unkeyed_cap() -> None:
+    # BLS serves at most ~10 years per unkeyed call and silently truncates a
+    # wider request; the connector refuses loud before making the call rather
+    # than returning a silently-capped window. No network mock: it must raise
+    # before any HTTP request.
+    with pytest.raises(InvalidParameterError) as exc:
+        bls_fetch(series_id="LNS14000000", start_year="2000", end_year="2026")
+    assert "10 calendar years" in str(exc.value)
+    assert "unkeyed" in str(exc.value)
+
+
+def test_bls_fetch_refuses_span_over_keyed_cap() -> None:
+    # With a key the cap is ~20 years; a 21-year span still refuses.
+    with pytest.raises(InvalidParameterError) as exc:
+        bls_fetch(series_id="LNS14000000", start_year="2000", end_year="2020", api_key="k")
+    assert "20 calendar years" in str(exc.value)
+    assert "keyed" in str(exc.value)
+
+
+@respx.mock
+def test_bls_fetch_allows_span_at_unkeyed_cap() -> None:
+    # Exactly 10 years (2000..2009 inclusive) is at the cap and must go through.
+    respx.post("https://api.bls.gov/publicAPI/v2/timeseries/data/").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "status": "REQUEST_SUCCEEDED",
+                "Results": {
+                    "series": [
+                        {
+                            "seriesID": "LNS14000000",
+                            "catalog": {"series_title": "Unemployment Rate"},
+                            "data": [{"year": "2009", "period": "M01", "value": "9.0"}],
+                        }
+                    ]
+                },
+            },
+        )
+    )
+    result = bls_fetch(series_id="LNS14000000", start_year="2000", end_year="2009")
+    assert len(result.data) == 1
 
 
 @respx.mock
@@ -284,7 +331,7 @@ def test_bls_series_search_shapes_rows(monkeypatch) -> None:
             self.code, self.title, self.score, self.namespace, self.metadata = code, title, 0.5, ns, {}
 
     class _Catalog:
-        def search(self, query, limit=10):
+        def search(self, query=None, limit=10, *, filter=None, field=None):
             return [_Match("CUUR0000SETB01", "Gasoline", "bls_series_cu")]
 
     def fake_get(namespace, *, catalog_root=None, build=None):
@@ -302,7 +349,7 @@ def test_bls_series_search_empty_raises(monkeypatch) -> None:
     from parsimony_bls.connectors import search as se
 
     class _Catalog:
-        def search(self, query, limit=10):
+        def search(self, query=None, limit=10, *, filter=None, field=None):
             return []
 
     def fake_get(namespace, *, catalog_root=None, build=None):
@@ -311,3 +358,49 @@ def test_bls_series_search_empty_raises(monkeypatch) -> None:
     monkeypatch.setattr(se, "_get_or_load_catalog", fake_get)
     with pytest.raises(EmptyDataError):
         se.bls_series_search(query="nothingmatches", survey="CU")
+
+
+# ---------------------------------------------------------------------------
+# F4 #3: dimension filters EXCLUDE (exact AND), they do not merely re-rank.
+# Built against a real per-survey catalog (stub flat files) so the filter runs
+# through the catalog's own entity_matches_filter, not a stub.
+# ---------------------------------------------------------------------------
+
+
+def _real_series_catalog(monkeypatch):
+    from parsimony_bls.connectors import search as se
+
+    catalog = build_series_catalog("CU")
+    monkeypatch.setattr(
+        se, "_get_or_load_catalog", lambda ns, *, catalog_root=None, build=None: catalog
+    )
+    return se
+
+
+def test_bls_series_search_filter_excludes_nonmatching(_patch_flatfiles, monkeypatch) -> None:
+    se = _real_series_catalog(monkeypatch)
+    # "city average" is in BOTH series titles, so a soft query alone keeps both.
+    both = list(se.bls_series_search(query="city average", survey="CU").data["series_id"])
+    assert {"CUUR0000SA0", "CUUR0000SETB01"} <= set(both)
+
+    # Same query, but an exact item_code filter must DROP the non-matching variant,
+    # not merely down-rank it (the F4 hazard).
+    filtered = se.bls_series_search(
+        query="city average", survey="CU", filters={"item_code": "SETB01"}
+    ).data["series_id"].tolist()
+    assert filtered == ["CUUR0000SETB01"]
+
+
+def test_bls_series_search_filter_only_no_query(_patch_flatfiles, monkeypatch) -> None:
+    se = _real_series_catalog(monkeypatch)
+    # No text query: a pure dimension filter enumerates the exact-matching series.
+    rows = se.bls_series_search(query="", survey="CU", filters={"item_code": "SA0"}).data
+    assert rows["series_id"].tolist() == ["CUUR0000SA0"]
+
+
+def test_bls_series_search_requires_query_or_filters(_patch_flatfiles, monkeypatch) -> None:
+    from parsimony.errors import InvalidParameterError
+
+    se = _real_series_catalog(monkeypatch)
+    with pytest.raises(InvalidParameterError):
+        se.bls_series_search(query="", survey="CU")

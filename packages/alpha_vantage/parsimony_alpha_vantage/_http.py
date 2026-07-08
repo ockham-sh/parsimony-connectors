@@ -4,8 +4,9 @@ Every Alpha Vantage connector resolves its client through :func:`_client` (the
 canonical §4.3 keyed template: arg → ``ALPHA_VANTAGE_API_KEY`` env fallback →
 fast-fail with :class:`UnauthorizedError`) and routes its GET through
 :func:`av_fetch` (JSON) or :func:`av_fetch_csv` (CSV). Both build on
-``parsimony.transport.helpers.fetch_json`` / a thin raw GET, then run the
-shared :func:`raise_for_in_body_error` post-parse check.
+``parsimony.transport.helpers.fetch_json`` / a thin raw GET mapped through
+``check_status``, then run the shared :func:`raise_for_in_body_error`
+post-parse check.
 
 **The Alpha Vantage quirk (§5.8 "200-with-error-body").** Alpha Vantage returns
 **HTTP 200** for logical failures and signals the real failure mode via one of
@@ -44,13 +45,12 @@ from __future__ import annotations
 import io
 from typing import Any
 
-import httpx
 import pandas as pd
 from parsimony.errors import (
     PaymentRequiredError,
     RateLimitError,
 )
-from parsimony.transport import HttpClient, map_http_error, map_timeout_error
+from parsimony.transport import HttpClient, check_status
 from parsimony.transport.helpers import fetch_json, make_http_client, require_key
 
 _PROVIDER: str = "alpha_vantage"
@@ -90,6 +90,7 @@ def _client(api_key: str, *, timeout: float = _DEFAULT_TIMEOUT_SECONDS) -> HttpC
     key = require_key(api_key, env_var=_ENV_VAR, provider=_PROVIDER)
     return make_http_client(
         _BASE_URL,
+        provider=_PROVIDER,
         query_params={"apikey": key},
         timeout=timeout,
     )
@@ -165,14 +166,15 @@ def av_fetch(
     """GET Alpha Vantage's ``/query`` JSON endpoint; return parsed JSON.
 
     Every JSON endpoint is the same URL (``/query``), differentiated by the
-    ``function`` query param. Delegates GET + ``raise_for_status`` + HTTP-error
-    mapping + ``None``-param dropping + JSON parse to :func:`fetch_json`, then
-    runs the shared in-body error check.
+    ``function`` query param. Delegates GET + status mapping (via
+    ``check_status``, keyed by the client's ``provider``) + ``None``-param
+    dropping + JSON parse to :func:`fetch_json`, then runs the shared in-body
+    error check.
     """
     req_params: dict[str, Any] = {"function": function}
     if params:
         req_params.update(params)
-    body = fetch_json(http, path="query", params=req_params, provider=_PROVIDER, op_name=op_name)
+    body = fetch_json(http, path="query", params=req_params, op_name=op_name)
     raise_for_in_body_error(body, op_name)
     return body
 
@@ -187,21 +189,15 @@ def av_fetch_csv(
     """Fetch an Alpha Vantage CSV endpoint into a DataFrame.
 
     CSV endpoints (calendars, listing status) have no JSON helper, so this drops
-    to a raw GET (still mapping ``HTTPStatusError`` / ``TimeoutException`` by
-    hand per §6.7) and inspects the text for the same in-body error envelopes
-    before handing it to pandas.
+    to a raw GET, maps the response status via ``check_status``, and inspects
+    the text for the same in-body error envelopes before handing it to pandas.
     """
     req_params: dict[str, Any] = {"function": function}
     if params:
         req_params.update(params)
 
-    try:
-        response = http.request("GET", "/query", params=req_params)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider=_PROVIDER, op_name=op_name)
-    except httpx.TimeoutException as exc:
-        map_timeout_error(exc, provider=_PROVIDER, op_name=op_name)
+    response = http.request("GET", "/query", params=req_params, op_name=op_name)
+    check_status(response, provider=_PROVIDER, op_name=op_name)
 
     text = response.text
     stripped = text.lstrip()

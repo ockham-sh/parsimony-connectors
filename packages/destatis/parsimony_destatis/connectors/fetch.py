@@ -13,7 +13,6 @@ import json
 import re
 from typing import Annotated, Any
 
-import httpx
 import pandas as pd
 from parsimony import Namespace
 from parsimony.connector import connector
@@ -23,7 +22,7 @@ from parsimony.errors import (
     ParseError,
     RateLimitError,
 )
-from parsimony.transport import map_http_error, map_timeout_error
+from parsimony.transport import check_status
 
 from parsimony_destatis._http import looks_like_html, make_client
 from parsimony_destatis.outputs import DESTATIS_FETCH_OUTPUT
@@ -260,19 +259,14 @@ def _get_text(path: str, *, params: dict[str, str] | None = None, op_name: str) 
     The single-table data endpoint is JSON-stat, but we read it as text first so
     we can distinguish a real dataset from a 200-with-error body (HTML
     maintenance shell or a throttle notice) per §5.8 before handing it to the
-    JSON parser. ``HttpClient.request`` never raises on status, so we call
-    ``raise_for_status()`` ourselves and feed both error families to the kernel
-    mappers.
+    JSON parser. ``HttpClient.request`` never raises on status (transport
+    failures are mapped internally); ``check_status`` raises the typed error
+    from the status code for everything else.
     """
     http = make_client()
     filtered = {k: v for k, v in (params or {}).items() if v is not None}
-    try:
-        response = http.request("GET", f"/{path.lstrip('/')}", params=filtered or None)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider="destatis", op_name=op_name)
-    except httpx.TimeoutException as exc:
-        map_timeout_error(exc, provider="destatis", op_name=op_name)
+    response = http.request("GET", f"/{path.lstrip('/')}", params=filtered or None, op_name=op_name)
+    check_status(response, provider="destatis", op_name=op_name)
     return response.text
 
 
@@ -287,7 +281,13 @@ def destatis_fetch(
     Hits the public ``genesis.destatis.de/genesis/api/rest/tables/{code}/data``
     endpoint (anonymous, keyless) and parses the JSON-stat 2.0 response into a
     long-format DataFrame with one row per observation (series_id, title, date,
-    value). ``start_year`` / ``end_year`` are best-effort range filters.
+    value). ``start_year`` / ``end_year`` (4-digit years) bound the ``date``
+    axis: they are forwarded to GENESIS *and* re-applied client-side, because
+    GENESIS ignores the bound on some tables and returns the full span.
+
+    Note: on ``JAHR`` (annual) tables the sub-annual axis (month/quarter) lives
+    in a *classification* column (e.g. ``MONAT``/``QUARTG``), not in ``date`` —
+    ``date`` carries the year; read the classification column for the finer grain.
     """
     table_code = name.strip()
     if not table_code:
@@ -342,4 +342,20 @@ def destatis_fetch(
         )
 
     frames = [_parse_jsonstat(d, table_code) for d in datasets]
-    return pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+    df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+
+    # GENESIS honours ``startyear``/``endyear`` inconsistently (some tables return
+    # the full span regardless), so enforce the window client-side. ``date`` is
+    # normalized to ISO ``YYYY-MM-DD``, so lexical string comparison is a correct
+    # date filter.
+    if start_year:
+        df = df[df["date"] >= f"{start_year}-01-01"]
+    if end_year:
+        df = df[df["date"] <= f"{end_year}-12-31"]
+    if (start_year or end_year) and df.empty:
+        raise EmptyDataError(
+            "destatis",
+            message=f"No observations in {start_year or '..'}–{end_year or '..'} for table {table_code}",
+            query_params={"name": table_code, "start_year": start_year, "end_year": end_year},
+        )
+    return df.reset_index(drop=True)

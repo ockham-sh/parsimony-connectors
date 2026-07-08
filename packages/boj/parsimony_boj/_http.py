@@ -15,10 +15,10 @@ load-bearing and live here:
   manual cautions against "excessive access").
 
 ``boj_fetch`` and ``getMetadata`` both speak GET + JSON, so they go through the
-kernel's canonical ``make_http_client`` + ``fetch_json`` pair (GET +
-``raise_for_status`` + ``map_http_error`` / ``map_timeout_error`` + ``json()`` +
-``None``-param dropping). BoJ's status semantics are canonical (400 → bad params,
-5xx → server), so there is no per-package mapper chokepoint.
+kernel's canonical ``make_http_client`` + ``fetch_json`` pair (GET + status-code
+mapping via ``check_status`` + ``json()`` + ``None``-param dropping). BoJ's
+status semantics are canonical (400 → bad params, 5xx → server), so there is no
+per-package mapper chokepoint.
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ METADATA_CRAWL = MetadataCrawlConfig(
 
 def make_boj_client(timeout: float = FETCH_TIMEOUT) -> HttpClient:
     """Build the canonical keyless BoJ client (GET + JSON via ``fetch_json``)."""
-    return make_http_client(BASE_URL, headers={"User-Agent": BROWSER_USER_AGENT}, timeout=timeout)
+    return make_http_client(BASE_URL, provider=PROVIDER, headers={"User-Agent": BROWSER_USER_AGENT}, timeout=timeout)
 
 
 __all__ = [

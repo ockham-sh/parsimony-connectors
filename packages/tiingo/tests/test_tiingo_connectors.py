@@ -291,7 +291,7 @@ def test_tiingo_iex_historical_empty_raises_empty_data() -> None:
 
 
 @respx.mock
-def test_tiingo_meta_returns_dict() -> None:
+def test_tiingo_meta_returns_frame() -> None:
     respx.get(f"{_BASE}/tiingo/daily/AAPL").mock(
         return_value=httpx.Response(
             200,
@@ -307,8 +307,11 @@ def test_tiingo_meta_returns_dict() -> None:
     )
     bound = tiingo_meta.bind(api_key=_KEY)
     result = bound(ticker="AAPL")
-    assert result.data["ticker"] == "AAPL"
-    assert result.data["exchangeCode"] == "NASDAQ"
+    # One-row frame (the raw endpoint returns a single record).
+    assert len(result.data) == 1
+    row = result.data.iloc[0]
+    assert row["ticker"] == "AAPL"
+    assert row["exchangeCode"] == "NASDAQ"
 
 
 @respx.mock
@@ -325,7 +328,7 @@ def test_tiingo_meta_no_ticker_raises_empty_data() -> None:
 
 
 @respx.mock
-def test_tiingo_fundamentals_meta_returns_list() -> None:
+def test_tiingo_fundamentals_meta_returns_frame() -> None:
     respx.get(f"{_BASE}/tiingo/fundamentals/meta").mock(
         return_value=httpx.Response(
             200,
@@ -334,9 +337,11 @@ def test_tiingo_fundamentals_meta_returns_list() -> None:
     )
     bound = tiingo_fundamentals_meta.bind(api_key=_KEY)
     result = bound(tickers="AAPL")
-    # Always a list (stable shape regardless of ticker count).
-    assert isinstance(result.data, list)
-    assert result.data[0]["sector"] == "Technology"
+    # One row per ticker.
+    assert len(result.data) == 1
+    assert result.data.iloc[0]["sector"] == "Technology"
+    # A declared field absent from this payload is materialised (schema is a contract).
+    assert "sicCode" in result.data.columns
 
 
 @respx.mock

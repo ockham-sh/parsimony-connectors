@@ -149,8 +149,16 @@ def test_polymarket_events_rejects_out_of_range_limit() -> None:
 def test_polymarket_market_prices_returns_dict() -> None:
     respx.get(_PRICE_URL).mock(return_value=httpx.Response(200, json={"price": "0.42"}))
     result = polymarket_market_prices(token_id="abc")
-    # Scalar/dict return → Result (no .df); the dict is on result.data.
-    assert result.data["price"] == "0.42"
+    # Scalar/dict return → Result (no .df); the price is coerced str→float.
+    assert result.data["price"] == 0.42
+    assert isinstance(result.data["price"], float)
+
+
+@respx.mock
+def test_polymarket_market_prices_raises_parse_error_on_non_numeric() -> None:
+    respx.get(_PRICE_URL).mock(return_value=httpx.Response(200, json={"price": "n/a"}))
+    with pytest.raises(ParseError):
+        polymarket_market_prices(token_id="abc")
 
 
 @respx.mock

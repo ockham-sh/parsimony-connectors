@@ -11,32 +11,25 @@ therefore structurally *cannot reach this host*, which is exactly the §6 sancti
 real Chrome TLS handshake and gets HTTP 200. curl_cffi is a HARD dependency (declared
 in ``pyproject.toml``): without it the connector is non-functional.
 
-Because curl_cffi is not httpx, the kernel ``map_http_error`` / ``map_timeout_error``
-helpers don't apply. :func:`_curl_get` is the hand-written mapper required by §6: it
-inspects ``response.status_code`` and maps to the typed-error taxonomy (429 →
-:class:`RateLimitError`, 402 → :class:`PaymentRequiredError`, 401/403 →
-:class:`UnauthorizedError`, other 4xx/5xx → :class:`ProviderError`), and converts
-curl_cffi timeout/connection failures to ``ProviderError(status_code=408)`` —
-mirroring ``map_timeout_error``.
+Because curl_cffi returns a non-httpx response object, :func:`_curl_get` inspects
+``response.status_code`` directly and hands any non-2xx to
+:func:`~parsimony.transport.check_status`, which raises the typed-error taxonomy
+from the status code (429 → :class:`RateLimitError`, 402 →
+:class:`PaymentRequiredError`, 401/403 → :class:`UnauthorizedError`, other 4xx/5xx →
+:class:`ProviderError`). ``check_status`` is duck-typed — it reads only
+``.status_code`` and ``.headers``, both present on a curl_cffi response. curl_cffi
+timeout / connection failures are still mapped by hand to
+``ProviderError(status_code=408)``.
 """
 
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
 
 from curl_cffi.requests import Session
 from curl_cffi.requests import exceptions as curl_exc
-from parsimony.errors import (
-    PaymentRequiredError,
-    ProviderError,
-    RateLimitError,
-    UnauthorizedError,
-)
-from parsimony.transport import parse_retry_after
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from curl_cffi.requests import Response
+from parsimony.errors import ProviderError
+from parsimony.transport import check_status
 
 _BASE_URL = "https://www.rba.gov.au"
 _TABLES_URL = f"{_BASE_URL}/statistics/tables/"
@@ -57,51 +50,16 @@ _TIMEOUT = 60.0
 _ENUMERATE_CONCURRENCY = 8
 
 
-def _map_curl_status(status_code: int, *, response: Response, op_name: str) -> None:
-    """Map a non-2xx curl_cffi status to the typed-error taxonomy (NoReturn-style).
-
-    Mirrors the kernel ``map_http_error`` status table. RBA is keyless, so 401/403
-    are vanishingly unlikely on the data paths (Akamai blocks *before* auth and we
-    impersonate a browser), but we map them faithfully for completeness rather than
-    letting them fall through to a generic ProviderError.
-    """
-    if status_code == 429:
-        raise RateLimitError("rba", retry_after=_retry_after_seconds(response))
-    if status_code == 402:
-        raise PaymentRequiredError("rba")
-    if status_code in (401, 403):
-        raise UnauthorizedError("rba")
-    raise ProviderError("rba", status_code=status_code)
-
-
-def _retry_after_seconds(response: Response, *, default: float = 60.0) -> float:
-    """Parse a ``Retry-After`` duration (seconds) from a curl_cffi response.
-
-    The kernel ``parse_retry_after`` is typed for ``httpx.Response`` only; the
-    curl_cffi response has a duck-compatible ``headers.get`` but a different static
-    type, so we reuse the kernel parser via a tiny shim object that presents just
-    the ``.headers`` attribute it reads.
-    """
-    raw = response.headers.get("Retry-After", "")
-    if not str(raw).strip():
-        return default
-
-    class _Shim:
-        headers = response.headers
-
-    return parse_retry_after(_Shim(), default=default)  # type: ignore[arg-type]
-
-
 def _curl_get(
     session: Session, url: str, *, op_name: str, binary: bool = False
 ) -> str | bytes:
     """GET *url* via curl_cffi (Chrome impersonation) → text or bytes.
 
-    The raw §6 transport for an Akamai-blocked host: issue the GET, inspect
+    The raw transport for an Akamai-blocked host: issue the GET, inspect
     ``response.status_code`` directly, and map any non-2xx through
-    :func:`_map_curl_status`. curl_cffi timeout / connection failures map to
-    ``ProviderError(status_code=408)`` (the ``map_timeout_error`` convention). The
-    body is parsed separately by the caller.
+    :func:`~parsimony.transport.check_status`. curl_cffi timeout / connection
+    failures map to ``ProviderError(status_code=408)``. The body is parsed
+    separately by the caller.
     """
     try:
         response = session.get(url, impersonate="chrome", timeout=_TIMEOUT)
@@ -114,7 +72,7 @@ def _curl_get(
         raise ProviderError("rba", status_code=408) from exc
 
     if response.status_code >= 400:
-        _map_curl_status(response.status_code, response=response, op_name=op_name)
+        check_status(response, provider="rba", op_name=op_name)
 
     if binary:
         content = response.content

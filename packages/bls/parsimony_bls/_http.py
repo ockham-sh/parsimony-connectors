@@ -10,25 +10,20 @@ BLS has two hosts with very different access models:
   per-survey ``.series`` universe. It is **Akamai bot-managed**: a browser
   ``User-Agent`` is not enough, only a real Chrome TLS handshake passes. We reach it
   with ``curl_cffi`` (``impersonate="chrome"``), exactly like ``parsimony-rba``.
-  Because curl_cffi is not httpx, its failures are mapped to the typed-error
-  taxonomy by hand (the "raw transport + custom mapper" carve-out for a host the
-  canonical transport structurally cannot reach).
+  Because curl_cffi returns a non-httpx response object, its non-2xx statuses are
+  handed to :func:`~parsimony.transport.check_status` (duck-typed on
+  ``.status_code`` / ``.headers``); only its timeout / connection failures are
+  mapped by hand.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-import httpx
-from curl_cffi.requests import Response, Session
+from curl_cffi.requests import Session
 from curl_cffi.requests import exceptions as curl_exc
-from parsimony.errors import (
-    PaymentRequiredError,
-    ProviderError,
-    RateLimitError,
-    UnauthorizedError,
-)
-from parsimony.transport import HttpClient, map_http_error, map_timeout_error, parse_retry_after
+from parsimony.errors import ProviderError
+from parsimony.transport import HttpClient, check_status
 
 PROVIDER = "bls"
 
@@ -54,46 +49,19 @@ def post_api_json(
 ) -> Any:
     """POST a JSON body to the BLS API and return parsed JSON.
 
-    ``fetch_json`` is GET-only, so the POST data path uses this:
-    ``raise_for_status()`` + the kernel ``map_http_error`` / ``map_timeout_error``.
-    POST is not retried by the transport (non-idempotent), by design. Logical
-    (body-level) failures are the caller's responsibility to inspect.
+    ``fetch_json`` is GET-only, so the POST data path issues the request directly
+    and hands the response to :func:`~parsimony.transport.check_status`.
+    ``request()`` maps transport failures internally; ``check_status`` raises the
+    typed error from any non-2xx status. POST is not retried by the transport
+    (non-idempotent), by design. Logical (body-level) failures are the caller's
+    responsibility to inspect.
     """
-    try:
-        response = http.request("POST", path, json=payload)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        map_http_error(exc, provider=PROVIDER, op_name=op_name)
-    except httpx.TimeoutException as exc:
-        map_timeout_error(exc, provider=PROVIDER, op_name=op_name)
-    return response.json()
+    resp = http.request("POST", path, json=payload, op_name=op_name)
+    check_status(resp, provider=PROVIDER, op_name=op_name)
+    return resp.json()
 
 
 # --- curl_cffi bulk download -----------------------------------------------
-
-
-def _map_curl_status(status_code: int, *, response: Response) -> None:
-    """Map a non-2xx curl_cffi status to the typed-error taxonomy (NoReturn-style)."""
-    if status_code == 429:
-        raise RateLimitError(PROVIDER, retry_after=_retry_after_seconds(response))
-    if status_code == 402:
-        raise PaymentRequiredError(PROVIDER)
-    if status_code in (401, 403):
-        # Akamai "Access Denied" surfaces as 200-with-HTML far more often than a
-        # real 403, but map faithfully if the edge ever returns one.
-        raise UnauthorizedError(PROVIDER)
-    raise ProviderError(PROVIDER, status_code=status_code)
-
-
-def _retry_after_seconds(response: Response, *, default: float = 60.0) -> float:
-    raw = response.headers.get("Retry-After", "")
-    if not str(raw).strip():
-        return default
-
-    class _Shim:
-        headers = response.headers
-
-    return parse_retry_after(_Shim(), default=default)  # type: ignore[arg-type]
 
 
 def make_download_session() -> Session:
@@ -108,9 +76,9 @@ def download_text(session: Session, url: str, *, op_name: str) -> str:
     """GET *url* from ``download.bls.gov`` via curl_cffi (Chrome impersonation).
 
     Raw transport for an Akamai-walled host: issue the GET, inspect
-    ``status_code`` directly, map any non-2xx through :func:`_map_curl_status`.
-    A curl_cffi timeout / connection failure maps to ``ProviderError(408)``
-    (the ``map_timeout_error`` convention) so an agent can fail over.
+    ``status_code`` directly, hand any non-2xx to
+    :func:`~parsimony.transport.check_status`. A curl_cffi timeout / connection
+    failure maps to ``ProviderError(408)`` so an agent can fail over.
     """
     try:
         response = session.get(url, impersonate="chrome", timeout=DOWNLOAD_TIMEOUT)
@@ -120,7 +88,7 @@ def download_text(session: Session, url: str, *, op_name: str) -> str:
         raise ProviderError(PROVIDER, status_code=408) from exc
 
     if response.status_code >= 400:
-        _map_curl_status(response.status_code, response=response)
+        check_status(response, provider=PROVIDER, op_name=op_name)
     return str(response.text)
 
 

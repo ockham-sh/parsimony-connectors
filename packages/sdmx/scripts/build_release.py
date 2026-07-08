@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from parsimony_sdmx._isolation import LIST_DEFAULT_TIMEOUT_S, ListDatasetsError, list_datasets
-from parsimony_sdmx.connectors._agencies import ALL_AGENCIES, AgencyId
+from parsimony_sdmx.core.agencies import ALL_AGENCIES, AgencyId
 from parsimony_sdmx.core.models import DatasetRecord
 
 
@@ -31,6 +31,7 @@ from parsimony_sdmx.core.models import DatasetRecord
 # duplicate minimal namespace helper here to avoid importing build_catalog in parent.
 def structure_marker_namespace(agency: AgencyId, dataset_id: str) -> str:
     return f"sdmx_structure_{agency.value.lower()}_{dataset_id.lower()}"
+
 
 logger = logging.getLogger(__name__)
 

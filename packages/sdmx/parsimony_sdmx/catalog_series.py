@@ -21,7 +21,7 @@ from parsimony.embedder import SentenceTransformerEmbedder
 from parsimony.ranking import ZScoreFusion
 
 from parsimony_sdmx.catalog_policy import HYBRID_BM25_WEIGHT, HYBRID_VECTOR_WEIGHT
-from parsimony_sdmx.connectors._agencies import AgencyId, to_namespace_token
+from parsimony_sdmx.core.agencies import AgencyId, to_namespace_token
 from parsimony_sdmx.core.models import StructureRecord
 from parsimony_sdmx.core.titles import compose_series_title
 from parsimony_sdmx.io.http import HttpConfig, build_session
@@ -51,11 +51,6 @@ AGENCY_CSV: dict[AgencyId, tuple[str, str]] = {
 }
 
 SERIES_AGENCIES: frozenset[AgencyId] = frozenset({AgencyId.ESTAT, AgencyId.ECB, AgencyId.IMF_DATA})
-
-
-def series_namespace(agency: AgencyId | str, dataset_id: str) -> str:
-    agency_token = to_namespace_token(agency)
-    return f"sdmx_series_{agency_token}_{dataset_id.lower()}"
 
 
 def structure_marker_namespace(agency: AgencyId | str, dataset_id: str) -> str:
@@ -513,7 +508,6 @@ __all__ = [
     "is_series_catalog",
     "labels_from_structure",
     "load_structure_marker",
-    "series_namespace",
     "series_parquet_schema",
     "structure_marker_namespace",
 ]

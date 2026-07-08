@@ -16,14 +16,13 @@ from parsimony.catalog.search import resolved_catalog_url
 from parsimony.catalog.source import lazy_catalog_dir
 from parsimony.catalog.storage import read_meta
 from parsimony.connector import connector
-from parsimony.errors import ConnectorError, EmptyDataError, InvalidParameterError
+from parsimony.errors import CatalogNotFoundError, ConnectorError, EmptyDataError, InvalidParameterError
 from parsimony.result import Column, ColumnRole, OutputConfig
 from pydantic import BaseModel, Field
 
-from parsimony_sdmx.catalog_series import series_namespace
-from parsimony_sdmx.connectors._agencies import AgencyId
-from parsimony_sdmx.connectors.search import DEFAULT_CATALOG_ROOT, PARSIMONY_SDMX_CATALOG_URL_ENV
-from parsimony_sdmx.series_facets import facets_from_table, facets_to_json
+from parsimony_sdmx.connectors.datasets_search import DEFAULT_CATALOG_ROOT, PARSIMONY_SDMX_CATALOG_URL_ENV
+from parsimony_sdmx.core.agencies import AgencyId
+from parsimony_sdmx.core.namespaces import series_namespace
 from parsimony_sdmx.series_fields import (
     SERIES_PARQUET,
     TITLE_FIELD,
@@ -36,6 +35,13 @@ from parsimony_sdmx.series_query import plan_series_search
 logger = logging.getLogger(__name__)
 
 DEFAULT_LRU_SIZE = 4
+
+#: A free-text ``query`` is a ranked shortlist for reading — capped small. A pure
+#: ``filter_json`` lookup is an *enumeration* of the already-cached local catalog into a
+#: kernel variable (the agent filters/charts it in-sandbox), so it may return a whole
+#: dimension slice — the field report's 574-series slice exceeded the old 500 ceiling.
+RANKED_LIMIT = 500
+ENUMERATION_LIMIT = 10_000
 
 
 _CATALOG_LRU_ENV_VAR = "PARSIMONY_SDMX_CATALOG_LRU_SIZE"
@@ -59,14 +65,27 @@ def _clear_series_catalog_lru() -> None:
     _load_series_catalog.cache_clear()
 
 
-def _resolve_catalog_path(namespace: str, *, catalog_root: str | None = None) -> Path:
+def _not_published(label: str) -> str:
+    """The single "this flow has no published series catalog" message, shared by every caller."""
+    return f"No series catalog for {label}: this flow is not published. Ask the maintainers to build it."
+
+
+def _resolve_catalog_path(namespace: str, *, label: str, catalog_root: str | None = None) -> Path:
     """Resolve this flow's catalog to a local directory (for parquet + Catalog.load).
 
     Delegates URL resolution to the framework: ``resolve_catalog_dir`` handles
     every scheme (``file://`` and ``hf://``) and, for a sub-path ``hf://`` catalog,
     downloads only this flow's sub-tree rather than enumerating the whole SDMX
     monorepo. The connector holds no scheme knowledge of its own.
+
+    A flow that was never built has no sub-tree on the remote (an ``hf://`` 404 →
+    ``EntryNotFoundError``) or an empty one (``CatalogNotFoundError``); both mean the same
+    thing, so translate them into the one friendly "not published" message rather than
+    leaking a raw Hugging Face 404. A genuine network failure is a *different* exception
+    and propagates as-is — an unreachable Hub is not "not published."
     """
+    from huggingface_hub.errors import EntryNotFoundError
+
     root = resolved_catalog_url(
         PARSIMONY_SDMX_CATALOG_URL_ENV,
         DEFAULT_CATALOG_ROOT,
@@ -81,6 +100,8 @@ def _resolve_catalog_path(namespace: str, *, catalog_root: str | None = None) ->
         # resolve_catalog_dir raises ValueError for an unsupported scheme; keep the
         # connector's structured error type so callers catching ConnectorError see it.
         raise ConnectorError(str(exc), provider="sdmx") from exc
+    except (EntryNotFoundError, CatalogNotFoundError) as exc:
+        raise ConnectorError(_not_published(label), provider="sdmx") from exc
 
 
 def _parse_agency(agency: str) -> AgencyId:
@@ -99,14 +120,6 @@ def _sdmx_meta(catalog_dir: Path) -> dict[str, Any]:
     if isinstance(sdmx, dict):
         return sdmx
     return {}
-
-
-def _dim_columns(dsd_order: tuple[str, ...]) -> list[str]:
-    cols: list[str] = []
-    for dim in dsd_order:
-        cols.append(dim_code_field(dim))
-        cols.append(dim_label_field(dim))
-    return cols
 
 
 def _validate_filter_columns(filter_spec: dict[str, list[str]], dsd_order: tuple[str, ...], *, label: str) -> None:
@@ -134,7 +147,6 @@ SERIES_SEARCH_OUTPUT = OutputConfig(
         Column(name="key", role=ColumnRole.KEY),
         Column(name=TITLE_FIELD, role=ColumnRole.TITLE),
         Column(name="score", role=ColumnRole.DATA),
-        Column(name="refine", role=ColumnRole.METADATA),
     ]
 )
 
@@ -145,7 +157,7 @@ class SeriesSearchParams(BaseModel):
     # Optional: omit for a pure ``filter_json`` (exact code) lookup. Free-text
     # ``query`` is matched against titles/labels, never against SDMX codes.
     query: str | None = Field(default=None, max_length=512)
-    limit: int = Field(default=50, ge=1, le=500)
+    limit: int = Field(default=50, ge=1, le=ENUMERATION_LIMIT)
     top_k_per_dim: int = Field(default=5, ge=1, le=50)
     catalog_root: str | None = None
     field: str | None = Field(default=None, max_length=128)
@@ -165,15 +177,15 @@ def sdmx_series_search(
 ) -> pd.DataFrame:
     """Search populated series keys in a prebuilt columnar catalog for one SDMX flow.
 
-    ``query=`` is FREE TEXT matched against human-readable series titles/labels
-    (e.g. "10-year government bond spot rate") — do NOT pass SDMX codes
-    ("SR_10Y", "10Y"); they are absent from titles and match nothing. To match
-    exact codes, target the ``{dim}_code``/``{dim}_label`` columns via
-    ``filter_json`` (exact AND filter, e.g. ``{"DATA_TYPE_FM_code": ["SR_10Y"]}``)
-    or ``field=`` with a single ``query=`` scoped to one such column; ``query=``
-    may be omitted for a pure ``filter_json`` lookup. Returns ranked matches with
-    the series ``key``, ``title``, the resolved ``{dim}_code``/``{dim}_label``
-    columns, and a ``refine`` facet column.
+    ``query=`` is FREE TEXT over series titles/labels (e.g. "10-year bond spot rate") — NOT
+    SDMX codes ("SR_10Y"), not in titles. Filter by exact code with ``filter_json`` (AND on
+    ``{dim}_code``/``{dim}_label``), or inline in ``query=`` as ``{dim}_code: SR_10Y &&
+    geo_label: Germany`` — ``&&`` ANDs clauses, ``_code`` is exact, ``_label`` is semantic.
+    Returns ``key`` (fetch-ready, paste into sdmx_fetch), ``title``, ``score``, resolved
+    ``{dim}_code``/``{dim}_label``; codes: sdmx_dimension_search.
+
+    ``query=`` is a ranked shortlist (``limit`` <= 500); omit it for a pure ``filter_json``
+    lookup enumerating the whole matching slice from the cached catalog (``limit`` up to 10000).
     """
     params = SeriesSearchParams(
         agency=agency,
@@ -195,14 +207,19 @@ def sdmx_series_search(
         )
     if params.field is not None and q is None:
         raise InvalidParameterError("sdmx", "field= requires a non-empty query=")
+    if q is not None and params.limit > RANKED_LIMIT:
+        raise InvalidParameterError(
+            "sdmx",
+            f"query= is a ranked shortlist (limit <= {RANKED_LIMIT}). To read a whole "
+            "dimension slice, omit query= and enumerate the cached catalog with "
+            f"filter_json= (limit up to {ENUMERATION_LIMIT}).",
+        )
 
     namespace = series_namespace(agency_id, flow)
-    catalog_path = _resolve_catalog_path(namespace, catalog_root=params.catalog_root)
+    label = f"{agency_id.value}/{flow}"
+    catalog_path = _resolve_catalog_path(namespace, label=label, catalog_root=params.catalog_root)
     if not catalog_path.is_dir():
-        raise ConnectorError(
-            f"No series catalog for {agency_id.value}/{flow} at {catalog_path}",
-            provider="sdmx",
-        )
+        raise ConnectorError(_not_published(label), provider="sdmx")
 
     try:
         catalog = _load_series_catalog(namespace, str(catalog_path.resolve()))
@@ -225,13 +242,14 @@ def sdmx_series_search(
                 raise InvalidParameterError("sdmx", "filter_json must be a JSON object")
             filter_spec = {}
             for key, values in parsed_filter.items():
-                if not isinstance(values, list):
-                    raise InvalidParameterError("sdmx", f"filter_json[{key!r}] must be a list of values")
-                filter_spec[str(key)] = [str(v) for v in values]
+                # Accept a bare scalar as a single-code filter: {"FREQ_code": "M"} means
+                # ["M"]. A str is iterable, so it must be wrapped, never iterated — otherwise
+                # "DE" would expand to ["D", "E"] and match nothing.
+                items = values if isinstance(values, list) else [values]
+                filter_spec[str(key)] = [str(v) for v in items]
             _validate_filter_columns(filter_spec, dsd_order, label=f"{agency_id.value}/{flow}")
         plan_query = q if params.field is not None else None
         plan_field = params.field
-        pinned_dims: frozenset[str] = frozenset()
     else:
         # No field and no filter_json: the guard above guarantees q is set here.
         assert q is not None
@@ -244,7 +262,6 @@ def sdmx_series_search(
         plan_query = plan.query
         plan_field = plan.field
         filter_spec = plan.filter
-        pinned_dims = plan.pinned_dims
 
     matches = catalog.search(
         plan_query,
@@ -265,16 +282,14 @@ def sdmx_series_search(
             expr = exprs[0]
             for item in exprs[1:]:
                 expr = expr & item
-    filtered = dataset.to_table(filter=expr, columns=["key", "title", *_dim_columns(dsd_order)])
-    facets = facets_from_table(filtered, dsd_order, pinned_dims=set(pinned_dims))
-    refine_json = facets_to_json(facets)
+    filtered = dataset.to_table(filter=expr, columns=["key", "title"])
 
     if not matches:
         criteria = repr(q) if q is not None else f"filter {filter_spec}"
         raise EmptyDataError("sdmx", f"No series matched {criteria} in {agency_id.value}/{flow}")
 
-    # ``filtered`` already holds key+title (materialized for facets); reuse it to
-    # surface the human-readable title without a second parquet scan.
+    # ``filtered`` holds key+title; reuse it to surface the human-readable title
+    # without a second parquet scan.
     matched_codes = {match.code for match in matches}
     title_map = {
         key: title
@@ -288,7 +303,6 @@ def sdmx_series_search(
             "key": match.code,
             TITLE_FIELD: title_map.get(match.code, ""),
             "score": round(match.score, 6),
-            "refine": refine_json,
         }
         for dim in dsd_order:
             code_col = dim_code_field(dim)
@@ -302,5 +316,6 @@ def sdmx_series_search(
 
 __all__ = [
     "_clear_series_catalog_lru",
+    "_not_published",
     "sdmx_series_search",
 ]

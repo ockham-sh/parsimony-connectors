@@ -27,7 +27,6 @@ def _list_datasets() -> list[dict]:
     raw = fetch_json(
         _http.metadata_client(),
         path=_http.METADATA_PATH,
-        provider="treasury",
         op_name="datasets/metadata",
     )
     return parsing.unwrap_metadata(raw)

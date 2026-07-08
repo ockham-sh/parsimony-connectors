@@ -22,8 +22,8 @@ from parsimony_bls.surveys import HEADLINE_SURVEYS
 def enumerate_bls_surveys(api_key: str = "") -> pd.DataFrame:
     """List every BLS survey (program) for the tier-1 discovery catalog."""
     query = {"registrationkey": api_key} if api_key else None
-    http = make_http_client(API_BASE, query_params=query, timeout=API_TIMEOUT)
-    body = fetch_json(http, path="surveys", provider="bls", op_name="surveys")
+    http = make_http_client(API_BASE, provider="bls", query_params=query, timeout=API_TIMEOUT)
+    body = fetch_json(http, path="surveys", op_name="surveys")
 
     rows: list[dict[str, object]] = []
     for s in body.get("Results", {}).get("survey", []):

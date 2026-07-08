@@ -9,7 +9,6 @@ import pandas as pd
 from parsimony import Namespace
 from parsimony.connector import connector
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
-from parsimony.transport.helpers import fetch_json
 
 from parsimony_treasury import _http, parsing
 from parsimony_treasury.outputs import TREASURY_FETCH_OUTPUT, TREASURY_RATES_FETCH_OUTPUT
@@ -37,11 +36,10 @@ def treasury_fetch(
         raise InvalidParameterError("treasury", "page_size must be between 1 and 10000")
 
     req_params: dict[str, Any] = {"page[size]": page_size, "filter": filter, "sort": sort}
-    body = fetch_json(
+    body = _http.fiscal_get(
         _http.fiscal_client(),
-        path=endpoint,
+        endpoint,
         params=req_params,
-        provider="treasury",
         op_name=endpoint,
     )
 

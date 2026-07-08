@@ -1,11 +1,11 @@
 """Error-mapping contract for parsimony-rba (Reserve Bank of Australia).
 
 RBA's transport is **curl_cffi**, not httpx — the canonical ``ErrorMappingSuite``
-(which mocks httpx via respx) does not apply. The Akamai-blocked host means the
-kernel ``map_http_error`` / ``map_timeout_error`` helpers can't be used either;
-``_curl_get`` carries a hand-written mapper (the §6 "raw + custom mapper"
-exception). These tests pin that mapper directly: HTTP status → typed error, the
-Retry-After contract, and curl_cffi timeout/connection failures → ProviderError(408).
+(which mocks httpx via respx) does not apply. ``_curl_get`` hands non-2xx statuses
+to the duck-typed :func:`parsimony.transport.check_status` and maps curl_cffi
+timeout / connection failures by hand. These tests pin that behaviour: HTTP status
+→ typed error, the Retry-After contract, and curl_cffi timeout/connection failures
+→ ProviderError(408).
 """
 
 from __future__ import annotations
@@ -91,8 +91,8 @@ def test_curl_get_rate_limit_defaults_retry_after_without_header() -> None:
 
 
 def test_curl_get_timeout_maps_to_provider_error_408() -> None:
-    """A curl_cffi timeout maps to ProviderError(status_code=408) — mirrors
-    the kernel ``map_timeout_error`` convention."""
+    """A curl_cffi timeout maps to ProviderError(status_code=408) — the same
+    convention ``HttpClient.request`` applies to an httpx timeout."""
     session = _ErrSession(raises=curl_exc.Timeout("timed out"))
     with pytest.raises(ProviderError) as exc_info:
         pkg._curl_get(cast(Any, session), "https://www.rba.gov.au/x", op_name="test")

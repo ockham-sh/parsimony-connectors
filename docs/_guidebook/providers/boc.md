@@ -120,7 +120,7 @@ Missing/suppressed observations come back as `{"v": ""}` (or the key absent), no
 ## 3. Transport & quirks
 
 - Base URL: `https://www.bankofcanada.ca/valet`.
-- Response format: JSON (`fetch_json` fits cleanly — GET + `raise_for_status` + typed-error
+- Response format: JSON (`fetch_json` fits cleanly — GET + `check_status` + typed-error
   mapping). CSV/XML also offered but unused.
 - Pagination: none on the list endpoints; the series index is one object.
 - **Chunked-transfer close (cosmetic):** raw `curl` on `/lists/series/json` prints

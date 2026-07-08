@@ -265,15 +265,19 @@ empty string falls through to the default).
 
 ### 4.6 Transport (`parsimony.transport` + `parsimony.transport.helpers`)
 
-- `make_http_client(base_url, *, query_params=None, headers=None, timeout=15.0)` /
-  `make_api_key_client(base_url, *, api_key, api_key_param="apikey", timeout=15.0)` build a
-  configured `HttpClient`.
-- `fetch_json(http, *, path, params, provider, op_name)` does it all for GET+JSON: drops
-  `None` params, GET, `raise_for_status()`, maps `httpx` errors to typed errors
-  (`map_http_error` / `map_timeout_error`), returns parsed JSON.
-- `HttpClient.request()` **never calls `raise_for_status()`** — a 503 looks like a 200. If you
-  use it raw, call `raise_for_status()` yourself and feed the error to `map_http_error` /
-  `map_timeout_error`.
+- `make_http_client(base_url, *, provider, query_params=None, headers=None, timeout=15.0)` /
+  `make_api_key_client(base_url, *, provider, api_key, api_key_param="apikey", timeout=15.0)`
+  build a configured `HttpClient`. `provider=` is required — it tags every typed error the
+  client raises.
+- `fetch_json(http, *, path, params, op_name, env_var=None)` does it all for GET+JSON: drops
+  `None` params, GET, maps a non-2xx status to a typed error via `check_status` (reading
+  `provider` off `http.provider`), returns parsed JSON.
+- `HttpClient.request(method, path, params=None, json=None, headers=None, *, op_name)` maps
+  transport failures (timeout, connection refused, DNS, protocol error) to a typed
+  `ProviderError` internally — no raw `httpx` exception ever escapes it, so callers never wrap
+  it in `try/except httpx.*`. It does **not** raise on a non-2xx HTTP status, though — a 503
+  looks like a normal returned response. If you use it raw, call
+  `check_status(response, provider=..., op_name=...)` yourself to map the status.
 - `HttpClient` auto-redacts query-param **values** whose **name** is in the sensitive set
   (`api_key`, `apikey`, `api_token`, `token`, `access_token`, `refresh_token`, `id_token`,
   `client_secret`, `secret`, `password`, `authorization`, `registrationkey`, plus any
@@ -319,7 +323,7 @@ def _client(api_key: str) -> HttpClient:
     key = api_key or os.environ.get(_ENV_VAR, "")
     if not key:
         raise UnauthorizedError("acme", env_var=_ENV_VAR)   # fast-fail BEFORE any network call
-    return make_http_client(_BASE_URL, query_params={"apikey": key, "fmt": "json"})
+    return make_http_client(_BASE_URL, provider="acme", query_params={"apikey": key, "fmt": "json"})
 
 @connector(output=…, tags=["…", "tool"], secrets=("api_key",))
 def acme_search(query: str, api_key: str = "") -> pd.DataFrame: ...
@@ -335,7 +339,8 @@ keyword-only and conventionally `<PROVIDER>_API_KEY`.
 **Pick the helper by the key's param name:** `make_api_key_client` hardcodes
 `api_key_param="apikey"` and sets *only* the key, so if the param is anything else (FRED
 `api_key`, EIA `api_key`, EODHD `api_token`) **or** you need an extra fixed query param
-(`file_type=json`, `fmt=json`), use `make_http_client(query_params={...})` instead.
+(`file_type=json`, `fmt=json`), use `make_http_client(provider=..., query_params={...})`
+instead. Both helpers require `provider=`.
 
 ### 5.2 Carry the key the way the provider expects — prefer header/body over query
 
@@ -421,17 +426,13 @@ reuse across XML/text feeds):
 
 ```python
 def _get_text(http, path, *, params, op_name):                      # XML/CSV/text GET
-    try:
-        r = http.request("GET", path, params=params); r.raise_for_status()
-    except httpx.HTTPStatusError as e: map_http_error(e, provider="…", op_name=op_name)
-    except httpx.TimeoutException as e: map_timeout_error(e, provider="…", op_name=op_name)
+    r = http.request("GET", path, params=params, op_name=op_name)
+    check_status(r, provider=http.provider, op_name=op_name)
     return r.text
 
 def _post_json(http, path, *, payload, op_name):                    # POST JSON (no retry)
-    try:
-        r = http.request("POST", path, json=payload); r.raise_for_status()
-    except httpx.HTTPStatusError as e: map_http_error(e, provider="…", op_name=op_name)
-    except httpx.TimeoutException as e: map_timeout_error(e, provider="…", op_name=op_name)
+    r = http.request("POST", path, json=payload, op_name=op_name)
+    check_status(r, provider=http.provider, op_name=op_name)
     return r.json()
 ```
 
@@ -442,8 +443,8 @@ a query param.
 
 When a provider's statuses diverge, drop below `fetch_json` to **one** hand-written chokepoint
 that every verb (including the enumerator) routes through — never special-case per verb. It
-drops `None` params, `raise_for_status()`, applies the provider-specific branch, then falls
-through to `map_http_error`/`map_timeout_error`. Reference implementations: `fmp_get` (402/403
+drops `None` params, applies the provider-specific branch, then falls through to
+`check_status`. Reference implementations: `fmp_get` (402/403
 → Payment by status alone), `eodhd_get` (403/423 → Payment), `coingecko_fetch`/`finnhub_get`
 (401/403 dual-meaning by body). Keeping it a single chokepoint means error-mapping + secret
 redaction are guaranteed identical across the whole surface.
@@ -452,9 +453,12 @@ redaction are guaranteed identical across the whole surface.
 
 Some hosts 403 stock `httpx` on TLS fingerprint, so the canonical transport **structurally
 cannot** reach them. `rba` is the reference: a sync `curl_cffi.requests.Session().get(url,
-impersonate="chrome")` as a **hard** dependency + a hand-written `_curl_get` mapper that
-mirrors `map_http_error`/`map_timeout_error` (429→RateLimit, 402→Payment, 401/403→Unauthorized,
-other→Provider(status); `curl_cffi` Timeout/RequestException→Provider(408)). Pool one sync
+impersonate="chrome")` as a **hard** dependency + a hand-written `_curl_get` wrapper that hands
+the response straight to `check_status` — `check_status` is duck-typed on
+`.status_code`/`.headers`, so a curl_cffi response works with no mirroring needed (429→RateLimit,
+402→Payment, 401/403→Unauthorized, other→Provider(status)); `curl_cffi`
+Timeout/RequestException still needs a hand-mapped `Provider(408)` since those never reach
+`check_status`. Pool one sync
 `Session` across the fan-out (one per fetch call, reused across the loop). **Never weaken the typed-error contract
 just because the transport changed.** Keep the impersonation target current (old Chrome
 fingerprints start to 403). Lighter WAFs (`bdp`, `boj`) need only a browser `User-Agent` +

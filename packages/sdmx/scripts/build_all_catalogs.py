@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Overnight SDMX catalog orchestrator: dataset + codelist + series shards."""
+"""Overnight SDMX catalog orchestrator: dataset + series shards."""
 
 from __future__ import annotations
 
@@ -33,8 +33,9 @@ from parsimony_sdmx.catalog_manifest import (
     list_structure_flows,
     write_progress,
 )
-from parsimony_sdmx.catalog_series import SERIES_AGENCIES, series_namespace
-from parsimony_sdmx.connectors._agencies import AgencyId
+from parsimony_sdmx.catalog_series import SERIES_AGENCIES
+from parsimony_sdmx.core.agencies import AgencyId
+from parsimony_sdmx.core.namespaces import series_namespace
 
 logger = logging.getLogger(__name__)
 
@@ -438,7 +439,7 @@ def run_build(
     start = time.time()
 
     for agency in agencies:
-        logger.info("=== Agency %s: batch (structure + datasets + codelists) ===", agency.value)
+        logger.info("=== Agency %s: batch (structure + datasets) ===", agency.value)
         batch_task = manifest.get_task(agency.value, PHASE_AGENCY_BATCH, "")
         if not (resume and batch_task and batch_task["status"] == STATUS_DONE):
             manifest.upsert_task(agency=agency.value, phase=PHASE_AGENCY_BATCH, flow_id="", status=STATUS_RUNNING)
