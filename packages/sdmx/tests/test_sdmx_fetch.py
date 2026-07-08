@@ -302,8 +302,28 @@ class TestSdmxFetchBatch:
 
         fetch_mod, _ = self._stub_one(monkeypatch)
         too_many = [f"M.X{i}" for i in range(_MAX_BATCH_SERIES + 1)]
-        with pytest.raises(InvalidParameterError, match="at most"):
+        # The cap error must signpost the OR-string fast path, not just refuse the list —
+        # a blocked caller should learn the escape hatch at the point of failure.
+        with pytest.raises(InvalidParameterError, match="at most") as exc:
             fetch_mod.sdmx_fetch(dataset_ref="ECB-YC", series_ref=too_many)
+        msg = str(exc.value)
+        assert "OR" in msg and "'+'" in msg
+
+    def test_over_length_string_rejected_names_or_split(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from parsimony_sdmx.connectors.fetch import _SERIES_KEY_MAX_CHARS
+
+        fetch_mod, _ = self._stub_one(monkeypatch)
+        # A single OR-string past the char cap must translate to a typed, actionable error
+        # (not a raw pydantic ValidationError) that names the "split into <=N-char OR-strings,
+        # pass a list" remedy.
+        codes = "+".join(f"CP{i:02d}" for i in range(60))
+        long_key = f"M.N.{codes}.DE"
+        assert len(long_key) > _SERIES_KEY_MAX_CHARS
+        with pytest.raises(InvalidParameterError, match="capped at") as exc:
+            fetch_mod.sdmx_fetch(dataset_ref="ECB-ICP", series_ref=long_key)
+        msg = str(exc.value)
+        assert str(_SERIES_KEY_MAX_CHARS) in msg
+        assert "OR-string" in msg and "list" in msg
 
     def test_one_bad_key_fails_whole_batch_no_silent_drop(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from parsimony.errors import ProviderError

@@ -45,6 +45,10 @@ _FETCH_TIMEOUT_SEC = 45.0
 #: from sum-of-latencies down to slowest-single-latency.
 _MAX_BATCH_SERIES = 24
 _MAX_FETCH_WORKERS = 6
+#: Hard cap on the length of a single ``series_ref`` string (one key, which may carry ``+``
+#: OR-lists within a dimension). SDMX's REST path has a practical URL-length limit; past this
+#: a caller splits the pull into several ``<=256``-char OR-strings and passes them as a list.
+_SERIES_KEY_MAX_CHARS = 256
 
 _T = TypeVar("_T")
 
@@ -74,7 +78,7 @@ class SdmxFetchParams(BaseModel):
         str,
         Field(
             min_length=1,
-            max_length=256,
+            max_length=_SERIES_KEY_MAX_CHARS,
             pattern=_SERIES_KEY_PATTERN,
             description="Dot-separated dimension values identifying the series.",
         ),
@@ -182,28 +186,45 @@ def sdmx_fetch(
 ) -> Any:
     """Fetch observations for SDMX series of ONE flow.
 
-    dataset_ref is the flow as AGENCY-DATASET_ID (e.g. ECB-YC) — a flow_id from
-    sdmx_datasets_search. series_ref is a series key: paste sdmx_series_search's `key`
-    straight in. Its dimensions are positional, in the flow's dsd order (the order in
-    `dsd`); OR-list a dimension's codes with '+' (e.g. AT+BE+DE). An EMPTY dimension
-    wildcards it — slow, so avoid it; prefer sdmx_series_search then fetch by key. A LIST
-    of keys fetches concurrently; start_period / end_period filter each range.
+    dataset_ref is the flow as AGENCY-DATASET_ID (e.g. ECB-YC), from sdmx_datasets_search.
+    series_ref is one or more keys; dimensions are positional in DSD order (paste
+    sdmx_series_search's `key` straight in).
 
-    Returns one row per observation: series_key, title, per-dim codes, TIME_PERIOD, value.
-    Raises ProviderError / EmptyDataError / ParseError if ANY key fails (none dropped); a
-    zombie cube (common on Eurostat) ⇒ move on.
+    FAST wide pull: one '+'-joined OR-string. SDMX reads '+' as OR *within a dimension*, so
+    "M.CP01+CP02.DE+FR" fetches the cross-product in ONE round trip — cheaper than a key list.
+    A string is capped at 256 chars; past that, pass several <=256-char
+    OR-strings as a LIST (capped at 24, fetched concurrently). An empty dimension wildcards it
+    (slow); prefer sdmx_series_search then fetch by key. start/end_period filter each range.
+
+    Raises ProviderError/EmptyDataError/ParseError if any key fails (none dropped).
     """
     keys = series_ref if isinstance(series_ref, list) else [series_ref]
     if not keys:
         raise InvalidParameterError("sdmx", "series_ref must name at least one series key")
     if len(keys) > _MAX_BATCH_SERIES:
         raise InvalidParameterError(
-            "sdmx", f"series_ref accepts at most {_MAX_BATCH_SERIES} keys per call; got {len(keys)}"
+            "sdmx",
+            f"series_ref accepts at most {_MAX_BATCH_SERIES} keys per list; got {len(keys)}. "
+            "For a wider pull, OR-list codes within a dimension using '+' in a single key "
+            "(e.g. 'M.RCH_A.CP01+CP02+CP03.DE+FR+IT') — SDMX treats '+' as OR within a dimension, "
+            "so one such string fetches the whole cross-product in one round trip. To fetch more "
+            f"than that spans, split into multiple <={_SERIES_KEY_MAX_CHARS}-char OR-strings and "
+            f"pass up to {_MAX_BATCH_SERIES} of them as a list.",
         )
 
     dataset_id = _dataset_id_from_ref(dataset_ref)
     if dataset_id:
         keys = [_strip_flow_prefix(key, dataset_id) for key in keys]
+
+    over = next((key for key in keys if len(key) > _SERIES_KEY_MAX_CHARS), None)
+    if over is not None:
+        raise InvalidParameterError(
+            "sdmx",
+            f"a single series_ref string is capped at {_SERIES_KEY_MAX_CHARS} chars (got "
+            f"{len(over)}); split it into multiple <={_SERIES_KEY_MAX_CHARS}-char '+'-joined "
+            f"OR-strings and pass them as a list (up to {_MAX_BATCH_SERIES} items) to fetch them "
+            "together.",
+        )
 
     param_list = [
         SdmxFetchParams(
