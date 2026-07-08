@@ -284,7 +284,7 @@ def test_bls_series_search_shapes_rows(monkeypatch) -> None:
             self.code, self.title, self.score, self.namespace, self.metadata = code, title, 0.5, ns, {}
 
     class _Catalog:
-        def search(self, query, limit=10):
+        def search(self, query=None, limit=10, *, filter=None, field=None):
             return [_Match("CUUR0000SETB01", "Gasoline", "bls_series_cu")]
 
     def fake_get(namespace, *, catalog_root=None, build=None):
@@ -302,7 +302,7 @@ def test_bls_series_search_empty_raises(monkeypatch) -> None:
     from parsimony_bls.connectors import search as se
 
     class _Catalog:
-        def search(self, query, limit=10):
+        def search(self, query=None, limit=10, *, filter=None, field=None):
             return []
 
     def fake_get(namespace, *, catalog_root=None, build=None):
@@ -311,3 +311,49 @@ def test_bls_series_search_empty_raises(monkeypatch) -> None:
     monkeypatch.setattr(se, "_get_or_load_catalog", fake_get)
     with pytest.raises(EmptyDataError):
         se.bls_series_search(query="nothingmatches", survey="CU")
+
+
+# ---------------------------------------------------------------------------
+# F4 #3: dimension filters EXCLUDE (exact AND), they do not merely re-rank.
+# Built against a real per-survey catalog (stub flat files) so the filter runs
+# through the catalog's own entity_matches_filter, not a stub.
+# ---------------------------------------------------------------------------
+
+
+def _real_series_catalog(monkeypatch):
+    from parsimony_bls.connectors import search as se
+
+    catalog = build_series_catalog("CU")
+    monkeypatch.setattr(
+        se, "_get_or_load_catalog", lambda ns, *, catalog_root=None, build=None: catalog
+    )
+    return se
+
+
+def test_bls_series_search_filter_excludes_nonmatching(_patch_flatfiles, monkeypatch) -> None:
+    se = _real_series_catalog(monkeypatch)
+    # "city average" is in BOTH series titles, so a soft query alone keeps both.
+    both = list(se.bls_series_search(query="city average", survey="CU").data["series_id"])
+    assert {"CUUR0000SA0", "CUUR0000SETB01"} <= set(both)
+
+    # Same query, but an exact item_code filter must DROP the non-matching variant,
+    # not merely down-rank it (the F4 hazard).
+    filtered = se.bls_series_search(
+        query="city average", survey="CU", filters={"item_code": "SETB01"}
+    ).data["series_id"].tolist()
+    assert filtered == ["CUUR0000SETB01"]
+
+
+def test_bls_series_search_filter_only_no_query(_patch_flatfiles, monkeypatch) -> None:
+    se = _real_series_catalog(monkeypatch)
+    # No text query: a pure dimension filter enumerates the exact-matching series.
+    rows = se.bls_series_search(query="", survey="CU", filters={"item_code": "SA0"}).data
+    assert rows["series_id"].tolist() == ["CUUR0000SA0"]
+
+
+def test_bls_series_search_requires_query_or_filters(_patch_flatfiles, monkeypatch) -> None:
+    from parsimony.errors import InvalidParameterError
+
+    se = _real_series_catalog(monkeypatch)
+    with pytest.raises(InvalidParameterError):
+        se.bls_series_search(query="", survey="CU")

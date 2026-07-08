@@ -23,7 +23,7 @@ from parsimony.catalog import Catalog
 from parsimony.catalog.search import CatalogLRU, resolved_catalog_url
 from parsimony.catalog.source import lazy_catalog_dir
 from parsimony.connector import connector
-from parsimony.errors import EmptyDataError
+from parsimony.errors import EmptyDataError, InvalidParameterError
 
 from parsimony_bls.catalog_build import build_series_catalog, build_surveys_catalog
 from parsimony_bls.outputs import BLS_SERIES_SEARCH_OUTPUT, BLS_SURVEYS_SEARCH_OUTPUT
@@ -61,9 +61,10 @@ def _clear_catalog_lru() -> None:
 def bls_surveys_search(query: str, limit: int = 10, catalog_root: str | None = None) -> pd.DataFrame:
     """Discover BLS surveys and read their dimension manifests.
 
-    Searches the ``bls_surveys`` catalog (survey name text or ``code: CU``). The
-    ``dimensions`` column lists each dimension's codes + labels for surveys with a
-    published series catalog -- use it to pick a survey, then ``bls_series_search``.
+    Searches the ``bls_surveys`` catalog (survey name text or ``code: CU``), returning a
+    relevance-ranked top-N. The ``dimensions`` column lists each dimension's codes + labels
+    for surveys with a published series catalog -- use it to pick a survey and to build the
+    exact ``filters=`` for ``bls_series_search``, then ``bls_fetch``.
     """
 
     def _build() -> Catalog:
@@ -92,28 +93,44 @@ def bls_surveys_search(query: str, limit: int = 10, catalog_root: str | None = N
 
 @connector(output=BLS_SERIES_SEARCH_OUTPUT, tags=["macro", "us", "tool"])
 def bls_series_search(
-    query: str, survey: str, limit: int = 10, catalog_root: str | None = None
+    query: str,
+    survey: str,
+    limit: int = 10,
+    filters: dict[str, str] | None = None,
+    catalog_root: str | None = None,
 ) -> pd.DataFrame:
-    """Search one survey's series catalog (structured dimension clauses preferred).
+    """Search one survey's series as a relevance-ranked top-N (NOT the full survey).
 
-    ``survey`` is a BLS abbreviation (e.g. ``CU``). Chain:
-    ``bls_surveys_search`` -> ``bls_series_search`` -> ``bls_fetch``. A series hit's
-    ``series_id`` goes straight to ``bls_fetch``.
+    ``query`` soft-ranks series titles. ``filters`` is an exact AND constraint on series
+    metadata columns that *excludes* non-matching variants (``query`` alone only re-ranks
+    them) — use a dimension's code column (``item_code``, ``area_code``, … from the
+    ``bls_surveys_search`` manifest) or a raw column like ``seasonal`` (``S``/``U``) to pin
+    the exact SA/area/item variant. Pass ``query=""`` to enumerate purely by filter.
+
+    To walk a whole dimension, use the ``bls_surveys_search`` manifest. ``survey`` is a BLS
+    abbreviation (e.g. ``CU``). Chain: ``bls_surveys_search`` -> ``bls_series_search`` ->
+    ``bls_fetch``; a hit's ``series_id`` goes straight to ``bls_fetch``.
     """
     sv = normalize_survey(survey)
     namespace = series_namespace(sv)
+    q = query.strip() or None
+    filter_spec = {col: [str(val)] for col, val in filters.items()} if filters else None
+    if q is None and not filter_spec:
+        raise InvalidParameterError(
+            "bls", "bls_series_search requires query= and/or filters=."
+        )
 
     def _build() -> Catalog:
         return build_series_catalog(sv)
 
     catalog = _get_or_load_catalog(namespace, catalog_root=catalog_root, build=_build)
-    matches = catalog.search(query, limit=limit)
+    matches = catalog.search(q, limit=limit, filter=filter_spec)
     if not matches:
         raise EmptyDataError(
             "bls",
             message=(
-                f"No series matches for query={query!r} in survey={sv!r} "
-                f"(namespace={namespace}). Try bls_surveys_search first."
+                f"No series matches for query={query!r} filters={filters!r} in survey={sv!r} "
+                f"(namespace={namespace}). Check dimension codes via bls_surveys_search first."
             ),
         )
 

@@ -256,6 +256,45 @@ def test_series_search_surfaces_title(tmp_path: Path, monkeypatch: pytest.Monkey
     assert all(titles.values()), f"every row must carry a title, got {titles}"
 
 
+def test_series_search_filter_only_allows_enumeration_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A filter-only read of the cached catalog may exceed the ranked cap of 500.
+
+    The field report hit this: a 574-series dimension slice was silently truncated at
+    500. A filter_json read is an enumeration into a variable, not a ranked shortlist,
+    so it must accept a much larger limit.
+    """
+    catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
+
+    df = sdmx_series_search(
+        agency="ECB",
+        dataset_id="TEST",
+        filter_json='{"REF_AREA_code": ["DE"]}',
+        limit=5000,
+        catalog_root=str(catalogs_dir),
+    ).data
+
+    assert set(df["key"]) == {"M.DE", "A.DE"}
+
+
+def test_series_search_ranked_query_rejects_enumeration_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ranked (free-text) query stays a shortlist; a huge limit is refused with a hint."""
+    catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
+
+    with pytest.raises(InvalidParameterError) as exc:
+        sdmx_series_search(
+            agency="ECB",
+            dataset_id="TEST",
+            query="Monthly",
+            limit=5000,
+            catalog_root=str(catalogs_dir),
+        )
+    assert "filter_json" in str(exc.value)
+
+
 def test_series_search_rejects_bare_dimension_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A bare dimension id in filter_json must fail fast with a corrective hint."""
     catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)

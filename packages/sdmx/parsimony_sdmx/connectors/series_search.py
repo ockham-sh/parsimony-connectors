@@ -37,6 +37,13 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_LRU_SIZE = 4
 
+#: A free-text ``query`` is a ranked shortlist for reading — capped small. A pure
+#: ``filter_json`` lookup is an *enumeration* of the already-cached local catalog into a
+#: kernel variable (the agent filters/charts it in-sandbox), so it may return a whole
+#: dimension slice — the field report's 574-series slice exceeded the old 500 ceiling.
+RANKED_LIMIT = 500
+ENUMERATION_LIMIT = 10_000
+
 
 _CATALOG_LRU_ENV_VAR = "PARSIMONY_SDMX_CATALOG_LRU_SIZE"
 
@@ -145,7 +152,7 @@ class SeriesSearchParams(BaseModel):
     # Optional: omit for a pure ``filter_json`` (exact code) lookup. Free-text
     # ``query`` is matched against titles/labels, never against SDMX codes.
     query: str | None = Field(default=None, max_length=512)
-    limit: int = Field(default=50, ge=1, le=500)
+    limit: int = Field(default=50, ge=1, le=ENUMERATION_LIMIT)
     top_k_per_dim: int = Field(default=5, ge=1, le=50)
     catalog_root: str | None = None
     field: str | None = Field(default=None, max_length=128)
@@ -165,15 +172,16 @@ def sdmx_series_search(
 ) -> pd.DataFrame:
     """Search populated series keys in a prebuilt columnar catalog for one SDMX flow.
 
-    ``query=`` is FREE TEXT matched against human-readable series titles/labels
-    (e.g. "10-year government bond spot rate") — do NOT pass SDMX codes
-    ("SR_10Y", "10Y"); they are absent from titles and match nothing. To match
-    exact codes, target the ``{dim}_code``/``{dim}_label`` columns via
-    ``filter_json`` (exact AND filter, e.g. ``{"DATA_TYPE_FM_code": ["SR_10Y"]}``)
-    or ``field=`` with a single ``query=`` scoped to one such column; ``query=``
-    may be omitted for a pure ``filter_json`` lookup. Returns ranked matches with
-    the series ``key``, ``title``, the resolved ``{dim}_code``/``{dim}_label``
-    columns, and a ``refine`` facet column.
+    ``query=`` is FREE TEXT over series titles/labels (e.g. "10-year government bond spot
+    rate") — NOT SDMX codes ("SR_10Y"), which are absent from titles. Match exact codes via
+    ``filter_json`` (exact AND on ``{dim}_code``/``{dim}_label``, e.g.
+    ``{"DATA_TYPE_FM_code": ["SR_10Y"]}``) or ``field=`` scoping one ``query=`` column.
+    Returns ``key``, ``title``, resolved ``{dim}_code``/``{dim}_label``, and a ``refine``
+    facet column.
+
+    ``query=`` is a ranked shortlist (``limit`` <= 500); a pure ``filter_json`` lookup (omit
+    ``query=``) enumerates the whole matching slice from the already-cached local catalog at
+    ``limit`` up to 10000 — no provider re-crawl.
     """
     params = SeriesSearchParams(
         agency=agency,
@@ -195,6 +203,13 @@ def sdmx_series_search(
         )
     if params.field is not None and q is None:
         raise InvalidParameterError("sdmx", "field= requires a non-empty query=")
+    if q is not None and params.limit > RANKED_LIMIT:
+        raise InvalidParameterError(
+            "sdmx",
+            f"query= is a ranked shortlist (limit <= {RANKED_LIMIT}). To read a whole "
+            "dimension slice, omit query= and enumerate the cached catalog with "
+            f"filter_json= (limit up to {ENUMERATION_LIMIT}).",
+        )
 
     namespace = series_namespace(agency_id, flow)
     catalog_path = _resolve_catalog_path(namespace, catalog_root=params.catalog_root)

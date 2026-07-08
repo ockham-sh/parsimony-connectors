@@ -38,8 +38,7 @@ riksbank_search = make_local_search_connector(
     tags=["macro", "se", "tool"],
     description=(
         "Semantic-search the Sveriges Riksbank catalog across all five products (SWEA "
-        "interest & exchange rates, SWESTR, Monetary Policy forecasts, Turnover "
-        "statistics, securities Holdings). Route the result `code`: a bare SWESTR id "
+        "rates, SWESTR, Monetary Policy, Turnover, Holdings). Route the result `code`: a bare SWESTR id "
         "(SWESTR, SWESTRAVG*) -> riksbank_swestr_fetch(series=...); a bare SWEA id -> "
         "riksbank_fetch(series_id=...); `monetary_policy/<id>` -> "
         "riksbank_monetary_policy_fetch(series=<id>); `turnover/<market>/<frequency>` -> "

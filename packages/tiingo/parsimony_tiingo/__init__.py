@@ -125,6 +125,11 @@ def tiingo_search(query: str, limit: int = 25, api_key: str = "") -> pd.DataFram
     Mutual Fund), is_active, and country_code. Use the ticker with tiingo_eod,
     tiingo_iex, tiingo_meta, or tiingo_fundamentals_meta for further data.
     Example: query='apple' → ticker='AAPL'; query='bitcoin' → ticker='BTCUSD'.
+
+    Matching is a substring match on Tiingo's side, so a full punctuated legal name can
+    miss: 'coca cola' does not match 'Coca-Cola', and multi-word queries like
+    'bank america' return nothing. Search one distinctive token ('coca', 'nvidia') or a
+    known ticker, not the whole company name.
     """
     q = query.strip()
     if not q:
