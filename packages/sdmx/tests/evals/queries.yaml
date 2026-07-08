@@ -6,19 +6,6 @@ dataset_title_nl:
     namespace: sdmx_datasets_wb_wdi
     expected: "WB_WDI|WDI"
 
-codelist_label_nl:
-  - id: geo_germany
-    query: "Germany"
-    namespace: sdmx_codelist_estat_cl_geo
-    expected: "DE"
-    optional: true
-  - id: freq_monthly
-    query: "monthly"
-    namespace: sdmx_codelist_ecb_cl_freq
-    expected: "M"
-    optional: true
-
 thresholds:
   recall_limit: 10
   min_dataset_title_nl_required: 1.0
-  min_codelist_label_nl_required: 0.0

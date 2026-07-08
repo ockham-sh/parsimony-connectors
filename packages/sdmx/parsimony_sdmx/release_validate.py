@@ -14,8 +14,8 @@ from pydantic import ValidationError
 
 from parsimony_sdmx.catalog_manifest import BuildRoot
 from parsimony_sdmx.catalog_series import CATALOG_KIND, SERIES_AGENCIES, is_series_catalog
-from parsimony_sdmx.connectors._agencies import ALL_AGENCIES
-from parsimony_sdmx.connectors.enumerate_datasets import datasets_namespace
+from parsimony_sdmx.core.agencies import ALL_AGENCIES
+from parsimony_sdmx.core.namespaces import datasets_namespace
 
 VALIDATOR_VERSION = "sdmx_release_v1"
 

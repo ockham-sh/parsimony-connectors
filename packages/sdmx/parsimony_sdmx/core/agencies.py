@@ -1,8 +1,9 @@
-"""Agency allowlist for connector-side routing and Pydantic validation.
+"""Supported-agency allowlist and namespace tokenization.
 
 Separate from :mod:`parsimony_sdmx.providers.registry` (which is the
-write-side catalog-builder registry). This module is the SSRF boundary
-for live ``sdmx_fetch`` and the input allowlist for both enumerators.
+write-side catalog-builder registry). This is the input allowlist that
+gates live ``sdmx_fetch`` (its SSRF boundary) and the catalog-search
+connectors.
 
 Convention for the catalog-layer kernel (enforced by ``normalize_code``):
 namespace strings are ``snake_case`` lowercase. This module keeps the

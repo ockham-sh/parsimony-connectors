@@ -18,16 +18,16 @@ from parsimony_sdmx.catalog_series import (
     build_flow_catalog,
     is_series_catalog,
 )
-from parsimony_sdmx.connectors import series_search
-from parsimony_sdmx.connectors._agencies import AgencyId
+from parsimony_sdmx.connectors import dimension_search, series_search
+from parsimony_sdmx.connectors.dimension_search import sdmx_dimension_search
 from parsimony_sdmx.connectors.series_search import _clear_series_catalog_lru, sdmx_series_search
+from parsimony_sdmx.core.agencies import AgencyId
 from parsimony_sdmx.core.models import (
     CodelistCode,
     CodelistRecord,
     DimensionStructure,
     StructureRecord,
 )
-from parsimony_sdmx.series_facets import facets_from_table
 from parsimony_sdmx.series_fields import SERIES_PARQUET, dim_code_field, dim_label_field
 from parsimony_sdmx.series_query import plan_series_search
 
@@ -110,14 +110,6 @@ def _sample_table() -> pa.Table:
         },
     ]
     return pa.Table.from_pylist(rows)
-
-
-def test_facets_returns_unpinned_dimension_counts() -> None:
-    table = _sample_table().filter(pa.compute.equal(_sample_table()["REF_AREA_code"], "DE"))  # type: ignore[attr-defined]
-    facets = facets_from_table(table, ("FREQ", "REF_AREA"), pinned_dims={"REF_AREA"})
-    assert "FREQ" in facets
-    assert ("M", "Monthly", 1) in facets["FREQ"]
-    assert "REF_AREA" not in facets
 
 
 def test_build_and_search_tiny_catalog(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -256,9 +248,7 @@ def test_series_search_surfaces_title(tmp_path: Path, monkeypatch: pytest.Monkey
     assert all(titles.values()), f"every row must carry a title, got {titles}"
 
 
-def test_series_search_filter_only_allows_enumeration_limit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_series_search_filter_only_allows_enumeration_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A filter-only read of the cached catalog may exceed the ranked cap of 500.
 
     The field report hit this: a 574-series dimension slice was silently truncated at
@@ -278,9 +268,7 @@ def test_series_search_filter_only_allows_enumeration_limit(
     assert set(df["key"]) == {"M.DE", "A.DE"}
 
 
-def test_series_search_ranked_query_rejects_enumeration_limit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_series_search_ranked_query_rejects_enumeration_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A ranked (free-text) query stays a shortlist; a huge limit is refused with a hint."""
     catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
 
@@ -310,19 +298,32 @@ def test_series_search_rejects_bare_dimension_filter(tmp_path: Path, monkeypatch
     assert "FREQ_code" in str(exc.value)
 
 
-def test_series_search_rejects_scalar_filter_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Filter values must be explicit lists, not strings accidentally expanded into characters."""
+def test_series_search_coerces_scalar_filter_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A bare scalar filter value is accepted as a single code, equivalent to a 1-element list.
+
+    A str is iterable, so the coercion must wrap it (``"M"`` -> ``["M"]``), never iterate it
+    into characters — the scalar form must return exactly what the list form does.
+    """
     catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
 
-    with pytest.raises(InvalidParameterError) as exc:
-        sdmx_series_search(
-            agency="ECB",
-            dataset_id="TEST",
-            query="Monthly",
-            filter_json='{"FREQ_code": "M"}',
-            catalog_root=str(catalogs_dir),
-        )
-    assert "must be a list" in str(exc.value)
+    scalar = sdmx_series_search(
+        agency="ECB",
+        dataset_id="TEST",
+        query="Monthly",
+        filter_json='{"FREQ_code": "M"}',
+        catalog_root=str(catalogs_dir),
+    ).data
+    listed = sdmx_series_search(
+        agency="ECB",
+        dataset_id="TEST",
+        query="Monthly",
+        filter_json='{"FREQ_code": ["M"]}',
+        catalog_root=str(catalogs_dir),
+    ).data
+
+    assert set(scalar["key"]) == set(listed["key"])
+    assert set(scalar["key"]) <= {"M.DE", "M.FR"}
+    assert "A.DE" not in set(scalar["key"])
 
 
 def test_series_search_code_filter_matches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -340,6 +341,26 @@ def test_series_search_code_filter_matches(tmp_path: Path, monkeypatch: pytest.M
     keys = set(df["key"])
     assert keys <= {"M.DE", "M.FR"}
     assert "A.DE" not in keys
+
+
+def test_dimension_search_corrupt_catalog_raises_connector_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A corrupt catalog (the framework's sha256 integrity ValueError) must surface as a typed
+    ConnectorError from sdmx_dimension_search, not leak a raw ValueError — matching
+    sdmx_series_search, which already wraps the same failure.
+    """
+    catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
+
+    def raise_integrity(namespace: str, catalog_path: str) -> object:
+        raise ValueError("Catalog snapshot integrity check failed")
+
+    monkeypatch.setattr(dimension_search, "_load_series_catalog", raise_integrity)
+
+    with pytest.raises(ConnectorError, match="Invalid series catalog"):
+        sdmx_dimension_search(
+            agency="ECB", dataset_id="TEST", dimension="FREQ", query="Monthly", catalog_root=str(catalogs_dir)
+        )
 
 
 def test_resolve_catalog_path_downloads_hf_subdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -360,7 +381,9 @@ def test_resolve_catalog_path_downloads_hf_subdir(tmp_path: Path, monkeypatch: p
     monkeypatch.setattr(series_search, "resolve_catalog_dir", fake_resolve_catalog_dir)
     monkeypatch.setattr(series_search, "lazy_catalog_dir", lambda provider, namespace: str(tmp_path / "empty-cache"))
 
-    resolved = series_search._resolve_catalog_path("sdmx_series_ecb_test", catalog_root="hf://parsimony-dev/sdmx")
+    resolved = series_search._resolve_catalog_path(
+        "sdmx_series_ecb_test", label="ECB/TEST", catalog_root="hf://parsimony-dev/sdmx"
+    )
     assert resolved == catalog_dir
     # The connector hands the framework a plain URL; it holds no scheme logic itself.
     assert calls == {"url": "hf://parsimony-dev/sdmx/sdmx_series_ecb_test"}
@@ -378,7 +401,61 @@ def test_resolve_catalog_path_unsupported_scheme_raises_connector_error(
     monkeypatch.setattr(series_search, "lazy_catalog_dir", lambda provider, namespace: str(tmp_path / "empty-cache"))
 
     with pytest.raises(ConnectorError):
-        series_search._resolve_catalog_path("sdmx_series_ecb_test", catalog_root="ftp://example.com/repo")
+        series_search._resolve_catalog_path(
+            "sdmx_series_ecb_test", label="ECB/TEST", catalog_root="ftp://example.com/repo"
+        )
+
+
+@pytest.mark.parametrize("exc_factory", ["entry_not_found", "catalog_not_found"])
+def test_resolve_catalog_path_unpublished_flow_gives_friendly_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, exc_factory: str
+) -> None:
+    """A missing (hf 404) or empty remote sub-tree becomes the "not published" message.
+
+    Regression: ``resolve_catalog_dir`` raises ``huggingface_hub`` ``EntryNotFoundError`` for a
+    flow that was never built on the default ``hf://`` root — previously that raw 404 (with an
+    internal request id + API URL) leaked straight to the caller instead of the documented
+    guardrail. Both it and the framework's empty-bundle ``CatalogNotFoundError`` must surface as
+    one friendly ``ConnectorError``.
+    """
+    from huggingface_hub.errors import EntryNotFoundError
+    from parsimony.errors import CatalogNotFoundError
+
+    exc: Exception = (
+        EntryNotFoundError("404 Entry Not Found") if exc_factory == "entry_not_found" else CatalogNotFoundError("empty")
+    )
+
+    def raise_not_found(url: str, *, cache_dir: object = None) -> Path:
+        raise exc
+
+    monkeypatch.setattr(series_search, "resolve_catalog_dir", raise_not_found)
+    monkeypatch.setattr(series_search, "lazy_catalog_dir", lambda provider, namespace: str(tmp_path / "empty-cache"))
+
+    with pytest.raises(ConnectorError, match="not published"):
+        series_search._resolve_catalog_path(
+            "sdmx_series_ecb_test", label="ECB/TEST", catalog_root="hf://parsimony-dev/sdmx"
+        )
+
+
+def test_resolve_catalog_path_network_error_propagates_raw(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unreachable Hub is NOT "not published" — its error must propagate untranslated.
+
+    Only the missing/empty-catalog exceptions map to the friendly message; a transport failure
+    is a distinct condition the caller must be able to see (and retry) as itself.
+    """
+
+    def raise_network(url: str, *, cache_dir: object = None) -> Path:
+        raise ConnectionError("Hub unreachable")
+
+    monkeypatch.setattr(series_search, "resolve_catalog_dir", raise_network)
+    monkeypatch.setattr(series_search, "lazy_catalog_dir", lambda provider, namespace: str(tmp_path / "empty-cache"))
+
+    with pytest.raises(ConnectionError):
+        series_search._resolve_catalog_path(
+            "sdmx_series_ecb_test", label="ECB/TEST", catalog_root="hf://parsimony-dev/sdmx"
+        )
 
 
 def test_fetch_done_uses_series_parquet_filename(tmp_path: Path) -> None:

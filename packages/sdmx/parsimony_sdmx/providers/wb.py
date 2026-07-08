@@ -48,7 +48,7 @@ from parsimony_sdmx.providers.sdmx_extract import (
     extract_flow_title,
     extract_raw_codelists,
 )
-from parsimony_sdmx.providers.sdmx_flow import resolve_dsd, structure_from_message, validate_partial_key
+from parsimony_sdmx.providers.sdmx_flow import resolve_dsd, structure_from_message
 
 logger = logging.getLogger(__name__)
 
@@ -105,39 +105,6 @@ class WbProvider:
             _NoFetchClient(),
             agency_id=self.agency_id,
             dataset_id=dataset_id,
-        )
-
-    def discover_series_keys(self, dataset_id: str, partial_key: str) -> list[SeriesRecord]:
-        msg = _fetch_wb_structure(
-            self.http_config,
-            self.base_url,
-            f"dataflow/{WB_SDMX_AGENCY}/{dataset_id}?references=descendants",
-        )
-        try:
-            dataflow = msg.dataflow[dataset_id]
-        except (KeyError, AttributeError, TypeError) as exc:
-            raise SdmxFetchError(f"Dataflow {dataset_id!r} missing from response") from exc
-        dsd = resolve_dsd(_NoFetchClient(), msg, dataflow, dataset_id)
-        dsd_order = extract_dsd_dim_order(dsd, exclude_time=True)
-        validate_partial_key(partial_key, dsd_order)
-        raw_codelists = extract_raw_codelists(dsd, msg)
-        labels = resolve_codelists(raw_codelists, ("en",))
-
-        session = build_session(self.http_config)
-        try:
-            url = f"{self.base_url}/data/{dataset_id}/{partial_key}/?detail=serieskeysonly"
-            series_ids = _fetch_path_decade(session, url, self.http_config, dsd_order)
-        finally:
-            session.close()
-
-        series_dim_values = (_split_to_dict(sid, dsd_order) for sid in sorted(series_ids))
-        return list(
-            project_series(
-                dataset_id=dataset_id,
-                series_dim_values=series_dim_values,
-                dsd_order=dsd_order,
-                labels=labels,
-            )
         )
 
     def list_series(self, dataset_id: str) -> Iterator[SeriesRecord]:

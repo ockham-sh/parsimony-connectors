@@ -10,7 +10,7 @@ import yaml
 
 _QUERIES_PATH = Path(__file__).parent / "evals" / "queries.yaml"
 _BUNDLE_URL_TEMPLATE = os.environ.get("SDMX_BUNDLE_URL_TEMPLATE", "hf://parsimony-dev/sdmx/{namespace}")
-_SLICES = ("dataset_title_nl", "codelist_label_nl")
+_SLICES = ("dataset_title_nl",)
 
 
 @pytest.fixture(scope="module")
@@ -26,15 +26,10 @@ def test_eval_file_has_required_sections(eval_set: dict) -> None:
 
 
 def test_dataset_queries_use_datasets_namespace(eval_set: dict) -> None:
-    from parsimony_sdmx.connectors.enumerate_datasets import is_datasets_namespace
+    from parsimony_sdmx.core.namespaces import is_datasets_namespace
 
     for q in eval_set["dataset_title_nl"]:
         assert is_datasets_namespace(q["namespace"])
-
-
-def test_codelist_slices_use_codelist_namespace_prefix(eval_set: dict) -> None:
-    for q in eval_set["codelist_label_nl"]:
-        assert str(q["namespace"]).startswith("sdmx_codelist_")
 
 
 def test_query_ids_are_unique(eval_set: dict) -> None:

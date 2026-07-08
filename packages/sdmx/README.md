@@ -19,18 +19,12 @@ Live observation fetches hit the agency endpoint inside a spawned subprocess. Ma
 
 | Name | Kind | Description |
 |---|---|---|
-| `enumerate_sdmx_datasets` | enumerator | One row per dataflow per agency (`sdmx_datasets_<agency>` namespaces). |
-| `enumerate_sdmx_series` | connector (dynamic schema) | Scoped keys-only discovery for one `(agency, dataset_id, key_pattern)` — returns matching series with labeled dimensions, no observations. |
-| `sdmx_fetch` | connector | Live observation fetch for a series key against the agency endpoint. |
 | `sdmx_datasets_search` | connector | Structured search over per-agency dataset catalogs (agency optional — fans out across all agencies). |
-| `sdmx_codelist_search` | connector | Semantic search over deduplicated per-agency codelist catalogs. |
-| `sdmx_series_search` | connector | Search populated per-flow series catalogs with dimension filters, title search, and refine facets. |
+| `sdmx_series_search` | connector | Search populated per-flow series catalogs with dimension filters and title search. |
+| `sdmx_dimension_search` | connector | Search or enumerate one flow dimension's values (`code`, `label`) from its catalog. |
+| `sdmx_fetch` | connector | Live observation fetch for a series key against the agency endpoint. |
 
-Six registered connectors total (1 enumerator + 1 dynamic-schema connector + 1 fetch + 3 search).
-
-### Dynamic schema: `enumerate_sdmx_series`
-
-Scoped discovery returns a wide DataFrame whose columns depend on the SDMX datastructure definition for that flow. The output schema is **dynamic per call** — it cannot be declared statically on ``@enumerator``. The connector stays a plain ``@connector`` that returns raw ``pd.DataFrame`` rows.
+Four registered connectors total. Only published flows are searchable; an unpublished flow hard-errors (there is no live fallback).
 
 ## Install
 
@@ -52,8 +46,8 @@ python -c "from parsimony import discover; print([p.name for p in discover.iter_
 from parsimony_sdmx import CONNECTORS
 
 result = CONNECTORS["sdmx_fetch"](
-    dataset_key="ECB-YC",
-    series_key="B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y",
+    dataset_ref="ECB-YC",
+    series_ref="B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y",
 )
 print(result.data.head())
 ```
@@ -67,22 +61,20 @@ connectors = discover.load_all()
 
 ## Catalog building
 
-Catalog building is an operator workflow. Use `scripts/build_catalog.py` for individual dataset/codelist snapshots and `scripts/build_all_catalogs.py` for full SDMX release roots. Indexing policy lives in `parsimony_sdmx/catalog_policy.py`:
+Catalog building is an operator workflow. Use `scripts/build_catalog.py` for individual dataset snapshots and `scripts/build_all_catalogs.py` for full SDMX release roots. Indexing policy lives in `parsimony_sdmx/catalog_policy.py`:
 
 - **Dataset catalogs** — hybrid BM25+vector on `title`/`description` when unique text count is below **1,000**, otherwise BM25-only.
-- **Codelist catalogs** — BM25 on `code`, hybrid on `label` (always hybrid for semantic concept→code resolution).
-- **Series catalogs** — per-flow parquet-backed catalogs with a title index plus code/label indexes for each DSD dimension.
+- **Series catalogs** — per-flow parquet-backed catalogs with a title index plus code/label indexes for each DSD dimension. Dimension codes/labels are indexed here, per flow — there are no standalone codelist catalogs.
 
 Namespaces:
 
 - ``sdmx_datasets_<agency>`` — one dataset catalog per agency (e.g. ``sdmx_datasets_ecb``). Each entity carries a summarized **DSD** in metadata (dimension order, codelist refs, sample codes).
-- ``sdmx_codelist_<agency>_<codelist_id>`` — deduplicated codelist catalogs (e.g. ``sdmx_codelist_ecb_cl_freq``). Entities are `{code, label}` pairs.
 - ``sdmx_series_<agency>_<flow>`` — one populated-series catalog per supported flow (e.g. ``sdmx_series_estat_prc_hicp_manr``). Rows are stored in `series.parquet`; indexes resolve titles and dimension labels/codes.
 
 ### Build and push
 
 ```bash
-# One agency: dataset index + deduplicated codelist catalogs
+# One agency: dataset index (+ per-flow series catalogs)
 uv run python scripts/build_catalog.py --catalog agency --agency ECB \
   --save-root /tmp/parsimony-catalogs/sdmx --push-root hf://parsimony-dev/sdmx
 
@@ -99,10 +91,6 @@ A local build produces:
 ```
 /tmp/parsimony-catalogs/sdmx/
 ├── sdmx_datasets_ecb/
-│   ├── entries.parquet
-│   ├── indexes/
-│   └── meta.json
-├── sdmx_codelist_ecb_cl_freq/
 │   ├── entries.parquet
 │   ├── indexes/
 │   └── meta.json
@@ -127,10 +115,10 @@ Structure fetches are bounded (~2–15 s per flow) and fully parallelizable. Ser
 Agents usually navigate in three steps:
 
 1. **`sdmx_datasets_search(query=..., agency=...)`** — find the right dataflow. *Agency is optional*; omit it to search across all agency dataset catalogs. Read the returned **`dsd`** summary (dimension order + codelist refs).
-2. **`sdmx_series_search(agency=..., dataset_id=..., query=...)`** — search populated series keys. Use `{dimension}_label` for semantic resolution, `{dimension}_code` for exact filters, and `&&` to combine clauses. The `refine` column returns facet JSON for unpinned dimensions.
-3. **`sdmx_fetch(dataset_key=..., series_key=...)`** — live observation fetch. On empty/too-broad results, loop back to step 2 with more filters.
+2. **`sdmx_series_search(agency=..., dataset_id=..., query=...)`** — search populated series keys. Use `{dimension}_label` for semantic resolution, `{dimension}_code` for exact filters, and `&&` to combine clauses. Need a dimension's valid codes? **`sdmx_dimension_search(agency=..., dataset_id=..., dimension=...)`** searches or enumerates them.
+3. **`sdmx_fetch(dataset_ref=..., series_ref=...)`** — live observation fetch. On empty/too-broad results, loop back to step 2 with more filters.
 
-`sdmx_codelist_search` and `enumerate_sdmx_series` remain available for narrower workflows or live fallback, but `sdmx_series_search` is the preferred path when the release catalog is installed.
+Only published flows are searchable. A flow with no series catalog hard-errors ("not published; ask the maintainers to build it") — there is no live fallback.
 
 ### Cookbook: German monthly unemployment rate (Eurostat)
 
@@ -139,23 +127,24 @@ from parsimony_sdmx import load
 
 c = load()
 
-# 1. Find the dataset
-ds = c["sdmx_datasets_search"](query="unemployment rate monthly", agency="ESTAT", limit=3)
+# 1. Find the dataset — inspect the candidates, then take the top match
+ds = c["sdmx_datasets_search"](query="unemployment rate monthly", agency="ESTAT", limit=5)
+print(ds.data[["dataset_id", "title", "score"]])
 row = ds.data.iloc[0]
-print(row["code"], row["title"])
-dsd = row["dsd"]  # dimension order + codelist refs
+dataset_id = row["dataset_id"]      # thread this into steps 2 and 3
+dsd = row["dsd"]                    # dimension order + codelist refs
 
 # 2. Search populated combinations using DSD field names
 series = c["sdmx_series_search"](
     agency="ESTAT",
-    dataset_id="UNE_RT_M",
-    query="geo_label: Germany && freq_code:M",
+    dataset_id=dataset_id,
+    query="geo_label: Germany && freq_code: M",
     limit=10,
 )
-print(series.data[["key", "title", "refine"]].head())
+print(series.data[["key", "title"]].head())
 
-# 3. Fetch observations for the chosen series
-obs = c["sdmx_fetch"](dataset_ref="ESTAT-UNE_RT_M", series_ref=series.data.iloc[0]["key"])
+# 3. Fetch observations for the chosen series (paste the key straight in)
+obs = c["sdmx_fetch"](dataset_ref=f"ESTAT-{dataset_id}", series_ref=series.data.iloc[0]["key"])
 print(obs.data.head())
 ```
 
@@ -170,8 +159,8 @@ datasets = Catalog.load("hf://parsimony-dev/sdmx/sdmx_datasets_ecb")
 flows = datasets.search("code: ECB|YC", limit=3)
 print("datasets", flows[0].code, flows[0].title[:80])
 
-codelists = Catalog.load("hf://parsimony-dev/sdmx/sdmx_codelist_ecb_cl_freq")
-hits = codelists.search("monthly", limit=3)
+series = Catalog.load("hf://parsimony-dev/sdmx/sdmx_series_ecb_yc")
+hits = series.search("10-year spot rate", limit=3)
 for hit in hits:
     print(f"{hit.score:.3f}  {hit.code}  {hit.title[:80]}")
 ```
@@ -190,7 +179,7 @@ The package implements the standard parsimony plugin contract, exported at the t
 
 | Export               | Role                                                                          |
 |----------------------|-------------------------------------------------------------------------------|
-| ``CONNECTORS``       | ``Connectors`` collection — one enumerator, one dynamic-schema connector, ``sdmx_fetch``, and three search connectors.   |
+| ``CONNECTORS``       | ``Connectors`` collection — three catalog-search connectors and ``sdmx_fetch``.   |
 
 SDMX endpoints are public; no environment variables are required.
 
@@ -205,8 +194,8 @@ parsimony_sdmx/
 ├── providers/    per-agency adapters behind a narrow `CatalogProvider`
 │                 protocol; ECB/ESTAT/IMF share a common sdmx1 flow helper,
 │                 WB diverges with a path × decade sweep
-├── connectors/   parsimony `@enumerator` surface + ``sdmx_fetch`` live
-│                 observation connector + dataset/codelist/series search connectors
+├── connectors/   parsimony connector surface: dataset/series/dimension
+│                 catalog search + ``sdmx_fetch`` live observation connector
 └── _isolation/   subprocess-spawning boundary for every sdmx1 call
 ```
 

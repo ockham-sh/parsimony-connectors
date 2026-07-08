@@ -4,6 +4,28 @@ All notable changes to `parsimony-sdmx` will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `sdmx_dimension_search(agency, dataset_id, dimension, query=None)` — search or enumerate one
+  DSD dimension's `(code, label)` values from the flow's series catalog. Absorbs the roles of the
+  removed `sdmx_codelist_search` and the `refine` facet column.
+
+### Changed
+
+- Collapsed the agent surface to four connectors: `sdmx_datasets_search` → `sdmx_series_search` /
+  `sdmx_dimension_search` → `sdmx_fetch`. Only published flows are searchable; an unpublished flow
+  hard-errors ("not published; ask the maintainers to build it") with no live fallback.
+- `sdmx_series_search` `filter_json` now accepts a bare scalar value as a single-code filter
+  (`{"geo_code": "DE"}` == `{"geo_code": ["DE"]}`).
+
+### Removed
+
+- `sdmx_codelist_search` and `enumerate_sdmx_series` / `enumerate_sdmx_datasets` connectors, the
+  `refine` facet column on `sdmx_series_search`, and standalone codelist-catalog building. DSD-level
+  codelists are still resolved internally for title composition.
+
 ## [0.7.0]
 
 ### Changed

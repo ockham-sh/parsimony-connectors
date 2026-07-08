@@ -1,18 +1,18 @@
-"""Build SDMX catalog snapshots (DSD structure + deduplicated codelists).
+"""Build SDMX dataset catalog snapshots from DSD structure.
 
 Indexing policy (centralized in :mod:`parsimony_sdmx.catalog_policy`):
 
 * **Dataset catalogs** (one per agency) index ``code``, ``title``, ``description``.
-  Each flow carries a summarized ``dsd`` in metadata.
-* **Codelist catalogs** (deduplicated per agency) index ``code`` (BM25) and
-  ``label`` (hybrid BM25+vector).
+  Each flow carries a summarized ``dsd`` in metadata (dimension order, codelist
+  refs, sample codes) — dimension codes/labels are indexed per-flow by the
+  series catalog build, not as standalone codelist catalogs.
 
 Operator notes:
 
-* ``--catalog structure`` fetches DSD+codelists for one flow and writes a
-  structure marker under ``sdmx_structure_<agency>_<dataset>``.
-* ``--catalog agency`` lists all flows, fetches structure for each, emits
-  ``sdmx_datasets_<agency>`` plus ``sdmx_codelist_<agency>_<codelist>`` catalogs.
+* ``--catalog structure`` fetches DSD for one flow and writes a structure
+  marker under ``sdmx_structure_<agency>_<dataset>``.
+* ``--catalog agency`` lists all flows, fetches structure for each, emits the
+  ``sdmx_datasets_<agency>`` catalog.
 """
 
 from __future__ import annotations
@@ -29,17 +29,15 @@ from parsimony.catalog import Catalog
 
 from parsimony_sdmx._isolation import ListDatasetsError, list_datasets
 from parsimony_sdmx.catalog_build import (
-    accumulate_codelists,
-    assert_codelist_namespace_unique,
-    build_codelist_catalog,
+    LISTING_TIMEOUT_S,
     build_datasets_catalog,
     build_structure_for_flow,
     dataset_entities_from_records,
     enrich_dataset_entities_with_dsd,
 )
-from parsimony_sdmx.connectors._agencies import ALL_AGENCIES, AgencyId
-from parsimony_sdmx.connectors.enumerate_datasets import LISTING_TIMEOUT_S, datasets_namespace
-from parsimony_sdmx.core.models import CodelistRecord, DatasetRecord, StructureRecord
+from parsimony_sdmx.core.agencies import ALL_AGENCIES, AgencyId
+from parsimony_sdmx.core.models import DatasetRecord, StructureRecord
+from parsimony_sdmx.core.namespaces import datasets_namespace
 from parsimony_sdmx.io.structure_json import read_structure, write_structure
 
 logger = logging.getLogger(__name__)
@@ -148,21 +146,6 @@ def _load_structure_markers(save_root: str | None, agency: AgencyId) -> dict[str
     return out
 
 
-def _emit_codelist_catalogs(
-    codelists: dict[str, CodelistRecord],
-    *,
-    agency: AgencyId,
-    save_root: str | None,
-    push: str | None,
-    push_root: str | None,
-) -> None:
-    assert_codelist_namespace_unique(codelists, agency=agency)
-    for cl_id, cl_record in sorted(codelists.items()):
-        catalog = build_codelist_catalog(agency, cl_id, cl_record.codes)
-        _publish(catalog, save_root=save_root, push=push, push_root=push_root)
-        logger.info("Built codelist catalog %s (%d codes)", catalog.name, len(catalog))
-
-
 def build_datasets(
     *,
     agency: AgencyId,
@@ -229,7 +212,6 @@ def build_agency_batch(args: argparse.Namespace) -> None:
     built = 0
     skipped = 0
     failed: list[str] = []
-    codelists: dict[str, CodelistRecord] = {}
     structures: dict[str, StructureRecord] = {}
     resume_cache: dict[str, StructureRecord] = (
         _load_structure_markers(args.save_root, args.agency) if args.resume else {}
@@ -239,7 +221,6 @@ def build_agency_batch(args: argparse.Namespace) -> None:
 
     def _record_structure(code: str, record: StructureRecord) -> None:
         with state_lock:
-            accumulate_codelists(codelists, record)
             structures[code] = _lite_structure(record)
 
     def _build_one(record: DatasetRecord) -> None:
@@ -282,20 +263,11 @@ def build_agency_batch(args: argparse.Namespace) -> None:
     _publish(ds_catalog, save_root=args.save_root, push=args.push, push_root=args.push_root)
     logger.info("Published %s with %d entries (%d with DSD)", ds_catalog.name, len(ds_catalog), len(structures))
 
-    _emit_codelist_catalogs(
-        codelists,
-        agency=args.agency,
-        save_root=args.save_root,
-        push=args.push,
-        push_root=args.push_root,
-    )
-
     logger.info(
-        "Agency batch complete: built=%d skipped=%d failed=%d codelists=%d",
+        "Agency batch complete: built=%d skipped=%d failed=%d",
         built,
         skipped,
         len(failed),
-        len(codelists),
     )
     if failed and not args.keep_going:
         raise ValueError(f"Failed structure fetch for: {', '.join(failed)}")

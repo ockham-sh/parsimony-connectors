@@ -81,7 +81,7 @@ catalog; those are not part of the everyday search→fetch loop).
 | [`parsimony-polymarket`](https://pypi.org/project/parsimony-polymarket/) | [Polymarket](https://polymarket.com) | keyless | — | native | `polymarket_markets`, `polymarket_events`, `polymarket_market_prices` |
 | [`parsimony-rba`](https://pypi.org/project/parsimony-rba/) | [Reserve Bank of Australia](https://www.rba.gov.au) | keyless | — | catalog | `rba_search`, `rba_fetch` |
 | [`parsimony-riksbank`](https://pypi.org/project/parsimony-riksbank/) | [Swedish Riksbank](https://www.riksbank.se) | optional key (quota) | `RIKSBANK_API_KEY` | catalog | `riksbank_search`, `riksbank_fetch`, `riksbank_swestr_fetch`, `riksbank_monetary_policy_fetch`, `riksbank_turnover_fetch`, `riksbank_holdings_fetch` |
-| [`parsimony-sdmx`](https://pypi.org/project/parsimony-sdmx/) | [SDMX protocol](https://sdmx.org) | keyless | — | catalog | `sdmx_datasets_search`, `sdmx_codelist_search`, `sdmx_series_search`, `sdmx_fetch` |
+| [`parsimony-sdmx`](https://pypi.org/project/parsimony-sdmx/) | [SDMX protocol](https://sdmx.org) | keyless | — | catalog | `sdmx_datasets_search`, `sdmx_series_search`, `sdmx_dimension_search`, `sdmx_fetch` |
 | [`parsimony-sec-edgar`](https://pypi.org/project/parsimony-sec-edgar/) | [SEC EDGAR](https://www.sec.gov) | UA-required | `SEC_EDGAR_USER_AGENT` | native | `sec_edgar_full_text_search`, `sec_edgar_find_company`, `sec_edgar_submissions`, `sec_edgar_fetch_filing`, `sec_edgar_company_facts`, … (12 total) |
 | [`parsimony-snb`](https://pypi.org/project/parsimony-snb/) | [Swiss National Bank](https://www.snb.ch) | keyless | — | catalog | `snb_search`, `snb_fetch` |
 | [`parsimony-tiingo`](https://pypi.org/project/parsimony-tiingo/) | [Tiingo](https://www.tiingo.com) | required key | `TIINGO_API_KEY` | native | `tiingo_search`, `tiingo_eod`, `tiingo_meta`, `tiingo_fundamentals_meta`, … (13 total) |
@@ -109,8 +109,9 @@ is **no `.df`**:
 - **`sdmx`** wires four of the agencies SDMX advertises: **ECB**, **Eurostat** (`ESTAT`),
   **IMF** (`IMF_DATA`), and **World Bank** (`WB_WDI`). `sdmx_fetch` and the search verbs reject
   any agency outside this set. Discovery is split: `sdmx_datasets_search` finds dataflows,
-  `sdmx_codelist_search` finds dimension codelists, and `sdmx_series_search` finds individual
-  series — all over the published catalog. `sdmx_fetch` then pulls a series (or a batch) live.
+  `sdmx_series_search` finds individual series, and `sdmx_dimension_search` resolves a
+  dimension's valid codes — all over the published catalog. `sdmx_fetch` then pulls a series
+  (or a batch) live. Only published flows are searchable; an unpublished flow hard-errors.
 - **`riksbank`** is **one catalog over five products** — SWEA (rates/FX), SWESTR (the Swedish
   Krona Short-Term Rate), Monetary Policy Data, Turnover Statistics, and Holdings. A single
   `riksbank_search` returns hits whose `code` shape routes the agent to the matching fetch

@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field, field_validator
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import HTTPError, Timeout
 
-from parsimony_sdmx.connectors._agencies import ALL_AGENCIES
+from parsimony_sdmx.core.agencies import ALL_AGENCIES
 from parsimony_sdmx.core.titles import compose_observation_title, format_code_with_label
 from parsimony_sdmx.providers.dataset_urls import build_sdmx_dataset_url
 
@@ -88,7 +88,7 @@ class SdmxFetchParams(BaseModel):
     def _validate_dataset_key(cls, v: str) -> str:
         stripped = v.strip()
         if "-" not in stripped:
-            raise InvalidParameterError("sdmx", "dataset_key must include agency prefix (e.g. 'ECB-YC')")
+            raise InvalidParameterError("sdmx", "dataset_ref must include agency prefix (e.g. 'ECB-YC')")
         agency, dataset_id = stripped.split("-", 1)
         allowed = {a.value for a in ALL_AGENCIES}
         if agency.upper() not in allowed:
@@ -189,16 +189,16 @@ def sdmx_fetch(
 ) -> Any:
     """Fetch observations for SDMX series of ONE flow.
 
-    dataset_ref is the flow as AGENCY-DATASET_ID (e.g. ECB-YC, ESTAT-PRC_HICP).
-    series_ref fills each dimension positionally in key_template order; OR-list codes in a
-    dimension with '+' (e.g. AT+BE+DE). An EMPTY dimension wildcards it — allowed but it explodes
-    the series count and is slow, so avoid it normally: use sdmx_series_search to find series,
-    then fetch by key or OR-list; wildcard only when the axis is small. A LIST of keys fetches
-    concurrently; start_period / end_period filter each range.
+    dataset_ref is the flow as AGENCY-DATASET_ID (e.g. ECB-YC) — a flow_id from
+    sdmx_datasets_search. series_ref is a series key: paste sdmx_series_search's `key`
+    straight in. Its dimensions are positional, in the flow's dsd order (the order in
+    `dsd`); OR-list a dimension's codes with '+' (e.g. AT+BE+DE). An EMPTY dimension
+    wildcards it — slow, so avoid it; prefer sdmx_series_search then fetch by key. A LIST
+    of keys fetches concurrently; start_period / end_period filter each range.
 
     Returns one row per observation: series_key, title, per-dim codes, TIME_PERIOD, value.
-    Raises ProviderError / EmptyDataError / ParseError if ANY key fails (none dropped); a zombie
-    cube (common on Eurostat) ⇒ move on.
+    Raises ProviderError / EmptyDataError / ParseError if ANY key fails (none dropped); a
+    zombie cube (common on Eurostat) ⇒ move on.
     """
     keys = series_ref if isinstance(series_ref, list) else [series_ref]
     if not keys:
@@ -311,8 +311,8 @@ def _fetch_one_series(params: SdmxFetchParams, structure: _ResolvedStructure) ->
             return (
                 f"HTTP {status}: the provider rejected the key — a code in "
                 f"{params.series_key!r} is not valid or not populated for this flow. This is a bad-key "
-                "error, not a network failure: re-check each dimension's code against the DSD, or call "
-                "enumerate_sdmx_series to list the keys this flow actually populates, then retry. The "
+                "error, not a network failure: re-check each dimension's code against the DSD "
+                "(sdmx_dimension_search lists a dimension's valid codes), then retry. The "
                 "flow is reachable; do not switch flows or providers on this alone."
             )
         return (

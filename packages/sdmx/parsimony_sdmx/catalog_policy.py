@@ -13,8 +13,6 @@ from parsimony.catalog.policy import (
     adaptive_field_index,
 )
 
-from parsimony_sdmx.connectors._agencies import AgencyId
-
 sdmx_field_index = adaptive_field_index
 
 
@@ -35,42 +33,15 @@ def sdmx_datasets_indexes(
     }
 
 
-def sdmx_codelist_indexes(entries: Sequence[Entity]) -> dict[str, CatalogIndex]:
-    """Return codelist catalog indexes — always hybrid on ``label`` for concept->code recall."""
-
-    from parsimony.catalog import BM25Index, HybridIndex, VectorIndex
-    from parsimony.embedder import SentenceTransformerEmbedder
-    from parsimony.ranking import ZScoreFusion
-
-    return {
-        "code": BM25Index(),
-        "label": HybridIndex(
-            components=[
-                BM25Index(),
-                VectorIndex(embedder=SentenceTransformerEmbedder()),
-            ],
-            fusion=ZScoreFusion(weights={"bm25": HYBRID_BM25_WEIGHT, "vector": HYBRID_VECTOR_WEIGHT}),
-        ),
-    }
-
-
-def dsd_summary_from_structure(
-    record: Any,
-    *,
-    agency: AgencyId | str,
-) -> list[dict[str, Any]]:
+def dsd_summary_from_structure(record: Any) -> list[dict[str, Any]]:
     """Build JSON-serializable DSD summary for dataset catalog metadata."""
-    from parsimony_sdmx.connectors.codelist_namespace import codelist_namespace
-
     summary: list[dict[str, Any]] = []
     for dim in record.dimensions:
-        cl_id = dim.codelist_id
         summary.append(
             {
                 "dimension_id": dim.dimension_id,
                 "name": dim.name or dim.dimension_id,
-                "codelist_id": cl_id,
-                "codelist_namespace": codelist_namespace(agency, cl_id) if cl_id else None,
+                "codelist_id": dim.codelist_id,
                 "code_count": dim.code_count,
                 "sample": [{"code": sample.code, "label": sample.label} for sample in dim.sample],
             }
@@ -96,7 +67,6 @@ __all__ = [
     "HYBRID_BM25_WEIGHT",
     "HYBRID_UNIQUE_VALUE_LIMIT",
     "HYBRID_VECTOR_WEIGHT",
-    "sdmx_codelist_indexes",
     "dsd_description_text",
     "dsd_summary_from_structure",
     "sdmx_field_index",

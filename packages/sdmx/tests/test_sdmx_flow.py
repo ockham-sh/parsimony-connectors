@@ -7,7 +7,6 @@ import pytest
 from parsimony_sdmx.core.errors import SdmxFetchError
 from parsimony_sdmx.core.models import DatasetRecord, DimensionValue, SeriesRecord
 from parsimony_sdmx.providers.sdmx_flow import (
-    discover_series_keys_flow,
     list_datasets_flow,
     list_series_flow,
 )
@@ -239,34 +238,3 @@ class TestListSeriesFlow:
         client.series_keys.return_value = [_sk({"FREQ": "A", "REF_AREA": "U2"})]
         list(list_series_flow(client, "ECB", "YC"))
         assert call_count == 2
-
-
-class TestDiscoverSeriesKeysFlow(TestListSeriesFlow):
-    def test_404_keysonly_treated_as_no_match(self) -> None:
-        """ECB answers an empty-but-valid key with HTTP 404; we surface it as
-        an empty result so the connector raises the actionable EmptyDataError."""
-        client = MagicMock()
-        client.dataflow.return_value = self._build_msg("YC")
-        err = SdmxFetchError("404 Not Found")
-        err.response = SimpleNamespace(status_code=404)  # type: ignore[attr-defined]
-        client.get.side_effect = err
-        assert discover_series_keys_flow(client, "ECB", "YC", "M.U2") == []
-
-    def test_non_404_keysonly_error_wrapped(self) -> None:
-        client = MagicMock()
-        client.dataflow.return_value = self._build_msg("YC")
-        err = RuntimeError("503 upstream")
-        err.response = SimpleNamespace(status_code=503)  # type: ignore[attr-defined]
-        client.get.side_effect = err
-        with pytest.raises(SdmxFetchError, match="Failed scoped keys-only fetch"):
-            discover_series_keys_flow(client, "ECB", "YC", "M.U2")
-
-    def test_404_in_cause_chain_treated_as_no_match(self) -> None:
-        client = MagicMock()
-        client.dataflow.return_value = self._build_msg("YC")
-        inner = RuntimeError("boom")
-        inner.response = SimpleNamespace(status_code=404)  # type: ignore[attr-defined]
-        outer = SdmxFetchError("wrapped")
-        outer.__cause__ = inner
-        client.get.side_effect = outer
-        assert discover_series_keys_flow(client, "ECB", "YC", "M.U2") == []

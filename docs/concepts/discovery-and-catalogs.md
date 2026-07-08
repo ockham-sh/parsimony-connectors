@@ -74,7 +74,7 @@ search they expose is too narrow to enumerate the universe). For these the maint
 | `eia` | `eia_search` | EIA datasets |
 | `rba` | `rba_search` | Reserve Bank of Australia series |
 | `riksbank` | `riksbank_search` | Sveriges Riksbank series across five products |
-| `sdmx` | `sdmx_datasets_search`, `sdmx_codelist_search`, `sdmx_series_search` | SDMX datasets, codelists + series |
+| `sdmx` | `sdmx_datasets_search`, `sdmx_series_search`, `sdmx_dimension_search` | SDMX datasets, series + dimension values |
 | `snb` | `snb_search` | Swiss National Bank series + warehouse cubes |
 | `treasury` | `treasury_search` | US Treasury Fiscal Data + ODM rate feeds |
 

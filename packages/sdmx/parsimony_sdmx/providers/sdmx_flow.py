@@ -38,7 +38,6 @@ from parsimony_sdmx.providers.sdmx_extract import (
     extract_flow_title,
     extract_raw_codelists,
     extract_series_dim_values,
-    series_keys_from_data_message,
 )
 
 TitleDecorator = Callable[[str, str], str]
@@ -153,78 +152,6 @@ def list_structure_flow(
         language_prefs=language_prefs,
         max_sample_codes=max_sample_codes,
     )
-
-
-def discover_series_keys_flow(
-    client: Any,
-    agency_id: str,
-    dataset_id: str,
-    partial_key: str,
-    language_prefs: Sequence[str] = ("en",),
-) -> list[SeriesRecord]:
-    """Fetch matching series keys for a partial SDMX key — no observations."""
-    msg = fetch_dataflow_with_structure(client, dataset_id)
-    try:
-        dataflow = msg.dataflow[dataset_id]
-    except (KeyError, AttributeError, TypeError) as exc:
-        raise SdmxFetchError(f"Dataflow {dataset_id!r} missing from response for {agency_id}") from exc
-
-    dsd = resolve_dsd(client, msg, dataflow, dataset_id)
-    dsd_order = extract_dsd_dim_order(dsd, exclude_time=True)
-    validate_partial_key(partial_key, dsd_order)
-
-    raw_codelists = extract_raw_codelists(dsd, msg)
-    labels = resolve_codelists(raw_codelists, language_prefs)
-
-    try:
-        data_msg = client.get(
-            resource_type="data",
-            resource_id=dataset_id,
-            key=partial_key,
-            params={"detail": "serieskeysonly"},
-        )
-    except Exception as exc:
-        # ECB's SDMX API answers a syntactically valid key that matches zero
-        # series with HTTP 404 (ESTAT/IMF return an empty 200). Treat that as
-        # "no series match" so the connector surfaces the actionable
-        # EmptyDataError instead of an opaque transport failure.
-        if _is_no_data_404(exc):
-            return []
-        raise SdmxFetchError(f"Failed scoped keys-only fetch for {dataset_id}/{partial_key}: {exc}") from exc
-
-    series_keys = series_keys_from_data_message(data_msg)
-    dim_values = list(extract_series_dim_values(series_keys))
-    return list(
-        project_series(
-            dataset_id=dataset_id,
-            series_dim_values=dim_values,
-            dsd_order=dsd_order,
-            labels=labels,
-        )
-    )
-
-
-def _is_no_data_404(exc: BaseException) -> bool:
-    """True if *exc* is an HTTP 404 — SDMX agencies (notably ECB) use 404 to
-    signal "this key pattern matches no series", not a real transport error."""
-    for err in (exc, getattr(exc, "__cause__", None), getattr(exc, "__context__", None)):
-        if err is None:
-            continue
-        status = getattr(getattr(err, "response", None), "status_code", None)
-        if status == 404:
-            return True
-    return False
-
-
-def validate_partial_key(partial_key: str, dsd_order: list[str]) -> None:
-    from parsimony.errors import InvalidParameterError
-
-    positions = partial_key.split(".")
-    if len(positions) != len(dsd_order):
-        raise InvalidParameterError(
-            "sdmx",
-            f"expected {len(dsd_order)} positions in order {dsd_order}, got {len(positions)} for key {partial_key!r}",
-        )
 
 
 def list_series_flow(

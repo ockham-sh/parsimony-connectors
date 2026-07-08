@@ -235,15 +235,15 @@ uv run python ../../tooling/validate_catalog.py --provider boj \
 
 Root: `hf://parsimony-dev/sdmx` (override: `PARSIMONY_SDMX_CATALOG_URL`).
 
-Layout: ``sdmx_datasets_<agency>`` + deduplicated ``sdmx_codelist_<agency>_<codelist_id>`` catalogs.
+Layout: ``sdmx_datasets_<agency>`` + per-flow ``sdmx_series_<agency>_<flow>`` catalogs.
 ``sdmx_datasets_search`` accepts optional ``agency`` (fans out across all agency dataset catalogs when omitted).
 
-Agent path: **datasets search → codelist search → scoped discovery → fetch**.
+Agent path: **datasets search → series search / dimension search → fetch**.
 
 ```bash
 cd packages/sdmx
 
-# Full portfolio (all agencies, structure + codelist catalogs)
+# Full portfolio (all agencies, structure + series catalogs)
 uv run python scripts/build_catalog.py --catalog portfolio \
   --save-root /tmp/parsimony-catalogs-v1/sdmx \
   --push-root hf://parsimony-dev/sdmx \
@@ -288,10 +288,10 @@ configs:
     data_files:
       - split: train
         path: sdmx_datasets_ecb/entries.parquet
-  - config_name: sdmx_codelist_ecb_cl_freq
+  - config_name: sdmx_series_ecb_yc
     data_files:
       - split: train
-        path: sdmx_codelist_ecb_cl_freq/entries.parquet
+        path: sdmx_series_ecb_yc/entries.parquet
 ```
 
 Publish or refresh the dataset card (README only — no snapshot rebuild):
