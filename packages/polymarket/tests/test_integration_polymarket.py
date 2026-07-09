@@ -12,76 +12,77 @@ vars and run in CI without secrets.
 
 from __future__ import annotations
 
-import json
-
-import httpx
 import pytest
+from parsimony.errors import EmptyDataError
 from parsimony_test_support import assert_provenance_shape
 
-from parsimony_polymarket import polymarket_events, polymarket_market_prices, polymarket_markets
+from parsimony_polymarket import (
+    polymarket_event,
+    polymarket_market,
+    polymarket_price_history,
+    polymarket_search_events,
+)
 
 pytestmark = pytest.mark.integration
 
+_SEARCH_COLUMNS = {
+    "slug",
+    "title",
+    "description",
+    "markets_count",
+    "volume",
+    "liquidity",
+    "active",
+    "closed",
+}
 
-def test_polymarket_markets_live() -> None:
-    result = polymarket_markets(limit=5)
 
-    assert_provenance_shape(result, expected_source="polymarket_markets", required_param_keys=["limit"])
+def test_polymarket_search_events_live() -> None:
+    result = polymarket_search_events(search_text="inflation", limit=5)
+
+    assert_provenance_shape(
+        result, expected_source="polymarket_search_events", required_param_keys=["search_text"]
+    )
     df = result.data
-    assert not df.empty, "Gamma /markets returned an empty DataFrame"
-    assert list(df.columns) == ["id", "question", "slug", "active", "clobTokenIds"]
-    # Real content, not just column names: ids and questions must be populated.
-    assert df["id"].astype(str).str.len().gt(0).all(), "blank market id"
-    assert df["question"].astype(str).str.len().gt(0).any(), "no real market question text"
-    assert df["slug"].astype(str).str.len().gt(0).any(), "no real market slug"
-    assert len(df) <= 5, "limit not respected"
-
-
-def test_polymarket_events_live() -> None:
-    result = polymarket_events(limit=5)
-
-    assert_provenance_shape(result, expected_source="polymarket_events", required_param_keys=["limit"])
-    df = result.data
-    assert not df.empty, "Gamma /events returned an empty DataFrame"
-    assert list(df.columns) == ["id", "title", "slug"]
-    assert df["id"].astype(str).str.len().gt(0).all(), "blank event id"
+    assert not df.empty, "Gamma /public-search returned an empty DataFrame"
+    assert set(df.columns) == _SEARCH_COLUMNS
+    assert df["slug"].astype(str).str.len().gt(0).all(), "blank event slug"
     assert df["title"].astype(str).str.len().gt(0).any(), "no real event title text"
-    assert df["slug"].astype(str).str.len().gt(0).any(), "no real event slug"
+    # The query term should actually appear somewhere in the ranked titles.
+    assert df["title"].str.contains("inflation", case=False, na=False).any()
     assert len(df) <= 5, "limit not respected"
 
 
-def test_polymarket_market_prices_live() -> None:
-    # Derive a real CLOB token id from a live market (the prices endpoint needs a
-    # concrete clobTokenIds value — there is no static fixture id we can rely on).
-    token_id = _live_clob_token_id()
+def test_polymarket_navigation_chain_live() -> None:
+    # search -> event -> market -> price history, entirely against the live APIs.
+    events = polymarket_search_events(search_text="inflation", limit=5).data
+    ev_slug = str(events.iloc[0]["slug"])
 
-    result = polymarket_market_prices(token_id=token_id)
+    markets = polymarket_event(slug=ev_slug).data
+    assert not markets.empty, f"event {ev_slug!r} exposed no markets"
+    mk_slug = str(markets.iloc[0]["market_slug"])
 
-    assert_provenance_shape(result, expected_source="polymarket_market_prices", required_param_keys=["token_id"])
-    data = result.data
-    assert isinstance(data, dict), f"expected a price dict, got {type(data)!r}"
-    assert "price" in data, f"price key missing from CLOB response: {data!r}"
-    # The price is a stringified float in [0, 1] for a binary outcome token.
-    price = float(data["price"])
-    assert 0.0 <= price <= 1.0, f"CLOB price out of [0,1] range: {price}"
+    outcomes = polymarket_market(slug=mk_slug).data
+    assert not outcomes.empty, f"market {mk_slug!r} exposed no outcome tokens"
+    assert set(outcomes.columns) == {"clob_token_id", "outcome"}
 
-
-def _live_clob_token_id() -> str:
-    """Pull one real CLOB token id from a live, order-book-enabled market."""
-    with httpx.Client(base_url="https://gamma-api.polymarket.com", timeout=15.0) as client:
-        resp = client.get("/markets", params={"limit": 20, "active": "true"})
-        resp.raise_for_status()
-        markets = resp.json()
-
-    for market in markets:
-        raw = market.get("clobTokenIds")
-        if not raw:
-            continue
+    # Find an outcome token that actually has a price series (some resolved
+    # markets return an empty history) and assert the tidy time-series shape.
+    hist = None
+    for token in outcomes["clob_token_id"].astype(str):
         try:
-            token_ids = json.loads(raw) if isinstance(raw, str) else raw
-        except (ValueError, TypeError):
+            hist = polymarket_price_history(token_id=token, interval="1w", fidelity=60)
+        except EmptyDataError:
             continue
-        if token_ids:
-            return str(token_ids[0])
+        break
+    if hist is None:
+        pytest.skip("no outcome token on the sampled market returned a price history")
 
-    pytest.skip("no live market exposed a clobTokenIds value to price")
+    assert_provenance_shape(
+        hist, expected_source="polymarket_price_history", required_param_keys=["token_id"]
+    )
+    hdf = hist.data
+    assert not hdf.empty
+    assert set(hdf.columns) == {"token", "timestamp", "probability"}
+    assert hdf["probability"].between(0.0, 1.0).all(), "probability outside [0,1]"
+    assert str(hdf["timestamp"].dtype).startswith("datetime64")
