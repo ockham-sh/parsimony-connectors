@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import pandas as pd
+import pyarrow.compute as pc
 import pyarrow.dataset as ds
 from parsimony.catalog import Catalog, resolve_catalog_dir
 from parsimony.catalog.search import resolved_catalog_url
@@ -20,6 +21,7 @@ from parsimony.errors import CatalogNotFoundError, ConnectorError, EmptyDataErro
 from parsimony.result import Column, ColumnRole, OutputConfig
 from pydantic import BaseModel, Field
 
+from parsimony_sdmx.catalog_series import _strip_flow_prefix
 from parsimony_sdmx.connectors.datasets_search import DEFAULT_CATALOG_ROOT, PARSIMONY_SDMX_CATALOG_URL_ENV
 from parsimony_sdmx.core.agencies import AgencyId
 from parsimony_sdmx.core.namespaces import series_namespace
@@ -29,6 +31,7 @@ from parsimony_sdmx.series_fields import (
     dim_code_field,
     dim_label_field,
     known_search_fields,
+    parse_dim_from_field,
 )
 from parsimony_sdmx.series_query import plan_series_search
 
@@ -66,8 +69,18 @@ def _clear_series_catalog_lru() -> None:
 
 
 def _not_published(label: str) -> str:
-    """The single "this flow has no published series catalog" message, shared by every caller."""
-    return f"No series catalog for {label}: this flow is not published. Ask the maintainers to build it."
+    """The single "this flow has no published series catalog" message, shared by every caller.
+
+    "Not published" means not in the *parsimony* catalog — it says nothing about whether
+    the flow exists upstream at the agency, and the message must not conflate the two: a
+    caller hunting a successor flow (e.g. ECB's post-BPM6 BOP) needs to know the id may
+    still be real.
+    """
+    return (
+        f"No series catalog for {label}: this flow is not published in the parsimony catalog "
+        "(it may still exist upstream at the agency). Verify the flow id with "
+        "sdmx_datasets_search; if it is real, ask the maintainers to build its catalog."
+    )
 
 
 def _resolve_catalog_path(namespace: str, *, label: str, catalog_root: str | None = None) -> Path:
@@ -122,6 +135,25 @@ def _sdmx_meta(catalog_dir: Path) -> dict[str, Any]:
     return {}
 
 
+def _parse_filter_json(filter_json: str) -> dict[str, list[str]]:
+    """Parse a ``filter_json`` string into ``{column: [values]}``.
+
+    Accepts a bare scalar as a single-code filter: ``{"FREQ_code": "M"}`` means ``["M"]``.
+    A str is iterable, so it must be wrapped, never iterated — otherwise "DE" would expand
+    to ``["D", "E"]`` and match nothing. Shared by ``sdmx_series_search`` and
+    ``sdmx_dimension_search`` so both accept the exact same filter syntax.
+    """
+    try:
+        parsed = json.loads(filter_json)
+    except json.JSONDecodeError as exc:
+        raise InvalidParameterError("sdmx", f"filter_json must be valid JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise InvalidParameterError("sdmx", "filter_json must be a JSON object")
+    return {
+        str(key): [str(v) for v in (values if isinstance(values, list) else [values])] for key, values in parsed.items()
+    }
+
+
 def _validate_filter_columns(filter_spec: dict[str, list[str]], dsd_order: tuple[str, ...], *, label: str) -> None:
     """Reject filter keys that are not real catalog columns.
 
@@ -140,6 +172,126 @@ def _validate_filter_columns(filter_spec: dict[str, list[str]], dsd_order: tuple
         else:
             hint = f"; valid columns: {sorted(valid)}"
         raise InvalidParameterError("sdmx", f"unknown filter column {col!r} for {label}{hint}")
+
+
+def _dimension_search_hint(col: str, *, agency: str, flow: str) -> str:
+    dim_kind = parse_dim_from_field(col)
+    if dim_kind is None:
+        return ""
+    return (
+        f"; list populated values with sdmx_dimension_search(agency={agency!r}, "
+        f"dataset_id={flow!r}, dimension={dim_kind[0]!r})"
+    )
+
+
+def _validate_filter_values(
+    filter_spec: dict[str, list[str]],
+    dataset: ds.Dataset,
+    *,
+    agency: str,
+    flow: str,
+) -> None:
+    """Reject filter values that are not populated anywhere in the flow.
+
+    ``isin`` semantics silently drop a value the flow never populates ("EL" where ECB
+    uses "GR": 11 requested, 10 returned, no signal). Mirror ``_validate_filter_columns``
+    one level down: a filter that references anything the flow doesn't have — column or
+    value — is an invalid parameter, caught eagerly with the culprit named.
+    """
+    cols = [col for col, vals in filter_spec.items() if vals]
+    if not cols:
+        return
+    table = dataset.to_table(columns=cols)
+    problems: list[str] = []
+    for col in cols:
+        requested = filter_spec[col]
+        populated = set(pc.unique(table.column(col)).to_pylist())  # type: ignore[attr-defined]
+        missing = [v for v in requested if v not in populated]
+        if not missing:
+            continue
+        kept = len(requested) - len(missing)
+        problems.append(
+            f"{col} value(s) {missing} not populated ({kept} of {len(requested)} requested values exist)"
+            + _dimension_search_hint(col, agency=agency, flow=flow)
+        )
+    if problems:
+        raise InvalidParameterError("sdmx", f"filter values not found in {agency}/{flow}: " + "; ".join(problems))
+
+
+def _filter_autopsy(filter_spec: dict[str, list[str]], dataset: ds.Dataset, *, agency: str, flow: str) -> str:
+    """Per-column breakdown of an empty AND-filter match (error path only).
+
+    Standalone counts rule out typo'd codes. When every column matches alone, a
+    leave-one-out pass (count of all the OTHER columns ANDed) names the conflicting
+    subset: a column whose removal unblocks the rest is part of the conflict — for a
+    pairwise conflict, exactly the two conflicting columns light up. O(2n) counted
+    scans of the local parquet, paid only when the match is already empty.
+    """
+    col_exprs = {col: ds.field(col).isin(vals) for col, vals in filter_spec.items() if vals}
+    counts = {col: dataset.count_rows(filter=expr) for col, expr in col_exprs.items()}
+    lines = [f"  {col}={filter_spec[col]} -> {n} series alone" for col, n in counts.items()]
+    zero = [col for col, n in counts.items() if n == 0]
+    if zero:
+        advice = "Zero-match column(s): " + "; ".join(
+            f"{col}" + _dimension_search_hint(col, agency=agency, flow=flow) for col in zero
+        )
+    elif len(col_exprs) < 2:
+        advice = "The filter matches alone but the combined lookup is empty — relax it or re-check the flow."
+    else:
+        unblocks: list[str] = []
+        for col in col_exprs:
+            rest = [expr for other, expr in col_exprs.items() if other != col]
+            combined = rest[0]
+            for item in rest[1:]:
+                combined = combined & item
+            n = dataset.count_rows(filter=combined)
+            if n > 0:
+                unblocks.append(f"{col} (-> {n} series)")
+        if unblocks:
+            advice = (
+                "Every column matches >0 series alone. Dropping a single column unblocks the rest: "
+                + ", ".join(unblocks)
+                + " — the conflict lies among these; relax or re-pick one of them."
+            )
+        else:
+            advice = (
+                "Every column matches >0 series alone and no single column unblocks the rest — "
+                "the conflict involves 3+ dimensions; relax two or more at a time."
+            )
+    return "Standalone matches per column:\n" + "\n".join(lines) + f"\n{advice}"
+
+
+def _empty_match_message(
+    plan_query: str | None,
+    filter_spec: dict[str, list[str]],
+    dataset: ds.Dataset,
+    filter_rows: int,
+    *,
+    agency: str,
+    flow: str,
+) -> str:
+    """Explain an empty match instead of echoing the filter back verbatim.
+
+    Only runs on the error path. Attributes the emptiness to the free-text query
+    (the filter alone matched rows) or hands off to :func:`_filter_autopsy` for the
+    per-column breakdown.
+    """
+    label = f"{agency}/{flow}"
+    if not filter_spec:
+        return (
+            f"No series matched {plan_query!r} in {label} ({dataset.count_rows()} series in the "
+            "flow's catalog). query= matches titles/labels only, never SDMX codes — browse a "
+            "dimension's values with sdmx_dimension_search, or filter exact codes with filter_json."
+        )
+    if plan_query is not None and filter_rows > 0:
+        return (
+            f"No series matched query {plan_query!r} with filter {filter_spec} in {label}: "
+            f"the filter alone matches {filter_rows} series; the free-text query eliminated "
+            "all of them. Relax or drop query=."
+        )
+    return f"No series matched filter {filter_spec} in {label}. " + _filter_autopsy(
+        filter_spec, dataset, agency=agency, flow=flow
+    )
 
 
 SERIES_SEARCH_OUTPUT = OutputConfig(
@@ -231,23 +383,14 @@ def sdmx_series_search(
 
     sdmx_meta = _sdmx_meta(catalog_path)
     dsd_order = tuple(sdmx_meta.get("dsd_order") or ())
+    parquet_path = catalog_path / (meta.backend.rows_filename or SERIES_PARQUET)
+    dataset = ds.dataset(str(parquet_path), format="parquet")
     if params.field is not None or params.filter_json is not None:
         filter_spec: dict[str, list[str]] = {}
         if params.filter_json:
-            try:
-                parsed_filter = json.loads(params.filter_json)
-            except json.JSONDecodeError as exc:
-                raise InvalidParameterError("sdmx", f"filter_json must be valid JSON: {exc}") from exc
-            if not isinstance(parsed_filter, dict):
-                raise InvalidParameterError("sdmx", "filter_json must be a JSON object")
-            filter_spec = {}
-            for key, values in parsed_filter.items():
-                # Accept a bare scalar as a single-code filter: {"FREQ_code": "M"} means
-                # ["M"]. A str is iterable, so it must be wrapped, never iterated — otherwise
-                # "DE" would expand to ["D", "E"] and match nothing.
-                items = values if isinstance(values, list) else [values]
-                filter_spec[str(key)] = [str(v) for v in items]
+            filter_spec = _parse_filter_json(params.filter_json)
             _validate_filter_columns(filter_spec, dsd_order, label=f"{agency_id.value}/{flow}")
+            _validate_filter_values(filter_spec, dataset, agency=agency_id.value, flow=flow)
         plan_query = q if params.field is not None else None
         plan_field = params.field
     else:
@@ -271,22 +414,26 @@ def sdmx_series_search(
         top_k_values=params.top_k_per_dim,
     )
 
-    parquet_path = catalog_path / (meta.backend.rows_filename or SERIES_PARQUET)
-    dataset = ds.dataset(str(parquet_path), format="parquet")
     expr = None
-    if filter_spec:
-        import pyarrow.dataset as pds
-
-        exprs = [pds.field(col).isin(vals) for col, vals in filter_spec.items() if vals]
-        if exprs:
-            expr = exprs[0]
-            for item in exprs[1:]:
-                expr = expr & item
+    for col, vals in filter_spec.items():
+        if not vals:
+            continue
+        item = ds.field(col).isin(vals)
+        expr = item if expr is None else expr & item
     filtered = dataset.to_table(filter=expr, columns=["key", "title"])
 
     if not matches:
-        criteria = repr(q) if q is not None else f"filter {filter_spec}"
-        raise EmptyDataError("sdmx", f"No series matched {criteria} in {agency_id.value}/{flow}")
+        raise EmptyDataError(
+            "sdmx",
+            _empty_match_message(
+                plan_query,
+                filter_spec,
+                dataset,
+                filtered.num_rows,
+                agency=agency_id.value,
+                flow=flow,
+            ),
+        )
 
     # ``filtered`` holds key+title; reuse it to surface the human-readable title
     # without a second parquet scan.
@@ -299,8 +446,11 @@ def sdmx_series_search(
 
     rows: list[dict[str, object]] = []
     for match in matches:
+        # Old published catalogs can carry the flow id as a key prefix ("YC.B.U2...");
+        # new builds strip it at build time. Strip at read time too so the emitted key
+        # always equals sdmx_fetch's bare series_key (title_map lookups stay raw).
         row: dict[str, object] = {
-            "key": match.code,
+            "key": _strip_flow_prefix(match.code, flow),
             TITLE_FIELD: title_map.get(match.code, ""),
             "score": round(match.score, 6),
         }
