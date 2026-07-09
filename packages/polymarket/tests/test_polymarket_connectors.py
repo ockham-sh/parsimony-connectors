@@ -9,14 +9,16 @@ from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError, 
 
 from parsimony_polymarket import (
     CONNECTORS,
-    polymarket_events,
-    polymarket_market_prices,
-    polymarket_markets,
+    polymarket_event,
+    polymarket_market,
+    polymarket_price_history,
+    polymarket_search_events,
 )
 
-_MARKETS_URL = "https://gamma-api.polymarket.com/markets"
-_EVENTS_URL = "https://gamma-api.polymarket.com/events"
-_PRICE_URL = "https://clob.polymarket.com/price"
+_SEARCH_URL = "https://gamma-api.polymarket.com/public-search"
+_EVENT_URL = "https://gamma-api.polymarket.com/events/slug/june-inflation"
+_MARKET_URL = "https://gamma-api.polymarket.com/markets/slug/will-cpi"
+_HISTORY_URL = "https://clob.polymarket.com/prices-history"
 
 
 # ---------------------------------------------------------------------------
@@ -26,156 +28,281 @@ _PRICE_URL = "https://clob.polymarket.com/price"
 
 def test_connectors_collection_exposes_expected_names() -> None:
     names = {c.name for c in CONNECTORS}
-    assert names == {"polymarket_markets", "polymarket_events", "polymarket_market_prices"}
+    assert names == {
+        "polymarket_search_events",
+        "polymarket_event",
+        "polymarket_market",
+        "polymarket_price_history",
+    }
 
 
-def test_markets_and_events_are_enumerators() -> None:
+def test_navigation_verbs_are_enumerators() -> None:
     by_name = {c.name: c for c in CONNECTORS}
-    assert "enumerator" in by_name["polymarket_markets"].tags
-    assert "enumerator" in by_name["polymarket_events"].tags
-    # market_prices is a scalar lookup, not entity discovery → plain connector.
-    assert "enumerator" not in by_name["polymarket_market_prices"].tags
+    assert "enumerator" in by_name["polymarket_search_events"].tags
+    assert "enumerator" in by_name["polymarket_event"].tags
+    assert "enumerator" in by_name["polymarket_market"].tags
+    # price history is observation data → plain connector, not entity discovery.
+    assert "enumerator" not in by_name["polymarket_price_history"].tags
 
 
 # ---------------------------------------------------------------------------
-# polymarket_markets
+# polymarket_search_events
 # ---------------------------------------------------------------------------
 
 
 @respx.mock
-def test_polymarket_markets_returns_declared_columns() -> None:
-    respx.get(_MARKETS_URL).mock(
+def test_search_events_returns_declared_columns() -> None:
+    respx.get(_SEARCH_URL).mock(
         return_value=httpx.Response(
             200,
-            json=[
-                # Extra junk fields must be dropped by the enumerator exact-match.
-                {
-                    "id": "1",
-                    "question": "Will X happen?",
-                    "slug": "x",
-                    "active": True,
-                    "clobTokenIds": '["111", "222"]',
-                    "volume": "5",
-                },
-            ],
+            json={
+                "events": [
+                    {
+                        "slug": "june-inflation",
+                        "title": "June Inflation US",
+                        "description": "desc",
+                        "markets": [{"x": 1}, {"y": 2}],
+                        "volume": "1234.5",
+                        "liquidity": "678.9",
+                        "active": True,
+                        "closed": False,
+                        "noise": "dropped",
+                    }
+                ]
+            },
         )
     )
-    result = polymarket_markets(limit=5)
-    assert result.provenance.source == "polymarket_markets"
-    assert list(result.data.columns) == ["id", "question", "slug", "active", "clobTokenIds"]
-    assert result.data.iloc[0]["slug"] == "x"
-    assert result.data.iloc[0]["clobTokenIds"] == '["111", "222"]'
+    result = polymarket_search_events(search_text="inflation", limit=5)
+    assert result.provenance.source == "polymarket_search_events"
+    assert set(result.data.columns) == {
+        "slug",
+        "title",
+        "description",
+        "markets_count",
+        "volume",
+        "liquidity",
+        "active",
+        "closed",
+    }
+    row = result.data.iloc[0]
+    assert row["slug"] == "june-inflation"
+    assert row["markets_count"] == 2
+    assert row["volume"] == 1234.5
 
 
 @respx.mock
-def test_polymarket_markets_raises_empty_data_when_no_rows() -> None:
-    respx.get(_MARKETS_URL).mock(return_value=httpx.Response(200, json=[]))
+def test_search_events_empty_raises_empty_data() -> None:
+    respx.get(_SEARCH_URL).mock(return_value=httpx.Response(200, json={"events": []}))
     with pytest.raises(EmptyDataError):
-        polymarket_markets(limit=5)
+        polymarket_search_events(search_text="inflation")
 
 
 @respx.mock
-def test_polymarket_markets_raises_parse_error_on_non_list() -> None:
-    respx.get(_MARKETS_URL).mock(return_value=httpx.Response(200, json={"error": "nope"}))
+def test_search_events_missing_events_key_raises_parse_error() -> None:
+    respx.get(_SEARCH_URL).mock(return_value=httpx.Response(200, json={"profiles": []}))
     with pytest.raises(ParseError):
-        polymarket_markets(limit=5)
+        polymarket_search_events(search_text="inflation")
 
 
 @respx.mock
-def test_polymarket_markets_raises_parse_error_on_missing_fields() -> None:
-    # 200 with a list, but rows lack the declared TITLE/KEY fields.
-    respx.get(_MARKETS_URL).mock(return_value=httpx.Response(200, json=[{"foo": "bar"}]))
-    with pytest.raises(ParseError):
-        polymarket_markets(limit=5)
-
-
-@respx.mock
-def test_polymarket_markets_maps_500() -> None:
-    respx.get(_MARKETS_URL).mock(return_value=httpx.Response(500, text="err"))
+def test_search_events_maps_500() -> None:
+    respx.get(_SEARCH_URL).mock(return_value=httpx.Response(500, text="err"))
     with pytest.raises(ProviderError):
-        polymarket_markets(limit=5)
+        polymarket_search_events(search_text="inflation")
 
 
-def test_polymarket_markets_rejects_out_of_range_limit() -> None:
+def test_search_events_rejects_blank_query() -> None:
+    with pytest.raises(InvalidParameterError, match="search_text"):
+        polymarket_search_events(search_text="   ")
+
+
+def test_search_events_rejects_out_of_range_limit() -> None:
     with pytest.raises(InvalidParameterError):
-        polymarket_markets(limit=0)
+        polymarket_search_events(search_text="x", limit=0)
     with pytest.raises(InvalidParameterError):
-        polymarket_markets(limit=101)
+        polymarket_search_events(search_text="x", limit=101)
 
 
 # ---------------------------------------------------------------------------
-# polymarket_events
+# polymarket_event
 # ---------------------------------------------------------------------------
 
 
 @respx.mock
-def test_polymarket_events_returns_declared_columns() -> None:
-    respx.get(_EVENTS_URL).mock(
+def test_event_returns_market_rows() -> None:
+    respx.get(_EVENT_URL).mock(
         return_value=httpx.Response(
             200,
-            json=[{"id": "e1", "title": "Election", "slug": "election", "noise": 1}],
+            json={
+                "slug": "june-inflation",
+                "markets": [
+                    {
+                        "slug": "will-cpi",
+                        "question": "Will CPI be 3%?",
+                        "description": "d",
+                        "outcomes": '["Yes", "No"]',
+                        "volume": "50.0",
+                        "liquidity": "10.0",
+                        "active": True,
+                        "closed": False,
+                    }
+                ],
+            },
         )
     )
-    result = polymarket_events(limit=5)
-    assert result.provenance.source == "polymarket_events"
-    assert list(result.data.columns) == ["id", "title", "slug"]
+    result = polymarket_event(slug="june-inflation")
+    assert result.provenance.source == "polymarket_event"
+    assert set(result.data.columns) == {
+        "market_slug",
+        "market_question",
+        "market_description",
+        "market_outcomes_count",
+        "market_volume",
+        "market_liquidity",
+        "market_active",
+        "market_closed",
+    }
+    row = result.data.iloc[0]
+    assert row["market_slug"] == "will-cpi"
+    assert row["market_outcomes_count"] == 2
+    assert row["market_volume"] == 50.0
 
 
 @respx.mock
-def test_polymarket_events_raises_empty_data_when_no_rows() -> None:
-    respx.get(_EVENTS_URL).mock(return_value=httpx.Response(200, json=[]))
+def test_event_accepts_list_envelope() -> None:
+    # Gamma sometimes wraps the slug object in a one-element list.
+    respx.get(_EVENT_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json=[{"slug": "june-inflation", "markets": [{"slug": "m", "question": "q"}]}],
+        )
+    )
+    result = polymarket_event(slug="june-inflation")
+    assert result.data.iloc[0]["market_slug"] == "m"
+
+
+@respx.mock
+def test_event_no_markets_raises_empty_data() -> None:
+    respx.get(_EVENT_URL).mock(return_value=httpx.Response(200, json={"slug": "s", "markets": []}))
     with pytest.raises(EmptyDataError):
-        polymarket_events(limit=5)
+        polymarket_event(slug="june-inflation")
 
 
 @respx.mock
-def test_polymarket_events_raises_parse_error_on_missing_fields() -> None:
-    respx.get(_EVENTS_URL).mock(return_value=httpx.Response(200, json=[{"id": "e1"}]))
+def test_event_error_body_raises_parse_error() -> None:
+    respx.get(_EVENT_URL).mock(
+        return_value=httpx.Response(200, json={"type": "not found", "error": "x"})
+    )
     with pytest.raises(ParseError):
-        polymarket_events(limit=5)
+        polymarket_event(slug="june-inflation")
 
 
-def test_polymarket_events_rejects_out_of_range_limit() -> None:
-    with pytest.raises(InvalidParameterError):
-        polymarket_events(limit=0)
+def test_event_rejects_blank_slug() -> None:
+    with pytest.raises(InvalidParameterError, match="slug"):
+        polymarket_event(slug="  ")
 
 
 # ---------------------------------------------------------------------------
-# polymarket_market_prices
+# polymarket_market
 # ---------------------------------------------------------------------------
 
 
 @respx.mock
-def test_polymarket_market_prices_returns_dict() -> None:
-    respx.get(_PRICE_URL).mock(return_value=httpx.Response(200, json={"price": "0.42"}))
-    result = polymarket_market_prices(token_id="abc")
-    # Scalar/dict return → Result (no .df); the price is coerced str→float.
-    assert result.data["price"] == 0.42
-    assert isinstance(result.data["price"], float)
+def test_market_returns_outcome_tokens() -> None:
+    respx.get(_MARKET_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "slug": "will-cpi",
+                "outcomes": '["Yes", "No"]',
+                "clobTokenIds": '["111", "222"]',
+            },
+        )
+    )
+    result = polymarket_market(slug="will-cpi")
+    assert result.provenance.source == "polymarket_market"
+    assert set(result.data.columns) == {"clob_token_id", "outcome"}
+    assert result.data["outcome"].tolist() == ["Yes", "No"]
+    assert result.data["clob_token_id"].tolist() == ["111", "222"]
 
 
 @respx.mock
-def test_polymarket_market_prices_raises_parse_error_on_non_numeric() -> None:
-    respx.get(_PRICE_URL).mock(return_value=httpx.Response(200, json={"price": "n/a"}))
+def test_market_no_tokens_raises_empty_data() -> None:
+    respx.get(_MARKET_URL).mock(
+        return_value=httpx.Response(200, json={"slug": "s", "outcomes": "[]", "clobTokenIds": "[]"})
+    )
+    with pytest.raises(EmptyDataError):
+        polymarket_market(slug="will-cpi")
+
+
+@respx.mock
+def test_market_missing_outcomes_raises_parse_error() -> None:
+    respx.get(_MARKET_URL).mock(
+        return_value=httpx.Response(200, json={"type": "err", "error": "no"})
+    )
     with pytest.raises(ParseError):
-        polymarket_market_prices(token_id="abc")
+        polymarket_market(slug="will-cpi")
+
+
+def test_market_rejects_blank_slug() -> None:
+    with pytest.raises(InvalidParameterError, match="slug"):
+        polymarket_market(slug="")
+
+
+# ---------------------------------------------------------------------------
+# polymarket_price_history
+# ---------------------------------------------------------------------------
 
 
 @respx.mock
-def test_polymarket_market_prices_raises_empty_data_when_no_price() -> None:
-    # 200 but the body has no "price" key.
-    respx.get(_PRICE_URL).mock(return_value=httpx.Response(200, json={}))
-    with pytest.raises(EmptyDataError):
-        polymarket_market_prices(token_id="abc")
+def test_price_history_returns_tidy_series() -> None:
+    respx.get(_HISTORY_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={"history": [{"t": 1782979203, "p": "0.0245"}, {"t": 1782982804, "p": "0.0255"}]},
+        )
+    )
+    result = polymarket_price_history(token_id="111", interval="1w")
+    assert result.provenance.source == "polymarket_price_history"
+    df = result.data
+    assert set(df.columns) == {"token", "timestamp", "probability"}
+    assert len(df) == 2
+    assert df["token"].iloc[0] == "111"
+    assert df["probability"].iloc[0] == pytest.approx(0.0245)
+    assert str(df["timestamp"].dtype).startswith("datetime64")
 
 
 @respx.mock
-def test_polymarket_market_prices_raises_empty_data_on_non_dict() -> None:
-    respx.get(_PRICE_URL).mock(return_value=httpx.Response(200, json=["not", "a", "dict"]))
+def test_price_history_empty_raises_empty_data() -> None:
+    respx.get(_HISTORY_URL).mock(return_value=httpx.Response(200, json={"history": []}))
     with pytest.raises(EmptyDataError):
-        polymarket_market_prices(token_id="abc")
+        polymarket_price_history(token_id="111")
 
 
-def test_polymarket_market_prices_rejects_blank_token() -> None:
+@respx.mock
+def test_price_history_missing_history_key_raises_parse_error() -> None:
+    respx.get(_HISTORY_URL).mock(return_value=httpx.Response(200, json={"nope": 1}))
+    with pytest.raises(ParseError):
+        polymarket_price_history(token_id="111")
+
+
+@respx.mock
+def test_price_history_maps_500() -> None:
+    respx.get(_HISTORY_URL).mock(return_value=httpx.Response(500, text="err"))
+    with pytest.raises(ProviderError):
+        polymarket_price_history(token_id="111")
+
+
+def test_price_history_rejects_blank_token() -> None:
     with pytest.raises(InvalidParameterError, match="token_id"):
-        polymarket_market_prices(token_id="   ")
+        polymarket_price_history(token_id="   ")
+
+
+def test_price_history_rejects_bad_interval() -> None:
+    with pytest.raises(InvalidParameterError, match="interval"):
+        polymarket_price_history(token_id="111", interval="2w")
+
+
+def test_price_history_rejects_bad_fidelity() -> None:
+    with pytest.raises(InvalidParameterError, match="fidelity"):
+        polymarket_price_history(token_id="111", fidelity=0)

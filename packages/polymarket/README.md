@@ -6,11 +6,14 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 
 ## Connectors
 
+The surface follows how a Polymarket question is actually navigated: **search → event → market → price history.**
+
 | Name | Kind | Description |
 |---|---|---|
-| `polymarket_markets` | enumerator | Discover Polymarket markets via the Gamma API (`id` + `question`, with `slug`/`active` metadata). Takes `limit` (1-100) and `active`. |
-| `polymarket_events` | enumerator | Discover Polymarket events via the Gamma API (`id` + `title`, with `slug` metadata). Takes `limit` (1-100). |
-| `polymarket_market_prices` | connector | Fetch the current CLOB buy-side price for one outcome token (`token_id`). Returns a raw price dict, e.g. `{"price": "0.5"}`. |
+| `polymarket_search_events` | enumerator | Natural-language search over events via Gamma `/public-search` (the only Polymarket endpoint that does server-side text search). Returns `slug` + `title` with `markets_count` and `volume`/`liquidity`/`active`/`closed` metadata. Takes `search_text`, `limit` (1-100), `optimized`. |
+| `polymarket_event` | enumerator | The markets inside one event, by event `slug`. One row per market (`market_slug` + `market_question`, with outcome count and volume/liquidity/active/closed). |
+| `polymarket_market` | enumerator | The outcomes of one market and their CLOB token ids, by market `slug`. One row per outcome (`clob_token_id` + `outcome`). |
+| `polymarket_price_history` | connector | The probability time series for one outcome `token_id` via CLOB `/prices-history`. Returns a tidy `timestamp` × `probability` frame. Takes `interval` (max/1m/1w/1d/6h/1h) and `fidelity` (minutes). |
 
 ## Install
 
@@ -33,15 +36,21 @@ No environment variables required — Polymarket's Gamma and CLOB read APIs are 
 ```python
 from parsimony_polymarket import CONNECTORS
 
-markets = CONNECTORS["polymarket_markets"](limit=5, active=True)
-print(markets.data.head())
+# 1. Search events by topic.
+events = CONNECTORS["polymarket_search_events"](search_text="inflation", limit=5)
+event_slug = events.data.iloc[0]["slug"]
 
-events = CONNECTORS["polymarket_events"](limit=5)
-print(events.data.head())
+# 2. Drill into the event's markets.
+markets = CONNECTORS["polymarket_event"](slug=event_slug)
+market_slug = markets.data.iloc[0]["market_slug"]
 
-# token_id comes from a market's `clobTokenIds` field on the Gamma API.
-price = CONNECTORS["polymarket_market_prices"](token_id="<clob-token-id>")
-print(price.data)
+# 3. Get the market's outcomes and their CLOB token ids.
+outcomes = CONNECTORS["polymarket_market"](slug=market_slug)
+token_id = outcomes.data.iloc[0]["clob_token_id"]
+
+# 4. Pull that outcome's probability time series.
+history = CONNECTORS["polymarket_price_history"](token_id=token_id, interval="1w")
+print(history.data.head())
 ```
 
 For multi-plugin composition:
