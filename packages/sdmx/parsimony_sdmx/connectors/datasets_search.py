@@ -96,10 +96,23 @@ def _agencies_for_search(agency: str | None) -> list[AgencyId]:
     return [_parse_agency(agency)]
 
 
+def _datasets_surface(catalog: Catalog) -> list[str]:
+    """Title plus description (when indexed): flow descriptions carry the concept
+    words ("harmonised index of consumer prices") that terse flow titles omit."""
+    surface = ["title"]
+    try:
+        catalog.index_for("description")
+    except KeyError:
+        return surface
+    surface.append("description")
+    return surface
+
+
 DATASETS_SEARCH_OUTPUT = OutputConfig(
     columns=[
         Column(name="flow_id", role=ColumnRole.KEY),
         Column(name="title", role=ColumnRole.TITLE),
+        Column(name="coverage", role=ColumnRole.DATA),
         Column(name="score", role=ColumnRole.DATA),
         Column(name="agency", role=ColumnRole.METADATA),
         Column(name="dataset_id", role=ColumnRole.METADATA),
@@ -141,7 +154,7 @@ def sdmx_datasets_search(
     params = DatasetsSearchParams(query=query, agency=agency, limit=limit, catalog_root=catalog_root)
     agencies = _agencies_for_search(params.agency)
 
-    all_matches: list[tuple[float, CatalogMatch]] = []
+    all_matches: list[tuple[tuple[float, float], CatalogMatch]] = []
     for parsed_agency in agencies:
         namespace = datasets_namespace(parsed_agency)
 
@@ -149,8 +162,8 @@ def sdmx_datasets_search(
             return build_agency_datasets_catalog(agency)
 
         catalog = _get_or_load_catalog(namespace, catalog_root=params.catalog_root, build=_build)
-        matches = catalog.search(params.query, limit=params.limit)
-        all_matches.extend((m.score, m) for m in matches)
+        matches = catalog.search(params.query, limit=params.limit, fields=_datasets_surface(catalog))
+        all_matches.extend(((m.coverage, m.score), m) for m in matches)
 
     if not all_matches:
         scope = params.agency or "all agencies"
@@ -177,6 +190,7 @@ def sdmx_datasets_search(
             {
                 "flow_id": flow_id,
                 "title": m.title,
+                "coverage": round(m.coverage, 6),
                 "score": round(m.score, 6),
                 "agency": row_agency,
                 "dataset_id": dataset_id,

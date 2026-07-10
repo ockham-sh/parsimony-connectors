@@ -294,10 +294,42 @@ def _empty_match_message(
     )
 
 
+def _has_index(catalog: Catalog, field: str) -> bool:
+    try:
+        catalog.index_for(field)
+    except KeyError:
+        return False
+    return True
+
+
+def _search_surface(
+    catalog: Catalog,
+    plan_query: str | None,
+    plan_fields: str | list[str] | None,
+    dsd_order: tuple[str, ...],
+) -> str | list[str] | None:
+    """Declare the scoring surface for one catalog search.
+
+    A scoped query keeps its caller-declared field(s). A bare query spans the
+    title plus every indexed dimension-label field, so a query naming dimension
+    values ("current account … quarterly") earns coverage on those slices
+    instead of drowning in composed-title term repetition. Code fields stay
+    out: codes are exact identifiers for filter_json, and short codes
+    ("A", "M") collide with ordinary text.
+    """
+    if plan_fields is not None:
+        return plan_fields
+    if plan_query is None:
+        return None
+    surface = [TITLE_FIELD, *(dim_label_field(dim) for dim in dsd_order)]
+    return [name for name in surface if _has_index(catalog, name)] or None
+
+
 SERIES_SEARCH_OUTPUT = OutputConfig(
     columns=[
         Column(name="key", role=ColumnRole.KEY),
         Column(name=TITLE_FIELD, role=ColumnRole.TITLE),
+        Column(name="coverage", role=ColumnRole.DATA),
         Column(name="score", role=ColumnRole.DATA),
     ]
 )
@@ -312,7 +344,8 @@ class SeriesSearchParams(BaseModel):
     limit: int = Field(default=50, ge=1, le=ENUMERATION_LIMIT)
     top_k_per_dim: int = Field(default=5, ge=1, le=50)
     catalog_root: str | None = None
-    field: str | None = Field(default=None, max_length=128)
+    # One field name scopes the query to that surface; a list fuses several.
+    fields: str | list[str] | None = Field(default=None)
     filter_json: str | None = Field(default=None, max_length=4096)
 
 
@@ -324,20 +357,20 @@ def sdmx_series_search(
     limit: int = 50,
     top_k_per_dim: int = 5,
     catalog_root: str | None = None,
-    field: str | None = None,
+    fields: str | list[str] | None = None,
     filter_json: str | None = None,
 ) -> pd.DataFrame:
     """Search populated series keys in a prebuilt columnar catalog for one SDMX flow.
 
-    ``query=`` is FREE TEXT over series titles/labels (e.g. "10-year bond spot rate") — NOT
-    SDMX codes ("SR_10Y"), not in titles. Filter by exact code with ``filter_json`` (AND on
-    ``{dim}_code``/``{dim}_label``), or inline in ``query=`` as ``{dim}_code: SR_10Y &&
-    geo_label: Germany`` — ``&&`` ANDs clauses, ``_code`` is exact, ``_label`` is semantic.
-    Returns ``key`` (fetch-ready, paste into sdmx_fetch), ``title``, ``score``, resolved
-    ``{dim}_code``/``{dim}_label``; codes: sdmx_dimension_search.
-
-    ``query=`` is a ranked shortlist (``limit`` <= 500); omit it for a pure ``filter_json``
-    lookup enumerating the whole matching slice from the cached catalog (``limit`` up to 10000).
+    ``query=`` is FREE TEXT over series titles/labels — NOT SDMX codes. Filter by exact
+    code with ``filter_json`` (AND on ``{dim}_code``/``{dim}_label``), or inline as
+    ``{dim}_code: SR_10Y && geo_label: Germany``. Ranked by (``coverage`` desc, ``score``
+    desc): ``coverage`` = fraction of the query's words literally consumed by the row's
+    dimension labels (1.0 = the query names this slice exactly); ``score`` = fuzzy
+    relevance. Returns ``key`` (paste into sdmx_fetch), ``title``,
+    ``coverage``, ``score``, ``{dim}_code``/``{dim}_label``. ``fields=`` scopes to one
+    field or a list. Ranked shortlist (``limit`` <= 500); omit ``query=`` for a pure
+    ``filter_json`` lookup (``limit`` <= 10000).
     """
     params = SeriesSearchParams(
         agency=agency,
@@ -346,7 +379,7 @@ def sdmx_series_search(
         limit=limit,
         top_k_per_dim=top_k_per_dim,
         catalog_root=catalog_root,
-        field=field,
+        fields=fields,
         filter_json=filter_json,
     )
     agency_id = _parse_agency(params.agency)
@@ -357,8 +390,8 @@ def sdmx_series_search(
             "sdmx",
             "provide query= (free-text over titles/labels) and/or filter_json= (exact {dim}_code filters)",
         )
-    if params.field is not None and q is None:
-        raise InvalidParameterError("sdmx", "field= requires a non-empty query=")
+    if params.fields is not None and q is None:
+        raise InvalidParameterError("sdmx", "fields= requires a non-empty query=")
     if q is not None and params.limit > RANKED_LIMIT:
         raise InvalidParameterError(
             "sdmx",
@@ -385,16 +418,16 @@ def sdmx_series_search(
     dsd_order = tuple(sdmx_meta.get("dsd_order") or ())
     parquet_path = catalog_path / (meta.backend.rows_filename or SERIES_PARQUET)
     dataset = ds.dataset(str(parquet_path), format="parquet")
-    if params.field is not None or params.filter_json is not None:
+    if params.fields is not None or params.filter_json is not None:
         filter_spec: dict[str, list[str]] = {}
         if params.filter_json:
             filter_spec = _parse_filter_json(params.filter_json)
             _validate_filter_columns(filter_spec, dsd_order, label=f"{agency_id.value}/{flow}")
             _validate_filter_values(filter_spec, dataset, agency=agency_id.value, flow=flow)
-        plan_query = q if params.field is not None else None
-        plan_field = params.field
+        plan_query = q if params.fields is not None else None
+        plan_fields: str | list[str] | None = params.fields
     else:
-        # No field and no filter_json: the guard above guarantees q is set here.
+        # No fields and no filter_json: the guard above guarantees q is set here.
         assert q is not None
         plan = plan_series_search(
             q,
@@ -403,13 +436,13 @@ def sdmx_series_search(
             top_k_per_dim=params.top_k_per_dim,
         )
         plan_query = plan.query
-        plan_field = plan.field
+        plan_fields = plan.field
         filter_spec = plan.filter
 
     matches = catalog.search(
         plan_query,
         limit=params.limit,
-        field=plan_field,
+        fields=_search_surface(catalog, plan_query, plan_fields, dsd_order),
         filter=filter_spec or None,
         top_k_values=params.top_k_per_dim,
     )
@@ -452,6 +485,7 @@ def sdmx_series_search(
         row: dict[str, object] = {
             "key": _strip_flow_prefix(match.code, flow),
             TITLE_FIELD: title_map.get(match.code, ""),
+            "coverage": round(match.coverage, 6),
             "score": round(match.score, 6),
         }
         for dim in dsd_order:
