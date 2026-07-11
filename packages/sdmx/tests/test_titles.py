@@ -2,7 +2,6 @@ from parsimony_sdmx.core.titles import (
     choose_series_title,
     compose_observation_title,
     compose_series_title,
-    format_code_with_label,
 )
 
 
@@ -138,30 +137,6 @@ class TestComposeObservationTitle:
         out = compose_observation_title(dim_values, ("A", "B"), labels)
         assert " - " in out
         assert out.count(" - ") == 1
-
-
-class TestFormatCodeWithLabel:
-    def test_code_and_label_render_with_parentheses(self) -> None:
-        assert format_code_with_label("DE", "Germany") == "DE (Germany)"
-
-    def test_label_none_returns_bare_code(self) -> None:
-        assert format_code_with_label("DE", None) == "DE"
-
-    def test_empty_label_returns_bare_code(self) -> None:
-        assert format_code_with_label("DE", "") == "DE"
-        assert format_code_with_label("DE", "   ") == "DE"
-
-    def test_label_equals_code_case_insensitive_returns_bare_code(self) -> None:
-        assert format_code_with_label("EUR", "EUR") == "EUR"
-        assert format_code_with_label("EUR", "eur") == "EUR"
-        assert format_code_with_label("eur", "EUR") == "eur"
-
-    def test_empty_code_returns_empty_string(self) -> None:
-        assert format_code_with_label("", "Germany") == ""
-        assert format_code_with_label("   ", "Germany") == ""
-
-    def test_strips_whitespace_around_code_and_label(self) -> None:
-        assert format_code_with_label("  DE  ", "  Germany  ") == "DE (Germany)"
 
 
 class TestChooseSeriesTitle:

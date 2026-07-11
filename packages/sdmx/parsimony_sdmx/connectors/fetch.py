@@ -30,8 +30,9 @@ from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import HTTPError, Timeout
 
 from parsimony_sdmx.core.agencies import ALL_AGENCIES
-from parsimony_sdmx.core.titles import compose_observation_title, format_code_with_label
+from parsimony_sdmx.core.titles import compose_observation_title
 from parsimony_sdmx.providers.dataset_urls import build_sdmx_dataset_url
+from parsimony_sdmx.series_fields import dim_code_field, dim_label_field
 
 logger = logging.getLogger(__name__)
 
@@ -119,11 +120,14 @@ class _ResolvedStructure:
     label_maps: dict[str, dict[str, str]]
 
 
-# Static tabular schema for a fetch. The per-flow dimension columns vary by flow,
-# so they (plus the optional series_url) are caught by the ``"*"`` wildcard as
-# METADATA rather than enumerated — which also lets a flow without a URL omit that
-# column without tripping the strict presence check. series_key carries no
-# namespace, matching sdmx_series_search's key column (the join target).
+# Static tabular schema for a fetch. Each per-flow dimension is emitted as a bare
+# ``{dim}_code`` column (the clean code, matching sdmx_series_search's code fields);
+# the human labels ride in ``title``. UNIT / UNIT_MULT additionally carry a ``_label``
+# because their meaning is not in the title. Those per-flow columns (plus the optional
+# series_url) vary by flow, so they are caught by the ``"*"`` wildcard as METADATA
+# rather than enumerated — which also lets a flow without a URL omit that column
+# without tripping the strict presence check. series_key carries no namespace,
+# matching sdmx_series_search's key column (the join target).
 # TIME_PERIOD stays the raw SDMX period label (``2020`` / ``2020-Q1`` / ``2020-01``
 # / ``2020-01-01``), NOT coerced to datetime: granularity rides on the flow's FREQ
 # dimension and a key list can mix frequencies, so there is no honest single-instant
@@ -580,23 +584,28 @@ def _do_sdmx_fetch(params: SdmxFetchParams, structure: _ResolvedStructure) -> An
     if empty_title_mask.any():
         df.loc[empty_title_mask, "title"] = df.loc[empty_title_mask, "series_key"]
 
+    # Emit each dimension as a bare {dim}_code column — the clean code, matching
+    # sdmx_series_search's code fields, usable directly for filter/groupby/re-fetch
+    # instead of a "CODE (Label)" display string. The human labels already ride in
+    # `title` (the dimension labels concatenated), so a per-dimension label column
+    # would only restate them.
     for dim_id in dsd_dim_ids:
-        dim_labels = label_maps.get(dim_id, {})
-        df[dim_id] = df[dim_id].map(
-            lambda code, _labels=dim_labels: format_code_with_label(str(code), _labels.get(str(code)))
-        )
+        df[dim_code_field(dim_id)] = df[dim_id].astype(str)
 
-    # Unit attributes (when the agency provides them) ride into the output as METADATA
-    # via the schema's "*" wildcard — labeled like the dimension columns. Anything else
-    # attribute-shaped (OBS_STATUS, TITLE_COMPL, ...) is dropped to keep the frame lean.
+    # Unit attributes (when the agency provides them) qualify what `value` means and,
+    # unlike the dimensions, are NOT carried by `title` — so keep both the code and its
+    # label. Anything else attribute-shaped (OBS_STATUS, TITLE_COMPL, ...) is dropped to
+    # keep the frame lean.
     unit_cols = [col for col in ("UNIT", "UNIT_MULT") if col in df.columns]
     for col in unit_cols:
         unit_labels = label_maps.get(col, {})
-        df[col] = df[col].map(
-            lambda code, _labels=unit_labels: format_code_with_label(str(code), _labels.get(str(code)))
-        )
+        codes = df[col].astype(str)
+        df[dim_code_field(col)] = codes
+        df[dim_label_field(col)] = codes.map(lambda code, _labels=unit_labels: _labels.get(code, code))
 
-    long_df = df[["series_key", "title", *dsd_dim_ids, *unit_cols, "TIME_PERIOD", "value"]].copy()
+    dim_out = [dim_code_field(dim_id) for dim_id in dsd_dim_ids]
+    unit_out = [c for col in unit_cols for c in (dim_code_field(col), dim_label_field(col))]
+    long_df = df[["series_key", "title", *dim_out, *unit_out, "TIME_PERIOD", "value"]].copy()
 
     series_url = build_sdmx_dataset_url(agency_id, dataset_id)
     if series_url:

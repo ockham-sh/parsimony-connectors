@@ -30,9 +30,9 @@ def compose_observation_title(
     """Concatenate per-dimension labels in DSD order (no codes in title).
 
     Sibling to :func:`compose_series_title`. The observation-fetch result
-    schema already exposes the codes in dedicated dim columns formatted
-    via :func:`format_code_with_label`, so the title duplicates less
-    information when it carries labels only.
+    exposes each dimension as a bare ``{dim}_code`` column, so this title is
+    the row's human-readable surface — it carries the dimension labels that
+    the code columns deliberately omit.
 
     For each dimension in ``dsd_order``:
       * emit the label if present
@@ -42,26 +42,6 @@ def compose_observation_title(
     Joined by ``" - "``.
     """
     return _compose_label_title(dim_values, dsd_order, labels)
-
-
-def format_code_with_label(code: str, label: str | None) -> str:
-    """Render a single dimension cell as ``"CODE (label)"``.
-
-    Used for the per-dimension columns of the observation-fetch result.
-    Falls back to the bare code when the label is missing, empty, or
-    case-insensitively equal to the code.
-    """
-    code_clean = code.strip()
-    if not code_clean:
-        return ""
-    if label is None:
-        return code_clean
-    label_clean = label.strip()
-    if not label_clean:
-        return code_clean
-    if label_clean.lower() == code_clean.lower():
-        return code_clean
-    return f"{code_clean} ({label_clean})"
 
 
 def choose_series_title(
