@@ -145,7 +145,7 @@ def test_build_and_search_tiny_catalog(tmp_path: Path, monkeypatch: pytest.Monke
     matches = catalog.search(
         plan.query,
         limit=10,
-        field=plan.field,
+        fields=plan.field,
         filter=plan.filter or None,
     )
     assert len(matches) == 1
@@ -401,7 +401,7 @@ def test_series_search_query_elimination_blames_query(tmp_path: Path, monkeypatc
             agency="ECB",
             dataset_id="TEST",
             query="Quarterly",
-            field="title",
+            fields="title",
             filter_json='{"FREQ_code": ["M"]}',
             catalog_root=str(catalogs_dir),
         )
@@ -681,3 +681,111 @@ class TestSeriesRowDictKeyPrefix:
         )
         assert record is not None
         assert record["key"] == "M.DE"
+
+
+def _bop_shaped_structure() -> StructureRecord:
+    return StructureRecord(
+        dataset_id="BOPX",
+        agency_id="ECB",
+        title="BOP-shaped flow",
+        dsd_order=("FREQ", "ITEM"),
+        dimensions=(
+            DimensionStructure(
+                dimension_id="FREQ",
+                codelist_id="CL_FREQ",
+                name="Frequency",
+                code_count=1,
+                sample=(CodelistCode(code="Q", label="Quarterly"),),
+            ),
+            DimensionStructure(
+                dimension_id="ITEM",
+                codelist_id="CL_ITEM",
+                name="BOP item",
+                code_count=3,
+                sample=(CodelistCode(code="993", label="Current account"),),
+            ),
+        ),
+        codelists=(
+            CodelistRecord(
+                codelist_id="CL_FREQ",
+                codes=(CodelistCode(code="Q", label="Quarterly"),),
+            ),
+            CodelistRecord(
+                codelist_id="CL_ITEM",
+                codes=(
+                    CodelistCode(code="993", label="Current account"),
+                    CodelistCode(code="379", label="Current account - Goods"),
+                    CodelistCode(code="391", label="Current account - Services"),
+                ),
+            ),
+        ),
+    )
+
+
+def test_series_search_bare_query_spans_dimension_labels(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A bare query that exactly names a dimension value must surface that slice first.
+
+    The ECB/BOP field repro: children repeat the parent phrase in their composed
+    titles, so title-only scoring buries the aggregate (rank 13 behind twelve
+    sub-items live). The aggregate's own ITEM label IS the query — the bare-query
+    surface (title + dimension labels) pins it at rank 1.
+    """
+    rows = [
+        {
+            # The aggregate's title does NOT contain the query terms.
+            "key": "Q.993",
+            "title": "Quarterly, Total economy aggregate",
+            "FREQ_code": "Q",
+            "FREQ_label": "Quarterly",
+            "ITEM_code": "993",
+            "ITEM_label": "Current account",
+        },
+        {
+            "key": "Q.379",
+            "title": "Quarterly, Current account - Goods",
+            "FREQ_code": "Q",
+            "FREQ_label": "Quarterly",
+            "ITEM_code": "379",
+            "ITEM_label": "Current account - Goods",
+        },
+        {
+            "key": "Q.391",
+            "title": "Quarterly, Current account - Services",
+            "FREQ_code": "Q",
+            "FREQ_label": "Quarterly",
+            "ITEM_code": "391",
+            "ITEM_label": "Current account - Services",
+        },
+    ]
+    parquet = tmp_path / SERIES_PARQUET
+    pq.write_table(pa.Table.from_pylist(rows), parquet)
+    monkeypatch.setattr("parsimony_sdmx.catalog_series._dim_label_index", lambda embedder: BM25Index())
+    catalogs_dir = tmp_path / "catalogs"
+    build_flow_catalog(
+        series_parquet=parquet,
+        namespace="sdmx_series_ecb_bopx",
+        agency=AgencyId.ECB,
+        flow_id="BOPX",
+        structure=_bop_shaped_structure(),
+        catalogs_dir=catalogs_dir,
+        staging_dir=tmp_path / "partial",
+    )
+    _clear_series_catalog_lru()
+
+    df = sdmx_series_search(
+        agency="ECB",
+        dataset_id="BOPX",
+        query="current account",
+        catalog_root=str(catalogs_dir),
+    ).data
+
+    keys = list(df["key"])
+    # Title-only scoring cannot rank Q.993 at all; the label surface pins it first.
+    assert keys[0] == "Q.993"
+    # Title candidates still participate in the fused ranking below the pin.
+    assert {"Q.379", "Q.391"} <= set(keys[1:])
+    # The ranking evidence is explicit: the aggregate's ITEM label is the query
+    # (coverage 1.0); the children earn no coverage and rank by fuzzy score.
+    assert df["coverage"].iloc[0] == 1.0
+    assert all(df["coverage"].iloc[1:] < 1.0)
+    assert all(df["score"] < 1_000.0)

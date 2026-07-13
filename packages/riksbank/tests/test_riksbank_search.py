@@ -161,7 +161,7 @@ def test_riksbank_search_policy_rate(riksbank_catalog_dir: Path) -> None:
 def test_riksbank_search_code_exact_match(riksbank_catalog_dir: Path) -> None:
     result = riksbank_search(query="code: SEKEURPMI", limit=5, catalog_url=str(riksbank_catalog_dir))
     assert result.data.iloc[0]["code"] == "SEKEURPMI"
-    assert result.data.iloc[0]["score"] >= 1_000_000
+    # exact-code hits no longer carry a sentinel score; ranking first is the guarantee.
 
 
 def test_riksbank_search_usd_fx(riksbank_catalog_dir: Path) -> None:

@@ -27,6 +27,25 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- `sdmx_series_search` bare queries now score across the title AND every indexed
+  dimension-label field (`Catalog.search(fields=...)`, parsimony-core #69), ranked by
+  (`coverage` desc, `score` desc): `coverage` is the fraction of the query's words
+  literally consumed by the row's dimension labels (1.0 = the query names the slice
+  exactly), `score` is honest fuzzy relevance. A query naming dimension values
+  ("current account", or verbose "current account balance euro area quarterly")
+  surfaces that slice at rank 1 instead of drowning in composed-title term
+  repetition, and near-miss labels stay visible below. Both columns are in the
+  output; `score` is deliberately non-monotonic down the list. Code fields stay out
+  of the surface — codes remain exact identifiers for `filter_json`. Requires the
+  parsimony-core release carrying `fields=` + coverage ranking.
+- **BREAKING — `sdmx_series_search` renames `field=` to `fields=`**, accepting one
+  indexed field name (old behavior) or a list to fuse a declared subset, mirroring
+  `Catalog.search`.
+- `sdmx_datasets_search` now searches flow descriptions alongside titles
+  (`fields=["title", "description"]` when the catalog indexes description) and
+  emits the same `coverage` column; cross-agency merge sorts by (coverage, score).
+- `sdmx_dimension_search` ranked queries order values by (coverage, score): a value
+  the query names exactly ranks first, false-friend neighbors directly below.
 - Collapsed the agent surface to four connectors: `sdmx_datasets_search` → `sdmx_series_search` /
   `sdmx_dimension_search` → `sdmx_fetch`. Only published flows are searchable; an unpublished flow
   hard-errors ("not published; ask the maintainers to build it") with no live fallback.
