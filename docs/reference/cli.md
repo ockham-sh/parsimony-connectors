@@ -33,9 +33,9 @@ Without `--strict` the command is metadata-only — it does not import plugin co
 ```text
 NAME       VERSION  CONNECTORS  CONFORMANCE  SECRETS
 ---------  -------  ----------  -----------  -------
-fred       0.7.1    2           pass         api_key
-treasury   0.8.0    4           pass         -
-sdmx       0.7.0    6           pass         -
+fred       0.0.1    2           pass         api_key
+treasury   0.0.1    4           pass         -
+sdmx       0.0.1    6           pass         -
 
 3 plugin(s) discovered.
 ```

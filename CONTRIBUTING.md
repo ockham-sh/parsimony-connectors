@@ -83,7 +83,7 @@ Don't commit this — it's developer-local.
 Scaffold `packages/foo/` by copying an existing small plugin (e.g.
 `packages/treasury/`) and adapting it. Each plugin must contain:
 
-- `pyproject.toml` — pin `parsimony-core>=0.7,<0.8` (or `parsimony-core[catalog]>=0.7,<0.8` for catalog-backed packages), declare a
+- `pyproject.toml` — pin `parsimony-core>=0.0.1` (or `parsimony-core[catalog]>=0.0.1` for catalog-backed packages), declare a
   `[project.entry-points."parsimony.providers"]` line whose value is the
   **bare module path** (`foo = "parsimony_foo"`, not `parsimony_foo:CONNECTORS`),
   and set `[project.urls] Homepage`. See

@@ -160,7 +160,7 @@ Mirror an exemplar. The load-bearing lines:
 name = "parsimony-foo"
 requires-python = ">=3.11"
 dependencies = [
-    "parsimony-core>=0.7,<0.8",          # catalog-backed: parsimony-core[catalog]>=0.7,<0.8
+    "parsimony-core>=0.0.1",             # catalog-backed: parsimony-core[catalog]>=0.0.1
     "pydantic>=2.11.1,<3",
     "pandas>=2.3.0,<3",
 ]
@@ -172,8 +172,8 @@ foo = "parsimony_foo"
 packages = ["parsimony_foo"]
 ```
 
-The `parsimony-core` pin is `>=0.7,<0.8` — a compatibility range, not a floor; a
-catalog-backed package depends on the `[catalog]` extra. The entry-point value is a
+The `parsimony-core` pin is `>=0.0.1`; a catalog-backed package depends on the
+`[catalog]` extra. The entry-point value is a
 **bare module path** — see [§9](#9-the-entry-point).
 
 ---

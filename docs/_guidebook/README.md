@@ -822,9 +822,7 @@ Per-package `tests/`:
 - **Three names in lockstep** (PR checklist enforces): PyPI `parsimony-<name>` (hyphen),
   import `parsimony_<name>` (underscore), directory `packages/<name>/`.
 - **`pyproject.toml`**: `name = "parsimony-<name>"`, `license = "Apache-2.0"`,
-  `requires-python = ">=3.11"`, `dependencies = ["parsimony-core>=0.7,<0.8"]` (a
-  **contract-version pin**, not a floor — any lingering `>=0.6,<0.7` in README/CONTRIBUTING is
-  **stale**), `[project.urls] Homepage = …`, hatchling
+  `requires-python = ">=3.11"`, `dependencies = ["parsimony-core>=0.0.1"]`, `[project.urls] Homepage = …`, hatchling
   `[tool.hatch.build.targets.wheel] packages = ["parsimony_<name>"]`, pytest `integration`
   marker, ruff per-file `E402` ignore for `scripts/*`.
 - **Entry point** (the only registration): `[project.entry-points."parsimony.providers"]`
