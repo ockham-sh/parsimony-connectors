@@ -96,7 +96,7 @@ def test_riksbank_fetch_latest_single_object() -> None:
     result = riksbank_fetch(series_id="SEKEURPMI")
 
     assert result.provenance.source == "riksbank_fetch"
-    df = result.data
+    df = result.raw
     assert len(df) == 1
     assert df.iloc[0]["title"] == "EUR"
     assert df.iloc[0]["value"] == pytest.approx(10.884)
@@ -114,7 +114,7 @@ def test_riksbank_fetch_window_returns_list() -> None:
     )
 
     result = riksbank_fetch(series_id="SEKEURPMI", from_date="2026-01-01", to_date="2026-01-10")
-    df = result.data
+    df = result.raw
     assert len(df) == 2
     assert list(df["date"].dt.strftime("%Y-%m-%d")) == ["2026-01-02", "2026-01-05"]
 
@@ -131,7 +131,7 @@ def test_riksbank_fetch_title_lookup_failure_falls_back_to_id() -> None:
     respx.get(f"{_SWEA}/Series").mock(return_value=httpx.Response(429, text="rate limited"))
 
     result = riksbank_fetch(series_id="SEKEURPMI")
-    df = result.data
+    df = result.raw
     assert len(df) == 1
     # Falls back to the id rather than raising or silently swallowing.
     assert df.iloc[0]["title"] == "SEKEURPMI"
@@ -186,7 +186,7 @@ def test_riksbank_swestr_fetch_latest_rate_hits_latest_endpoint() -> None:
         )
     )
     result = riksbank_swestr_fetch(series="SWESTR")
-    df = result.data
+    df = result.raw
     assert len(df) == 1
     assert df.iloc[0]["value"] == pytest.approx(1.639)
     assert df.iloc[0]["series"] == "SWESTR"
@@ -207,7 +207,7 @@ def test_riksbank_swestr_fetch_windowed_average_hits_avg_endpoint() -> None:
         )
     )
     result = riksbank_swestr_fetch(series="SWESTRAVG1W", from_date="2026-04-15", to_date="2026-04-16")
-    df = result.data
+    df = result.raw
     assert len(df) == 2
     assert list(df["series"].unique()) == ["SWESTRAVG1W"]
     assert df.iloc[0]["startDate"] == "2026-04-08"
@@ -224,7 +224,7 @@ def test_riksbank_swestr_fetch_index_normalises_value_field() -> None:
         )
     )
     result = riksbank_swestr_fetch(series="SWESTRINDEX")
-    df = result.data
+    df = result.raw
     assert len(df) == 1
     assert df.iloc[0]["value"] == pytest.approx(110.25032277)
 
@@ -265,10 +265,14 @@ _MP_ALL_VINTAGES = {
             "external_id": "SEQGDPNAYSA",
             "metadata": {"description": "GDP", "unit": "Annual percentage change"},
             "vintages": [
-                {"metadata": {"policy_round": "2026:1", "forecast_cutoff_date": "2025-12-31"},
-                 "observations": [{"dt": "2026-03-31", "value": 1.5}]},
-                {"metadata": {"policy_round": "2025:5", "forecast_cutoff_date": "2025-10-31"},
-                 "observations": [{"dt": "2026-03-31", "value": 1.1}]},
+                {
+                    "metadata": {"policy_round": "2026:1", "forecast_cutoff_date": "2025-12-31"},
+                    "observations": [{"dt": "2026-03-31", "value": 1.5}],
+                },
+                {
+                    "metadata": {"policy_round": "2025:5", "forecast_cutoff_date": "2025-10-31"},
+                    "observations": [{"dt": "2026-03-31", "value": 1.1}],
+                },
             ],
         }
     ]
@@ -280,7 +284,7 @@ def test_monetary_policy_fetch_single_round() -> None:
     respx.get(url__regex=rf"{_MP}.*").mock(return_value=httpx.Response(200, json=_MP_ONE_ROUND))
     result = riksbank_monetary_policy_fetch(series="SEQGDPNAYSA", policy_round="2026:1")
     assert result.provenance.source == "riksbank_monetary_policy_fetch"
-    df = result.data
+    df = result.raw
     assert len(df) == 2
     assert set(df["series"]) == {"SEQGDPNAYSA"}
     assert set(df["policy_round"]) == {"2026:1"}
@@ -295,7 +299,7 @@ def test_monetary_policy_fetch_all_vintages_disambiguated_by_round() -> None:
     """Omitting the round returns a *list* of vintages; the policy_round column keeps them apart."""
     respx.get(url__regex=rf"{_MP}.*").mock(return_value=httpx.Response(200, json=_MP_ALL_VINTAGES))
     result = riksbank_monetary_policy_fetch(series="SEQGDPNAYSA")
-    df = result.data
+    df = result.raw
     assert set(df["policy_round"]) == {"2026:1", "2025:5"}
     assert len(df) == 2
 
@@ -324,12 +328,10 @@ _TURN_PAYLOAD = [
 
 @respx.mock
 def test_turnover_fetch_parses_faceted_records() -> None:
-    respx.get(f"{_TURN}/markets/fx/frequencies/monthly").mock(
-        return_value=httpx.Response(200, json=_TURN_PAYLOAD)
-    )
+    respx.get(f"{_TURN}/markets/fx/frequencies/monthly").mock(return_value=httpx.Response(200, json=_TURN_PAYLOAD))
     result = riksbank_turnover_fetch(market="fx", frequency="monthly")
     assert result.provenance.source == "riksbank_turnover_fetch"
-    df = result.data
+    df = result.raw
     assert len(df) == 2
     assert set(df["market"]) == {"fx"}
     assert df["period"].dtype.kind == "M"
@@ -392,7 +394,7 @@ def test_holdings_fetch_aggregated() -> None:
     respx.get(f"{_HOLD}/swedish_securities_aggregated").mock(return_value=httpx.Response(200, json=_HOLD_AGG))
     result = riksbank_holdings_fetch(dataset="swedish_securities_aggregated", start_date="2026-01-01")
     assert result.provenance.source == "riksbank_holdings_fetch"
-    df = result.data
+    df = result.raw
     assert len(df) == 2
     assert set(df["dataset"]) == {"swedish_securities_aggregated"}
     assert df["date"].dtype.kind == "M"
@@ -404,7 +406,7 @@ def test_holdings_fetch_aggregated() -> None:
 def test_holdings_fetch_detail_passes_through_isin() -> None:
     respx.get(f"{_HOLD}/swedish_securities").mock(return_value=httpx.Response(200, json=_HOLD_DETAIL))
     result = riksbank_holdings_fetch(dataset="swedish_securities")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["isin"] == "SE0013486156"
     assert df.iloc[0]["issuer_name"] == "SCBC"
 
@@ -435,15 +437,36 @@ _GROUPS_PAYLOAD = {
 }
 
 _SERIES_PAYLOAD = [
-    {"seriesId": "SECBREPOEFF", "source": "Sveriges Riksbank", "shortDescription": "Policy rate",
-     "longDescription": "The policy rate is the Riksbank's most important interest rate.", "groupId": 2,
-     "observationMinDate": "1994-06-01", "observationMaxDate": "2026-04-24", "seriesClosed": False},
-    {"seriesId": "SEKEURPMI", "source": "Refinitiv", "shortDescription": "EUR",
-     "midDescription": "Euro mid rate against the Swedish krona.", "groupId": 130,
-     "observationMinDate": "1999-01-04", "observationMaxDate": "2026-04-24", "seriesClosed": False},
-    {"seriesId": "SECBDISCEFF", "source": "Sveriges Riksbank", "shortDescription": "Discount rate",
-     "midDescription": "Discount rate (historic).", "groupId": 999,
-     "observationMinDate": "1907-11-11", "observationMaxDate": "2002-06-28", "seriesClosed": True},
+    {
+        "seriesId": "SECBREPOEFF",
+        "source": "Sveriges Riksbank",
+        "shortDescription": "Policy rate",
+        "longDescription": "The policy rate is the Riksbank's most important interest rate.",
+        "groupId": 2,
+        "observationMinDate": "1994-06-01",
+        "observationMaxDate": "2026-04-24",
+        "seriesClosed": False,
+    },
+    {
+        "seriesId": "SEKEURPMI",
+        "source": "Refinitiv",
+        "shortDescription": "EUR",
+        "midDescription": "Euro mid rate against the Swedish krona.",
+        "groupId": 130,
+        "observationMinDate": "1999-01-04",
+        "observationMaxDate": "2026-04-24",
+        "seriesClosed": False,
+    },
+    {
+        "seriesId": "SECBDISCEFF",
+        "source": "Sveriges Riksbank",
+        "shortDescription": "Discount rate",
+        "midDescription": "Discount rate (historic).",
+        "groupId": 999,
+        "observationMinDate": "1907-11-11",
+        "observationMaxDate": "2002-06-28",
+        "seriesClosed": True,
+    },
 ]
 
 _MP_SERIES_PAYLOAD = {
@@ -481,7 +504,7 @@ def _mock_enumerate_endpoints() -> None:
 def test_enumerate_exact_column_match() -> None:
     _mock_enumerate_endpoints()
     result = enumerate_riksbank()
-    assert list(result.data.columns) == [c.name for c in RIKSBANK_ENUMERATE_OUTPUT.columns]
+    assert list(result.raw.columns) == [c.name for c in RIKSBANK_ENUMERATE_OUTPUT.columns]
 
 
 @respx.mock
@@ -489,20 +512,20 @@ def test_enumerate_row_count_across_all_families() -> None:
     """3 SWEA + 7 SWESTR + 2 MP + 6 turnover + 2 holdings = 20."""
     _mock_enumerate_endpoints()
     result = enumerate_riksbank()
-    assert len(result.data) == len(_SERIES_PAYLOAD) + 7 + len(_MP_SERIES_PAYLOAD["data"]) + 6 + 2
+    assert len(result.raw) == len(_SERIES_PAYLOAD) + 7 + len(_MP_SERIES_PAYLOAD["data"]) + 6 + 2
 
 
 @respx.mock
 def test_enumerate_emits_all_five_sources() -> None:
     _mock_enumerate_endpoints()
-    df = enumerate_riksbank().data
+    df = enumerate_riksbank().raw
     assert set(df["source"]) == {"swea", "swestr", "monetary_policy", "turnover", "holdings"}
 
 
 @respx.mock
 def test_enumerate_codes_route_each_family() -> None:
     _mock_enumerate_endpoints()
-    df = enumerate_riksbank().data
+    df = enumerate_riksbank().raw
 
     # SWEA + SWESTR keep bare ids.
     assert (df["code"] == "SEKEURPMI").any()
@@ -521,7 +544,7 @@ def test_enumerate_codes_route_each_family() -> None:
 @respx.mock
 def test_enumerate_monetary_policy_metadata_folds_into_description() -> None:
     _mock_enumerate_endpoints()
-    df = enumerate_riksbank().data
+    df = enumerate_riksbank().raw
     gdp = df.loc[df["code"] == "monetary_policy/SEQGDPNAYSA"].iloc[0]
     assert gdp["title"] == "GDP (Annual percentage change)"
     assert gdp["frequency"] == "Quarterly"  # SE[Q]GDP...
@@ -534,7 +557,7 @@ def test_enumerate_monetary_policy_metadata_folds_into_description() -> None:
 @respx.mock
 def test_enumerate_swea_group_and_frequency_resolution() -> None:
     _mock_enumerate_endpoints()
-    df = enumerate_riksbank().data
+    df = enumerate_riksbank().raw
     repo = df.loc[df["code"] == "SECBREPOEFF"].iloc[0]
     assert "Riksbank key interest rates" in repo["group"]
     assert repo["frequency"] == "Daily"
@@ -548,10 +571,16 @@ def test_enumerate_swea_group_and_frequency_resolution() -> None:
 @respx.mock
 def test_enumerate_swestr_family_is_seven_bare_ids() -> None:
     _mock_enumerate_endpoints()
-    df = enumerate_riksbank().data
+    df = enumerate_riksbank().raw
     swestr_rows = df[df["source"] == "swestr"]
     assert set(swestr_rows["code"]) == {
-        "SWESTR", "SWESTRAVG1W", "SWESTRAVG1M", "SWESTRAVG2M", "SWESTRAVG3M", "SWESTRAVG6M", "SWESTRINDEX",
+        "SWESTR",
+        "SWESTRAVG1W",
+        "SWESTRAVG1M",
+        "SWESTRAVG2M",
+        "SWESTRAVG3M",
+        "SWESTRAVG6M",
+        "SWESTRINDEX",
     }
     raw = swestr_rows[swestr_rows["code"] == "SWESTR"].iloc[0]
     assert "overnight" in raw["description"].lower()

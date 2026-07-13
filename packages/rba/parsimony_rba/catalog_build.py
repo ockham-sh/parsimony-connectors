@@ -12,7 +12,7 @@ CATALOG_NAMESPACE = "rba"
 
 def build_rba_catalog() -> Catalog:
     result = enumerate_rba()
-    entries = result.to_entities()
+    entries = list(result.entities.values())
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()

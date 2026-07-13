@@ -49,7 +49,7 @@ result = CONNECTORS["sdmx_fetch"](
     dataset_ref="ECB-YC",
     series_ref="B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y",
 )
-print(result.data.head())
+print(result.raw.head())
 ```
 
 For multi-plugin composition:
@@ -129,8 +129,8 @@ c = load()
 
 # 1. Find the dataset — inspect the candidates, then take the top match
 ds = c["sdmx_datasets_search"](query="unemployment rate monthly", agency="ESTAT", limit=5)
-print(ds.data[["dataset_id", "title", "score"]])
-row = ds.data.iloc[0]
+print(ds.raw[["dataset_id", "title", "score"]])
+row = ds.raw.iloc[0]
 dataset_id = row["dataset_id"]      # thread this into steps 2 and 3
 dsd = row["dsd"]                    # dimension order + codelist refs
 
@@ -141,11 +141,11 @@ series = c["sdmx_series_search"](
     query="geo_label: Germany && freq_code: M",
     limit=10,
 )
-print(series.data[["key", "title"]].head())
+print(series.raw[["key", "title"]].head())
 
 # 3. Fetch observations for the chosen series (paste the key straight in)
-obs = c["sdmx_fetch"](dataset_ref=f"ESTAT-{dataset_id}", series_ref=series.data.iloc[0]["key"])
-print(obs.data.head())
+obs = c["sdmx_fetch"](dataset_ref=f"ESTAT-{dataset_id}", series_ref=series.raw.iloc[0]["key"])
+print(obs.raw.head())
 ```
 
 Override the catalog root for local dev: `PARSIMONY_SDMX_CATALOG_URL=file:///tmp/parsimony-catalogs/sdmx` (default publish target: `hf://parsimony-dev/sdmx`).

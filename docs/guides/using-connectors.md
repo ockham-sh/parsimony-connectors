@@ -155,15 +155,15 @@ payload.
 result = connectors["fred_fetch"](series_id="UNRATE")
 
 result.frame       # the DataFrame; raises TypeError if the payload isn't tabular
-result.data        # the raw payload (here, the same DataFrame)
+result.raw         # the raw payload (here, the same DataFrame)
 result.is_tabular  # True
 ```
 
-**Dict or scalar payloads** are read through `result.data`:
+**Dict or scalar payloads** are read through `result.raw`:
 
 ```python
 # A connector that returns a dict or a scalar:
-payload = result.data
+payload = result.raw
 ```
 
 **Provenance** is attached to every result and is framework-built:

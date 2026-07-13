@@ -251,9 +251,9 @@ The rules this demonstrates:
   **passive declaration** — the framework attaches it to the result unchanged and never
   inspects, coerces, or filters the DataFrame you return. On a plain `@connector`, `output=`
   is optional; any column you return that the schema doesn't name simply exists on
-  `result.data`, undeclared (useful when a provider's data columns vary by endpoint —
+  `result.raw`, undeclared (useful when a provider's data columns vary by endpoint —
   `treasury_fetch` relies on this). When you want only the declared columns on
-  `result.data`, slice the frame yourself to `[c.name for c in OUTPUT.columns]` before
+  `result.raw`, slice the frame yourself to `[c.name for c in OUTPUT.columns]` before
   returning, as `fred_fetch` does, so stray provider columns don't ride along.
 - **Cast dtypes yourself.** `Column` has no `dtype=` field; `fred_fetch` parses `date` with
   `pd.to_datetime` and `value` with `pd.to_numeric` before returning, rather than declaring
@@ -315,7 +315,7 @@ Enumerator-specific constraints (the conformance gate checks them):
   time.
 - **Return the exact declared columns anyway, even though nothing enforces it at call
   time.** `OutputSpec` is passive — the decorator does not inspect your returned frame's
-  columns. But `catalog_build.py` calls `result.to_entities()` right after, and *that*
+  columns. But `catalog_build.py` reads `result.entities` right after, and *that*
   raises `ValueError` if a declared column is missing from the data — so build the frame
   with exactly the declared columns in order (the `pd.DataFrame(rows, columns=columns)`
   idiom above) to catch drift early and keep the catalog free of stray columns.
@@ -340,18 +340,19 @@ CATALOG_NAMESPACE = "treasury"
 
 def build_treasury_catalog() -> Catalog:
     result = enumerate_treasury()
-    entries = result.to_entities()
+    entries = list(result.entities.values())
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()
     return catalog
 ```
 
-- **`result.to_entities()`** converts the enumerator's `Result` into catalog entities,
-  reading roles off `result.output_spec` (the same `OutputSpec` the `@enumerator` decorator
-  was given). (This is the current API. Older notes may say `entities_from_raw`,
-  `entries_from_result`, or `entities_from_result` — all are stale; see
-  [../concepts/connectors.md](../concepts/connectors.md).)
+- **`result.entities`** converts the enumerator's `Result` into catalog entities (a lazy
+  `Mapping[EntityRef, Entity]` — `.values()` gives the plain iterable `discovery_indexes`
+  and `set_entities` want), reading roles off `result.output_spec` (the same `OutputSpec`
+  the `@enumerator` decorator was given). (This is the current API. Older notes may say
+  `entities_from_raw`, `entries_from_result`, `entities_from_result`, or `to_entities()` —
+  all are stale; see [../concepts/connectors.md](../concepts/connectors.md).)
 - **`discovery_indexes(entries)`** builds the index policy: a `code` index (BM25, exact
   lookup), and `title` + `description` indexes that are adaptive — **Hybrid BM25 + vector**
   when a field has fewer than 1000 unique values, **BM25-only** at or above 1000.

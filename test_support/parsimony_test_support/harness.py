@@ -104,8 +104,7 @@ def assert_no_secret_leak(target: Any, secret: str = CANARY_KEY) -> None:
         if not needle:
             continue
         assert secret not in needle, (
-            f"Secret leaked into output. "
-            f"Secret starts with {secret[:8]}... — found in: {needle[:200]}"
+            f"Secret leaked into output. Secret starts with {secret[:8]}... — found in: {needle[:200]}"
         )
 
 
@@ -138,26 +137,21 @@ def assert_provenance_shape(
         f"Provenance.source must be a non-empty string, got {prov.source!r}"
     )
     if expected_source is not None:
-        assert prov.source == expected_source, (
-            f"Expected provenance.source={expected_source!r}, got {prov.source!r}"
-        )
+        assert prov.source == expected_source, f"Expected provenance.source={expected_source!r}, got {prov.source!r}"
 
     if require_fetched_at:
         assert prov.fetched_at is not None, "Provenance.fetched_at is None"
 
     if required_param_keys:
         missing = [k for k in required_param_keys if k not in prov.params]
-        assert not missing, (
-            f"Provenance.params missing required keys: {missing}. "
-            f"Got: {list(prov.params.keys())}"
-        )
+        assert not missing, f"Provenance.params missing required keys: {missing}. Got: {list(prov.params.keys())}"
 
 
 def entries_result_to_dataframe(result: Result, *, columns: list[str] | None = None) -> Any:
     """Return tabular enumerator data from a wrapped :class:`Result`."""
     import pandas as pd
 
-    data = result.data
+    data = result.raw
     if not isinstance(data, pd.DataFrame):
         raise TypeError(f"expected TabularResult data frame, got {type(data)!r}")
     if columns is None:

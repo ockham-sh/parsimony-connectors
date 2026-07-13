@@ -56,7 +56,7 @@ export PARSIMONY_DESTATIS_CATALOG_URL="hf://your-org/destatis"   # optional; ove
 from parsimony_destatis import CONNECTORS
 
 result = CONNECTORS["destatis_fetch"](name="61111-0001")
-print(result.data.head())
+print(result.raw.head())
 ```
 
 For multi-plugin composition:

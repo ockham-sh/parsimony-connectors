@@ -41,12 +41,12 @@ from parsimony_bdp import CONNECTORS
 # Discover via bdp_search, then fetch. A search hit's code splits as
 # domain_id:dataset_id:series_id.
 hits = CONNECTORS["bdp_search"](query="economic activity coincident indicator")
-code = hits.data.iloc[0]["code"]          # e.g. "48:aea9…:12099329"
+code = hits.raw.iloc[0]["code"]          # e.g. "48:aea9…:12099329"
 domain_id, dataset_id, series_id = code.split(":")
 result = CONNECTORS["bdp_fetch"](
     domain_id=int(domain_id), dataset_id=dataset_id, series_ids=series_id
 )
-print(result.data.head())
+print(result.raw.head())
 ```
 
 For multi-plugin composition (autoloads everything installed):

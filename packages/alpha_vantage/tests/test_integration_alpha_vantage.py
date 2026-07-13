@@ -89,7 +89,7 @@ def test_search_apple_real_content() -> None:
     result = _content_or_rate_limited(alpha_vantage_search, {"keywords": "apple"}, "alpha_vantage_search", key)
     if result is None:
         pytest.skip("rate-limited (free 25/day cap) — documented outcome")
-    df = result.data
+    df = result.raw
     assert not df.empty
     assert df["symbol"].str.len().gt(0).any()
     assert df["name"].str.len().gt(0).any()
@@ -102,7 +102,7 @@ def test_quote_ibm_real_content() -> None:
     result = _content_or_rate_limited(alpha_vantage_quote, {"symbol": "IBM"}, "alpha_vantage_quote", key)
     if result is None:
         pytest.skip("rate-limited (free 25/day cap) — documented outcome")
-    df = result.data
+    df = result.raw
     assert len(df) == 1
     assert df.iloc[0]["symbol"] == "IBM"
     assert df["price"].notna().any(), "price entirely NaN"
@@ -113,7 +113,7 @@ def test_daily_ibm_real_content() -> None:
     result = _content_or_rate_limited(alpha_vantage_daily, {"symbol": "IBM"}, "alpha_vantage_daily", key)
     if result is None:
         pytest.skip("rate-limited (free 25/day cap) — documented outcome")
-    df = result.data
+    df = result.raw
     assert not df.empty
     assert df.iloc[0]["symbol"] == "IBM", "symbol KEY not injected"
     assert df["close"].notna().any(), "close entirely NaN"
@@ -127,7 +127,7 @@ def test_fx_rate_usd_eur_real_content() -> None:
     )
     if result is None:
         pytest.skip("rate-limited (free 25/day cap) — documented outcome")
-    df = result.data
+    df = result.raw
     assert len(df) == 1
     assert df.iloc[0]["from_currency"] == "USD"
     assert df["exchange_rate"].notna().any(), "exchange_rate entirely NaN"
@@ -140,7 +140,7 @@ def test_crypto_daily_btc_injects_symbol() -> None:
     )
     if result is None:
         pytest.skip("rate-limited (free 25/day cap) — documented outcome")
-    df = result.data
+    df = result.raw
     assert not df.empty
     # Raw crypto rows carry no symbol field; KEY must be injected from the param.
     assert df.iloc[0]["symbol"] == "BTC", "symbol KEY not injected"
@@ -152,7 +152,7 @@ def test_enumerate_active_bounded_real_content() -> None:
     result = _content_or_rate_limited(enumerate_alpha_vantage, {"state": "active"}, "enumerate_alpha_vantage", key)
     if result is None:
         pytest.skip("rate-limited (free 25/day cap) — documented outcome")
-    df = result.data
+    df = result.raw
     assert not df.empty
     # Bounded to a head slice; never assert a full count.
     assert len(df) <= 5000
@@ -184,6 +184,6 @@ def test_options_premium_gated() -> None:
 
     # If a premium key is in use, assert real content.
     assert_provenance_shape(result, expected_source="alpha_vantage_options")
-    data = result.data
+    data = result.raw
     assert isinstance(data, pd.DataFrame) and not data.empty
     assert_no_secret_leak(result, secret=key)

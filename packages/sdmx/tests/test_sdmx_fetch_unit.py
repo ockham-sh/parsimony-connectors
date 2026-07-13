@@ -193,7 +193,7 @@ class TestOrGroupCoverage:
             }
         )
         result = self._run_fetch(monkeypatch, fake, series_ref="M.EL+TR")
-        assert set(result.data["value"]) == {1.0, 2.0}
+        assert set(result.raw["value"]) == {1.0, 2.0}
 
     def test_partial_key_shape_is_left_alone(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A key with fewer segments than the DSD (provider-permitting) skips the check."""
@@ -208,7 +208,7 @@ class TestOrGroupCoverage:
             }
         )
         result = self._run_fetch(monkeypatch, fake, series_ref="EL+UK")
-        assert len(result.data) == 1
+        assert len(result.raw) == 1
 
 
 class TestUnitAttributePassthrough:
@@ -256,7 +256,7 @@ class TestUnitAttributePassthrough:
         )
         monkeypatch.setattr(fetch_mod, "_resolve_structure", lambda dataset_key: structure)
 
-        df = fetch_mod.sdmx_fetch(dataset_ref="ECB-TEST", series_ref="M.DE").data
+        df = fetch_mod.sdmx_fetch(dataset_ref="ECB-TEST", series_ref="M.DE").raw
 
         # Dimensions are code-only (their labels ride in `title`); UNIT / UNIT_MULT keep
         # a label because it qualifies `value` and is not carried by the title.

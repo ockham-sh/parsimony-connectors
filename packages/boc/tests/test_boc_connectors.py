@@ -23,8 +23,8 @@ from parsimony_boc import (
 
 
 def _enumerate_dataframe(result: Result) -> pd.DataFrame:
-    assert isinstance(result.data, pd.DataFrame)
-    return result.data
+    assert isinstance(result.raw, pd.DataFrame)
+    return result.raw
 
 
 def test_connectors_collection_exposes_expected_names() -> None:
@@ -63,7 +63,7 @@ def test_boc_fetch_single_series_returns_observations() -> None:
     result = boc_fetch(series_name="FXUSDCAD")
 
     assert result.provenance.source == "boc_fetch"
-    df = result.data
+    df = result.raw
     assert len(df) == 2
     assert set(df["series_name"]) == {"FXUSDCAD"}
     assert df["title"].iloc[0] == "USD/CAD"
@@ -98,7 +98,7 @@ def test_boc_fetch_group_syntax_uses_group_endpoint() -> None:
     result = boc_fetch(series_name="group:FX_RATES_DAILY")
 
     assert result.provenance.source == "boc_fetch"
-    df = result.data
+    df = result.raw
     # Both series in the group panel are melted into long format.
     assert set(df["series_name"]) == {"FXUSDCAD", "FXEURCAD"}
     assert df["value"].notna().all()
@@ -401,9 +401,7 @@ def test_enumerate_boc_tolerates_failing_group_endpoint() -> None:
             json={"groups": {"FLAKY_GROUP": {"label": "Temporarily flaky group"}}},
         )
     )
-    respx.get("https://www.bankofcanada.ca/valet/groups/FLAKY_GROUP/json").mock(
-        return_value=httpx.Response(503)
-    )
+    respx.get("https://www.bankofcanada.ca/valet/groups/FLAKY_GROUP/json").mock(return_value=httpx.Response(503))
 
     df = _enumerate_dataframe(enumerate_boc())
     # Series rows: one (FXUSDCAD), no group membership (the fan-out failed).
@@ -447,9 +445,7 @@ def test_enumerate_boc_prunes_retired_group_on_404() -> None:
             json={"groupDetails": {"name": "FX_RATES_DAILY", "groupSeries": {"FXUSDCAD": {"label": "USD/CAD"}}}},
         )
     )
-    respx.get("https://www.bankofcanada.ca/valet/groups/EXP_20220303/json").mock(
-        return_value=httpx.Response(404)
-    )
+    respx.get("https://www.bankofcanada.ca/valet/groups/EXP_20220303/json").mock(return_value=httpx.Response(404))
 
     df = _enumerate_dataframe(enumerate_boc())
     group_rows = df[df["entity_type"] == "group"]
@@ -545,7 +541,7 @@ def test_enumerate_boc_emits_columns_required_for_catalog_entries() -> None:
     )
 
     result = enumerate_boc()
-    entries = Result(data=result.data, output_spec=BOC_ENUMERATE_OUTPUT).to_entities()
+    entries = list(Result(raw=result.raw, output_spec=BOC_ENUMERATE_OUTPUT).entities.values())
     # One series row plus one group row. Groups are catalogued as their
     # own discoverable entities so agents can find them via group-level
     # description text.

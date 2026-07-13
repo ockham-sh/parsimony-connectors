@@ -78,7 +78,7 @@ def _content_or_payment_required(connector_fn, kwargs, source: str, key: str) ->
         return
 
     assert_provenance_shape(result, expected_source=source)
-    data = result.data
+    data = result.raw
     assert isinstance(data, pd.DataFrame)
     assert not data.empty, f"{source}: licensed key returned an empty frame"
     assert_no_secret_leak(result, secret=key)
@@ -94,7 +94,7 @@ def test_fmp_search_apple() -> None:
     result = fmp_search.bind(api_key=key)(query="Apple")
 
     assert_provenance_shape(result, expected_source="fmp_search", required_param_keys=["query"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "search for 'Apple' returned no rows"
     assert "AAPL" in set(df["symbol"]), f"AAPL missing: {list(df['symbol'])[:10]}"
     assert df["name"].str.len().gt(0).any(), "name column is empty for every result"
@@ -104,7 +104,7 @@ def test_fmp_search_apple() -> None:
 def test_fmp_taxonomy_sectors() -> None:
     key = _key()
     result = fmp_taxonomy.bind(api_key=key)(type="sectors")
-    df = result.data
+    df = result.raw
     assert not df.empty, "available-sectors returned no rows"
     assert "Technology" in set(df["sector"]), f"Technology missing: {list(df['sector'])[:10]}"
     assert_no_secret_leak(result, secret=key)
@@ -114,7 +114,7 @@ def test_fmp_taxonomy_exchanges_facet() -> None:
     # A non-default taxonomy route (different path + column from 'sectors').
     key = _key()
     result = fmp_taxonomy.bind(api_key=key)(type="exchanges")
-    df = result.data
+    df = result.raw
     assert not df.empty, "available-exchanges returned no rows"
     assert "exchange" in df.columns, f"exchange column missing: {list(df.columns)}"
     assert_no_secret_leak(result, secret=key)
@@ -130,7 +130,7 @@ def test_fmp_quotes_aapl() -> None:
     result = fmp_quotes.bind(api_key=key)(symbols="AAPL")
 
     assert_provenance_shape(result, expected_source="fmp_quotes", required_param_keys=["symbols"])
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["symbol"] == "AAPL"
     assert df["price"].notna().any(), "price is entirely NaN"
     assert df["marketCap"].notna().any(), "marketCap is entirely NaN"
@@ -144,7 +144,7 @@ def test_fmp_prices_daily_window() -> None:
     )
 
     assert_provenance_shape(result, expected_source="fmp_prices", required_param_keys=["symbol"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "AAPL daily prices returned no rows"
     assert df["close"].notna().any(), "close is entirely NaN"
     assert df["volume"].notna().any(), "volume is entirely NaN"
@@ -161,7 +161,7 @@ def test_fmp_prices_dividend_adjusted_window() -> None:
     )
 
     assert_provenance_shape(result, expected_source="fmp_prices", required_param_keys=["symbol"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "AAPL dividend-adjusted prices returned no rows"
     assert "close" in df.columns, f"close dropped — columns are {list(df.columns)}"
     assert df["close"].notna().any(), "close is entirely NaN"
@@ -185,7 +185,7 @@ def test_fmp_company_profile_aapl() -> None:
     result = fmp_company_profile.bind(api_key=key)(symbol="AAPL")
 
     assert_provenance_shape(result, expected_source="fmp_company_profile", required_param_keys=["symbol"])
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["symbol"] == "AAPL"
     assert df["companyName"].str.len().gt(0).any(), "companyName empty"
     assert df["sector"].str.len().gt(0).any(), "sector empty"
@@ -195,7 +195,7 @@ def test_fmp_company_profile_aapl() -> None:
 def test_fmp_peers_aapl() -> None:
     key = _key()
     result = fmp_peers.bind(api_key=key)(symbol="AAPL")
-    df = result.data
+    df = result.raw
     assert not df.empty, "peers returned no rows"
     assert df["symbol"].str.len().gt(0).any(), "peer symbol empty"
     assert df["companyName"].str.len().gt(0).any(), "peer companyName empty"
@@ -205,7 +205,7 @@ def test_fmp_peers_aapl() -> None:
 def test_fmp_income_statements_aapl() -> None:
     key = _key()
     result = fmp_income_statements.bind(api_key=key)(symbol="AAPL", period="annual", limit=2)
-    df = result.data
+    df = result.raw
     assert not df.empty, "income statements returned no rows"
     assert df["revenue"].notna().any(), "revenue is entirely NaN"
     assert df["netIncome"].notna().any(), "netIncome is entirely NaN"
@@ -215,7 +215,7 @@ def test_fmp_income_statements_aapl() -> None:
 def test_fmp_balance_sheet_aapl() -> None:
     key = _key()
     result = fmp_balance_sheet_statements.bind(api_key=key)(symbol="AAPL", period="annual", limit=2)
-    df = result.data
+    df = result.raw
     assert not df.empty, "balance sheets returned no rows"
     assert df["totalAssets"].notna().any(), "totalAssets is entirely NaN"
     assert_no_secret_leak(result, secret=key)
@@ -224,7 +224,7 @@ def test_fmp_balance_sheet_aapl() -> None:
 def test_fmp_cash_flow_aapl() -> None:
     key = _key()
     result = fmp_cash_flow_statements.bind(api_key=key)(symbol="AAPL", period="annual", limit=2)
-    df = result.data
+    df = result.raw
     assert not df.empty, "cash flow statements returned no rows"
     assert df["freeCashFlow"].notna().any(), "freeCashFlow is entirely NaN"
     assert_no_secret_leak(result, secret=key)
@@ -238,7 +238,7 @@ def test_fmp_cash_flow_aapl() -> None:
 def test_fmp_corporate_history_earnings_aapl() -> None:
     key = _key()
     result = fmp_corporate_history.bind(api_key=key)(symbol="AAPL", event_type="earnings", limit=4)
-    df = result.data
+    df = result.raw
     assert not df.empty, "corporate earnings history returned no rows"
     assert (df["symbol"] == "AAPL").all(), "rows are not all AAPL"
     assert_no_secret_leak(result, secret=key)
@@ -248,7 +248,7 @@ def test_fmp_corporate_history_dividends_facet() -> None:
     # A non-default event_type route (different upstream path from 'earnings').
     key = _key()
     result = fmp_corporate_history.bind(api_key=key)(symbol="AAPL", event_type="dividends", limit=4)
-    df = result.data
+    df = result.raw
     assert not df.empty, "corporate dividends history returned no rows"
     assert "dividend" in df.columns, f"dividend column missing: {list(df.columns)}"
     assert_no_secret_leak(result, secret=key)
@@ -258,7 +258,7 @@ def test_fmp_event_calendar_earnings_bounded() -> None:
     # Market-wide calendar — bound to a tight 2-day window.
     key = _key()
     result = fmp_event_calendar.bind(api_key=key)(event_type="earnings", from_date="2026-06-01", to_date="2026-06-03")
-    df = result.data
+    df = result.raw
     assert not df.empty, "earnings calendar returned no rows"
     assert df["symbol"].str.len().gt(0).any(), "calendar symbol empty"
     assert_no_secret_leak(result, secret=key)
@@ -278,7 +278,7 @@ def test_fmp_analyst_estimates_plan_gated() -> None:
 def test_fmp_news_aapl() -> None:
     key = _key()
     result = fmp_news.bind(api_key=key)(type="news", symbols="AAPL", limit=3)
-    df = result.data
+    df = result.raw
     assert not df.empty, "news returned no rows"
     assert df["title"].str.len().gt(0).any(), "all news titles empty"
     assert_no_secret_leak(result, secret=key)
@@ -318,7 +318,7 @@ def test_fmp_earnings_transcript_plan_gated() -> None:
 def test_fmp_index_constituents_sp500_bounded() -> None:
     key = _key()
     result = fmp_index_constituents.bind(api_key=key)(index="SP500")
-    df = result.data
+    df = result.raw
     assert not df.empty, "SP500 constituents returned no rows"
     assert "AAPL" in set(df["symbol"]), "AAPL missing from SP500"
     head = df.head(100)
@@ -329,7 +329,7 @@ def test_fmp_index_constituents_sp500_bounded() -> None:
 def test_fmp_market_movers_gainers() -> None:
     key = _key()
     result = fmp_market_movers.bind(api_key=key)(type="gainers")
-    df = result.data
+    df = result.raw
     assert not df.empty, "market movers returned no rows"
     assert df["symbol"].str.len().gt(0).any(), "mover symbol empty"
     assert df["changesPercentage"].notna().any(), "changesPercentage entirely NaN"
@@ -361,7 +361,7 @@ def test_fmp_screener_bounded_with_enrichment() -> None:
         limit=3,
     )
     assert_provenance_shape(result, expected_source="fmp_screener")
-    df = result.data
+    df = result.raw
     assert not df.empty, "bounded screener returned no rows"
     assert len(df) <= 3, f"screener exceeded the limit: {len(df)} rows"
     assert df["symbol"].str.len().gt(0).any(), "screener symbol empty"
@@ -380,7 +380,7 @@ def test_fmp_screener_native_fields_zero_enrichment() -> None:
         limit=3,
         fields=["symbol", "companyName", "marketCap"],
     )
-    df = result.data
+    df = result.raw
     assert not df.empty, "native-fields screener returned no rows"
     assert list(df.columns) == ["symbol", "companyName", "marketCap"], list(df.columns)
     assert df["marketCap"].notna().any(), "marketCap entirely NaN"

@@ -97,7 +97,7 @@ def test_coingecko_search_returns_coin_rows_and_strips_key() -> None:
     # Theme-B: the bound key must not appear in provenance.
     assert _KEY not in str(result.provenance.params)
     assert "api_key" not in result.provenance.params
-    assert list(result.data["id"]) == ["bitcoin", "ethereum"]
+    assert list(result.raw["id"]) == ["bitcoin", "ethereum"]
 
 
 @respx.mock
@@ -191,8 +191,8 @@ def test_coingecko_trending_returns_rows() -> None:
     )
     bound = coingecko_trending.bind(api_key=_KEY)
     result = bound()
-    assert result.data.iloc[0]["id"] == "bonk"
-    assert result.data.iloc[0]["score"] == 0
+    assert result.raw.iloc[0]["id"] == "bonk"
+    assert result.raw.iloc[0]["score"] == 0
 
 
 @respx.mock
@@ -221,7 +221,7 @@ def test_coingecko_top_gainers_losers_merges_directions() -> None:
     )
     bound = coingecko_top_gainers_losers.bind(api_key=_KEY)
     result = bound()
-    df = result.data
+    df = result.raw
     assert set(df["direction"]) == {"gainer", "loser"}
     assert df[df["id"] == "a"].iloc[0]["usd_price_percent_change"] == 50.0
 
@@ -254,7 +254,7 @@ def test_coingecko_price_returns_rows_per_coin() -> None:
     )
     bound = coingecko_price.bind(api_key=_KEY)
     result = bound(ids="bitcoin")
-    df = result.data
+    df = result.raw
     assert list(df["id"]) == ["bitcoin"]
     assert df.iloc[0]["usd"] == 65000.0
 
@@ -306,8 +306,8 @@ def test_coingecko_markets_returns_ranked_rows() -> None:
     )
     bound = coingecko_markets.bind(api_key=_KEY)
     result = bound()
-    assert result.data.iloc[0]["id"] == "bitcoin"
-    assert result.data.iloc[0]["current_price"] == 65000.0
+    assert result.raw.iloc[0]["id"] == "bitcoin"
+    assert result.raw.iloc[0]["current_price"] == 65000.0
 
 
 @respx.mock
@@ -336,7 +336,7 @@ def test_coingecko_coin_detail_returns_dict() -> None:
     )
     bound = coingecko_coin_detail.bind(api_key=_KEY)
     result = bound(coin_id="bitcoin")
-    assert result.data["id"] == "bitcoin"
+    assert result.raw["id"] == "bitcoin"
 
 
 @respx.mock
@@ -372,7 +372,7 @@ def test_coingecko_market_chart_merges_price_cap_volume() -> None:
     )
     bound = coingecko_market_chart.bind(api_key=_KEY)
     result = bound(coin_id="bitcoin", days="1")
-    df = result.data
+    df = result.raw
     assert len(df) == 2
     assert "market_cap" in df.columns
     assert df.iloc[0]["price"] == 40000.0
@@ -405,7 +405,7 @@ def test_coingecko_market_chart_range_returns_df() -> None:
     )
     bound = coingecko_market_chart_range.bind(api_key=_KEY)
     result = bound(coin_id="bitcoin", from_date="2024-01-01", to_date="2024-01-02")
-    assert result.data.iloc[0]["price"] == 40000.0
+    assert result.raw.iloc[0]["price"] == 40000.0
 
 
 @respx.mock
@@ -442,7 +442,7 @@ def test_coingecko_ohlc_returns_candles() -> None:
     )
     bound = coingecko_ohlc.bind(api_key=_KEY)
     result = bound(coin_id="bitcoin", days=7)
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["open"] == 40000.0
     assert df.iloc[0]["close"] == 40200.0
 
@@ -472,7 +472,7 @@ def test_coingecko_token_price_onchain_returns_rows() -> None:
     )
     bound = coingecko_token_price_onchain.bind(api_key=_KEY)
     result = bound(network="eth", contract_addresses=_USDT)
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["contract_address"] == _USDT
     # price_usd is a string in the payload; the schema coerces it to numeric.
     assert df.iloc[0]["price_usd"] == pytest.approx(0.9998)
@@ -518,7 +518,7 @@ def test_enumerate_coingecko_emits_catalog_rows() -> None:
     )
     bound = enumerate_coingecko.bind(api_key=_KEY)
     result = bound()
-    df = result.data
+    df = result.raw
     # Exact-match enumerator columns.
     assert list(df.columns) == ["id", "name", "symbol", "platforms"]
     assert set(df["id"]) == {"bitcoin", "tether"}

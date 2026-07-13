@@ -75,7 +75,7 @@ def test_riksbank_fetch_sekeur_live() -> None:
     result = _with_retry(lambda: riksbank_fetch(series_id="SEKEURPMI", from_date="2026-01-01", to_date="2026-02-28"))
 
     assert_provenance_shape(result, expected_source="riksbank_fetch", required_param_keys=["series_id"])
-    df = result.data
+    df = result.raw
     assert not df.empty
     assert set(df["series_id"]) == {"SEKEURPMI"}
     assert df["value"].notna().any()
@@ -90,7 +90,7 @@ def test_riksbank_swestr_fetch_latest_rate_live() -> None:
     result = _with_retry(lambda: riksbank_swestr_fetch(series="SWESTR"))
 
     assert_provenance_shape(result, expected_source="riksbank_swestr_fetch", required_param_keys=["series"])
-    df = result.data
+    df = result.raw
     assert not df.empty
     assert set(df["series"]) == {"SWESTR"}
     vals = df["value"].dropna()
@@ -103,7 +103,7 @@ def test_riksbank_swestr_fetch_index_live() -> None:
     the connector normalises it onto the ``value`` column. This exercises a
     DIFFERENT URL family (/index) than the raw fixing — facet coverage."""
     result = _with_retry(lambda: riksbank_swestr_fetch(series="SWESTRINDEX"))
-    df = result.data
+    df = result.raw
     assert set(df["series"]) == {"SWESTRINDEX"}
     assert (df["value"].dropna() > 50.0).all()
 
@@ -117,13 +117,9 @@ def test_monetary_policy_fetch_single_round_live() -> None:
     """A single policy round returns exactly that series and vintage — the live proof the
     ``series`` + ``policy_round_name`` filters apply (the colon in the round name must be
     sent literally, or the gateway 404s and silently returns the whole universe)."""
-    result = _with_retry(
-        lambda: riksbank_monetary_policy_fetch(series="SEQGDPNAYSA", policy_round="2026:1")
-    )
-    assert_provenance_shape(
-        result, expected_source="riksbank_monetary_policy_fetch", required_param_keys=["series"]
-    )
-    df = result.data
+    result = _with_retry(lambda: riksbank_monetary_policy_fetch(series="SEQGDPNAYSA", policy_round="2026:1"))
+    assert_provenance_shape(result, expected_source="riksbank_monetary_policy_fetch", required_param_keys=["series"])
+    df = result.raw
     assert not df.empty
     assert set(df["series"]) == {"SEQGDPNAYSA"}, "series filter did not apply (colon-encoding regression?)"
     assert set(df["policy_round"]) == {"2026:1"}, "policy_round filter did not apply"
@@ -135,7 +131,7 @@ def test_monetary_policy_fetch_single_round_live() -> None:
 def test_monetary_policy_fetch_all_vintages_live() -> None:
     """Omitting the round returns many vintages — the policy_round column keeps them apart."""
     result = _with_retry(lambda: riksbank_monetary_policy_fetch(series="SEMCPIFNAYNA"))
-    df = result.data
+    df = result.raw
     assert set(df["series"]) == {"SEMCPIFNAYNA"}
     assert df["policy_round"].nunique() > 5, "expected multiple forecast vintages"
 
@@ -148,7 +144,7 @@ def test_monetary_policy_fetch_all_vintages_live() -> None:
 def test_turnover_fetch_fx_monthly_live() -> None:
     result = _with_retry(lambda: riksbank_turnover_fetch(market="fx", frequency="monthly"))
     assert_provenance_shape(result, expected_source="riksbank_turnover_fetch", required_param_keys=["market"])
-    df = result.data
+    df = result.raw
     assert not df.empty
     assert set(df["market"]) == {"fx"}
     assert df["period"].dtype.kind == "M"
@@ -168,7 +164,7 @@ def test_holdings_fetch_aggregated_live() -> None:
         lambda: riksbank_holdings_fetch(dataset="swedish_securities_aggregated", start_date="2025-06-01")
     )
     assert_provenance_shape(result, expected_source="riksbank_holdings_fetch", required_param_keys=["dataset"])
-    df = result.data
+    df = result.raw
     assert not df.empty
     assert set(df["dataset"]) == {"swedish_securities_aggregated"}
     assert df["date"].dtype.kind == "M"
@@ -185,7 +181,7 @@ def test_holdings_fetch_aggregated_live() -> None:
 def test_enumerate_riksbank_live() -> None:
     """Enumerate the live universe across all five products, asserting REAL content."""
     result = _with_retry(lambda: enumerate_riksbank())
-    df = result.data
+    df = result.raw
 
     assert list(df.columns) == [c.name for c in RIKSBANK_ENUMERATE_OUTPUT.columns]
     assert not df.empty
@@ -210,7 +206,7 @@ def test_enumerate_riksbank_live() -> None:
     assert df["title"].astype(str).str.len().gt(0).all()
     assert df["description"].astype(str).str.len().gt(0).any()
 
-    entities = Result(data=df, output_spec=RIKSBANK_ENUMERATE_OUTPUT).to_entities()
+    entities = list(Result(raw=df, output_spec=RIKSBANK_ENUMERATE_OUTPUT).entities.values())
     assert len(entities) == len(df)
     assert entities[0].namespace == "riksbank"
 
@@ -231,19 +227,39 @@ def test_riksbank_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         return base
 
     rows = [
-        _row("SEKEURPMI", "EUR — euro mid rate against the Swedish krona",
-             "Daily EUR/SEK mid exchange rate fixed at 16:15 CET.", "swea"),
-        _row("SWESTR", "SWESTR — Swedish Krona Short-Term Rate",
-             "The transaction-based overnight reference rate for Swedish kronor.", "swestr"),
-        _row("monetary_policy/SEQGDPNAYSA", "GDP (Annual percentage change)",
-             "Riksbank GDP forecast, annual percentage change, across policy rounds.", "monetary_policy"),
-        _row("turnover/fx/monthly", "Turnover — Foreign exchange (monthly)",
-             "Aggregated foreign-exchange market turnover, monthly, since 1987.", "turnover"),
-        _row("holdings/swedish_securities_aggregated", "Holdings in Swedish securities (aggregated by group)",
-             "The Riksbank's securities holdings aggregated by security group.", "holdings"),
+        _row(
+            "SEKEURPMI",
+            "EUR — euro mid rate against the Swedish krona",
+            "Daily EUR/SEK mid exchange rate fixed at 16:15 CET.",
+            "swea",
+        ),
+        _row(
+            "SWESTR",
+            "SWESTR — Swedish Krona Short-Term Rate",
+            "The transaction-based overnight reference rate for Swedish kronor.",
+            "swestr",
+        ),
+        _row(
+            "monetary_policy/SEQGDPNAYSA",
+            "GDP (Annual percentage change)",
+            "Riksbank GDP forecast, annual percentage change, across policy rounds.",
+            "monetary_policy",
+        ),
+        _row(
+            "turnover/fx/monthly",
+            "Turnover — Foreign exchange (monthly)",
+            "Aggregated foreign-exchange market turnover, monthly, since 1987.",
+            "turnover",
+        ),
+        _row(
+            "holdings/swedish_securities_aggregated",
+            "Holdings in Swedish securities (aggregated by group)",
+            "The Riksbank's securities holdings aggregated by security group.",
+            "holdings",
+        ),
     ]
     df = pd.DataFrame(rows, columns=cols)
-    entries = Result(data=df, output_spec=RIKSBANK_ENUMERATE_OUTPUT).to_entities()
+    entries = list(Result(raw=df, output_spec=RIKSBANK_ENUMERATE_OUTPUT).entities.values())
     catalog = Catalog("riksbank", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()
@@ -252,14 +268,14 @@ def test_riksbank_search_over_bounded_catalog_live(tmp_path: Path) -> None:
 
     fx = riksbank_search(query="euro Swedish krona exchange rate", limit=5, catalog_url=str(out_dir))
     assert_provenance_shape(fx, expected_source="riksbank_search", required_param_keys=["query"])
-    assert list(fx.data.columns) == ["code", "title", "source", "score"]
-    assert fx.data.iloc[0]["code"] == "SEKEURPMI"
+    assert list(fx.raw.columns) == ["code", "title", "source", "score"]
+    assert fx.raw.iloc[0]["code"] == "SEKEURPMI"
 
     # Ranking discriminates: each family's flagship query surfaces its own code.
     gdp = riksbank_search(query="GDP forecast monetary policy", limit=5, catalog_url=str(out_dir))
-    assert gdp.data.iloc[0]["code"] == "monetary_policy/SEQGDPNAYSA"
+    assert gdp.raw.iloc[0]["code"] == "monetary_policy/SEQGDPNAYSA"
     turn = riksbank_search(query="foreign exchange turnover market", limit=5, catalog_url=str(out_dir))
-    assert turn.data.iloc[0]["code"] == "turnover/fx/monthly"
+    assert turn.raw.iloc[0]["code"] == "turnover/fx/monthly"
 
 
 # ---------------------------------------------------------------------------

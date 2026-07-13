@@ -363,8 +363,8 @@ def eodhd_fundamentals(ticker: Annotated[str, Namespace("eodhd_symbols")], api_k
     dict (not a DataFrame). Typical equity top-level keys: General, Highlights,
     Valuation, SharesStats, Technicals, SplitsDividends, AnalystRatings, Holders,
     InsiderTransactions, Financials, Earnings. ETFs differ (General, Technicals,
-    ETF_Data). Navigate via result.data, e.g.
-    result.data['Highlights']['MarketCapitalization']. Requires a paid plan; a
+    ETF_Data). Navigate via result.raw, e.g.
+    result.raw['Highlights']['MarketCapitalization']. Requires a paid plan; a
     free key returns PaymentRequiredError.
     """
     t = _safe_path_token(ticker, "ticker")

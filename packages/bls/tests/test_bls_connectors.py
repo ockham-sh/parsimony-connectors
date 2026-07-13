@@ -58,7 +58,7 @@ def test_bls_fetch_returns_series_observations() -> None:
         )
     )
     result = bls_fetch(series_id="LNS14000000", start_year="2026", end_year="2026")
-    df = result.data
+    df = result.raw
     assert result.provenance.source == "bls_fetch"
     assert len(df) == 2
     assert df.iloc[0]["title"] == "Unemployment Rate"
@@ -111,7 +111,7 @@ def test_bls_fetch_allows_span_at_unkeyed_cap() -> None:
         )
     )
     result = bls_fetch(series_id="LNS14000000", start_year="2000", end_year="2009")
-    assert len(result.data) == 1
+    assert len(result.raw) == 1
 
 
 @respx.mock
@@ -119,9 +119,7 @@ def test_bls_fetch_raises_parse_error_on_bls_status_failure() -> None:
     # BLS signals failure in the body with HTTP 200 -- map a non-success status
     # (that isn't a quota threshold) to ParseError, NOT a fake status_code=0.
     respx.post("https://api.bls.gov/publicAPI/v2/timeseries/data/").mock(
-        return_value=httpx.Response(
-            200, json={"status": "REQUEST_NOT_PROCESSED", "message": ["Invalid series ID"]}
-        )
+        return_value=httpx.Response(200, json={"status": "REQUEST_NOT_PROCESSED", "message": ["Invalid series ID"]})
     )
     with pytest.raises(ParseError):
         bls_fetch(series_id="BAD", start_year="2026", end_year="2026")
@@ -130,9 +128,7 @@ def test_bls_fetch_raises_parse_error_on_bls_status_failure() -> None:
 @respx.mock
 def test_bls_fetch_raises_parse_error_on_status_failure() -> None:
     respx.post("https://api.bls.gov/publicAPI/v2/timeseries/data/").mock(
-        return_value=httpx.Response(
-            200, json={"status": "REQUEST_NOT_PROCESSED", "message": ["Invalid series ID"]}
-        )
+        return_value=httpx.Response(200, json={"status": "REQUEST_NOT_PROCESSED", "message": ["Invalid series ID"]})
     )
     with pytest.raises(ParseError):
         bls_fetch(series_id="BAD", start_year="2026", end_year="2026")
@@ -214,7 +210,7 @@ def test_enumerate_surveys_flags_headline() -> None:
         )
     )
     result = enumerate_bls_surveys()
-    df = result.data
+    df = result.raw
     assert list(df.columns) == ["code", "title", "survey", "has_series_catalog"]
     flags = df.set_index("code")["has_series_catalog"].to_dict()
     assert flags["CU"] is True  # headline
@@ -277,7 +273,7 @@ def _patch_flatfiles(monkeypatch):
 
 def test_enumerate_series_emits_dimension_metadata(_patch_flatfiles) -> None:
     result = enumerate_bls_series(survey="cu")
-    df = result.data
+    df = result.raw
     assert set(df["code"]) == {"CUUR0000SA0", "CUUR0000SETB01"}
     row = df.set_index("code").loc["CUUR0000SETB01"]
     assert row["title"] == "Gasoline (all types) in U.S. city average"
@@ -307,10 +303,8 @@ def test_build_surveys_catalog_attaches_manifest(monkeypatch) -> None:
     from parsimony_bls.outputs import BLS_SURVEYS_ENUM_OUTPUT
 
     def fake_surveys(api_key=""):
-        df = pd.DataFrame(
-            [{"code": "CU", "title": "Consumer Price Index", "survey": "CU", "has_series_catalog": True}]
-        )
-        return Result(data=df, output_spec=BLS_SURVEYS_ENUM_OUTPUT)
+        df = pd.DataFrame([{"code": "CU", "title": "Consumer Price Index", "survey": "CU", "has_series_catalog": True}])
+        return Result(raw=df, output_spec=BLS_SURVEYS_ENUM_OUTPUT)
 
     monkeypatch.setattr(cb, "enumerate_bls_surveys", fake_surveys)
 
@@ -342,7 +336,7 @@ def test_bls_series_search_shapes_rows(monkeypatch) -> None:
 
     monkeypatch.setattr(se, "_get_or_load_catalog", fake_get)
     result = se.bls_series_search(query="gasoline", survey="CU")
-    df = result.data
+    df = result.raw
     assert list(df.columns) == ["series_id", "title", "score", "survey", "namespace"]
     assert df.iloc[0]["series_id"] == "CUUR0000SETB01"
     assert df.iloc[0]["survey"] == "CU"
@@ -374,30 +368,30 @@ def _real_series_catalog(monkeypatch):
     from parsimony_bls.connectors import search as se
 
     catalog = build_series_catalog("CU")
-    monkeypatch.setattr(
-        se, "_get_or_load_catalog", lambda ns, *, catalog_root=None, build=None: catalog
-    )
+    monkeypatch.setattr(se, "_get_or_load_catalog", lambda ns, *, catalog_root=None, build=None: catalog)
     return se
 
 
 def test_bls_series_search_filter_excludes_nonmatching(_patch_flatfiles, monkeypatch) -> None:
     se = _real_series_catalog(monkeypatch)
     # "city average" is in BOTH series titles, so a soft query alone keeps both.
-    both = list(se.bls_series_search(query="city average", survey="CU").data["series_id"])
+    both = list(se.bls_series_search(query="city average", survey="CU").raw["series_id"])
     assert {"CUUR0000SA0", "CUUR0000SETB01"} <= set(both)
 
     # Same query, but an exact item_code filter must DROP the non-matching variant,
     # not merely down-rank it (the F4 hazard).
-    filtered = se.bls_series_search(
-        query="city average", survey="CU", filters={"item_code": "SETB01"}
-    ).data["series_id"].tolist()
+    filtered = (
+        se.bls_series_search(query="city average", survey="CU", filters={"item_code": "SETB01"})
+        .raw["series_id"]
+        .tolist()
+    )
     assert filtered == ["CUUR0000SETB01"]
 
 
 def test_bls_series_search_filter_only_no_query(_patch_flatfiles, monkeypatch) -> None:
     se = _real_series_catalog(monkeypatch)
     # No text query: a pure dimension filter enumerates the exact-matching series.
-    rows = se.bls_series_search(query="", survey="CU", filters={"item_code": "SA0"}).data
+    rows = se.bls_series_search(query="", survey="CU", filters={"item_code": "SA0"}).raw
     assert rows["series_id"].tolist() == ["CUUR0000SA0"]
 
 

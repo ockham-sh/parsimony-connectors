@@ -41,7 +41,7 @@ python -c "from parsimony import discover; print([p.name for p in discover.iter_
 from parsimony_fred import CONNECTORS
 
 result = CONNECTORS["fred_fetch"](series_id="UNRATE")
-print(result.data.head())
+print(result.raw.head())
 ```
 
 For multi-plugin composition:

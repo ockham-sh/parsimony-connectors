@@ -108,7 +108,7 @@ def test_tiingo_search_returns_rows_and_strips_key() -> None:
     # Theme-B: the bound key must not appear in provenance.
     assert _KEY not in str(result.provenance.params)
     assert "api_key" not in result.provenance.params
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["ticker"] == "AAPL"
     assert df.iloc[0]["country_code"] == "US"
 
@@ -190,7 +190,7 @@ def test_tiingo_eod_returns_ohlcv() -> None:
     )
     bound = tiingo_eod.bind(api_key=_KEY)
     result = bound(ticker="AAPL")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["close"] == 185.64
     assert df.iloc[0]["ticker"] == "AAPL"
 
@@ -240,7 +240,7 @@ def test_tiingo_iex_returns_quotes() -> None:
     )
     bound = tiingo_iex.bind(api_key=_KEY)
     result = bound(tickers="AAPL")
-    assert result.data.iloc[0]["tngo_last"] == 312.27
+    assert result.raw.iloc[0]["tngo_last"] == 312.27
 
 
 @respx.mock
@@ -272,7 +272,7 @@ def test_tiingo_iex_historical_returns_bars() -> None:
     )
     bound = tiingo_iex_historical.bind(api_key=_KEY)
     result = bound(ticker="AAPL")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["close"] == 312.28
     assert df.iloc[0]["ticker"] == "AAPL"
 
@@ -308,8 +308,8 @@ def test_tiingo_meta_returns_frame() -> None:
     bound = tiingo_meta.bind(api_key=_KEY)
     result = bound(ticker="AAPL")
     # One-row frame (the raw endpoint returns a single record).
-    assert len(result.data) == 1
-    row = result.data.iloc[0]
+    assert len(result.raw) == 1
+    row = result.raw.iloc[0]
     assert row["ticker"] == "AAPL"
     assert row["exchangeCode"] == "NASDAQ"
 
@@ -338,10 +338,10 @@ def test_tiingo_fundamentals_meta_returns_frame() -> None:
     bound = tiingo_fundamentals_meta.bind(api_key=_KEY)
     result = bound(tickers="AAPL")
     # One row per ticker.
-    assert len(result.data) == 1
-    assert result.data.iloc[0]["sector"] == "Technology"
+    assert len(result.raw) == 1
+    assert result.raw.iloc[0]["sector"] == "Technology"
     # A declared field absent from this payload is materialised (schema is a contract).
-    assert "sicCode" in result.data.columns
+    assert "sicCode" in result.raw.columns
 
 
 @respx.mock
@@ -375,7 +375,7 @@ def test_tiingo_fundamentals_definitions_returns_rows() -> None:
     )
     bound = tiingo_fundamentals_definitions.bind(api_key=_KEY)
     result = bound()
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["data_code"] == "rps"
     assert df.iloc[0]["name"] == "Revenue Per Share"
 
@@ -414,7 +414,7 @@ def test_tiingo_news_returns_articles() -> None:
     )
     bound = tiingo_news.bind(api_key=_KEY)
     result = bound(tickers="AAPL")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["title"] == "Apple beats earnings"
     assert df.iloc[0]["tickers"] == "aapl"
 
@@ -496,7 +496,7 @@ def test_tiingo_crypto_prices_flattens_nested() -> None:
     )
     bound = tiingo_crypto_prices.bind(api_key=_KEY)
     result = bound(tickers="btcusd")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["ticker"] == "btcusd"
     assert df.iloc[0]["close"] == 44208.1
 
@@ -542,7 +542,7 @@ def test_tiingo_crypto_top_flattens_nested() -> None:
     )
     bound = tiingo_crypto_top.bind(api_key=_KEY)
     result = bound(tickers="btcusd")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["last_price"] == 66746.5
     assert df.iloc[0]["last_exchange"] == "BULLISH"
 
@@ -579,7 +579,7 @@ def test_tiingo_fx_prices_returns_bars() -> None:
     )
     bound = tiingo_fx_prices.bind(api_key=_KEY)
     result = bound(tickers="eurusd")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["ticker"] == "eurusd"
     assert df.iloc[0]["close"] == 1.1036
 
@@ -617,7 +617,7 @@ def test_tiingo_fx_top_returns_quotes() -> None:
     )
     bound = tiingo_fx_top.bind(api_key=_KEY)
     result = bound(tickers="eurusd")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["mid_price"] == 1.16035
 
 
@@ -673,7 +673,7 @@ def test_enumerate_tiingo_parses_zip() -> None:
     )
     bound = enumerate_tiingo.bind(api_key=_KEY)
     result = bound()
-    df = result.data
+    df = result.raw
     # Exact-match enumerator columns.
     assert list(df.columns) == ["ticker", "name", "asset_type", "exchange", "price_currency", "start_date", "end_date"]
     assert set(df["ticker"]) == {"AAPL", "BTCUSD"}

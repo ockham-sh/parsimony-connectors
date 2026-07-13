@@ -31,7 +31,7 @@ def build_series_catalog(survey: str, *, max_rows: int = 0) -> Catalog:
     """Build one per-survey series catalog from the live ``.series`` enumeration."""
     sv = normalize_survey(survey)
     result = enumerate_bls_series(survey=sv, max_rows=max_rows)
-    raw_entries = Result(data=result.data, output_spec=series_enum_output(sv)).to_entities()
+    raw_entries = list(Result(raw=result.raw, output_spec=series_enum_output(sv)).entities.values())
     dim_codes = discover_dim_codes(raw_entries)
     entries = series_entries(raw_entries, dim_codes)
     catalog = Catalog(series_namespace(sv), default_field="title")
@@ -41,9 +41,7 @@ def build_series_catalog(survey: str, *, max_rows: int = 0) -> Catalog:
     return catalog
 
 
-def attach_manifests(
-    entries: Sequence[Entity], manifests: dict[str, list[dict[str, Any]]]
-) -> list[Entity]:
+def attach_manifests(entries: Sequence[Entity], manifests: dict[str, list[dict[str, Any]]]) -> list[Entity]:
     """Attach a ``dimensions`` manifest to survey entries that have one."""
     out: list[Entity] = []
     for entry in entries:
@@ -72,7 +70,7 @@ def build_surveys_catalog(
 ) -> Catalog:
     """Build the tier-1 surveys catalog, optionally attaching dimension manifests."""
     result = enumerate_bls_surveys(api_key=api_key)
-    entries = result.to_entities()
+    entries = list(result.entities.values())
     if manifests:
         entries = attach_manifests(entries, manifests)
     catalog = Catalog(SURVEYS_NAMESPACE, indexes=surveys_indexes(entries), default_field="title")
@@ -85,7 +83,7 @@ def manifest_for_survey(survey: str, *, max_rows: int = 0) -> list[dict[str, Any
     """Build a survey's dimension manifest from its series entries (for tier 1)."""
     sv = normalize_survey(survey)
     result = enumerate_bls_series(survey=sv, max_rows=max_rows)
-    raw_entries = Result(data=result.data, output_spec=series_enum_output(sv)).to_entities()
+    raw_entries = list(Result(raw=result.raw, output_spec=series_enum_output(sv)).entities.values())
     return manifest_from_series_entries(raw_entries)
 
 

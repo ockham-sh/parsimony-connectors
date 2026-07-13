@@ -24,11 +24,11 @@ def series_namespace(db_code: str) -> str:
 
 
 def _as_dataframe(raw: Any) -> pd.DataFrame:
-    return raw.data if isinstance(raw, Result) else raw
+    return raw.raw if isinstance(raw, Result) else raw
 
 
 def _entities(df: pd.DataFrame, output: OutputSpec) -> list[Entity]:
-    return Result(data=df, output_spec=output).to_entities()
+    return list(Result(raw=df, output_spec=output).entities.values())
 
 
 def entities_from_boj_enumeration(raw: Any) -> list[Entity]:

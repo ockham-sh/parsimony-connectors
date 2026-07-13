@@ -43,7 +43,7 @@ def _sample_entries() -> list:
         },
     ]
     df = pd.DataFrame(rows, columns=list(_ENUMERATE_COLUMNS))
-    return Result(data=df, output_spec=RBA_ENUMERATE_OUTPUT).to_entities()
+    return list(Result(raw=df, output_spec=RBA_ENUMERATE_OUTPUT).entities.values())
 
 
 def test_discovery_indexes_for_rba_sample() -> None:

@@ -126,8 +126,7 @@ def test_warehouse_id_detection_and_transform() -> None:
 def test_cube_paths_route_publication_vs_warehouse() -> None:
     assert http_mod.cube_data_path("rendoblim", lang="en") == "/api/cube/rendoblim/data/csv/en"
     assert (
-        http_mod.cube_data_path("BSTA@SNB.AUR_U.ODF", lang="en")
-        == "/api/warehouse/cube/BSTA.SNB.AUR_U.ODF/data/csv/en"
+        http_mod.cube_data_path("BSTA@SNB.AUR_U.ODF", lang="en") == "/api/warehouse/cube/BSTA.SNB.AUR_U.ODF/data/csv/en"
     )
     assert http_mod.cube_dimensions_path("rendoblim", lang="en") == "/api/cube/rendoblim/dimensions/en"
     assert (
@@ -203,13 +202,11 @@ def test_snb_fetch_publication_parses_csv_and_resolves_title() -> None:
     respx.get("https://data.snb.ch/api/cube/rendoblim/data/csv/en").mock(
         return_value=httpx.Response(200, text=_PUB_CSV)
     )
-    respx.get(url__startswith="https://data.snb.ch/json/table/getCubeInfo").mock(
-        side_effect=_cube_info_response
-    )
+    respx.get(url__startswith="https://data.snb.ch/json/table/getCubeInfo").mock(side_effect=_cube_info_response)
 
     result = snb_fetch(cube_id="rendoblim")
     assert result.provenance.source == "snb_fetch"
-    df = result.data
+    df = result.raw
     assert set(df["cube_id"]) == {"rendoblim"}
     assert df.iloc[0]["title"] == "Yields on bond issues – Month"  # from getCubeInfo
     assert df["Value"].dtype.kind == "f"
@@ -220,18 +217,16 @@ def test_snb_fetch_publication_parses_csv_and_resolves_title() -> None:
 @respx.mock
 def test_snb_fetch_warehouse_routes_to_warehouse_path() -> None:
     """A warehouse cube_id (with @) routes to /api/warehouse/cube/{@→.}/..."""
-    wh_route = respx.get(
-        "https://data.snb.ch/api/warehouse/cube/BSTA.SNB.AUR_U.ODF/data/csv/en"
-    ).mock(return_value=httpx.Response(200, text=_WH_CSV))
-    # The publication path must NOT be hit for a warehouse id.
-    pub_route = respx.get(
-        "https://data.snb.ch/api/cube/BSTA@SNB.AUR_U.ODF/data/csv/en"
-    ).mock(return_value=httpx.Response(500))
-    respx.get(url__startswith="https://data.snb.ch/json/table/getCubeInfo").mock(
-        side_effect=_cube_info_response
+    wh_route = respx.get("https://data.snb.ch/api/warehouse/cube/BSTA.SNB.AUR_U.ODF/data/csv/en").mock(
+        return_value=httpx.Response(200, text=_WH_CSV)
     )
+    # The publication path must NOT be hit for a warehouse id.
+    pub_route = respx.get("https://data.snb.ch/api/cube/BSTA@SNB.AUR_U.ODF/data/csv/en").mock(
+        return_value=httpx.Response(500)
+    )
+    respx.get(url__startswith="https://data.snb.ch/json/table/getCubeInfo").mock(side_effect=_cube_info_response)
 
-    df = snb_fetch(cube_id="BSTA@SNB.AUR_U.ODF").data
+    df = snb_fetch(cube_id="BSTA@SNB.AUR_U.ODF").raw
     assert wh_route.called
     assert not pub_route.called
     assert set(df["cube_id"]) == {"BSTA@SNB.AUR_U.ODF"}
@@ -248,15 +243,13 @@ def test_snb_fetch_title_falls_back_to_cube_id_when_getcubeinfo_fails() -> None:
     respx.get(url__startswith="https://data.snb.ch/json/table/getCubeInfo").mock(
         return_value=httpx.Response(500, text="boom")
     )
-    df = snb_fetch(cube_id="rendoblim").data
+    df = snb_fetch(cube_id="rendoblim").raw
     assert set(df["title"]) == {"rendoblim"}  # graceful degradation, not a crash
 
 
 @respx.mock
 def test_snb_fetch_raises_empty_data_on_empty_csv() -> None:
-    respx.get("https://data.snb.ch/api/cube/rendoblim/data/csv/en").mock(
-        return_value=httpx.Response(200, text="")
-    )
+    respx.get("https://data.snb.ch/api/cube/rendoblim/data/csv/en").mock(return_value=httpx.Response(200, text=""))
     with pytest.raises(EmptyDataError):
         snb_fetch(cube_id="rendoblim")
 
@@ -272,9 +265,7 @@ def test_snb_fetch_raises_parse_error_on_html_error_page() -> None:
 
 @respx.mock
 def test_snb_fetch_maps_http_error_to_provider_error() -> None:
-    respx.get("https://data.snb.ch/api/cube/rendoblim/data/csv/en").mock(
-        return_value=httpx.Response(500)
-    )
+    respx.get("https://data.snb.ch/api/cube/rendoblim/data/csv/en").mock(return_value=httpx.Response(500))
     with pytest.raises(ProviderError):
         snb_fetch(cube_id="rendoblim")
 
@@ -376,14 +367,12 @@ def _fake_list_cubes() -> list[tuple[str, str, str]]:
 @respx.mock
 def test_enumerate_snb_publication_and_warehouse(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(enum_mod, "_list_cubes", _fake_list_cubes)
-    respx.get(url__startswith="https://data.snb.ch/json/table/getCubeInfo").mock(
-        side_effect=_cube_info_response
-    )
+    respx.get(url__startswith="https://data.snb.ch/json/table/getCubeInfo").mock(side_effect=_cube_info_response)
     respx.get("https://data.snb.ch/api/cube/rendoblim/dimensions/en").mock(
         return_value=httpx.Response(200, json=_RENDOBLIM_DIMS)
     )
 
-    df = enumerate_snb().data
+    df = enumerate_snb().raw
 
     # @enumerator enforces the exact declared column set.
     assert list(df.columns) == list(_ENUMERATE_COLUMNS)
@@ -412,7 +401,7 @@ def test_enumerate_snb_synthesizes_title_when_getcubeinfo_unavailable(
         return_value=httpx.Response(200, json=_RENDOBLIM_DIMS)
     )
 
-    df = enumerate_snb().data
+    df = enumerate_snb().raw
     assert not df.empty
     wh = df[df["source"] == "snb_warehouse"].iloc[0]
     # Synthesized "{cube_id} — {group label}" — never an empty title.
@@ -426,6 +415,6 @@ def test_enumerate_snb_empty_when_sitemap_yields_nothing(monkeypatch: pytest.Mon
         return []
 
     monkeypatch.setattr(enum_mod, "_list_cubes", _empty)
-    df = enumerate_snb().data
+    df = enumerate_snb().raw
     assert df.empty
     assert list(df.columns) == list(_ENUMERATE_COLUMNS)

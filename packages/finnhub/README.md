@@ -45,7 +45,7 @@ from parsimony_finnhub import load
 
 connectors = load(api_key=os.environ["FINNHUB_API_KEY"])
 result = connectors["finnhub_quote"](symbol="AAPL")
-print(result.data.head())
+print(result.raw.head())
 ```
 
 The API key is declared as a secret (stripped from provenance) and bound off

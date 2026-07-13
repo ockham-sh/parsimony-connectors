@@ -60,7 +60,7 @@ def test_boc_fetch_usd_cad_fx_live() -> None:
     result = boc_fetch(series_name="FXUSDCAD", start_date="2024-01-01", end_date="2024-03-31")
 
     assert_provenance_shape(result, expected_source="boc_fetch", required_param_keys=["series_name"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "BoC fetch of FXUSDCAD returned an empty DataFrame"
     assert set(df["series_name"]) == {"FXUSDCAD"}
     # Real content, not just shape.
@@ -82,7 +82,7 @@ def test_boc_fetch_multi_series_single_request_live() -> None:
         start_date="2024-01-01",
         end_date="2024-03-31",
     )
-    df = result.data
+    df = result.raw
     assert set(df["series_name"]) == {"FXUSDCAD", "FXEURCAD"}
     for serie in ("FXUSDCAD", "FXEURCAD"):
         sub = df[df["series_name"] == serie]
@@ -92,7 +92,7 @@ def test_boc_fetch_multi_series_single_request_live() -> None:
 def test_boc_fetch_group_panel_live() -> None:
     """``group:`` syntax fetches a whole real panel in one request."""
     result = boc_fetch(series_name="group:FX_RATES_DAILY", start_date="2024-03-01", end_date="2024-03-31")
-    df = result.data
+    df = result.raw
     assert not df.empty
     # The daily-FX group holds many currency pairs; expect well over one series.
     assert df["series_name"].nunique() > 5, "group panel returned implausibly few series"
@@ -117,7 +117,7 @@ def test_enumerate_boc_bounded_groups_live(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(HttpClient, "request", _counting_request)
 
     result = enumerate_boc()
-    df = result.data
+    df = result.raw
 
     # The bound held: 1 series list + 2 group-membership fetches. Generous
     # slack, but it must be a handful — never ~2,400.
@@ -144,7 +144,7 @@ def test_enumerate_boc_bounded_groups_live(monkeypatch: pytest.MonkeyPatch) -> N
     assert len(fx_members) >= 1, "no series resolved FX_RATES_DAILY membership from the live fan-out"
 
     # build_entities round-trips on the real slice (the catalog-build entry point).
-    entities = Result(data=df, output_spec=BOC_ENUMERATE_OUTPUT).to_entities()
+    entities = list(Result(raw=df, output_spec=BOC_ENUMERATE_OUTPUT).entities.values())
     assert len(entities) == len(df)
     assert entities[0].namespace == "boc"
 
@@ -191,7 +191,7 @@ def test_boc_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         ),
     ]
     df = pd.DataFrame(rows, columns=cols)
-    entries = Result(data=df, output_spec=BOC_ENUMERATE_OUTPUT).to_entities()
+    entries = list(Result(raw=df, output_spec=BOC_ENUMERATE_OUTPUT).entities.values())
     catalog = Catalog("boc", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()
@@ -201,7 +201,7 @@ def test_boc_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     result = boc_search(query="US dollar Canadian dollar exchange rate", limit=5, catalog_url=str(out_dir))
 
     assert_provenance_shape(result, expected_source="boc_search", required_param_keys=["query"])
-    sdf = result.data
+    sdf = result.raw
     assert list(sdf.columns) == ["code", "title", "score"]
     assert not sdf.empty, "search over the fixture catalog returned nothing"
     assert len(sdf) <= 3, "search exceeded the fixture catalog"
@@ -212,4 +212,4 @@ def test_boc_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     # Ranking actually discriminates: a different query surfaces a different
     # series as the top hit (not the same row regardless of query).
     inflation = boc_search(query="consumer price index inflation", limit=5, catalog_url=str(out_dir))
-    assert inflation.data.iloc[0]["code"] == "V41690973"
+    assert inflation.raw.iloc[0]["code"] == "V41690973"

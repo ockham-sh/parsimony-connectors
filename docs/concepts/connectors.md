@@ -82,7 +82,7 @@ def provider_fetch(...) -> pd.DataFrame: ...
 `output=` is optional. When present, it is attached to the result as
 `result.output_spec` **unchanged** — the framework never inspects, reorders, or
 filters your returned DataFrame against it. Any column you return that the
-schema doesn't name simply exists on `result.data`, undeclared. When `output=`
+schema doesn't name simply exists on `result.raw`, undeclared. When `output=`
 is absent, the framework still wraps the return value; the result simply has
 no column governance.
 
@@ -101,7 +101,7 @@ The output schema must be **exactly one namespaced `KEY` column plus one or more
 function must also be annotated `-> pd.DataFrame`. The decorator does **not**
 check the returned frame's actual columns against the schema at call time —
 `OutputSpec` is passive everywhere. That check happens later, when something
-calls `result.to_entities()` (or reads `result.entities`) on the enumerator's
+reads `result.entities` (or `result.data`) on the enumerator's
 output: a declared column missing from the data raises `ValueError` there.
 
 ### `@loader`
@@ -163,7 +163,7 @@ layer their own multiplicity requirements on top; see [The three decorators](#th
   **non-empty when set**. It may be omitted at declaration time (e.g. a
   per-call dynamic namespace); it becomes mandatory only when something
   actually projects entities from the result (`result.entities` /
-  `result.to_entities()`) — or, eagerly, at decoration time for `@loader` and
+  `result.data`) — or, eagerly, at decoration time for `@loader` and
   `@enumerator`, since their whole point is to feed a store/catalog.
 - There is no `dtype=` — `Column` has no dtype field. Cast values yourself, in
   the connector body, before you return (`pd.to_datetime`, `pd.to_numeric`,
@@ -180,7 +180,7 @@ layer their own multiplicity requirements on top; see [The three decorators](#th
 The framework wraps every connector return value in a `parsimony.result.Result`.
 Connectors never construct one. A `Result` carries:
 
-- `data` — the raw payload (DataFrame, scalar, dict, …), exactly as returned —
+- `raw` — the payload (DataFrame, scalar, dict, …), exactly as returned —
   never copied, coerced, renamed, or reordered.
 - `output_spec` — the `OutputSpec`, when one was declared, attached unchanged.
 - `provenance` — a `Provenance` recording `source` (the connector name),
@@ -194,11 +194,11 @@ Connectors never construct one. A `Result` carries:
 | Accessor | Returns |
 |---|---|
 | `result.frame` | The DataFrame; raises `TypeError` if the payload is not tabular. |
-| `result.data` | The raw payload (used for dict/scalar results). |
-| `result.is_tabular` | Whether `data` is a DataFrame. |
+| `result.raw` | The raw payload (used for dict/scalar results). |
+| `result.is_tabular` | Whether `raw` is a DataFrame. |
 | `result.text` | The payload as a string. |
 | `result.columns` | The declared `Column` list (empty when no schema). |
-| `result.entities` / `result.to_entities()` | Lazy `(namespace, code)`-keyed projection / `list[Entity]`, built from `output_spec` against `data` — see [discovery and catalogs](discovery-and-catalogs.md). |
+| `result.entities` / `result.data` | Parallel lazy `EntityRef`-keyed projections — identity (`Entity`) and `DATA`-column frames respectively — built from `output_spec` against `raw` — see [discovery and catalogs](discovery-and-catalogs.md). |
 | `result.to_llm(max_rows=..., max_chars=...)` | A bounded, governed string view for agent context — honest row/column counts, hidden columns dropped, first N rows. |
 
 ## Descriptions and tags

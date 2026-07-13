@@ -58,7 +58,7 @@ from parsimony_tiingo import load
 # Bind the key off the call surface (it never enters provenance).
 connectors = load(api_key=os.environ["TIINGO_API_KEY"])
 result = connectors["tiingo_eod"](ticker="AAPL")
-print(result.data.head())
+print(result.raw.head())
 ```
 
 The key is declared as a secret on every verb (stripped from provenance) and

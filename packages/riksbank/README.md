@@ -42,7 +42,7 @@ result = CONNECTORS["riksbank_monetary_policy_fetch"](
     series="SEQGDPNAYSA",
     policy_round="2026:1",
 )
-print(result.data.head())
+print(result.raw.head())
 ```
 
 ## Catalogs

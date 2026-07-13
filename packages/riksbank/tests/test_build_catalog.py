@@ -34,7 +34,7 @@ def _sample_entries() -> list:
         _row("holdings/swedish_securities_aggregated", "Holdings aggregated", "Securities holdings.", "holdings"),
     ]
     df = pd.DataFrame(rows, columns=list(ENUMERATE_COLUMNS))
-    return Result(data=df, output_spec=RIKSBANK_ENUMERATE_OUTPUT).to_entities()
+    return list(Result(raw=df, output_spec=RIKSBANK_ENUMERATE_OUTPUT).entities.values())
 
 
 def test_discovery_indexes_for_riksbank_sample() -> None:

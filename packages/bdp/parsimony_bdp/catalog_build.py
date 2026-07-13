@@ -28,7 +28,7 @@ async def build_bdp_catalog(*, enrich: bool = True) -> Catalog:
     ``False`` for a fast crawl-only smoke build (English labels only).
     """
     result = enumerate_bdp()
-    df = result.data
+    df = result.raw
 
     if enrich and not df.empty:
         series_ids = [
@@ -40,7 +40,7 @@ async def build_bdp_catalog(*, enrich: bool = True) -> Catalog:
         enrich_pt = await fetch_series_metadata(series_ids, lang="PT")
         df = apply_enrichment(df, enrich_en=enrich_en, enrich_pt=enrich_pt)
 
-    entries = Result(data=df, output_spec=BDP_ENUMERATE_OUTPUT).to_entities()
+    entries = list(Result(raw=df, output_spec=BDP_ENUMERATE_OUTPUT).entities.values())
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()

@@ -35,7 +35,7 @@ result = CONNECTORS["treasury_fetch"](
     sort="-record_date",
     page_size=10,
 )
-print(result.data.head())
+print(result.raw.head())
 ```
 
 For multi-plugin composition:

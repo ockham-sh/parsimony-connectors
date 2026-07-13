@@ -197,7 +197,7 @@ def test_rba_fetch_resolves_then_parses_csv(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert result.provenance.source == "rba_fetch"
     assert result.provenance.params == {"table_id": "f1-data"}
-    df = result.data
+    df = result.raw
     assert "table_id" in df.columns
     assert df.iloc[0]["table_id"] == "f1-data"
     assert df.iloc[0]["series_key"] == "FIRMMCRTD"
@@ -219,7 +219,7 @@ def test_rba_fetch_normalises_trailing_csv_suffix_and_case(monkeypatch: pytest.M
     # (Provenance records the verbatim call-time arg; the normalisation is
     # internal and surfaces in the resolved table_id stamped on the data.)
     result = rba_fetch(table_id="F1-DATA.csv")
-    df = result.data
+    df = result.raw
     assert set(df["table_id"]) == {"f1-data"}
     assert "FIRMMCRTD" in set(df["series_key"])
 
@@ -287,7 +287,7 @@ def test_enumerate_rba_emits_description_table_id_unit_and_source(
         },
     )
 
-    df = (enumerate_rba()).data
+    df = (enumerate_rba()).raw
 
     # @enumerator enforces an EXACT column match against the declared schema.
     assert list(df.columns) == list(rba_outputs._ENUMERATE_COLUMNS)
@@ -322,7 +322,7 @@ def test_enumerate_rba_compound_code_keeps_cross_table_series_id_collisions(
         },
     )
 
-    df = (enumerate_rba()).data
+    df = (enumerate_rba()).raw
 
     same_sid = df[df["series_id"] == "BFC5WDZ"]
     assert len(same_sid) == 2, "shared series_id must produce two distinct entries"
@@ -350,7 +350,7 @@ def test_enumerate_rba_source_metadata_uniform(monkeypatch: pytest.MonkeyPatch) 
         },
     )
 
-    df = (enumerate_rba()).data
+    df = (enumerate_rba()).raw
     assert set(df["source"]) == {"rba_csv"}
 
 
@@ -367,7 +367,7 @@ def test_enumerate_rba_swallows_per_csv_fetch_errors(monkeypatch: pytest.MonkeyP
         },
     )
 
-    df = (enumerate_rba()).data
+    df = (enumerate_rba()).raw
     assert "FIRMMCRTD" in set(df["series_id"])
 
 
@@ -388,7 +388,7 @@ def test_enumerate_rba_bounding_seam_limits_fan_out(monkeypatch: pytest.MonkeyPa
         },
     )
 
-    df = (enumerate_rba()).data
+    df = (enumerate_rba()).raw
     # Only f1-data was fetched (plus the index + historical-data page) — the
     # g1-data link advertised by the index was never requested.
     assert _csv_url("g1-data") not in session.calls
@@ -510,7 +510,7 @@ def test_enumerate_rba_xlsx_dynamic_exclusivity(monkeypatch: pytest.MonkeyPatch)
         },
     )
 
-    df = (enumerate_rba()).data
+    df = (enumerate_rba()).raw
 
     # The XLSX-exclusive Bond Purchase Program series is emitted (not in any CSV).
     bpp = df[df["series_id"] == "ALDBPPFVD"]
@@ -569,7 +569,7 @@ def test_enumerate_rba_pulls_xls_hist_discontinued_series(monkeypatch: pytest.Mo
     )
 
     monkeypatch.setattr(rba_parsing, "_parse_xls_hist", fake_parse)
-    df = (enumerate_rba()).data
+    df = (enumerate_rba()).raw
 
     hist_rows = df[df["source"] == "rba_xlsx_hist"]
     assert len(hist_rows) == 1
@@ -689,7 +689,7 @@ def test_rba_fetch_xlsx_exclusive_sheet(monkeypatch: pytest.MonkeyPatch) -> None
     result = rba_fetch(table_id="a03/Bond Purchase Program")
 
     assert result.provenance.source == "rba_fetch"
-    df = result.data
+    df = result.raw
     assert set(df["table_id"]) == {"a03/Bond Purchase Program"}
     assert set(df["series_key"]) == {"ALDBPPFVD", "ALDBPPCP"}
     fv = df[df["series_key"] == "ALDBPPFVD"].sort_values("date")

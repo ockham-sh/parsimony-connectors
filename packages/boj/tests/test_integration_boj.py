@@ -59,7 +59,7 @@ def test_boj_fetch_fx_rate_live() -> None:
     result = boj_fetch(db="FM08", code="FXERD01")
 
     assert_provenance_shape(result, expected_source="boj_fetch", required_param_keys=["code"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "BoJ fetch of FM08/FXERD01 returned empty DataFrame"
     assert list(df["code"].unique()) == ["FXERD01"]
     # Real content, not just shape: title is real prose, values are real rates.
@@ -84,7 +84,7 @@ def test_boj_fetch_ranged_window_live() -> None:
     """
     result = boj_fetch(db="FM08", code="FXERD01", start_date="202601", end_date="202606")
 
-    df = result.data
+    df = result.raw
     assert not df.empty, "ranged BoJ fetch returned empty"
     # Bounded window — far fewer rows than the full ~10k-row history.
     assert len(df) < 400, f"window not bounded: {len(df)} rows"
@@ -95,7 +95,7 @@ def test_boj_fetch_multi_series_single_request_live() -> None:
     """Two real FX series fetched in one comma-joined request."""
     result = boj_fetch(db="FM08", code="FXERD01,FXERD04")
 
-    df = result.data
+    df = result.raw
     assert {"FXERD01", "FXERD04"}.issubset(set(df["code"])), f"missing series: {set(df['code'])}"
     for serie in ("FXERD01", "FXERD04"):
         sub = df[df["code"] == serie]
@@ -118,7 +118,7 @@ def test_boj_fetch_paginates_nextposition_no_truncation_live() -> None:
     assert len(codes) >= 10, f"expected many daily FX series, got {len(codes)}"
 
     result = boj_fetch(db="FM08", code=",".join(codes))
-    df = result.data
+    df = result.raw
 
     # Every requested series came back — pagination reconstructed the full set.
     assert df["code"].nunique() == len(codes), (
@@ -146,7 +146,7 @@ def test_enumerate_boj_bounded_single_db_live(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr("parsimony_boj.connectors.enumerate._list_databases", lambda: (_BOUNDED_DB,))
 
     result = enumerate_boj()
-    df = result.data
+    df = result.raw
 
     # @enumerator enforces an EXACT column match against the declared schema.
     assert list(df.columns) == [c.name for c in BOJ_ENUMERATE_OUTPUT.columns]
@@ -171,7 +171,7 @@ def test_enumerate_boj_bounded_single_db_live(monkeypatch: pytest.MonkeyPatch) -
     assert list(db_rows["code"]) == ["db:FM01"]
 
     # build_entities round-trips on the real slice.
-    entities = Result(data=df, output_spec=BOJ_ENUMERATE_OUTPUT).to_entities()
+    entities = list(Result(raw=df, output_spec=BOJ_ENUMERATE_OUTPUT).entities.values())
     assert len(entities) == len(df)
     assert all(e.namespace == "boj" for e in entities)
 
@@ -215,7 +215,7 @@ def test_boj_databases_search_over_fixture_catalog_live(tmp_path: Path) -> None:
     result = boj_databases_search(query="overnight call rate", limit=5, catalog_root=str(root))
 
     assert_provenance_shape(result, expected_source="boj_databases_search", required_param_keys=["query"])
-    df = result.data
+    df = result.raw
     assert list(df.columns) == ["db", "title", "score", "category", "series_namespace"]
     assert not df.empty, "databases search returned nothing"
     # The single bounded DB is the top hit and dispatch hints are populated.
@@ -231,7 +231,7 @@ def test_boj_series_search_over_fixture_catalog_live(tmp_path: Path) -> None:
     result = boj_series_search(query="uncollateralized overnight call rate", db="FM01", limit=5, catalog_root=str(root))
 
     assert_provenance_shape(result, expected_source="boj_series_search", required_param_keys=["query"])
-    df = result.data
+    df = result.raw
     assert list(df.columns) == ["code", "title", "score", "db"]
     assert not df.empty, "series search returned nothing"
     assert (df["db"] == "FM01").all()

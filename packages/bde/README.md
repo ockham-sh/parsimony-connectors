@@ -43,7 +43,7 @@ variable, or pass `catalog_url=` at call time.
 from parsimony_bde import CONNECTORS
 
 result = CONNECTORS["bde_fetch"](key="D_1NBAF472")
-print(result.data.head())
+print(result.raw.head())
 ```
 
 For multi-plugin composition (autoloads everything installed):

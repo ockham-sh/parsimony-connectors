@@ -67,7 +67,7 @@ def test_eia_fetch_returns_rows() -> None:
     result = eia_fetch.bind(api_key=_KEY)(route="petroleum/pri/spt")
 
     assert result.provenance.source == "eia_fetch"
-    df = result.data
+    df = result.raw
     assert len(df) == 2
     assert df.iloc[0]["title"] == "Spot Prices"
     assert (df["route"] == "petroleum/pri/spt").all()
@@ -92,7 +92,7 @@ def test_eia_fetch_paginates_across_pages() -> None:
         return httpx.Response(200, json=_data_response([{"period": "2026-01", "value": 1.0}], total=3))
 
     respx.get(_DATA_URL).mock(side_effect=_router)
-    df = eia_fetch.bind(api_key=_KEY)(route="petroleum/pri/spt").data
+    df = eia_fetch.bind(api_key=_KEY)(route="petroleum/pri/spt").raw
     # All three rows assembled across the two pages (5000-cap pagination).
     assert len(df) == 3
     assert sorted(df["value"].tolist()) == [1.0, 2.0, 3.0]
@@ -128,7 +128,7 @@ def test_eia_fetch_dedups_boundary_duplicate() -> None:
         )
 
     respx.get(_DATA_URL).mock(side_effect=_router)
-    df = eia_fetch.bind(api_key=_KEY)(route="petroleum/pri/spt").data
+    df = eia_fetch.bind(api_key=_KEY)(route="petroleum/pri/spt").raw
     assert len(df) == 3  # the duplicate (period 2026-02, series A) collapsed to one
 
 
@@ -156,7 +156,7 @@ def test_eia_fetch_non_value_measure_normalized() -> None:
             },
         )
     )
-    df = eia_fetch.bind(api_key=_KEY)(route="electricity/retail-sales", measure="price").data
+    df = eia_fetch.bind(api_key=_KEY)(route="electricity/retail-sales", measure="price").raw
     assert "value" in df.columns
     assert df.iloc[0]["value"] == 10.5
     assert (df["stateid"] == "CO").all()
@@ -244,7 +244,7 @@ def test_eia_fetch_series_returns_rows_with_series_title() -> None:
     )
     result = eia_fetch_series.bind(api_key=_KEY)(series_id="PET.RWTC.D")
     assert result.provenance.source == "eia_fetch_series"
-    df = result.data
+    df = result.raw
     assert len(df) == 2
     assert (df["series_id"] == "PET.RWTC.D").all()
     # Title prefers the specific series-description over the generic dataset blurb.
@@ -277,7 +277,7 @@ def test_eia_facets_lists_values() -> None:
             },
         )
     )
-    df = eia_facets.bind(api_key=_KEY)(route="petroleum/pri/spt", facet="product").data
+    df = eia_facets.bind(api_key=_KEY)(route="petroleum/pri/spt", facet="product").raw
     assert list(df.columns) == ["facet_value", "name", "facet", "route"]
     assert set(df["facet_value"]) == {"EPCBRENT", "EPD2DC"}
     assert (df["facet"] == "product").all()
@@ -326,7 +326,7 @@ def test_enumerate_eia_walks_tree_to_leaf_datasets() -> None:
     )
 
     result = enumerate_eia.bind(api_key=_KEY)()
-    df = result.data
+    df = result.raw
     # Exact column match against the declared enumerate schema.
     from parsimony_eia.outputs import ENUMERATE_COLUMNS
 
@@ -363,9 +363,7 @@ def test_keyed_verb_count_guard() -> None:
 
 
 @pytest.mark.parametrize("connector,kwargs", _KEYED_CALLS)
-def test_verb_fast_fails_without_key(
-    connector: Any, kwargs: dict[str, Any], monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_verb_fast_fails_without_key(connector: Any, kwargs: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EIA_API_KEY", raising=False)
     with pytest.raises(UnauthorizedError) as exc_info:
         connector(**kwargs)

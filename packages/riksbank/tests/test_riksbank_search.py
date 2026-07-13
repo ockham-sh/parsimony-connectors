@@ -104,10 +104,10 @@ def _mock_enumerate() -> None:
 def riksbank_catalog_dir(tmp_path: Path) -> Path:
     with respx.mock:
         _mock_enumerate()
-        df = enumerate_riksbank().data
+        df = enumerate_riksbank().raw
     # Drop the SWEA-payload SWESTR; keep the static registry row (source="swestr").
     df = df[~((df["code"] == "SWESTR") & (df["source"] == "swea"))]
-    entries = Result(data=df, output_spec=RIKSBANK_ENUMERATE_OUTPUT).to_entities()
+    entries = list(Result(raw=df, output_spec=RIKSBANK_ENUMERATE_OUTPUT).entities.values())
     # Build OUTSIDE the respx mock: the hybrid index embeds via sentence-transformers,
     # which fetches its model from Hugging Face. Under respx (assert_all_mocked) that
     # request errors as "not mocked"; the mock is only needed for the enumerate HTTP.
@@ -122,7 +122,7 @@ def riksbank_catalog_dir(tmp_path: Path) -> Path:
 @respx.mock
 def test_riksbank_enumerate_fx_rows_are_searchable() -> None:
     _mock_enumerate()
-    df = enumerate_riksbank().data
+    df = enumerate_riksbank().raw
     eur = df.loc[df["code"] == "SEKEURPMI"].iloc[0]
     assert "exchange rate" in eur["title"].lower()
     assert "EUR/SEK" in eur["title"]
@@ -136,12 +136,12 @@ def test_riksbank_search_euro_sek_exchange_rate(riksbank_catalog_dir: Path) -> N
         limit=5,
         catalog_url=str(riksbank_catalog_dir),
     )
-    assert result.data.iloc[0]["code"] == "SEKEURPMI"
+    assert result.raw.iloc[0]["code"] == "SEKEURPMI"
 
 
 def test_riksbank_search_eur_sek_exchange_rate(riksbank_catalog_dir: Path) -> None:
     result = riksbank_search(query="EUR SEK exchange rate", limit=5, catalog_url=str(riksbank_catalog_dir))
-    assert result.data.iloc[0]["code"] == "SEKEURPMI"
+    assert result.raw.iloc[0]["code"] == "SEKEURPMI"
 
 
 def test_riksbank_search_swestr_benchmark(riksbank_catalog_dir: Path) -> None:
@@ -150,27 +150,27 @@ def test_riksbank_search_swestr_benchmark(riksbank_catalog_dir: Path) -> None:
         limit=5,
         catalog_url=str(riksbank_catalog_dir),
     )
-    assert result.data.iloc[0]["code"] == "SWESTR"
+    assert result.raw.iloc[0]["code"] == "SWESTR"
 
 
 def test_riksbank_search_policy_rate(riksbank_catalog_dir: Path) -> None:
     result = riksbank_search(query="policy rate", limit=5, catalog_url=str(riksbank_catalog_dir))
-    assert result.data.iloc[0]["code"] == "SECBREPOEFF"
+    assert result.raw.iloc[0]["code"] == "SECBREPOEFF"
 
 
 def test_riksbank_search_code_exact_match(riksbank_catalog_dir: Path) -> None:
     result = riksbank_search(query="code: SEKEURPMI", limit=5, catalog_url=str(riksbank_catalog_dir))
-    assert result.data.iloc[0]["code"] == "SEKEURPMI"
+    assert result.raw.iloc[0]["code"] == "SEKEURPMI"
     # exact-code hits no longer carry a sentinel score; ranking first is the guarantee.
 
 
 def test_riksbank_search_usd_fx(riksbank_catalog_dir: Path) -> None:
     result = riksbank_search(query="USD SEK exchange rate", limit=5, catalog_url=str(riksbank_catalog_dir))
-    codes = set(result.data["code"])
+    codes = set(result.raw["code"])
     assert "SEKUSDPMI" in codes
 
 
 def test_riksbank_search_returns_source_column(riksbank_catalog_dir: Path) -> None:
     result = riksbank_search(query="code: SEKEURPMI", limit=1, catalog_url=str(riksbank_catalog_dir))
-    assert "source" in result.data.columns
-    assert result.data.iloc[0]["source"]
+    assert "source" in result.raw.columns
+    assert result.raw.iloc[0]["source"]

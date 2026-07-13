@@ -104,21 +104,21 @@ def catalog_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
 def test_enumerate_dimension_returns_all_values(catalog_root: str) -> None:
     df = sdmx_dimension_search(
         agency="ECB", dataset_id="TEST", dimension="FREQ", limit=10_000, catalog_root=catalog_root
-    ).data
+    ).raw
     assert dict(zip(df["code"], df["label"], strict=True)) == {"M": "Monthly", "A": "Annual"}
 
 
 def test_enumerate_ref_area(catalog_root: str) -> None:
     df = sdmx_dimension_search(
         agency="ECB", dataset_id="TEST", dimension="REF_AREA", limit=10_000, catalog_root=catalog_root
-    ).data
+    ).raw
     assert set(df["code"]) == {"DE", "FR"}
 
 
 def test_query_ranks_values_by_label(catalog_root: str) -> None:
     df = sdmx_dimension_search(
         agency="ECB", dataset_id="TEST", dimension="REF_AREA", query="Germany", limit=5, catalog_root=catalog_root
-    ).data
+    ).raw
     assert "DE" in set(df["code"])
     assert df.iloc[0]["code"] == "DE"
 
@@ -153,7 +153,7 @@ def test_filter_scopes_enumeration_to_populated_slice(catalog_root: str) -> None
         filter_json='{"REF_AREA_code": ["FR"]}',
         limit=10_000,
         catalog_root=catalog_root,
-    ).data
+    ).raw
     assert dict(zip(df["code"], df["label"], strict=True)) == {"M": "Monthly"}
 
 

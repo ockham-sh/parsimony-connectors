@@ -8,7 +8,7 @@ from parsimony.errors import InvalidParameterError
 from parsimony_bls import flatfiles as ff
 
 _ROOT_LISTING = (
-    "<pre><A HREF=\"/pub/\">[To Parent Directory]</A><br><br>"
+    '<pre><A HREF="/pub/">[To Parent Directory]</A><br><br>'
     ' 5/12/2026  8:30 AM        &lt;dir&gt; <A HREF="/pub/time.series/cu/">cu</A><br>'
     ' 6/5/2026  8:30 AM        &lt;dir&gt; <A HREF="/pub/time.series/ce/">ce</A><br>'
     ' 2/27/2024 10:13 AM        &lt;dir&gt; <A HREF="/pub/time.series/compressed/">compressed</A><br>'
@@ -19,7 +19,7 @@ _SURVEY_LISTING = (
     "<pre>"
     ' 6/5/2026  8:30 AM      1339447 <A HREF="/pub/time.series/cu/cu.series">cu.series</A><br>'
     ' 6/5/2026  8:30 AM        12644 <A HREF="/pub/time.series/cu/cu.area">cu.area</A><br>'
-    ' 6/5/2026  8:30 AM    348357219 <A HREF="/pub/time.series/cu/cu.data.0.Current">cu.data.0.Current</A><br>'
+    ' 6/5/2026  8:30 AM    348357219 <A HREF="/pub/time.series/cu/cu.raw.0.Current">cu.raw.0.Current</A><br>'
     "</pre>"
 )
 

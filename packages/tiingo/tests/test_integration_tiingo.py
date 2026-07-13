@@ -61,7 +61,7 @@ def test_tiingo_search_apple_returns_aapl() -> None:
     result = tiingo_search.bind(api_key=key)(query="apple")
 
     assert_provenance_shape(result, expected_source="tiingo_search", required_param_keys=["query"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "search for 'apple' returned no rows"
     assert "AAPL" in set(df["ticker"]), f"AAPL missing from search results: {list(df['ticker'])[:10]}"
     # Real content, not just column presence: names must be populated.
@@ -79,7 +79,7 @@ def test_tiingo_eod_aapl_window() -> None:
     result = tiingo_eod.bind(api_key=key)(ticker="AAPL", start_date="2024-01-02", end_date="2024-01-10")
 
     assert_provenance_shape(result, expected_source="tiingo_eod", required_param_keys=["ticker"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "AAPL EOD window returned no rows"
     assert (df["ticker"] == "AAPL").all()
     # Adjusted close must carry real numeric values, not be all-NaN.
@@ -96,7 +96,7 @@ def test_tiingo_iex_aapl_realtime() -> None:
     result = tiingo_iex.bind(api_key=key)(tickers="AAPL")
 
     assert_provenance_shape(result, expected_source="tiingo_iex", required_param_keys=["tickers"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "IEX quote for AAPL returned no rows"
     assert "AAPL" in set(df["ticker"])
     # tngo_last is the composite last price — must be a real number.
@@ -109,7 +109,7 @@ def test_tiingo_iex_historical_aapl() -> None:
     result = tiingo_iex_historical.bind(api_key=key)(ticker="AAPL", resample_freq="1hour")
 
     assert_provenance_shape(result, expected_source="tiingo_iex_historical", required_param_keys=["ticker"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "IEX intraday for AAPL returned no rows"
     assert (df["ticker"] == "AAPL").all()
     assert df["close"].notna().any(), "intraday close is entirely NaN"
@@ -121,7 +121,7 @@ def test_tiingo_meta_aapl() -> None:
     result = tiingo_meta.bind(api_key=key)(ticker="AAPL")
 
     assert_provenance_shape(result, expected_source="tiingo_meta", required_param_keys=["ticker"])
-    data = result.data
+    data = result.raw
     assert isinstance(data, dict)
     assert data["ticker"].upper() == "AAPL"
     # Description must be real prose, not empty.
@@ -139,7 +139,7 @@ def test_tiingo_fundamentals_meta_aapl() -> None:
     result = tiingo_fundamentals_meta.bind(api_key=key)(tickers="AAPL")
 
     assert_provenance_shape(result, expected_source="tiingo_fundamentals_meta", required_param_keys=["tickers"])
-    data = result.data
+    data = result.raw
     assert isinstance(data, list) and data, "fundamentals meta returned no records"
     rec = data[0]
     assert rec["ticker"].upper() == "AAPL"
@@ -153,7 +153,7 @@ def test_tiingo_fundamentals_definitions() -> None:
     result = tiingo_fundamentals_definitions.bind(api_key=key)()
 
     assert_provenance_shape(result, expected_source="tiingo_fundamentals_definitions")
-    df = result.data
+    df = result.raw
     assert not df.empty, "definitions returned no rows"
     assert df["data_code"].str.len().gt(0).all(), "some data_code values are empty"
     assert df["name"].str.len().gt(0).any(), "name column is empty for every definition"
@@ -178,7 +178,7 @@ def test_tiingo_news_power_plan_or_payment_required() -> None:
 
     # Power+ key path: real articles with populated titles.
     assert_provenance_shape(result, expected_source="tiingo_news")
-    df = result.data
+    df = result.raw
     assert not df.empty, "news returned no rows on a plan that grants access"
     assert df["title"].str.len().gt(0).any(), "news titles are all empty"
     assert_no_secret_leak(result, secret=key)
@@ -196,7 +196,7 @@ def test_tiingo_crypto_prices_btcusd_window() -> None:
     )
 
     assert_provenance_shape(result, expected_source="tiingo_crypto_prices", required_param_keys=["tickers"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "btcusd crypto prices returned no rows"
     assert (df["ticker"] == "btcusd").all()
     assert df["close"].notna().any(), "crypto close is entirely NaN"
@@ -209,7 +209,7 @@ def test_tiingo_crypto_top_btcusd() -> None:
     result = tiingo_crypto_top.bind(api_key=key)(tickers="btcusd")
 
     assert_provenance_shape(result, expected_source="tiingo_crypto_top", required_param_keys=["tickers"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "btcusd top-of-book returned no rows"
     assert (df["ticker"] == "btcusd").all()
     assert df["last_price"].notna().any(), "crypto last_price is entirely NaN"
@@ -228,7 +228,7 @@ def test_tiingo_fx_prices_eurusd_window() -> None:
     )
 
     assert_provenance_shape(result, expected_source="tiingo_fx_prices", required_param_keys=["tickers"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "eurusd forex prices returned no rows"
     assert (df["ticker"] == "eurusd").all()
     assert df["close"].notna().any(), "forex close is entirely NaN"
@@ -240,7 +240,7 @@ def test_tiingo_fx_top_eurusd() -> None:
     result = tiingo_fx_top.bind(api_key=key)(tickers="eurusd")
 
     assert_provenance_shape(result, expected_source="tiingo_fx_top", required_param_keys=["tickers"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "eurusd forex top-of-book returned no rows"
     assert "eurusd" in set(df["ticker"])
     assert df["mid_price"].notna().any(), "forex mid_price is entirely NaN"
@@ -258,7 +258,7 @@ def test_enumerate_tiingo_bounded() -> None:
     result = enumerate_tiingo.bind(api_key=key)()
 
     assert_provenance_shape(result, expected_source="enumerate_tiingo")
-    df = result.data
+    df = result.raw
     # Exact-match enumerator schema.
     assert list(df.columns) == [
         "ticker",

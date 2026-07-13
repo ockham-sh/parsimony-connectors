@@ -114,7 +114,7 @@ class TestSdmxFetch:
         )
         result = _call_sdmx_fetch(params)
 
-        df = result.data
+        df = result.raw
         # Declared columns lead in config order; the per-flow dims (as {dim}_code,
         # matching sdmx_series_search) + series_url trail (caught by the greedy-last
         # "*" wildcard as METADATA). Dimension labels ride in `title`, not columns.
@@ -178,8 +178,8 @@ class TestSdmxFetch:
         params = SdmxFetchParams(dataset_key="ECB-YC", series_key="M.DE")
         result = _call_sdmx_fetch(params)
 
-        assert "series_url" in result.data.columns
-        parsed = urlparse(str(result.data["series_url"].iloc[0]))
+        assert "series_url" in result.raw.columns
+        parsed = urlparse(str(result.raw["series_url"].iloc[0]))
         assert parsed.scheme == "https"
         assert parsed.hostname == "data.ecb.europa.eu"
 
@@ -201,7 +201,7 @@ class TestSdmxFetch:
 
         params = SdmxFetchParams(dataset_key="WB_WDI-WDI", series_key="A.USA")
         result = _call_sdmx_fetch(params)
-        assert "series_url" not in result.data.columns or result.data["series_url"].isna().all()
+        assert "series_url" not in result.raw.columns or result.raw["series_url"].isna().all()
 
     def test_fetch_result_carries_output_spec(self, patch_sdmx: dict[str, Any]) -> None:
         from parsimony.result import ColumnRole
@@ -234,7 +234,7 @@ class TestSdmxFetch:
         key_col = next(c for c in result.output_spec.columns if c.name == "series_key")
         assert key_col.namespace is None
         # TIME_PERIOD stays the raw SDMX period string, not coerced to datetime.
-        assert result.data["TIME_PERIOD"].iloc[0] == "2024-01"
+        assert result.raw["TIME_PERIOD"].iloc[0] == "2024-01"
 
 
 class TestSdmxFetchBatch:
@@ -281,19 +281,19 @@ class TestSdmxFetchBatch:
         fetch_mod, calls = self._stub_one(monkeypatch)
         keys = ["M.I15.TOTAL.ES", "M.RCH_A.TOTAL.ES", "M.RCH_M.TOTAL.ES"]
         result = fetch_mod.sdmx_fetch(dataset_ref="ESTAT-PRC_HICP_MINR", series_ref=keys)
-        assert list(result.data["series_key"]) == keys
+        assert list(result.raw["series_key"]) == keys
         assert set(calls) == set(keys)
 
     def test_request_order_preserved_despite_concurrency(self, monkeypatch: pytest.MonkeyPatch) -> None:
         fetch_mod, _ = self._stub_one(monkeypatch, delay_first=True)
         keys = [f"M.K{i}" for i in range(5)]  # K0 is slowest; map must still return in input order
         result = fetch_mod.sdmx_fetch(dataset_ref="ECB-YC", series_ref=keys)
-        assert list(result.data["series_key"]) == keys
+        assert list(result.raw["series_key"]) == keys
 
     def test_single_string_takes_unbatched_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
         fetch_mod, calls = self._stub_one(monkeypatch)
         result = fetch_mod.sdmx_fetch(dataset_ref="ECB-YC", series_ref="M.DE.EUR")
-        assert list(result.data["series_key"]) == ["M.DE.EUR"]
+        assert list(result.raw["series_key"]) == ["M.DE.EUR"]
         assert calls == ["M.DE.EUR"]
 
     def test_empty_list_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -362,7 +362,7 @@ class TestStructureSharing:
         assert client.dataflow.call_count == 1
         # ...but every key still gets its own data request.
         assert client.get.call_count == 3
-        assert len(result.data) == 3
+        assert len(result.raw) == 3
 
     def test_single_key_call_also_resolves_structure_once(self, patch_sdmx: dict[str, Any]) -> None:
         from parsimony_sdmx.connectors.fetch import sdmx_fetch

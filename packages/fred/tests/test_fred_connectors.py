@@ -74,7 +74,7 @@ def test_fred_search_returns_series_metadata() -> None:
     result = bound(search_text="unemployment")
 
     assert result.provenance.source == "fred_search"
-    df = result.data
+    df = result.raw
     assert list(df["id"]) == ["UNRATE"]
 
 
@@ -160,7 +160,7 @@ def test_fred_fetch_returns_observations_with_metadata() -> None:
     result = bound(series_id="UNRATE")
 
     assert result.provenance.source == "fred_fetch"
-    df = result.data
+    df = result.raw
     assert "date" in df.columns
     assert "value" in df.columns
     assert list(df["series_id"]) == ["UNRATE", "UNRATE"]

@@ -12,7 +12,7 @@ CATALOG_NAMESPACE = "snb"
 
 def build_snb_catalog() -> Catalog:
     result = enumerate_snb()
-    entries = result.to_entities()
+    entries = list(result.entities.values())
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()

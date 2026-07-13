@@ -52,7 +52,7 @@ def test_fmp_screener_joins_screener_and_enrichment() -> None:
     # Theme-B: bound key stripped from provenance.
     assert _KEY not in str(result.provenance.params)
     assert "api_key" not in result.provenance.params
-    df = result.data
+    df = result.raw
     assert len(df) == 1
     assert df.iloc[0]["symbol"] == "AAPL"
 
@@ -111,4 +111,4 @@ def test_fmp_screener_skips_enrichment_when_fields_are_native_only() -> None:
     assert screener_route.call_count == 1
     assert metrics_route.call_count == 0, "key-metrics-ttm must be skipped when fields are native-only"
     assert ratios_route.call_count == 0, "ratios-ttm must be skipped when fields are native-only"
-    assert len(result.data) == 2
+    assert len(result.raw) == 2

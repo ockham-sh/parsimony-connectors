@@ -49,7 +49,7 @@ def _flat_rows() -> pd.DataFrame:
 
 
 def _flat_entries():
-    return Result(data=_flat_rows(), output_spec=BOJ_ENUMERATE_OUTPUT).to_entities()
+    return list(Result(raw=_flat_rows(), output_spec=BOJ_ENUMERATE_OUTPUT).entities.values())
 
 
 def test_series_namespace_is_lowercase() -> None:

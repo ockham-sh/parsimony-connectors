@@ -300,7 +300,7 @@ def coingecko_coin_detail(
 
     Nested shape: market_data figures (current_price, market_cap, total_volume,
     ath, …) are dicts keyed by ~60 currency codes — index one, e.g.
-    result.data['market_data']['current_price']['usd'].
+    result.raw['market_data']['current_price']['usd'].
     """
     c = _safe_coin_id(coin_id)
 

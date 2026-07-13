@@ -25,7 +25,7 @@ def build_eia_catalog(*, api_key: str | None = None) -> Catalog:
     set), so the snapshot can be built straight from the environment.
     """
     result = enumerate_eia(api_key=(api_key or "").strip())
-    entries = result.to_entities()
+    entries = list(result.entities.values())
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()
