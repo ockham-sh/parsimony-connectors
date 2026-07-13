@@ -10,7 +10,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 from parsimony.catalog import BM25Index, Catalog
-from parsimony.errors import ConnectorError, InvalidParameterError
+from parsimony.errors import ConnectorError, EmptyDataError, InvalidParameterError
 
 from parsimony_sdmx.catalog_manifest import BuildRoot
 from parsimony_sdmx.catalog_series import (
@@ -326,6 +326,90 @@ def test_series_search_coerces_scalar_filter_json(tmp_path: Path, monkeypatch: p
     assert "A.DE" not in set(scalar["key"])
 
 
+def test_series_search_rejects_unpopulated_filter_value(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A filter value the flow never populates must fail fast, not silently drop (issue #48).
+
+    ``isin`` semantics would return DE rows and omit EL with no signal; instead the
+    call raises naming the missing value, the matched/requested counts, and the
+    ``sdmx_dimension_search`` recovery path.
+    """
+    catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
+
+    with pytest.raises(InvalidParameterError) as exc:
+        sdmx_series_search(
+            agency="ECB",
+            dataset_id="TEST",
+            filter_json='{"REF_AREA_code": ["DE", "EL"]}',
+            catalog_root=str(catalogs_dir),
+        )
+    msg = str(exc.value)
+    assert "'EL'" in msg
+    assert "1 of 2" in msg
+    assert "sdmx_dimension_search" in msg
+    assert "dimension='REF_AREA'" in msg
+
+
+def test_series_search_rejects_unpopulated_label_filter_value(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Value validation covers ``_label`` filter columns the same as ``_code`` ones."""
+    catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
+
+    with pytest.raises(InvalidParameterError) as exc:
+        sdmx_series_search(
+            agency="ECB",
+            dataset_id="TEST",
+            filter_json='{"REF_AREA_label": ["Germany", "Atlantis"]}',
+            catalog_root=str(catalogs_dir),
+        )
+    msg = str(exc.value)
+    assert "'Atlantis'" in msg
+    assert "dimension='REF_AREA'" in msg
+
+
+def test_series_search_empty_combination_reports_standalone_counts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unpopulated AND-combination reports each column's standalone match count (issue #48).
+
+    Both A (via A.DE) and FR (via M.FR) exist individually, but no A.FR series does —
+    the EmptyDataError must say so instead of echoing the filter back verbatim.
+    """
+    catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
+
+    with pytest.raises(EmptyDataError) as exc:
+        sdmx_series_search(
+            agency="ECB",
+            dataset_id="TEST",
+            filter_json='{"FREQ_code": ["A"], "REF_AREA_code": ["FR"]}',
+            catalog_root=str(catalogs_dir),
+        )
+    msg = str(exc.value)
+    assert "FREQ_code=['A'] -> 1 series alone" in msg
+    assert "REF_AREA_code=['FR'] -> 1 series alone" in msg
+    # Leave-one-out names the conflicting pair: dropping either column unblocks the other.
+    assert "FREQ_code (-> 1 series)" in msg
+    assert "REF_AREA_code (-> 1 series)" in msg
+    assert "conflict lies among these" in msg
+
+
+def test_series_search_query_elimination_blames_query(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """When the filter matches series but the field-scoped query eliminates them all,
+    the EmptyDataError blames the query, not the filter."""
+    catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
+
+    with pytest.raises(EmptyDataError) as exc:
+        sdmx_series_search(
+            agency="ECB",
+            dataset_id="TEST",
+            query="Quarterly",
+            field="title",
+            filter_json='{"FREQ_code": ["M"]}',
+            catalog_root=str(catalogs_dir),
+        )
+    msg = str(exc.value)
+    assert "the filter alone matches 2 series" in msg
+    assert "Quarterly" in msg
+
+
 def test_series_search_code_filter_matches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The corrected ``{dim}_code`` filter key narrows results as expected."""
     catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
@@ -341,6 +425,55 @@ def test_series_search_code_filter_matches(tmp_path: Path, monkeypatch: pytest.M
     keys = set(df["key"])
     assert keys <= {"M.DE", "M.FR"}
     assert "A.DE" not in keys
+
+
+def test_series_search_strips_flow_prefixed_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keys from an old catalog carrying the flow prefix ("TEST.M.DE") emit bare.
+
+    New catalogs strip the prefix at build time, but published ones can predate that —
+    the emitted `key` must always equal sdmx_fetch's bare `series_key` so the two
+    connectors' outputs join without string surgery.
+    """
+    namespace = "sdmx_series_ecb_test"
+    rows = _sample_table().to_pylist()
+    for row in rows:
+        row["key"] = f"TEST.{row['key']}"
+    parquet = tmp_path / SERIES_PARQUET
+    pq.write_table(pa.Table.from_pylist(rows), parquet)
+    monkeypatch.setattr("parsimony_sdmx.catalog_series._dim_label_index", lambda embedder: BM25Index())
+    catalogs_dir = tmp_path / "catalogs"
+    build_flow_catalog(
+        series_parquet=parquet,
+        namespace=namespace,
+        agency=AgencyId.ECB,
+        flow_id="TEST",
+        structure=_tiny_structure(),
+        catalogs_dir=catalogs_dir,
+        staging_dir=tmp_path / "partial",
+    )
+    _clear_series_catalog_lru()
+
+    df = sdmx_series_search(
+        agency="ECB",
+        dataset_id="TEST",
+        filter_json='{"REF_AREA_code": ["DE"]}',
+        catalog_root=str(catalogs_dir),
+    ).data
+
+    assert set(df["key"]) == {"M.DE", "A.DE"}
+    # The title lookup happens on the raw (still-prefixed) keys and must survive the strip.
+    assert all(t for t in df["title"]), f"titles lost in prefix strip: {df.to_dict('records')}"
+
+
+def test_series_search_query_no_match_message_guides_recovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The free-text empty case gets recovery guidance, not just a bare 'no match'."""
+    catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
+
+    with pytest.raises(EmptyDataError) as exc:
+        sdmx_series_search(agency="ECB", dataset_id="TEST", query="zebra population", catalog_root=str(catalogs_dir))
+    msg = str(exc.value)
+    assert "3 series in the flow's catalog" in msg
+    assert "sdmx_dimension_search" in msg
 
 
 def test_dimension_search_corrupt_catalog_raises_connector_error(
@@ -437,9 +570,7 @@ def test_resolve_catalog_path_unpublished_flow_gives_friendly_error(
         )
 
 
-def test_resolve_catalog_path_network_error_propagates_raw(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_resolve_catalog_path_network_error_propagates_raw(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """An unreachable Hub is NOT "not published" — its error must propagate untranslated.
 
     Only the missing/empty-catalog exceptions map to the friendly message; a transport failure

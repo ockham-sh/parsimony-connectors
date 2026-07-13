@@ -11,6 +11,19 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 - `sdmx_dimension_search(agency, dataset_id, dimension, query=None)` — search or enumerate one
   DSD dimension's `(code, label)` values from the flow's series catalog. Absorbs the roles of the
   removed `sdmx_codelist_search` and the `refine` facet column.
+- `sdmx_series_search` eagerly validates `filter_json` values against the flow's populated
+  columns: a value the flow never populates raises `InvalidParameterError` naming the missing
+  values and pointing at `sdmx_dimension_search`, instead of being silently dropped by `isin`
+  (#48).
+- `sdmx_series_search` empty-match autopsy: an all-AND filter that matches nothing reports
+  per-column standalone counts, and when every column matches alone, a leave-one-out pass names
+  the conflicting columns (#48).
+- `sdmx_dimension_search` accepts `filter_json` (same syntax as `sdmx_series_search`) and scopes
+  results to values populated *within* that slice, with the same eager validation and autopsy.
+- `sdmx_fetch` surfaces `UNIT` / `UNIT_MULT` series attributes as labeled metadata columns;
+  `value` is coerced numeric.
+- `sdmx_fetch` verifies `'+'`-OR coverage: a requested code that contributed zero observations
+  raises `EmptyDataError` naming the dimension and codes instead of silently vanishing.
 
 ### Changed
 
@@ -19,6 +32,14 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   hard-errors ("not published; ask the maintainers to build it") with no live fallback.
 - `sdmx_series_search` `filter_json` now accepts a bare scalar value as a single-code filter
   (`{"geo_code": "DE"}` == `{"geo_code": ["DE"]}`).
+
+### Fixed
+
+- `sdmx_fetch` classifies a no-data empty-document response (HTTP 200, empty body) as
+  `EmptyDataError` with period-widening guidance, instead of a misleading
+  "transient fetch error … Retry shortly" `ProviderError`.
+- `sdmx_series_search` strips legacy flow-id prefixes from emitted keys so every `key` is
+  fetch-ready, matching newer catalogs.
 
 ### Removed
 

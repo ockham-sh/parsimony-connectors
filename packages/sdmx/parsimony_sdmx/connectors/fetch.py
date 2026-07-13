@@ -162,6 +162,19 @@ def _dataset_id_from_ref(dataset_ref: str) -> str | None:
     return dataset_ref.split("-", 1)[1] or None
 
 
+def _is_empty_document_error(exc: BaseException) -> bool:
+    """A no-data 200 response: the provider sent an empty body, so XML parsing dies.
+
+    Observed on ECB when ``startPeriod``/``endPeriod`` fall outside a series' coverage
+    (e.g. a flow discontinued in 2014 queried for 2023+): HTTP 200, zero bytes, and
+    sdmx1's lxml parser raises ``XMLSyntaxError("no element found ...")``. That outcome
+    is deterministic — it must surface as :class:`EmptyDataError` (adjust the period
+    range), never as a "transient, retry shortly" :class:`ProviderError`. Matched by
+    type name so lxml stays a transitive dependency.
+    """
+    return type(exc).__name__ == "XMLSyntaxError" and "no element found" in str(exc)
+
+
 def _strip_flow_prefix(key: str, dataset_id: str) -> str:
     """Strip a redundant leading ``<dataset_id>.`` flow prefix from a caller-supplied key.
 
@@ -175,6 +188,45 @@ def _strip_flow_prefix(key: str, dataset_id: str) -> str:
     """
     prefix, sep, rest = key.partition(".")
     return rest if sep and prefix.upper() == dataset_id.upper() else key
+
+
+def _check_or_group_coverage(params: SdmxFetchParams, dsd_dim_ids: list[str], df: Any) -> None:
+    """Raise when a ``+``-OR'd code contributed zero observations to a wide pull.
+
+    A ``+``-joined pull returns whatever subset the provider has: a member with no
+    observations in the requested window simply vanishes from the frame (observed live —
+    UK dropped from an ``EL+TR+IS+UK`` Eurostat HICP pull with no signal, because the UK
+    stopped reporting after 2020). The connector promises none-dropped semantics for key
+    lists; this extends it to OR groups. Checked per dimension: an unpopulated
+    cross-product of two OR groups (CP02 x FR missing while CP02 and FR each return
+    rows) is not detectable this way — same granularity as the search-side diagnostics.
+    """
+    segments = params.series_key.split(".")
+    if len(segments) != len(dsd_dim_ids):
+        # Partial or oddly-shaped keys: leave the provider's own semantics alone.
+        return
+    problems: list[str] = []
+    for dim_id, segment in zip(dsd_dim_ids, segments, strict=True):
+        requested = {value for value in segment.split("+") if value}
+        if len(requested) < 2:
+            # A single (or wildcarded) value can't be silently dropped: if it matched
+            # nothing the whole frame is empty, which already raises EmptyDataError.
+            continue
+        returned = set(df[dim_id].astype(str))
+        missing = sorted(requested - returned)
+        if missing:
+            problems.append(f"{dim_id}: {missing}")
+    if problems:
+        period = f"{params.start_period or '(open)'}..{params.end_period or '(open)'}"
+        raise EmptyDataError(
+            provider="sdmx",
+            message=(
+                f"'+'-OR values returned no observations in {params.dataset_key} over {period}: "
+                + "; ".join(problems)
+                + ". The other requested codes have data — drop the missing codes from the "
+                "OR-string or widen start_period/end_period, then re-fetch."
+            ),
+        )
 
 
 @connector(output=SDMX_FETCH_OUTPUT, tags=["sdmx"])
@@ -289,7 +341,11 @@ def _run_budgeted(fn: Callable[[], _T], *, op_label: str, hint_fn: Callable[[int
             raise ProviderError(
                 provider="sdmx",
                 status_code=0,
-                message=f"SDMX fetch exceeded {_FETCH_TIMEOUT_SEC:.0f}s budget for {op_label}.",
+                message=(
+                    f"SDMX fetch exceeded {_FETCH_TIMEOUT_SEC:.0f}s budget for {op_label}. "
+                    "Narrow the pull and retry: bound start_period/end_period and OR fewer "
+                    "codes per '+' group — unbounded wide pulls are the usual cause."
+                ),
             ) from exc
         except Exception as exc:
             if attempt <= _MAX_RETRIES and _is_retryable(exc):
@@ -447,17 +503,39 @@ def _do_sdmx_fetch(params: SdmxFetchParams, structure: _ResolvedStructure) -> An
     agency_id, dataset_id = params.dataset_key.split("-", 1)
 
     with sdmx_client(agency_id, wb_url_rewrite=True) as client:
-        data_msg = client.get(
-            resource_type="data",
-            resource_id=dataset_id,
-            key=params.series_key,
-            params={
-                "startPeriod": params.start_period,
-                "endPeriod": params.end_period,
-            },
-        )
+        try:
+            data_msg = client.get(
+                resource_type="data",
+                resource_id=dataset_id,
+                key=params.series_key,
+                params={
+                    "startPeriod": params.start_period,
+                    "endPeriod": params.end_period,
+                },
+            )
+        except Exception as exc:
+            if _is_empty_document_error(exc):
+                period = f"{params.start_period or '(open)'}..{params.end_period or '(open)'}"
+                raise EmptyDataError(
+                    provider="sdmx",
+                    message=(
+                        f"No observations for {params.series_key!r} in {params.dataset_key} over "
+                        f"{period}: the provider returned an empty document. This is deterministic, "
+                        "not transient — widen or drop start_period/end_period; if it persists with "
+                        "no period filter, the series is likely discontinued at the source."
+                    ),
+                ) from exc
+            raise
 
-    raw = sdmx_lib.to_pandas(data_msg.data)
+    # Request dataset/group/series-level attributes so unit metadata (UNIT, UNIT_MULT)
+    # rides along where the agency provides it (ECB does; ESTAT models unit as a
+    # dimension instead). Attribute support varies by agency/message shape, so fall
+    # back to the plain values-only conversion rather than failing the fetch over it.
+    try:
+        raw = sdmx_lib.to_pandas(data_msg.data, attributes="dgs")
+    except Exception as exc:
+        logger.debug("sdmx_fetch: attribute conversion failed (%s); retrying values-only", exc)
+        raw = sdmx_lib.to_pandas(data_msg.data)
     df = raw.rename("value").to_frame().reset_index() if isinstance(raw, pd.Series) else pd.DataFrame(raw).reset_index()
     if df.empty:
         raise EmptyDataError(provider="sdmx", message="No data returned for requested series.")
@@ -467,6 +545,10 @@ def _do_sdmx_fetch(params: SdmxFetchParams, structure: _ResolvedStructure) -> An
         if len(value_columns) != 1:
             raise ParseError(provider="sdmx", message="Unable to determine SDMX value column")
         df = df.rename(columns={value_columns[0]: "value"})
+    # With attributes requested, sdmx1 may deliver values as object dtype; the declared
+    # output dtype is numeric, so coerce (unparseable observations become NaN, the same
+    # as a missing observation).
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
 
     dsd_dim_ids = structure.dsd_dim_ids
     missing = [dim_id for dim_id in dsd_dim_ids if dim_id not in df.columns]
@@ -481,6 +563,8 @@ def _do_sdmx_fetch(params: SdmxFetchParams, structure: _ResolvedStructure) -> An
 
     for dim_id in dsd_dim_ids:
         df[dim_id] = df[dim_id].astype("string").fillna("")
+    # Run on raw codes, before labels are folded into the dimension columns.
+    _check_or_group_coverage(params, dsd_dim_ids, df)
     df["series_key"] = df[dsd_dim_ids].agg(".".join, axis=1)
 
     label_maps = structure.label_maps
@@ -502,7 +586,17 @@ def _do_sdmx_fetch(params: SdmxFetchParams, structure: _ResolvedStructure) -> An
             lambda code, _labels=dim_labels: format_code_with_label(str(code), _labels.get(str(code)))
         )
 
-    long_df = df[["series_key", "title", *dsd_dim_ids, "TIME_PERIOD", "value"]].copy()
+    # Unit attributes (when the agency provides them) ride into the output as METADATA
+    # via the schema's "*" wildcard — labeled like the dimension columns. Anything else
+    # attribute-shaped (OBS_STATUS, TITLE_COMPL, ...) is dropped to keep the frame lean.
+    unit_cols = [col for col in ("UNIT", "UNIT_MULT") if col in df.columns]
+    for col in unit_cols:
+        unit_labels = label_maps.get(col, {})
+        df[col] = df[col].map(
+            lambda code, _labels=unit_labels: format_code_with_label(str(code), _labels.get(str(code)))
+        )
+
+    long_df = df[["series_key", "title", *dsd_dim_ids, *unit_cols, "TIME_PERIOD", "value"]].copy()
 
     series_url = build_sdmx_dataset_url(agency_id, dataset_id)
     if series_url:

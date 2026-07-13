@@ -13,7 +13,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 from parsimony.catalog import BM25Index
-from parsimony.errors import ConnectorError, InvalidParameterError
+from parsimony.errors import ConnectorError, EmptyDataError, InvalidParameterError
 
 from parsimony_sdmx.catalog_series import build_flow_catalog
 from parsimony_sdmx.connectors.dimension_search import sdmx_dimension_search
@@ -138,3 +138,79 @@ def test_unknown_dimension_raises(catalog_root: str) -> None:
 def test_unpublished_flow_hard_errors(catalog_root: str) -> None:
     with pytest.raises(ConnectorError, match="not published"):
         sdmx_dimension_search(agency="ECB", dataset_id="MISSING", dimension="FREQ", catalog_root=catalog_root)
+
+
+def test_filter_scopes_enumeration_to_populated_slice(catalog_root: str) -> None:
+    """With filter_json, only values populated WITHIN the slice come back.
+
+    France (FR) has only a monthly series (M.FR) — so FREQ scoped to FR must return M
+    alone, even though A exists in the flow (via A.DE) and in the codelist.
+    """
+    df = sdmx_dimension_search(
+        agency="ECB",
+        dataset_id="TEST",
+        dimension="FREQ",
+        filter_json='{"REF_AREA_code": ["FR"]}',
+        limit=10_000,
+        catalog_root=catalog_root,
+    ).data
+    assert dict(zip(df["code"], df["label"], strict=True)) == {"M": "Monthly"}
+
+
+def test_filter_scopes_ranked_query(catalog_root: str) -> None:
+    """A ranked query intersects with the slice: 'Annual' exists in the flow but not for FR."""
+    with pytest.raises(EmptyDataError) as exc:
+        sdmx_dimension_search(
+            agency="ECB",
+            dataset_id="TEST",
+            dimension="FREQ",
+            query="Annual",
+            filter_json='{"REF_AREA_code": ["FR"]}',
+            catalog_root=catalog_root,
+        )
+    msg = str(exc.value)
+    assert "REF_AREA_code" in msg  # the filter is named, not just the query
+    # The slice populates M — the message says so and points at enumeration.
+    assert "omit query=" in msg
+    assert "'M'" in msg
+
+
+def test_empty_slice_gets_filter_autopsy(catalog_root: str) -> None:
+    """A filter whose combination is unpopulated gets the same per-column autopsy
+    as sdmx_series_search (standalone counts + leave-one-out conflict naming)."""
+    with pytest.raises(EmptyDataError) as exc:
+        sdmx_dimension_search(
+            agency="ECB",
+            dataset_id="TEST",
+            dimension="FREQ",
+            filter_json='{"FREQ_code": ["A"], "REF_AREA_code": ["FR"]}',
+            limit=10_000,
+            catalog_root=catalog_root,
+        )
+    msg = str(exc.value)
+    assert "FREQ_code=['A'] -> 1 series alone" in msg
+    assert "conflict lies among these" in msg
+
+
+def test_filter_rejects_unpopulated_value(catalog_root: str) -> None:
+    """filter_json values get the same eager validation as sdmx_series_search."""
+    with pytest.raises(InvalidParameterError) as exc:
+        sdmx_dimension_search(
+            agency="ECB",
+            dataset_id="TEST",
+            dimension="FREQ",
+            filter_json='{"REF_AREA_code": ["EL"]}',
+            catalog_root=catalog_root,
+        )
+    assert "'EL'" in str(exc.value)
+
+
+def test_filter_rejects_bare_dimension_column(catalog_root: str) -> None:
+    with pytest.raises(InvalidParameterError, match="REF_AREA_code"):
+        sdmx_dimension_search(
+            agency="ECB",
+            dataset_id="TEST",
+            dimension="FREQ",
+            filter_json='{"REF_AREA": ["FR"]}',
+            catalog_root=catalog_root,
+        )

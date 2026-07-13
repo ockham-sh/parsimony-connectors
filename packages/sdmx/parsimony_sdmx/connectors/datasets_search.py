@@ -136,7 +136,7 @@ def sdmx_datasets_search(
 
     Step 1 of the usual path: pass a hit's flow to ``sdmx_series_search`` (find/filter series)
     or ``sdmx_dimension_search`` (a dimension's codes). Each hit's ``dsd`` is the flow's shape
-    (dimension order + codelist refs). Relevance-ranked top-N.
+    (dimension order + codelist refs). Relevance-ranked top-N (``limit`` <= 50).
     """
     params = DatasetsSearchParams(query=query, agency=agency, limit=limit, catalog_root=catalog_root)
     agencies = _agencies_for_search(params.agency)
