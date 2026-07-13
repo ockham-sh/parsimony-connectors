@@ -70,7 +70,7 @@ def test_destatis_fetch_known_table_live() -> None:
     # rather than assume a single positive price level.
     vals = df["value"].dropna()
     assert ((vals > -50) & (vals < 1000)).all(), f"CPI values out of plausible range: {vals.tolist()[:5]}"
-    # Dates parse to real datetimes (declared dtype="datetime").
+    # Dates parse to real datetimes in the connector body.
     assert df["date"].dtype.kind == "M"
     assert df["date"].notna().any(), "record dates all NaT"
 
@@ -152,8 +152,8 @@ def test_enumerate_destatis_bounded_single_statistic_live(
     assert df["variable_codes"].str.len().gt(0).any(), "variable_codes all empty"
     assert df["variable_names_en"].str.len().gt(0).any(), "variable_names_en all empty"
 
-    # build_entities round-trips on the real slice (the catalog-build entry point).
-    entities = DESTATIS_ENUMERATE_OUTPUT.build_entities(df)
+    # entities_from_raw round-trips on the real slice (the catalog-build entry point).
+    entities = entities_from_raw(df, DESTATIS_ENUMERATE_OUTPUT)
     assert len(entities) == len(df)
     assert entities[0].namespace == "destatis"
 

@@ -136,7 +136,7 @@ def test_enumerate_snb_bounded_live(monkeypatch: pytest.MonkeyPatch) -> None:
     wh = df[df["source"] == "snb_warehouse"]
     assert (wh["code"] == "BSTA@SNB.AUR_U.ODF#").any()
 
-    entities = SNB_ENUMERATE_OUTPUT.build_entities(df)
+    entities = entities_from_raw(df, SNB_ENUMERATE_OUTPUT)
     assert len(entities) == len(df)
     assert entities[0].namespace == "snb"
 

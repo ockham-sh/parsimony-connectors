@@ -30,6 +30,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from parsimony.catalog.source import entities_from_raw
 from parsimony_test_support import assert_provenance_shape
 
 from parsimony_boj import (
@@ -69,7 +70,7 @@ def test_boj_fetch_fx_rate_live() -> None:
     # USD/JPY trades in the ~50-400 band over the series history.
     vals = df["value"].dropna()
     assert ((vals > 50) & (vals < 400)).all(), f"FX out of plausible range: {vals.tolist()[:5]}"
-    # Survey dates parse to real datetimes (declared dtype="datetime").
+    # Survey dates parse to real datetimes in the connector body.
     assert df["date"].dtype.kind == "M"
     assert df["date"].notna().any(), "record dates all NaT"
 
@@ -169,8 +170,8 @@ def test_enumerate_boj_bounded_single_db_live(monkeypatch: pytest.MonkeyPatch) -
     db_rows = df[df["entity_type"] == "db"]
     assert list(db_rows["code"]) == ["db:FM01"]
 
-    # build_entities round-trips on the real slice.
-    entities = BOJ_ENUMERATE_OUTPUT.build_entities(df)
+    # entities_from_raw round-trips on the real slice.
+    entities = entities_from_raw(df, BOJ_ENUMERATE_OUTPUT)
     assert len(entities) == len(df)
     assert all(e.namespace == "boj" for e in entities)
 

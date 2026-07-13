@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Adapted to `parsimony-core`'s non-transforming `OutputSpec`** (the
+  `OutputConfig` rename). All packages: `OutputConfig` → `OutputSpec` in
+  `outputs.py`; `Column` declarations drop `dtype` / `mapped_name` — connectors
+  now parse, rename, and coerce inside the connector body and return
+  already-shaped frames. Catalog-build code projects entities via
+  `entities_from_raw(df, spec)` instead of the removed
+  `OutputSpec.build_entities`.
+
 ## [0.7.0]
 
 ### Changed

@@ -21,6 +21,7 @@ import httpx
 import pandas as pd
 import pytest
 import respx
+from parsimony.catalog.source import entities_from_raw
 from parsimony.errors import (
     EmptyDataError,
     InvalidParameterError,
@@ -81,7 +82,7 @@ def test_connectors_collection_exposes_expected_names() -> None:
     assert names == {"destatis_fetch", "enumerate_destatis", "destatis_search"}
 
 
-def test_enumerate_output_schema_includes_description_metadata() -> None:
+def test_enumerate_output_spec_includes_description_metadata() -> None:
     """``description`` is ordinary metadata in the clean catalog contract."""
     by_name = {c.name: c for c in DESTATIS_ENUMERATE_OUTPUT.columns}
     assert by_name["description"].role == ColumnRole.METADATA
@@ -605,7 +606,7 @@ def test_enumerate_destatis_emits_columns_required_for_catalog_entries() -> None
     )
 
     result = enumerate_destatis()
-    entries = DESTATIS_ENUMERATE_OUTPUT.build_entities(result.data)
+    entries = entities_from_raw(result.data, DESTATIS_ENUMERATE_OUTPUT)
 
     by_code = {e.code: e for e in entries}
     assert "61111" in by_code

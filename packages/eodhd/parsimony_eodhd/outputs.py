@@ -1,92 +1,91 @@
 """Declarative output schemas for the EODHD connectors.
 
-One :class:`OutputConfig` per connector that projects a shaped DataFrame
+One :class:`OutputSpec` per connector that projects a shaped DataFrame
 out of EODHD's raw JSON. Columns declared here are the contract with the
 MCP tool catalog — renaming or re-ordering them is a breaking change.
 """
 
 from __future__ import annotations
 
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
-EOD_OUTPUT = OutputConfig(
+EOD_OUTPUT = OutputSpec(
     columns=[
-        Column(name="date", role=ColumnRole.KEY, dtype="date"),
-        Column(name="open", dtype="numeric"),
-        Column(name="high", dtype="numeric"),
-        Column(name="low", dtype="numeric"),
-        Column(name="close", dtype="numeric"),
-        Column(name="adjusted_close", dtype="numeric"),
-        Column(name="volume", dtype="numeric"),
+        Column(name="date", role=ColumnRole.KEY),
+        Column(name="open"),
+        Column(name="high"),
+        Column(name="low"),
+        Column(name="close"),
+        Column(name="adjusted_close"),
+        Column(name="volume"),
     ]
 )
 
-LIVE_OUTPUT = OutputConfig(
+LIVE_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY),
-        # EODHD returns ``timestamp`` as a raw Unix epoch int; keep it un-coerced
-        # (dtype="auto") — a "timestamp" coercion would mis-read the seconds value.
+        # EODHD returns ``timestamp`` as a raw Unix epoch int (seconds); kept as-is.
         Column(name="timestamp", role=ColumnRole.METADATA),
         Column(name="gmtoffset", role=ColumnRole.METADATA),
-        Column(name="open", dtype="numeric"),
-        Column(name="high", dtype="numeric"),
-        Column(name="low", dtype="numeric"),
-        Column(name="close", dtype="numeric"),
-        Column(name="volume", dtype="numeric"),
-        Column(name="previousClose", dtype="numeric"),
-        Column(name="change", dtype="numeric"),
-        Column(name="change_p", dtype="numeric"),
+        Column(name="open"),
+        Column(name="high"),
+        Column(name="low"),
+        Column(name="close"),
+        Column(name="volume"),
+        Column(name="previousClose"),
+        Column(name="change"),
+        Column(name="change_p"),
     ]
 )
 
-INTRADAY_OUTPUT = OutputConfig(
+INTRADAY_OUTPUT = OutputSpec(
     columns=[
-        Column(name="timestamp", role=ColumnRole.KEY, dtype="timestamp"),
+        Column(name="timestamp", role=ColumnRole.KEY),
         Column(name="datetime", role=ColumnRole.METADATA),
-        Column(name="open", dtype="numeric"),
-        Column(name="high", dtype="numeric"),
-        Column(name="low", dtype="numeric"),
-        Column(name="close", dtype="numeric"),
-        Column(name="volume", dtype="numeric"),
+        Column(name="open"),
+        Column(name="high"),
+        Column(name="low"),
+        Column(name="close"),
+        Column(name="volume"),
     ]
 )
 
-BULK_EOD_OUTPUT = OutputConfig(
+BULK_EOD_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY),
         Column(name="name", role=ColumnRole.TITLE),
         Column(name="exchange_short_name", role=ColumnRole.METADATA),
-        Column(name="date", dtype="date"),
-        Column(name="open", dtype="numeric"),
-        Column(name="high", dtype="numeric"),
-        Column(name="low", dtype="numeric"),
-        Column(name="close", dtype="numeric"),
-        Column(name="adjusted_close", dtype="numeric"),
-        Column(name="volume", dtype="numeric"),
+        Column(name="date"),
+        Column(name="open"),
+        Column(name="high"),
+        Column(name="low"),
+        Column(name="close"),
+        Column(name="adjusted_close"),
+        Column(name="volume"),
     ]
 )
 
-DIVIDENDS_OUTPUT = OutputConfig(
+DIVIDENDS_OUTPUT = OutputSpec(
     columns=[
-        Column(name="date", role=ColumnRole.KEY, dtype="date"),
-        Column(name="declarationDate", dtype="date"),
-        Column(name="recordDate", dtype="date"),
-        Column(name="paymentDate", dtype="date"),
+        Column(name="date", role=ColumnRole.KEY),
+        Column(name="declarationDate"),
+        Column(name="recordDate"),
+        Column(name="paymentDate"),
         Column(name="period", role=ColumnRole.METADATA),
-        Column(name="value", dtype="numeric"),
-        Column(name="unadjustedValue", dtype="numeric"),
+        Column(name="value"),
+        Column(name="unadjustedValue"),
         Column(name="currency", role=ColumnRole.METADATA),
     ]
 )
 
-SPLITS_OUTPUT = OutputConfig(
+SPLITS_OUTPUT = OutputSpec(
     columns=[
-        Column(name="date", role=ColumnRole.KEY, dtype="date"),
-        Column(name="split", dtype="auto"),
+        Column(name="date", role=ColumnRole.KEY),
+        Column(name="split"),
     ]
 )
 
-SEARCH_OUTPUT = OutputConfig(
+SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="Code", role=ColumnRole.KEY, namespace="eodhd_symbols"),
         Column(name="Name", role=ColumnRole.TITLE),
@@ -98,7 +97,7 @@ SEARCH_OUTPUT = OutputConfig(
     ]
 )
 
-EXCHANGES_OUTPUT = OutputConfig(
+EXCHANGES_OUTPUT = OutputSpec(
     columns=[
         Column(name="Code", role=ColumnRole.KEY),
         Column(name="Name", role=ColumnRole.TITLE),
@@ -110,7 +109,7 @@ EXCHANGES_OUTPUT = OutputConfig(
     ]
 )
 
-EXCHANGE_SYMBOLS_OUTPUT = OutputConfig(
+EXCHANGE_SYMBOLS_OUTPUT = OutputSpec(
     columns=[
         Column(name="Code", role=ColumnRole.KEY, namespace="eodhd_symbols"),
         Column(name="Name", role=ColumnRole.TITLE),
@@ -123,23 +122,23 @@ EXCHANGE_SYMBOLS_OUTPUT = OutputConfig(
     ]
 )
 
-CALENDAR_OUTPUT = OutputConfig(
+CALENDAR_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY),
-        Column(name="date", dtype="date"),
-        Column(name="report_date", dtype="date"),
+        Column(name="date"),
+        Column(name="report_date"),
         Column(name="before_after_market", role=ColumnRole.METADATA),
         Column(name="currency", role=ColumnRole.METADATA),
-        Column(name="actual", dtype="numeric"),
-        Column(name="estimate", dtype="numeric"),
-        Column(name="difference", dtype="numeric"),
-        Column(name="percent", dtype="numeric"),
+        Column(name="actual"),
+        Column(name="estimate"),
+        Column(name="difference"),
+        Column(name="percent"),
     ]
 )
 
-NEWS_OUTPUT = OutputConfig(
+NEWS_OUTPUT = OutputSpec(
     columns=[
-        Column(name="date", role=ColumnRole.KEY, dtype="datetime"),
+        Column(name="date", role=ColumnRole.KEY),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="content"),
         Column(name="link", role=ColumnRole.METADATA),
@@ -148,45 +147,45 @@ NEWS_OUTPUT = OutputConfig(
     ]
 )
 
-MACRO_OUTPUT = OutputConfig(
+MACRO_OUTPUT = OutputSpec(
     columns=[
         # EODHD macro-indicator rows: CountryCode, CountryName, Indicator, Date,
         # Period, Value. (No LastUpdated — do not declare a column the payload
         # cannot populate.) CountryName/Indicator/CountryCode fold in as DATA.
-        Column(name="Date", role=ColumnRole.KEY, dtype="date"),
-        Column(name="Value", dtype="numeric"),
+        Column(name="Date", role=ColumnRole.KEY),
+        Column(name="Value"),
         Column(name="Period", role=ColumnRole.METADATA),
     ]
 )
 
-TECHNICAL_OUTPUT = OutputConfig(
+TECHNICAL_OUTPUT = OutputSpec(
     columns=[
-        Column(name="date", role=ColumnRole.KEY, dtype="date"),
-        Column(name="open", dtype="numeric"),
-        Column(name="high", dtype="numeric"),
-        Column(name="low", dtype="numeric"),
-        Column(name="close", dtype="numeric"),
-        Column(name="volume", dtype="numeric"),
+        Column(name="date", role=ColumnRole.KEY),
+        Column(name="open"),
+        Column(name="high"),
+        Column(name="low"),
+        Column(name="close"),
+        Column(name="volume"),
         Column(name="*"),  # indicator-specific columns vary by function
     ]
 )
 
-INSIDER_OUTPUT = OutputConfig(
+INSIDER_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY),
-        Column(name="date", dtype="date"),
+        Column(name="date"),
         Column(name="ownerName", role=ColumnRole.METADATA),
         Column(name="ownerCik", role=ColumnRole.METADATA),
         Column(name="transactionType", role=ColumnRole.METADATA),
-        Column(name="transactionDate", dtype="date"),
-        Column(name="value", dtype="numeric"),
-        Column(name="sharesOwned", dtype="numeric"),
-        Column(name="change", dtype="numeric"),
+        Column(name="transactionDate"),
+        Column(name="value"),
+        Column(name="sharesOwned"),
+        Column(name="change"),
         Column(name="*"),
     ]
 )
 
-SCREENER_OUTPUT = OutputConfig(
+SCREENER_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="eodhd_symbols"),
         Column(name="name", role=ColumnRole.TITLE),
@@ -194,7 +193,7 @@ SCREENER_OUTPUT = OutputConfig(
         Column(name="currency", role=ColumnRole.METADATA),
         Column(name="sector", role=ColumnRole.METADATA),
         Column(name="industry", role=ColumnRole.METADATA),
-        Column(name="market_capitalization", dtype="numeric"),
+        Column(name="market_capitalization"),
         Column(name="*"),
     ]
 )

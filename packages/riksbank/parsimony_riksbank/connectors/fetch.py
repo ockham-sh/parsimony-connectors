@@ -105,7 +105,9 @@ def riksbank_fetch(
             message=f"No observations returned for: {series_id}",
             query_params={"series_id": series_id, "from_date": from_date, "to_date": to_date},
         )
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"])
+    return df
 
 
 @connector(output=RIKSBANK_SWESTR_FETCH_OUTPUT, tags=["macro", "se"], secrets=("api_key",))
@@ -150,6 +152,7 @@ def riksbank_swestr_fetch(
             query_params={"series": series, "from_date": from_date, "to_date": to_date},
         )
     df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"])
     df["title"] = swestr.TITLE_BY_ID.get(series, series)
     return df
 
@@ -191,6 +194,7 @@ def riksbank_monetary_policy_fetch(
             query_params={"series": series, "policy_round": policy_round},
         )
     df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"])
     df["title"] = title or series
     return df
 
@@ -233,6 +237,7 @@ def riksbank_turnover_fetch(
             query_params={"market": market, "frequency": frequency},
         )
     df = pd.DataFrame(rows)
+    df["period"] = pd.to_datetime(df["period"])
     df["title"] = f"Turnover — {market} ({frequency})"
     return df
 
@@ -270,5 +275,6 @@ def riksbank_holdings_fetch(
             query_params={"dataset": dataset, "start_date": start_date, "end_date": end_date},
         )
     df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"])
     df["title"] = dataset
     return df

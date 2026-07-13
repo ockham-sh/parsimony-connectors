@@ -143,8 +143,8 @@ def test_enumerate_boc_bounded_groups_live(monkeypatch: pytest.MonkeyPatch) -> N
     fx_members = series_rows[series_rows["group"] == "FX_RATES_DAILY"]
     assert len(fx_members) >= 1, "no series resolved FX_RATES_DAILY membership from the live fan-out"
 
-    # build_entities round-trips on the real slice (the catalog-build entry point).
-    entities = BOC_ENUMERATE_OUTPUT.build_entities(df)
+    # entities_from_raw round-trips on the real slice (the catalog-build entry point).
+    entities = entities_from_raw(df, BOC_ENUMERATE_OUTPUT)
     assert len(entities) == len(df)
     assert entities[0].namespace == "boc"
 

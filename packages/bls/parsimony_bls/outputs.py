@@ -2,25 +2,25 @@
 
 from __future__ import annotations
 
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
 from parsimony_bls.surveys import SURVEYS_NAMESPACE, series_namespace
 
 # --- fetch -----------------------------------------------------------------
 
-BLS_FETCH_OUTPUT = OutputConfig(
+BLS_FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="series_id", role=ColumnRole.KEY, namespace="bls"),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="frequency", role=ColumnRole.METADATA),
-        Column(name="date", dtype="datetime", role=ColumnRole.DATA),
-        Column(name="value", dtype="numeric", role=ColumnRole.DATA),
+        Column(name="date", role=ColumnRole.DATA),
+        Column(name="value", role=ColumnRole.DATA),
     ]
 )
 
 # --- tier-1 surveys enumerator ---------------------------------------------
 
-BLS_SURVEYS_ENUM_OUTPUT = OutputConfig(
+BLS_SURVEYS_ENUM_OUTPUT = OutputSpec(
     columns=[
         Column(
             name="code",
@@ -39,7 +39,7 @@ BLS_SURVEYS_ENUM_OUTPUT = OutputConfig(
 #: Declared schema for the ``@connector`` decorator. The per-survey dimension
 #: columns are dynamic, so a ``*`` METADATA wildcard passes them through; the
 #: catalog builder re-projects with the per-survey namespace stamped.
-BLS_SERIES_ENUM_OUTPUT = OutputConfig(
+BLS_SERIES_ENUM_OUTPUT = OutputSpec(
     columns=[
         Column(
             name="code",
@@ -52,9 +52,9 @@ BLS_SERIES_ENUM_OUTPUT = OutputConfig(
 )
 
 
-def series_enum_output(survey: str) -> OutputConfig:
+def series_enum_output(survey: str) -> OutputSpec:
     """Per-call series-enumeration schema with the per-survey KEY namespace stamped."""
-    return OutputConfig(
+    return OutputSpec(
         columns=[
             Column(name="code", role=ColumnRole.KEY, namespace=series_namespace(survey)),
             Column(name="title", role=ColumnRole.TITLE),
@@ -65,7 +65,7 @@ def series_enum_output(survey: str) -> OutputConfig:
 
 # --- search ----------------------------------------------------------------
 
-BLS_SURVEYS_SEARCH_OUTPUT = OutputConfig(
+BLS_SURVEYS_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace=SURVEYS_NAMESPACE),
         Column(name="title", role=ColumnRole.TITLE),
@@ -79,7 +79,7 @@ BLS_SURVEYS_SEARCH_OUTPUT = OutputConfig(
     ]
 )
 
-BLS_SERIES_SEARCH_OUTPUT = OutputConfig(
+BLS_SERIES_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="series_id", role=ColumnRole.KEY, namespace="bls"),
         Column(name="title", role=ColumnRole.TITLE),

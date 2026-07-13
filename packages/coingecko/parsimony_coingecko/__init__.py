@@ -34,7 +34,7 @@ Internal layout (not part of the public contract):
 
 * :mod:`parsimony_coingecko._http` — keyed client builder and the unified
   error mapper (401-body-disambiguation, plan-restriction codes).
-* :mod:`parsimony_coingecko.outputs` — declarative :class:`OutputConfig`
+* :mod:`parsimony_coingecko.outputs` — declarative :class:`OutputSpec`
   schemas.
 """
 
@@ -338,8 +338,8 @@ def _build_market_chart_df(data: Any, *, op_name: str) -> pd.DataFrame:
     df_vol = pd.DataFrame(data.get("total_volumes", []), columns=["timestamp", "total_volume"])
 
     df = df_price.merge(df_cap, on="timestamp", how="left").merge(df_vol, on="timestamp", how="left")
-    # Convert ms → s so OutputConfig dtype="timestamp" parses correctly (expects seconds).
-    df["timestamp"] = df["timestamp"] / 1000
+    # CoinGecko timestamps are epoch milliseconds.
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
     return df
 
 
@@ -420,8 +420,8 @@ def coingecko_ohlc(
     if not isinstance(data, list) or not data:
         raise EmptyDataError(_PROVIDER, query_params={"coin_id": c, "days": days})
     df = pd.DataFrame(data, columns=["timestamp", "open", "high", "low", "close"])
-    # Convert ms → s for OutputConfig dtype="timestamp".
-    df["timestamp"] = df["timestamp"] / 1000
+    # CoinGecko timestamps are epoch milliseconds.
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
     return df
 
 
@@ -462,7 +462,9 @@ def coingecko_token_price_onchain(
         raise EmptyDataError(_PROVIDER, query_params={"network": net, "contract_addresses": addrs})
 
     rows = [{"contract_address": addr, "price_usd": price} for addr, price in token_prices.items()]
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df["price_usd"] = pd.to_numeric(df["price_usd"], errors="coerce")
+    return df
 
 
 # ---------------------------------------------------------------------------

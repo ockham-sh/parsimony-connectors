@@ -108,7 +108,9 @@ def _parse_bde_response(json_data: list[dict[str, Any]]) -> pd.DataFrame:
 
     if not all_rows:
         return pd.DataFrame(columns=["key", "title", "date", "value"])
-    return pd.DataFrame(all_rows)
+    df = pd.DataFrame(all_rows)
+    df["date"] = pd.to_datetime(df["date"])
+    return df
 
 
 @connector(output=BDE_FETCH_OUTPUT, tags=["macro", "es"])

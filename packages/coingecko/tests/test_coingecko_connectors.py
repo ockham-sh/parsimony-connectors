@@ -474,7 +474,7 @@ def test_coingecko_token_price_onchain_returns_rows() -> None:
     result = bound(network="eth", contract_addresses=_USDT)
     df = result.data
     assert df.iloc[0]["contract_address"] == _USDT
-    # price_usd is a string in the payload; the schema coerces it to numeric.
+    # price_usd is a string in the payload; the connector coerces it to numeric.
     assert df.iloc[0]["price_usd"] == pytest.approx(0.9998)
 
 

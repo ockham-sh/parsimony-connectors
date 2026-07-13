@@ -68,7 +68,7 @@ def test_bdf_fetch_known_series_live() -> None:
     # FX rate magnitude sanity-check.
     vals = df["value"].dropna()
     assert ((vals > 0) & (vals < 10)).all(), f"FX rates out of plausible range: {vals.tolist()[:5]}"
-    # Dates parse to real datetimes (declared dtype="datetime").
+    # Dates parse to real datetimes.
     assert df["date"].dtype.kind == "M"
     assert df["date"].notna().any(), "record dates all NaT"
 
@@ -108,8 +108,8 @@ def test_enumerate_bdf_bounded_single_dataset_live(monkeypatch: pytest.MonkeyPat
     assert series["frequency"].astype(str).str.len().gt(0).any(), "frequency not populated"
     assert series["path"].astype(str).str.len().gt(0).any(), "breadcrumb path not populated"
 
-    # build_entities round-trips on the real slice.
-    entities = BDF_ENUMERATE_OUTPUT.build_entities(df)
+    # entities_from_raw round-trips on the real slice.
+    entities = entities_from_raw(df, BDF_ENUMERATE_OUTPUT)
     assert len(entities) == len(df)
     assert entities[0].namespace == "bdf"
 

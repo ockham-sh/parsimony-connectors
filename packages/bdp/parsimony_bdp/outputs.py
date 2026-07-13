@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
 # Enumerator / catalog feed. KEY shape:
 #   * series  rows — ``"{domain_id}:{dataset_id}:{series_id}"``
@@ -10,7 +10,7 @@ from parsimony.result import Column, ColumnRole, OutputConfig
 #   * domain  rows — ``"domain:{domain_id}"``
 # The synthetic prefixes let downstream consumers split entity types by KEY
 # alone (the ``entity_type`` column carries the same distinction explicitly).
-BDP_ENUMERATE_OUTPUT = OutputConfig(
+BDP_ENUMERATE_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="bdp"),
         Column(name="title", role=ColumnRole.TITLE),
@@ -33,12 +33,12 @@ BDP_ENUMERATE_OUTPUT = OutputConfig(
 # label may ride as a TITLE column. The KEY (``series_id``) maps back to the
 # ``dataset_id`` parameter (``param_key``) so the namespace hint marks
 # ``dataset_id`` as a ``bdp`` value for the search→fetch dispatch.
-BDP_FETCH_OUTPUT = OutputConfig(
+BDP_FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="series_id", role=ColumnRole.KEY, namespace="bdp"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="date", dtype="datetime", role=ColumnRole.DATA),
-        Column(name="value", dtype="numeric", role=ColumnRole.DATA),
+        Column(name="date", role=ColumnRole.DATA),
+        Column(name="value", role=ColumnRole.DATA),
     ]
 )
 

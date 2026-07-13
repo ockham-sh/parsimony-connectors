@@ -19,6 +19,7 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
+from parsimony.catalog.source import entities_from_raw
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 from parsimony.result import ColumnRole
 from parsimony_shared.cb_enumerate import MetadataCrawlConfig
@@ -79,7 +80,7 @@ def test_connectors_collection_exposes_expected_names() -> None:
     assert names == {"boj_fetch", "enumerate_boj", "boj_databases_search", "boj_series_search"}
 
 
-def test_enumerate_output_schema_includes_description_metadata() -> None:
+def test_enumerate_output_spec_includes_description_metadata() -> None:
     """``description`` is ordinary metadata in the clean catalog contract."""
     by_name = {c.name: c for c in BOJ_ENUMERATE_OUTPUT.columns}
     assert by_name["description"].role == ColumnRole.METADATA
@@ -144,7 +145,7 @@ def test_boj_fetch_returns_observations() -> None:
     df = result.data
     assert len(df) == 2
     assert df.iloc[0]["title"] == "JPY/USD Spot Rate"
-    # Integer survey dates parse to ISO and coerce to the declared datetime dtype.
+    # Integer survey dates parse to ISO and coerce to datetime in the connector body.
     assert df["date"].dtype.kind == "M"
     assert df["value"].tolist() == [152.33, 152.50]
 
@@ -413,14 +414,14 @@ def test_enumerate_boj_handles_403_with_retry_then_warning(
 
 
 @respx.mock
-def test_enumerate_boj_build_entities_round_trip() -> None:
+def test_enumerate_boj_entities_from_raw_round_trip() -> None:
     """The enumerator Result projects to catalog entities with KEY=code (ns boj)."""
     _stub_metadata_endpoint(json=_FM08_PAYLOAD)
 
     result = enumerate_boj()
     # The respx stub returns the same payload for every DB; dedupe on code.
     frame = result.data.drop_duplicates(subset=["code"], keep="first")
-    entries = BOJ_ENUMERATE_OUTPUT.build_entities(frame)
+    entries = entities_from_raw(frame, BOJ_ENUMERATE_OUTPUT)
 
     by_code = {e.code: e for e in entries}
     series_entry = by_code["FXERD01"]

@@ -210,7 +210,7 @@ def test_enumerate_riksbank_live() -> None:
     assert df["title"].astype(str).str.len().gt(0).all()
     assert df["description"].astype(str).str.len().gt(0).any()
 
-    entities = RIKSBANK_ENUMERATE_OUTPUT.build_entities(df)
+    entities = entities_from_raw(df, RIKSBANK_ENUMERATE_OUTPUT)
     assert len(entities) == len(df)
     assert entities[0].namespace == "riksbank"
 

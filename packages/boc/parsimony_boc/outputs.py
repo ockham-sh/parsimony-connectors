@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
-BOC_FETCH_OUTPUT = OutputConfig(
+BOC_FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="series_name", role=ColumnRole.KEY, namespace="boc"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="date", dtype="datetime", role=ColumnRole.DATA),
-        Column(name="value", dtype="numeric", role=ColumnRole.DATA),
+        Column(name="date", role=ColumnRole.DATA),
+        Column(name="value", role=ColumnRole.DATA),
     ]
 )
 
-BOC_ENUMERATE_OUTPUT = OutputConfig(
+BOC_ENUMERATE_OUTPUT = OutputSpec(
     columns=[
         # The KEY is either a series name (e.g. ``FXUSDCAD``) or a group entry
         # prefixed with ``group:`` (e.g. ``group:FX_RATES_DAILY``). Groups are

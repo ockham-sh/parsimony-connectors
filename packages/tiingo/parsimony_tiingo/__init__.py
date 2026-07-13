@@ -26,7 +26,7 @@ fails fast with :class:`UnauthorizedError` naming the env var.
 
 Internal layout (not part of the public contract):
 
-* :mod:`parsimony_tiingo.outputs` — declarative :class:`OutputConfig` schemas.
+* :mod:`parsimony_tiingo.outputs` — declarative :class:`OutputSpec` schemas.
 """
 
 from __future__ import annotations
@@ -220,6 +220,7 @@ def tiingo_eod(
         for r in data
     ]
     df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"])
     df["ticker"] = t
     return df
 
@@ -271,7 +272,15 @@ def tiingo_iex(tickers: str, api_key: str = "") -> pd.DataFrame:
     ]
     if not rows:
         raise EmptyDataError(_PROVIDER, query_params={"tickers": t})
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    quote_cols = (
+        "tngo_last", "open", "high", "low", "volume", "prev_close", "mid",
+        "bid_price", "ask_price", "bid_size", "ask_size",
+    )
+    for col in quote_cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +335,7 @@ def tiingo_iex_historical(
         for r in data
     ]
     df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"])
     df["ticker"] = t
     return df
 
@@ -503,7 +513,9 @@ def tiingo_news(
         }
         for article in data
     ]
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df["published_date"] = pd.to_datetime(df["published_date"])
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -569,7 +581,9 @@ def tiingo_crypto_prices(
 
     if not all_rows:
         raise EmptyDataError(_PROVIDER, query_params={"tickers": t})
-    return pd.DataFrame(all_rows)
+    df = pd.DataFrame(all_rows)
+    df["date"] = pd.to_datetime(df["date"])
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -619,7 +633,11 @@ def tiingo_crypto_top(tickers: str, api_key: str = "") -> pd.DataFrame:
 
     if not rows:
         raise EmptyDataError(_PROVIDER, query_params={"tickers": t})
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df["quote_timestamp"] = pd.to_datetime(df["quote_timestamp"])
+    for col in ("last_price", "bid_price", "ask_price", "bid_size", "ask_size", "last_size_notional"):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -674,7 +692,9 @@ def tiingo_fx_prices(
         }
         for r in data
     ]
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"])
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -717,7 +737,11 @@ def tiingo_fx_top(tickers: str, api_key: str = "") -> pd.DataFrame:
     ]
     if not rows:
         raise EmptyDataError(_PROVIDER, query_params={"tickers": t})
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df["quote_timestamp"] = pd.to_datetime(df["quote_timestamp"])
+    for col in ("mid_price", "bid_price", "ask_price", "bid_size", "ask_size"):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
 
 
 # ---------------------------------------------------------------------------

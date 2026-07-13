@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
-RBA_ENUMERATE_OUTPUT = OutputConfig(
+RBA_ENUMERATE_OUTPUT = OutputSpec(
     columns=[
         # Compound code ``{table_id}#{series_id}`` so every series gets a unique
         # catalog entry. RBA reuses some series IDs across closely-related tables
@@ -29,12 +29,12 @@ RBA_ENUMERATE_OUTPUT = OutputConfig(
     ]
 )
 
-RBA_FETCH_OUTPUT = OutputConfig(
+RBA_FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="table_id", role=ColumnRole.KEY, namespace="rba"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="date", dtype="datetime", role=ColumnRole.DATA),
-        Column(name="value", dtype="numeric", role=ColumnRole.DATA),
+        Column(name="date", role=ColumnRole.DATA),
+        Column(name="value", role=ColumnRole.DATA),
         Column(name="series_key", role=ColumnRole.DATA),
     ]
 )

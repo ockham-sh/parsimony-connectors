@@ -29,7 +29,7 @@ free plan returns 403 (→ :class:`PaymentRequiredError`). See
 Internal layout (not part of the public contract):
 
 * :mod:`parsimony_finnhub._http` — keyed client builder and error mapping.
-* :mod:`parsimony_finnhub.outputs` — declarative :class:`OutputConfig` schemas.
+* :mod:`parsimony_finnhub.outputs` — declarative :class:`OutputSpec` schemas.
 """
 
 from __future__ import annotations
@@ -137,7 +137,9 @@ def finnhub_quote(symbol: Annotated[str, Namespace("finnhub_symbol")], api_key: 
         "prev_close": data.get("pc"),
         "timestamp": data.get("t"),
     }
-    return pd.DataFrame([row])
+    df = pd.DataFrame([row])
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s")
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -216,7 +218,9 @@ def finnhub_recommendation(symbol: Annotated[str, Namespace("finnhub_symbol")], 
     ]
     if not rows:
         raise EmptyDataError(_PROVIDER, query_params={"symbol": s})
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df["period"] = pd.to_datetime(df["period"]).dt.normalize()
+    return df
 
 
 @connector(output=_EARNINGS_OUTPUT, tags=["equities"], secrets=("api_key",))
@@ -246,7 +250,9 @@ def finnhub_earnings(symbol: Annotated[str, Namespace("finnhub_symbol")], api_ke
     ]
     if not rows:
         raise EmptyDataError(_PROVIDER, query_params={"symbol": s})
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df["period"] = pd.to_datetime(df["period"]).dt.normalize()
+    return df
 
 
 @connector(tags=["equities"], secrets=("api_key",))
@@ -313,7 +319,9 @@ def finnhub_company_news(
     rows = _news_rows(data)
     if not rows:
         raise EmptyDataError(_PROVIDER, query_params={"symbol": s, "from": f, "to": t})
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df["datetime"] = pd.to_datetime(df["datetime"], unit="s")
+    return df
 
 
 @connector(output=_NEWS_OUTPUT, tags=["news"], secrets=("api_key",))
@@ -334,7 +342,9 @@ def finnhub_market_news(
     rows = _news_rows(data)
     if not rows:
         raise EmptyDataError(_PROVIDER, query_params={"category": category})
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df["datetime"] = pd.to_datetime(df["datetime"], unit="s")
+    return df
 
 
 def _news_rows(data: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -403,7 +413,9 @@ def finnhub_earnings_calendar(
     ]
     if not rows:
         raise EmptyDataError(_PROVIDER, query_params={"from": f, "to": t})
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    return df
 
 
 @connector(output=_IPO_CAL_OUTPUT, tags=["equities", "calendars"], secrets=("api_key",))
@@ -447,7 +459,9 @@ def finnhub_ipo_calendar(from_date: str, to_date: str, api_key: str = "") -> pd.
     ]
     if not rows:
         raise EmptyDataError(_PROVIDER, query_params={"from": f, "to": t})
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    return df
 
 
 # ---------------------------------------------------------------------------

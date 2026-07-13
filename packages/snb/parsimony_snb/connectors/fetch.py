@@ -69,6 +69,7 @@ def snb_fetch(
             query_params={"cube_id": cube_id, "from_date": from_date, "to_date": to_date, "dim_sel": dim_sel},
         )
 
+    df["date"] = pd.to_datetime(df["date"])
     df["cube_id"] = cube_id
     # The /api payloads carry no cube title; resolve it best-effort from the portal
     # getCubeInfo metadata (falls back to the cube_id if the call fails).

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
-DESTATIS_ENUMERATE_OUTPUT = OutputConfig(
+DESTATIS_ENUMERATE_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="destatis"),
         Column(name="title", role=ColumnRole.TITLE),
@@ -20,12 +20,12 @@ DESTATIS_ENUMERATE_OUTPUT = OutputConfig(
     ]
 )
 
-DESTATIS_FETCH_OUTPUT = OutputConfig(
+DESTATIS_FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="series_id", role=ColumnRole.KEY, namespace="destatis"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="date", dtype="datetime", role=ColumnRole.DATA),
-        Column(name="value", dtype="numeric", role=ColumnRole.DATA),
+        Column(name="date", role=ColumnRole.DATA),
+        Column(name="value", role=ColumnRole.DATA),
     ]
 )
 

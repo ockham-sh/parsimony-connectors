@@ -213,7 +213,11 @@ def alpha_vantage_quote(symbol: Annotated[str, Namespace("alpha_vantage")], *, a
         "change": q.get("change"),
         "change_percent": change_pct,
     }
-    return pd.DataFrame([row])
+    df = pd.DataFrame([row])
+    for col in ("price", "open", "high", "low", "volume", "previous_close", "change", "change_percent"):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    df["latest_trading_day"] = pd.to_datetime(df["latest_trading_day"]).dt.normalize()
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -267,6 +271,9 @@ def alpha_vantage_daily(
         raise EmptyDataError(_PROVIDER, query_params={"symbol": symbol})
 
     df = pd.DataFrame(_ohlcv_rows(time_series))
+    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    for col in ("open", "high", "low", "close", "volume"):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
     df["symbol"] = symbol
     # Project to declared columns only — the Meta Data block is provider chrome.
     return df[[c.name for c in _DAILY_OUTPUT.columns]]
@@ -294,6 +301,9 @@ def alpha_vantage_weekly(symbol: Annotated[str, Namespace("alpha_vantage")], *, 
         raise EmptyDataError(_PROVIDER, query_params={"symbol": symbol})
 
     df = pd.DataFrame(_ohlcv_rows(time_series))
+    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    for col in ("open", "high", "low", "close", "volume"):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
     df["symbol"] = symbol
     return df[[c.name for c in _DAILY_OUTPUT.columns]]
 
@@ -320,6 +330,9 @@ def alpha_vantage_monthly(symbol: Annotated[str, Namespace("alpha_vantage")], *,
         raise EmptyDataError(_PROVIDER, query_params={"symbol": symbol})
 
     df = pd.DataFrame(_ohlcv_rows(time_series))
+    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    for col in ("open", "high", "low", "close", "volume"):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
     df["symbol"] = symbol
     return df[[c.name for c in _DAILY_OUTPUT.columns]]
 
@@ -353,6 +366,9 @@ def alpha_vantage_intraday(
         raise EmptyDataError(_PROVIDER, query_params={"symbol": symbol, "interval": interval})
 
     df = pd.DataFrame(_ohlcv_rows(time_series, date_field="timestamp"))
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    for col in ("open", "high", "low", "close", "volume"):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
     df["symbol"] = symbol
     return df[[c.name for c in _INTRADAY_OUTPUT.columns]]
 
@@ -498,6 +514,10 @@ def alpha_vantage_earnings(symbol: Annotated[str, Namespace("alpha_vantage")], *
         raise EmptyDataError(_PROVIDER, query_params={"symbol": symbol})
     df = pd.DataFrame(rows)
     df["symbol"] = symbol
+    df["fiscalDateEnding"] = pd.to_datetime(df["fiscalDateEnding"]).dt.normalize()
+    df["reportedDate"] = pd.to_datetime(df["reportedDate"]).dt.normalize()
+    for col in ("reportedEPS", "estimatedEPS", "surprise", "surprisePercentage"):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
 
 
@@ -535,7 +555,9 @@ def alpha_vantage_etf_profile(symbol: Annotated[str, Namespace("alpha_vantage")]
         }
         for h in holdings
     ]
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df["weight"] = pd.to_numeric(df["weight"], errors="coerce")
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -574,7 +596,10 @@ def alpha_vantage_fx_rate(from_currency: str, to_currency: str, *, api_key: str 
         "ask_price": r.get("Ask Price"),
         "last_refreshed": r.get("Last Refreshed", ""),
     }
-    return pd.DataFrame([row])
+    df = pd.DataFrame([row])
+    for col in ("exchange_rate", "bid_price", "ask_price"):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -623,6 +648,9 @@ def _fx_series(
         raise EmptyDataError(_PROVIDER, query_params={"from_symbol": from_symbol, "to_symbol": to_symbol})
 
     df = pd.DataFrame(_fx_rows(time_series))
+    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    for col in ("open", "high", "low", "close"):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
     df["pair"] = f"{from_symbol}/{to_symbol}"
     return df[[c.name for c in _FX_DAILY_OUTPUT.columns]]
 
@@ -713,6 +741,9 @@ def _crypto_series(
         raise EmptyDataError(_PROVIDER, query_params={"symbol": symbol, "market": market})
 
     df = pd.DataFrame(_ohlcv_rows(time_series))
+    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    for col in ("open", "high", "low", "close", "volume"):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
     df["symbol"] = symbol
     return df[[c.name for c in _CRYPTO_DAILY_OUTPUT.columns]]
 
@@ -824,7 +855,10 @@ def alpha_vantage_econ(
                 "interval": resp_interval,
             }
         )
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -855,7 +889,9 @@ def alpha_vantage_metal_spot(symbol: Literal["GOLD", "XAU", "SILVER", "XAG"], *,
         "price": data.get("price"),
         "timestamp": data.get("timestamp", ""),
     }
-    return pd.DataFrame([row])
+    df = pd.DataFrame([row])
+    df["price"] = pd.to_numeric(df["price"], errors="coerce")
+    return df
 
 
 @connector(output=_METAL_HISTORY_OUTPUT, tags=["commodities"], secrets=("api_key",))
@@ -887,7 +923,10 @@ def alpha_vantage_metal_history(
         if price == ".":
             price = None
         rows.append({"symbol": symbol, "date": obs.get("date"), "price": price})
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    df["price"] = pd.to_numeric(df["price"], errors="coerce")
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -943,7 +982,9 @@ def alpha_vantage_news(
         }
         for item in feed
     ]
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df["overall_sentiment_score"] = pd.to_numeric(df["overall_sentiment_score"], errors="coerce")
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -983,7 +1024,10 @@ def alpha_vantage_top_movers(*, api_key: str = "") -> Any:
 
     if not rows:
         raise EmptyDataError(_PROVIDER, query_params={})
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    for col in ("price", "change_amount", "change_percentage", "volume"):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -1019,7 +1063,23 @@ def alpha_vantage_options(
     contracts = data if isinstance(data, list) else data.get("data", [])
     if not contracts:
         raise EmptyDataError(_PROVIDER, query_params={"symbol": symbol, "date": date})
-    return pd.DataFrame(contracts)
+    df = pd.DataFrame(contracts)
+    df["expiration"] = pd.to_datetime(df["expiration"]).dt.normalize()
+    for col in (
+        "strike",
+        "last",
+        "bid",
+        "ask",
+        "volume",
+        "open_interest",
+        "implied_volatility",
+        "delta",
+        "gamma",
+        "theta",
+        "vega",
+    ):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -1053,6 +1113,8 @@ def alpha_vantage_earnings_calendar(
 
     if df.empty:
         raise EmptyDataError(_PROVIDER, query_params={"horizon": horizon, "symbol": symbol})
+    df["reportDate"] = pd.to_datetime(df["reportDate"]).dt.normalize()
+    df["fiscalDateEnding"] = pd.to_datetime(df["fiscalDateEnding"]).dt.normalize()
     return df
 
 
@@ -1071,6 +1133,7 @@ def alpha_vantage_ipo_calendar(*, api_key: str = "") -> Any:
 
     if df.empty:
         raise EmptyDataError(_PROVIDER, query_params={})
+    df["ipoDate"] = pd.to_datetime(df["ipoDate"]).dt.normalize()
     return df
 
 
@@ -1125,6 +1188,8 @@ def alpha_vantage_technical(
         rows.append(row)
 
     df = pd.DataFrame(rows)
+    # Plain to_datetime (no normalize) so intraday intervals keep the time component.
+    df["date"] = pd.to_datetime(df["date"])
     # Coerce only the indicator value columns to numeric — never the key columns.
     for col in df.columns:
         if col not in ("date", "symbol"):

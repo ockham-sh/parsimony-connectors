@@ -60,7 +60,7 @@ def test_bde_fetch_known_series_live() -> None:
     # Euribor is a small percentage rate — sanity-check the magnitude.
     vals = df["value"].dropna()
     assert ((vals > -2) & (vals < 25)).all(), f"rates out of plausible range: {vals.tolist()[:5]}"
-    # Dates parse to real datetimes (declared dtype="datetime").
+    # Dates parse to real datetimes.
     assert df["date"].dtype.kind == "M"
     assert df["date"].notna().any(), "record dates all NaT"
 
@@ -155,8 +155,8 @@ def test_enumerate_bde_bounded_single_chapter_live(monkeypatch: pytest.MonkeyPat
     assert df["start_date"].astype(str).str.len().gt(0).any(), "start_date not populated"
     assert df["n_obs"].astype(str).str.len().gt(0).any(), "n_obs not populated"
 
-    # build_entities round-trips on the real slice (the catalog-build entry point).
-    entities = BDE_ENUMERATE_OUTPUT.build_entities(df)
+    # entities_from_raw round-trips on the real slice (the catalog-build entry point).
+    entities = entities_from_raw(df, BDE_ENUMERATE_OUTPUT)
     assert len(entities) == len(df)
     assert entities[0].namespace == "bde"
 

@@ -737,8 +737,8 @@ def test_technical_injects_symbol_and_coerces_values() -> None:
 
 @respx.mock
 def test_technical_intraday_preserves_time_component() -> None:
-    """Regression: TECHNICAL_OUTPUT.date is `datetime` (not `date`) so intraday
-    intervals keep their time component (date would `dt.normalize()` to midnight)."""
+    """Regression: the body parses `date` with plain to_datetime (no normalize)
+    so intraday intervals keep their time component instead of midnight."""
     _mock(
         {
             "Meta Data": {"1: Symbol": "AAPL", "4: Interval": "1min"},

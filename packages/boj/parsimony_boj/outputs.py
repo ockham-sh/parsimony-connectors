@@ -9,9 +9,9 @@
 
 from __future__ import annotations
 
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
-BOJ_ENUMERATE_OUTPUT = OutputConfig(
+BOJ_ENUMERATE_OUTPUT = OutputSpec(
     columns=[
         # KEY: bare series code (e.g. ``FXERD01``) for series rows, or
         # ``db:<code>`` for DB-level rows. The ``db:`` prefix lets agents and the
@@ -37,12 +37,12 @@ BOJ_ENUMERATE_OUTPUT = OutputConfig(
     ]
 )
 
-BOJ_FETCH_OUTPUT = OutputConfig(
+BOJ_FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="boj"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="date", dtype="datetime", role=ColumnRole.DATA),
-        Column(name="value", dtype="numeric", role=ColumnRole.DATA),
+        Column(name="date", role=ColumnRole.DATA),
+        Column(name="value", role=ColumnRole.DATA),
     ]
 )
 

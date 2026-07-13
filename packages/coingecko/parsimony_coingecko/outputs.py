@@ -1,6 +1,6 @@
 """Declarative output schemas for the CoinGecko connectors.
 
-One :class:`OutputConfig` per connector that projects a shaped DataFrame
+One :class:`OutputSpec` per connector that projects a shaped DataFrame
 out of CoinGecko's raw JSON responses. Columns declared here are the
 contract with the MCP tool catalog — renaming or re-ordering them is a
 breaking change.
@@ -8,9 +8,9 @@ breaking change.
 
 from __future__ import annotations
 
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
-SEARCH_OUTPUT = OutputConfig(
+SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="id", role=ColumnRole.KEY, namespace="coingecko_coin"),
         Column(name="name", role=ColumnRole.TITLE),
@@ -20,7 +20,7 @@ SEARCH_OUTPUT = OutputConfig(
     ]
 )
 
-TRENDING_OUTPUT = OutputConfig(
+TRENDING_OUTPUT = OutputSpec(
     columns=[
         Column(name="id", role=ColumnRole.KEY, namespace="coingecko_coin"),
         Column(name="name", role=ColumnRole.TITLE),
@@ -30,69 +30,69 @@ TRENDING_OUTPUT = OutputConfig(
     ]
 )
 
-GAINERS_LOSERS_OUTPUT = OutputConfig(
+GAINERS_LOSERS_OUTPUT = OutputSpec(
     columns=[
         Column(name="id", role=ColumnRole.KEY, namespace="coingecko_coin"),
         Column(name="name", role=ColumnRole.TITLE),
         Column(name="symbol", role=ColumnRole.METADATA),
         Column(name="direction", role=ColumnRole.METADATA),
-        Column(name="usd_price_percent_change", dtype="numeric"),
+        Column(name="usd_price_percent_change"),
     ]
 )
 
-PRICE_OUTPUT = OutputConfig(
+PRICE_OUTPUT = OutputSpec(
     columns=[
         Column(name="id", role=ColumnRole.KEY, namespace="coingecko_coin"),
     ]
 )
 
-MARKETS_OUTPUT = OutputConfig(
+MARKETS_OUTPUT = OutputSpec(
     columns=[
         Column(name="id", role=ColumnRole.KEY, namespace="coingecko_coin"),
         Column(name="name", role=ColumnRole.TITLE),
         Column(name="symbol", role=ColumnRole.METADATA),
         Column(name="market_cap_rank", role=ColumnRole.METADATA),
-        Column(name="current_price", dtype="numeric"),
-        Column(name="market_cap", dtype="numeric"),
-        Column(name="total_volume", dtype="numeric"),
-        Column(name="high_24h", dtype="numeric"),
-        Column(name="low_24h", dtype="numeric"),
-        Column(name="price_change_percentage_24h", dtype="numeric"),
-        Column(name="ath", dtype="numeric"),
-        Column(name="atl", dtype="numeric"),
-        Column(name="circulating_supply", dtype="numeric"),
-        Column(name="total_supply", dtype="numeric"),
+        Column(name="current_price"),
+        Column(name="market_cap"),
+        Column(name="total_volume"),
+        Column(name="high_24h"),
+        Column(name="low_24h"),
+        Column(name="price_change_percentage_24h"),
+        Column(name="ath"),
+        Column(name="atl"),
+        Column(name="circulating_supply"),
+        Column(name="total_supply"),
         Column(name="last_updated", role=ColumnRole.METADATA),
     ]
 )
 
-MARKET_CHART_OUTPUT = OutputConfig(
+MARKET_CHART_OUTPUT = OutputSpec(
     columns=[
-        Column(name="timestamp", role=ColumnRole.KEY, dtype="timestamp"),
-        Column(name="price", dtype="numeric"),
-        Column(name="market_cap", dtype="numeric"),
-        Column(name="total_volume", dtype="numeric"),
+        Column(name="timestamp", role=ColumnRole.KEY),
+        Column(name="price"),
+        Column(name="market_cap"),
+        Column(name="total_volume"),
     ]
 )
 
-OHLC_OUTPUT = OutputConfig(
+OHLC_OUTPUT = OutputSpec(
     columns=[
-        Column(name="timestamp", role=ColumnRole.KEY, dtype="timestamp"),
-        Column(name="open", dtype="numeric"),
-        Column(name="high", dtype="numeric"),
-        Column(name="low", dtype="numeric"),
-        Column(name="close", dtype="numeric"),
+        Column(name="timestamp", role=ColumnRole.KEY),
+        Column(name="open"),
+        Column(name="high"),
+        Column(name="low"),
+        Column(name="close"),
     ]
 )
 
-ONCHAIN_PRICE_OUTPUT = OutputConfig(
+ONCHAIN_PRICE_OUTPUT = OutputSpec(
     columns=[
         Column(name="contract_address", role=ColumnRole.KEY, namespace="coingecko_onchain"),
-        Column(name="price_usd", dtype="numeric"),
+        Column(name="price_usd"),
     ]
 )
 
-ENUMERATE_OUTPUT = OutputConfig(
+ENUMERATE_OUTPUT = OutputSpec(
     columns=[
         Column(name="id", role=ColumnRole.KEY, namespace="coingecko_coin"),
         Column(name="name", role=ColumnRole.TITLE),

@@ -24,7 +24,7 @@ plan-gated — their docstrings tag the minimum plan (``[All plans]``,
 Internal layout (not part of the public contract):
 
 * :mod:`parsimony_fmp._http` — keyed client builder and error mapping.
-* :mod:`parsimony_fmp.outputs` — declarative :class:`OutputConfig` schemas.
+* :mod:`parsimony_fmp.outputs` — declarative :class:`OutputSpec` schemas.
 * :mod:`parsimony_fmp._screener` — the screener's classification frozensets,
   pushdown map, and fan-out orchestration.
 """
@@ -99,7 +99,7 @@ def _select_declared(df: pd.DataFrame, output: Any) -> pd.DataFrame:
 
     Drops provider extras not in the schema. Missing declared columns are filled
     with ``NA`` so sparse upstream payloads still satisfy
-    :class:`~parsimony.result.OutputConfig`. Wildcard (``"*"``) schemas keep
+    :class:`~parsimony.result.OutputSpec`. Wildcard (``"*"``) schemas keep
     unmapped columns after the fixed prefix.
     """
     names = [c.name for c in output.columns]
@@ -281,7 +281,9 @@ def fmp_prices(
     df = _to_frame(data, "fmp_prices", {"symbol": sym})
     if frequency == "dividend_adjusted":
         df = df.rename(columns=_DIVIDEND_ADJUSTED_RENAME)
-    return _select_declared(df, HISTORICAL_PRICES_OUTPUT)
+    df = _select_declared(df, HISTORICAL_PRICES_OUTPUT)
+    df["date"] = pd.to_datetime(df["date"])
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -345,7 +347,9 @@ def fmp_income_statements(
         op_name="fmp_income_statements",
     )
     df = _to_frame(data, "fmp_income_statements", {"symbol": sym})
-    return _select_declared(df, INCOME_STATEMENT_OUTPUT)
+    df = _select_declared(df, INCOME_STATEMENT_OUTPUT)
+    df["date"] = pd.to_datetime(df["date"])
+    return df
 
 
 @connector(output=BALANCE_SHEET_OUTPUT, tags=["equity"], secrets=("api_key",))
@@ -372,7 +376,9 @@ def fmp_balance_sheet_statements(
         op_name="fmp_balance_sheet_statements",
     )
     df = _to_frame(data, "fmp_balance_sheet_statements", {"symbol": sym})
-    return _select_declared(df, BALANCE_SHEET_OUTPUT)
+    df = _select_declared(df, BALANCE_SHEET_OUTPUT)
+    df["date"] = pd.to_datetime(df["date"])
+    return df
 
 
 @connector(output=CASH_FLOW_OUTPUT, tags=["equity"], secrets=("api_key",))
@@ -399,7 +405,9 @@ def fmp_cash_flow_statements(
         op_name="fmp_cash_flow_statements",
     )
     df = _to_frame(data, "fmp_cash_flow_statements", {"symbol": sym})
-    return _select_declared(df, CASH_FLOW_OUTPUT)
+    df = _select_declared(df, CASH_FLOW_OUTPUT)
+    df["date"] = pd.to_datetime(df["date"])
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -475,7 +483,9 @@ def fmp_analyst_estimates(
         op_name="fmp_analyst_estimates",
     )
     df = _to_frame(data, "fmp_analyst_estimates", {"symbol": sym})
-    return _select_declared(df, ANALYST_ESTIMATES_OUTPUT)
+    df = _select_declared(df, ANALYST_ESTIMATES_OUTPUT)
+    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -510,7 +520,9 @@ def fmp_news(
         op_name="fmp_news",
     )
     df = _to_frame(data, "fmp_news", {"symbols": s, "type": type})
-    return _select_declared(df, NEWS_OUTPUT)
+    df = _select_declared(df, NEWS_OUTPUT)
+    df["publishedDate"] = pd.to_datetime(df["publishedDate"])
+    return df
 
 
 @connector(output=INSIDER_TRADES_OUTPUT, tags=["equity"], secrets=("api_key",))
@@ -536,7 +548,10 @@ def fmp_insider_trades(
         op_name="fmp_insider_trades",
     )
     df = _to_frame(data, "fmp_insider_trades", {"symbol": sym})
-    return _select_declared(df, INSIDER_TRADES_OUTPUT)
+    df = _select_declared(df, INSIDER_TRADES_OUTPUT)
+    df["filingDate"] = pd.to_datetime(df["filingDate"])
+    df["transactionDate"] = pd.to_datetime(df["transactionDate"])
+    return df
 
 
 @connector(output=INSTITUTIONAL_POSITIONS_OUTPUT, tags=["equity"], secrets=("api_key",))
@@ -564,7 +579,9 @@ def fmp_institutional_positions(
         op_name="fmp_institutional_positions",
     )
     df = _to_frame(data, "fmp_institutional_positions", {"symbol": sym, "year": year, "quarter": quarter})
-    return _select_declared(df, INSTITUTIONAL_POSITIONS_OUTPUT)
+    df = _select_declared(df, INSTITUTIONAL_POSITIONS_OUTPUT)
+    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    return df
 
 
 @connector(output=EARNINGS_TRANSCRIPT_OUTPUT, tags=["equity"], secrets=("api_key",))
@@ -592,7 +609,9 @@ def fmp_earnings_transcript(
         op_name="fmp_earnings_transcript",
     )
     df = _to_frame(data, "fmp_earnings_transcript", {"symbol": sym, "year": year, "quarter": quarter})
-    return _select_declared(df, EARNINGS_TRANSCRIPT_OUTPUT)
+    df = _select_declared(df, EARNINGS_TRANSCRIPT_OUTPUT)
+    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -611,7 +630,9 @@ def fmp_index_constituents(
     http = _client(api_key)
     data = fmp_get(http, path=_INDEX_DISPATCH[index], op_name="fmp_index_constituents")
     df = _to_frame(data, "fmp_index_constituents", {"index": index})
-    return _select_declared(df, INDEX_CONSTITUENTS_OUTPUT)
+    df = _select_declared(df, INDEX_CONSTITUENTS_OUTPUT)
+    df["dateFirstAdded"] = pd.to_datetime(df["dateFirstAdded"]).dt.normalize()
+    return df
 
 
 @connector(output=MARKET_MOVERS_OUTPUT, tags=["equity", "tool"], secrets=("api_key",))

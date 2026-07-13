@@ -97,7 +97,7 @@ def test_rba_fetch_cash_rate_live() -> None:
     # Australian cash rate has sat in roughly 0%–8% over the published window.
     assert ((vals >= 0.0) & (vals <= 8.0)).all(), f"cash rate out of plausible band: {vals.tolist()[:5]}"
 
-    # Dates parse to real datetimes (declared dtype="datetime").
+    # Dates parse to real datetimes.
     assert df["date"].dtype.kind == "M"
     assert df["date"].notna().any(), "observation dates all NaT"
 
@@ -192,8 +192,8 @@ def test_enumerate_rba_bounded_live(monkeypatch: pytest.MonkeyPatch) -> None:
     # The cash-rate-target series is in f1-data — its compound code must appear.
     assert any(c.startswith("f1-data#FIRMMCRTD") for c in df["code"]), "FIRMMCRTD not enumerated"
 
-    # build_entities round-trips on the real slice (the catalog-build entry point).
-    entities = RBA_ENUMERATE_OUTPUT.build_entities(df)
+    # entities_from_raw round-trips on the real slice (the catalog-build entry point).
+    entities = entities_from_raw(df, RBA_ENUMERATE_OUTPUT)
     assert len(entities) == len(df)
     assert entities[0].namespace == "rba"
 

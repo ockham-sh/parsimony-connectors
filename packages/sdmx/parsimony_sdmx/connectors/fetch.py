@@ -23,7 +23,7 @@ from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError, 
 from parsimony.result import (
     Column,
     ColumnRole,
-    OutputConfig,
+    OutputSpec,
 )
 from pydantic import BaseModel, Field, field_validator
 from requests.exceptions import ConnectionError as RequestsConnectionError
@@ -125,20 +125,19 @@ class _ResolvedStructure:
 # the human labels ride in ``title``. UNIT / UNIT_MULT additionally carry a ``_label``
 # because their meaning is not in the title. Those per-flow columns (plus the optional
 # series_url) vary by flow, so they are caught by the ``"*"`` wildcard as METADATA
-# rather than enumerated — which also lets a flow without a URL omit that column
-# without tripping the strict presence check. series_key carries no namespace,
+# rather than enumerated. series_key carries no namespace,
 # matching sdmx_series_search's key column (the join target).
 # TIME_PERIOD stays the raw SDMX period label (``2020`` / ``2020-Q1`` / ``2020-01``
 # / ``2020-01-01``), NOT coerced to datetime: granularity rides on the flow's FREQ
 # dimension and a key list can mix frequencies, so there is no honest single-instant
 # form — coercing would fabricate precision and outright fails on quarterly/weekly
 # labels. Consumers parse to a datetime axis on demand (``pd.PeriodIndex``).
-SDMX_FETCH_OUTPUT = OutputConfig(
+SDMX_FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="series_key", role=ColumnRole.KEY),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="TIME_PERIOD", role=ColumnRole.DATA),
-        Column(name="value", dtype="numeric", role=ColumnRole.DATA),
+        Column(name="value", role=ColumnRole.DATA),
         Column(name="*", role=ColumnRole.METADATA),
     ]
 )
@@ -605,7 +604,8 @@ def _do_sdmx_fetch(params: SdmxFetchParams, structure: _ResolvedStructure) -> An
 
     dim_out = [dim_code_field(dim_id) for dim_id in dsd_dim_ids]
     unit_out = [c for col in unit_cols for c in (dim_code_field(col), dim_label_field(col))]
-    long_df = df[["series_key", "title", *dim_out, *unit_out, "TIME_PERIOD", "value"]].copy()
+    # Declared columns lead in spec order; per-flow metadata columns trail.
+    long_df = df[["series_key", "title", "TIME_PERIOD", "value", *dim_out, *unit_out]].copy()
 
     series_url = build_sdmx_dataset_url(agency_id, dataset_id)
     if series_url:

@@ -97,7 +97,10 @@ def sec_edgar_submissions(
             )
 
     df = df.sort_values("filingDate", ascending=False, kind="stable").head(limit_clamped)
-    return df.reset_index(drop=True)
+    df = df.reset_index(drop=True)
+    df["filingDate"] = pd.to_datetime(df["filingDate"])
+    df["reportDate"] = pd.to_datetime(df["reportDate"])
+    return df
 
 
 # Files in an accession folder that are never the primary document: XBRL

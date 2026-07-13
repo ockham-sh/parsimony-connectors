@@ -89,7 +89,11 @@ def sec_edgar_company_concept(
             message=f"No facts for unit {unit!r} of {tax}:{tag_s} (CIK {cik_norm})",
             query_params={"cik": cik_norm, "taxonomy": tax, "tag": tag_s, "unit": unit},
         )
-    return pd.DataFrame(rows)[list(COMPANY_CONCEPT_COLUMNS)]
+    df = pd.DataFrame(rows)[list(COMPANY_CONCEPT_COLUMNS)]
+    df["end"] = pd.to_datetime(df["end"])
+    df["filed"] = pd.to_datetime(df["filed"])
+    df["start"] = pd.to_datetime(df["start"])
+    return df
 
 
 @connector(tags=["sec_edgar", "tool"])
@@ -170,4 +174,7 @@ def sec_edgar_frames(
         for pt in data
         if isinstance(pt, dict)
     ]
-    return pd.DataFrame(rows)[list(FRAMES_COLUMNS)]
+    df = pd.DataFrame(rows)[list(FRAMES_COLUMNS)]
+    df["end"] = pd.to_datetime(df["end"])
+    df["start"] = pd.to_datetime(df["start"])
+    return df

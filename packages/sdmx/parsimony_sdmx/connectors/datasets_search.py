@@ -24,7 +24,7 @@ from parsimony.catalog.search import CatalogLRU, resolved_catalog_url
 from parsimony.catalog.source import lazy_catalog_dir
 from parsimony.connector import connector
 from parsimony.errors import ConnectorError, EmptyDataError, InvalidParameterError
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 from pydantic import BaseModel, Field
 
 from parsimony_sdmx.catalog_build import build_agency_datasets_catalog
@@ -108,7 +108,7 @@ def _datasets_surface(catalog: Catalog) -> list[str]:
     return surface
 
 
-DATASETS_SEARCH_OUTPUT = OutputConfig(
+DATASETS_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="flow_id", role=ColumnRole.KEY),
         Column(name="title", role=ColumnRole.TITLE),

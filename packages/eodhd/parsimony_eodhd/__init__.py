@@ -32,7 +32,7 @@ docstrings tag the minimum plan as ``[Free+]``, ``[EOD+Intraday+]``, or
 Internal layout (not part of the public contract):
 
 * :mod:`parsimony_eodhd._http` — keyed client builder and error mapping.
-* :mod:`parsimony_eodhd.outputs` — declarative :class:`OutputConfig` schemas.
+* :mod:`parsimony_eodhd.outputs` — declarative :class:`OutputSpec` schemas.
 """
 
 from __future__ import annotations
@@ -113,7 +113,7 @@ def _select_declared(df: pd.DataFrame, output: Any) -> pd.DataFrame:
     """Project a frame to the columns the schema declares, in declared order.
 
     Drops provider extras not in the schema. Missing declared columns are filled
-    with ``NA`` so :class:`~parsimony.result.OutputConfig` can shape sparse
+    with ``NA`` so :class:`~parsimony.result.OutputSpec` can shape sparse
     payloads (calendar types, dividend-adjusted prices, etc.) without folding
     extras in as stray DATA columns. Wildcard (``"*"``) schemas keep unmapped
     columns after the fixed prefix.
@@ -238,7 +238,9 @@ def eodhd_eod(
         op_name="eodhd_eod",
     )
     df = _rows_to_frame(data, "eodhd_eod", {"ticker": t})
-    return _select_declared(df, _EOD_OUTPUT)
+    df = _select_declared(df, _EOD_OUTPUT)
+    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    return df
 
 
 @connector(output=_LIVE_OUTPUT, tags=["eodhd", "equity", "tool"], secrets=("api_key",))
@@ -278,7 +280,9 @@ def eodhd_intraday(
         op_name="eodhd_intraday",
     )
     df = _rows_to_frame(data, "eodhd_intraday", {"ticker": t})
-    return _select_declared(df, _INTRADAY_OUTPUT)
+    df = _select_declared(df, _INTRADAY_OUTPUT)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s")
+    return df
 
 
 @connector(output=_BULK_EOD_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",))
@@ -298,7 +302,9 @@ def eodhd_bulk_eod(exchange: str, date: str | None = None, api_key: str = "") ->
         op_name="eodhd_bulk_eod",
     )
     df = _rows_to_frame(data, "eodhd_bulk_eod", {"exchange": ex})
-    return _select_declared(df, _BULK_EOD_OUTPUT)
+    df = _select_declared(df, _BULK_EOD_OUTPUT)
+    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +332,12 @@ def eodhd_dividends(
         op_name="eodhd_dividends",
     )
     df = _rows_to_frame(data, "eodhd_dividends", {"ticker": t})
-    return _select_declared(df, _DIVIDENDS_OUTPUT)
+    df = _select_declared(df, _DIVIDENDS_OUTPUT)
+    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    df["declarationDate"] = pd.to_datetime(df["declarationDate"]).dt.normalize()
+    df["recordDate"] = pd.to_datetime(df["recordDate"]).dt.normalize()
+    df["paymentDate"] = pd.to_datetime(df["paymentDate"]).dt.normalize()
+    return df
 
 
 @connector(output=_SPLITS_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",))
@@ -349,7 +360,9 @@ def eodhd_splits(
         op_name="eodhd_splits",
     )
     df = _rows_to_frame(data, "eodhd_splits", {"ticker": t})
-    return _select_declared(df, _SPLITS_OUTPUT)
+    df = _select_declared(df, _SPLITS_OUTPUT)
+    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -409,7 +422,10 @@ def eodhd_calendar(
                 data = rows
                 break
     df = _rows_to_frame(data, "eodhd_calendar", {"type": type})
-    return _select_declared(df, _CALENDAR_OUTPUT)
+    df = _select_declared(df, _CALENDAR_OUTPUT)
+    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    df["report_date"] = pd.to_datetime(df["report_date"]).dt.normalize()
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -450,7 +466,9 @@ def eodhd_news(
         op_name="eodhd_news",
     )
     df = _rows_to_frame(data, "eodhd_news", {"ticker": ticker or ""})
-    return _select_declared(df, _NEWS_OUTPUT)
+    df = _select_declared(df, _NEWS_OUTPUT)
+    df["date"] = pd.to_datetime(df["date"])
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -478,7 +496,9 @@ def eodhd_macro(country: str, indicator: str, api_key: str = "") -> pd.DataFrame
         op_name="eodhd_macro",
     )
     df = _rows_to_frame(data, "eodhd_macro", {"country": c, "indicator": ind})
-    return _select_declared(df, _MACRO_OUTPUT)
+    df = _select_declared(df, _MACRO_OUTPUT)
+    df["Date"] = pd.to_datetime(df["Date"]).dt.normalize()
+    return df
 
 
 @connector(output=_MACRO_OUTPUT, tags=["eodhd", "macro"], secrets=("api_key",))
@@ -498,7 +518,9 @@ def eodhd_macro_bulk(country: str, indicator: str | None = None, api_key: str = 
         op_name="eodhd_macro_bulk",
     )
     df = _rows_to_frame(data, "eodhd_macro_bulk", {"country": c})
-    return _select_declared(df, _MACRO_OUTPUT)
+    df = _select_declared(df, _MACRO_OUTPUT)
+    df["Date"] = pd.to_datetime(df["Date"]).dt.normalize()
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -539,7 +561,9 @@ def eodhd_technical(
         op_name="eodhd_technical",
     )
     df = _rows_to_frame(data, "eodhd_technical", {"ticker": t, "function": function})
-    return _select_declared(df, _TECHNICAL_OUTPUT)
+    df = _select_declared(df, _TECHNICAL_OUTPUT)
+    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -572,7 +596,10 @@ def eodhd_insider(
         op_name="eodhd_insider",
     )
     df = _rows_to_frame(data, "eodhd_insider", {"ticker": code or ""})
-    return _select_declared(df, _INSIDER_OUTPUT)
+    df = _select_declared(df, _INSIDER_OUTPUT)
+    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    df["transactionDate"] = pd.to_datetime(df["transactionDate"]).dt.normalize()
+    return df
 
 
 # ---------------------------------------------------------------------------

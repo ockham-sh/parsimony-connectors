@@ -65,7 +65,7 @@ def test_bls_fetch_returns_series_observations() -> None:
     assert df.iloc[0]["frequency"] == "Monthly"
     # Rows are sorted ascending by date, so the earlier M02 observation (whose
     # suppressed "-" value coerces to null) is first and the M03 value is last.
-    # ``date`` is coerced to datetime by the output config (dtype="datetime").
+    # ``date`` is coerced to datetime by the connector body.
     assert list(df["date"].dt.strftime("%Y-%m-%d")) == ["2026-02-01", "2026-03-01"]
     assert df.iloc[0]["value"] != df.iloc[0]["value"]  # NaN
     assert df.iloc[1]["value"] == 4.1

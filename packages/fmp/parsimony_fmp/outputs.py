@@ -1,13 +1,13 @@
 """Declarative output schemas for the FMP connectors.
 
-One :class:`OutputConfig` per DataFrame-returning connector that projects a
+One :class:`OutputSpec` per DataFrame-returning connector that projects a
 shaped frame out of FMP's raw JSON. Column names and order are the contract with
 the catalog / tool surface — renaming or re-ordering them is a breaking change.
 
 Role conventions:
 
 * ``symbol`` is the entity identity on every equity verb, so it is a namespaced
-  ``KEY`` (namespace ``fmp_symbols``), never ``METADATA``. ``OutputConfig`` allows
+  ``KEY`` (namespace ``fmp_symbols``), never ``METADATA``. ``OutputSpec`` allows
   at most one ``KEY`` per schema.
 * Columns are declared **only** when the live FMP payload actually carries them
   (verified 2026-06-04). Declaring a column the payload can't populate would
@@ -16,12 +16,12 @@ Role conventions:
 
 from __future__ import annotations
 
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
 _NS = "fmp_symbols"
 
 
-SEARCH_OUTPUT = OutputConfig(
+SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="name"),
@@ -31,93 +31,92 @@ SEARCH_OUTPUT = OutputConfig(
     ]
 )
 
-COMPANY_PROFILE_OUTPUT = OutputConfig(
+COMPANY_PROFILE_OUTPUT = OutputSpec(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="companyName"),
-        Column(name="price", dtype="numeric"),
-        Column(name="marketCap", dtype="numeric"),
-        Column(name="beta", dtype="numeric"),
+        Column(name="price"),
+        Column(name="marketCap"),
+        Column(name="beta"),
         Column(name="exchange"),
         Column(name="exchangeFullName"),
         Column(name="currency"),
         Column(name="sector"),
         Column(name="industry"),
         Column(name="country"),
-        Column(name="fullTimeEmployees", dtype="numeric"),
+        Column(name="fullTimeEmployees"),
         Column(name="ceo"),
         Column(name="description"),
         Column(name="website"),
         Column(name="ipoDate"),
-        Column(name="isEtf", dtype="bool"),
-        Column(name="isActivelyTrading", dtype="bool"),
-        Column(name="isAdr", dtype="bool"),
-        Column(name="isFund", dtype="bool"),
+        Column(name="isEtf"),
+        Column(name="isActivelyTrading"),
+        Column(name="isAdr"),
+        Column(name="isFund"),
     ]
 )
 
-INCOME_STATEMENT_OUTPUT = OutputConfig(
+INCOME_STATEMENT_OUTPUT = OutputSpec(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
-        Column(name="date", dtype="datetime"),
+        Column(name="date"),
         Column(name="reportedCurrency", role=ColumnRole.METADATA),
-        Column(name="revenue", dtype="numeric"),
-        Column(name="costOfRevenue", dtype="numeric"),
-        Column(name="grossProfit", dtype="numeric"),
-        Column(name="operatingExpenses", dtype="numeric"),
-        Column(name="operatingIncome", dtype="numeric"),
-        Column(name="ebitda", dtype="numeric"),
-        Column(name="netIncome", dtype="numeric"),
-        Column(name="eps", dtype="numeric"),
-        Column(name="epsDiluted", dtype="numeric"),
+        Column(name="revenue"),
+        Column(name="costOfRevenue"),
+        Column(name="grossProfit"),
+        Column(name="operatingExpenses"),
+        Column(name="operatingIncome"),
+        Column(name="ebitda"),
+        Column(name="netIncome"),
+        Column(name="eps"),
+        Column(name="epsDiluted"),
     ]
 )
 
-BALANCE_SHEET_OUTPUT = OutputConfig(
+BALANCE_SHEET_OUTPUT = OutputSpec(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
-        Column(name="date", dtype="datetime"),
-        Column(name="totalAssets", dtype="numeric"),
-        Column(name="totalLiabilities", dtype="numeric"),
-        Column(name="totalStockholdersEquity", dtype="numeric"),
-        Column(name="totalDebt", dtype="numeric"),
-        Column(name="netDebt", dtype="numeric"),
-        Column(name="cashAndCashEquivalents", dtype="numeric"),
+        Column(name="date"),
+        Column(name="totalAssets"),
+        Column(name="totalLiabilities"),
+        Column(name="totalStockholdersEquity"),
+        Column(name="totalDebt"),
+        Column(name="netDebt"),
+        Column(name="cashAndCashEquivalents"),
         Column(name="*"),
     ]
 )
 
-CASH_FLOW_OUTPUT = OutputConfig(
+CASH_FLOW_OUTPUT = OutputSpec(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
-        Column(name="date", dtype="datetime"),
+        Column(name="date"),
         Column(name="reportedCurrency", role=ColumnRole.METADATA),
-        Column(name="netIncome", dtype="numeric"),
-        Column(name="operatingCashFlow", dtype="numeric"),
-        Column(name="capitalExpenditure", dtype="numeric"),
-        Column(name="freeCashFlow", dtype="numeric"),
-        Column(name="netCashProvidedByOperatingActivities", dtype="numeric"),
-        Column(name="netCashProvidedByInvestingActivities", dtype="numeric"),
-        Column(name="netCashProvidedByFinancingActivities", dtype="numeric"),
-        Column(name="netChangeInCash", dtype="numeric"),
+        Column(name="netIncome"),
+        Column(name="operatingCashFlow"),
+        Column(name="capitalExpenditure"),
+        Column(name="freeCashFlow"),
+        Column(name="netCashProvidedByOperatingActivities"),
+        Column(name="netCashProvidedByInvestingActivities"),
+        Column(name="netCashProvidedByFinancingActivities"),
+        Column(name="netChangeInCash"),
         Column(name="*"),
     ]
 )
 
-HISTORICAL_PRICES_OUTPUT = OutputConfig(
+HISTORICAL_PRICES_OUTPUT = OutputSpec(
     columns=[
-        # `datetime` (not `date`) so intraday frequencies (1min..4hour) keep their
-        # time component. `date` runs `dt.normalize()`, which would zero out the
-        # time on every row regardless of frequency.
-        Column(name="date", dtype="datetime"),
-        Column(name="open", dtype="numeric"),
-        Column(name="high", dtype="numeric"),
-        Column(name="low", dtype="numeric"),
-        Column(name="close", dtype="numeric"),
-        Column(name="volume", dtype="numeric"),
-        Column(name="change", dtype="numeric"),
-        Column(name="changePercent", dtype="numeric"),
-        Column(name="vwap", dtype="numeric"),
+        # Not normalized so intraday frequencies (1min..4hour) keep their
+        # time component.
+        Column(name="date"),
+        Column(name="open"),
+        Column(name="high"),
+        Column(name="low"),
+        Column(name="close"),
+        Column(name="volume"),
+        Column(name="change"),
+        Column(name="changePercent"),
+        Column(name="vwap"),
     ]
 )
 
@@ -126,40 +125,40 @@ HISTORICAL_PRICES_OUTPUT = OutputConfig(
 # priceAvg50, priceAvg200, exchange, open, previousClose, timestamp. It does NOT
 # carry avgVolume / pe / eps / changesPercentage — those are dropped here so the
 # schema does not declare columns the payload can't populate.
-STOCK_QUOTE_OUTPUT = OutputConfig(
+STOCK_QUOTE_OUTPUT = OutputSpec(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="name"),
-        Column(name="price", dtype="numeric"),
-        Column(name="changePercentage", dtype="numeric"),
-        Column(name="change", dtype="numeric"),
-        Column(name="dayLow", dtype="numeric"),
-        Column(name="dayHigh", dtype="numeric"),
-        Column(name="yearLow", dtype="numeric"),
-        Column(name="yearHigh", dtype="numeric"),
-        Column(name="marketCap", dtype="numeric"),
-        Column(name="volume", dtype="numeric"),
-        Column(name="priceAvg50", dtype="numeric"),
-        Column(name="priceAvg200", dtype="numeric"),
+        Column(name="price"),
+        Column(name="changePercentage"),
+        Column(name="change"),
+        Column(name="dayLow"),
+        Column(name="dayHigh"),
+        Column(name="yearLow"),
+        Column(name="yearHigh"),
+        Column(name="marketCap"),
+        Column(name="volume"),
+        Column(name="priceAvg50"),
+        Column(name="priceAvg200"),
         Column(name="exchange"),
-        Column(name="open", dtype="numeric"),
-        Column(name="previousClose", dtype="numeric"),
+        Column(name="open"),
+        Column(name="previousClose"),
     ]
 )
 
-PEERS_OUTPUT = OutputConfig(
+PEERS_OUTPUT = OutputSpec(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="companyName"),
-        Column(name="price", dtype="numeric"),
-        Column(name="mktCap", dtype="numeric"),
+        Column(name="price"),
+        Column(name="mktCap"),
     ]
 )
 
-NEWS_OUTPUT = OutputConfig(
+NEWS_OUTPUT = OutputSpec(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
-        Column(name="publishedDate", dtype="datetime"),
+        Column(name="publishedDate"),
         Column(name="title"),
         Column(name="text"),
         Column(name="url"),
@@ -168,99 +167,99 @@ NEWS_OUTPUT = OutputConfig(
     ]
 )
 
-INSIDER_TRADES_OUTPUT = OutputConfig(
+INSIDER_TRADES_OUTPUT = OutputSpec(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
-        Column(name="filingDate", dtype="datetime"),
-        Column(name="transactionDate", dtype="datetime"),
+        Column(name="filingDate"),
+        Column(name="transactionDate"),
         Column(name="reportingName"),
         Column(name="typeOfOwner"),
         Column(name="transactionType"),
         Column(name="acquisitionOrDisposition"),
-        Column(name="securitiesTransacted", dtype="numeric"),
-        Column(name="price", dtype="numeric"),
-        Column(name="securitiesOwned", dtype="numeric"),
+        Column(name="securitiesTransacted"),
+        Column(name="price"),
+        Column(name="securitiesOwned"),
         Column(name="formType"),
         Column(name="url"),
     ]
 )
 
-INSTITUTIONAL_POSITIONS_OUTPUT = OutputConfig(
+INSTITUTIONAL_POSITIONS_OUTPUT = OutputSpec(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
-        Column(name="date", dtype="date"),
-        Column(name="investorsHolding", dtype="numeric"),
-        Column(name="investorsHoldingChange", dtype="numeric"),
-        Column(name="numberOf13Fshares", dtype="numeric"),
-        Column(name="numberOf13FsharesChange", dtype="numeric"),
-        Column(name="totalInvested", dtype="numeric"),
-        Column(name="totalInvestedChange", dtype="numeric"),
-        Column(name="ownershipPercent", dtype="numeric"),
-        Column(name="ownershipPercentChange", dtype="numeric"),
-        Column(name="newPositions", dtype="numeric"),
-        Column(name="closedPositions", dtype="numeric"),
-        Column(name="increasedPositions", dtype="numeric"),
-        Column(name="reducedPositions", dtype="numeric"),
-        Column(name="putCallRatio", dtype="numeric"),
+        Column(name="date"),
+        Column(name="investorsHolding"),
+        Column(name="investorsHoldingChange"),
+        Column(name="numberOf13Fshares"),
+        Column(name="numberOf13FsharesChange"),
+        Column(name="totalInvested"),
+        Column(name="totalInvestedChange"),
+        Column(name="ownershipPercent"),
+        Column(name="ownershipPercentChange"),
+        Column(name="newPositions"),
+        Column(name="closedPositions"),
+        Column(name="increasedPositions"),
+        Column(name="reducedPositions"),
+        Column(name="putCallRatio"),
     ]
 )
 
-EARNINGS_TRANSCRIPT_OUTPUT = OutputConfig(
+EARNINGS_TRANSCRIPT_OUTPUT = OutputSpec(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
-        Column(name="year", dtype="numeric"),
+        Column(name="year"),
         Column(name="period"),
-        Column(name="date", dtype="date"),
+        Column(name="date"),
         Column(name="content"),
     ]
 )
 
-ANALYST_ESTIMATES_OUTPUT = OutputConfig(
+ANALYST_ESTIMATES_OUTPUT = OutputSpec(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
-        Column(name="date", dtype="date"),
-        Column(name="revenueLow", dtype="numeric"),
-        Column(name="revenueAvg", dtype="numeric"),
-        Column(name="revenueHigh", dtype="numeric"),
-        Column(name="ebitdaLow", dtype="numeric"),
-        Column(name="ebitdaAvg", dtype="numeric"),
-        Column(name="ebitdaHigh", dtype="numeric"),
-        Column(name="netIncomeLow", dtype="numeric"),
-        Column(name="netIncomeAvg", dtype="numeric"),
-        Column(name="netIncomeHigh", dtype="numeric"),
-        Column(name="epsLow", dtype="numeric"),
-        Column(name="epsAvg", dtype="numeric"),
-        Column(name="epsHigh", dtype="numeric"),
-        Column(name="numAnalystsRevenue", dtype="numeric"),
-        Column(name="numAnalystsEps", dtype="numeric"),
+        Column(name="date"),
+        Column(name="revenueLow"),
+        Column(name="revenueAvg"),
+        Column(name="revenueHigh"),
+        Column(name="ebitdaLow"),
+        Column(name="ebitdaAvg"),
+        Column(name="ebitdaHigh"),
+        Column(name="netIncomeLow"),
+        Column(name="netIncomeAvg"),
+        Column(name="netIncomeHigh"),
+        Column(name="epsLow"),
+        Column(name="epsAvg"),
+        Column(name="epsHigh"),
+        Column(name="numAnalystsRevenue"),
+        Column(name="numAnalystsEps"),
     ]
 )
 
-INDEX_CONSTITUENTS_OUTPUT = OutputConfig(
+INDEX_CONSTITUENTS_OUTPUT = OutputSpec(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="name"),
         Column(name="sector"),
         Column(name="subSector"),
         Column(name="headQuarter"),
-        Column(name="dateFirstAdded", dtype="date"),
+        Column(name="dateFirstAdded"),
         Column(name="cik"),
         Column(name="founded"),
     ]
 )
 
-MARKET_MOVERS_OUTPUT = OutputConfig(
+MARKET_MOVERS_OUTPUT = OutputSpec(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="name"),
-        Column(name="price", dtype="numeric"),
-        Column(name="change", dtype="numeric"),
-        Column(name="changesPercentage", dtype="numeric"),
+        Column(name="price"),
+        Column(name="change"),
+        Column(name="changesPercentage"),
         Column(name="exchange"),
     ]
 )
 
-SCREENER_OUTPUT = OutputConfig(
+SCREENER_OUTPUT = OutputSpec(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace=_NS),
         Column(name="companyName"),
@@ -268,9 +267,9 @@ SCREENER_OUTPUT = OutputConfig(
         Column(name="industry"),
         Column(name="country"),
         Column(name="exchange"),
-        Column(name="marketCap", dtype="numeric"),
-        Column(name="price", dtype="numeric"),
-        Column(name="beta", dtype="numeric"),
+        Column(name="marketCap"),
+        Column(name="price"),
+        Column(name="beta"),
         Column(name="*"),
     ]
 )

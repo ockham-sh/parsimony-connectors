@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
 from parsimony_eia.catalog_build import build_eia_catalog
 
@@ -11,7 +11,7 @@ EiaSearchParams = CatalogSearchParams
 
 PARSIMONY_EIA_CATALOG_URL_ENV = "PARSIMONY_EIA_CATALOG_URL"
 
-EIA_SEARCH_OUTPUT = OutputConfig(
+EIA_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="eia"),
         Column(name="title", role=ColumnRole.TITLE),

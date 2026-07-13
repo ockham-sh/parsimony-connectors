@@ -112,6 +112,7 @@ def boc_fetch(
             query_params={"series_name": series_name, "start_date": start_date, "end_date": end_date},
         )
 
+    df["date"] = pd.to_datetime(df["date"])
     return df
 
 

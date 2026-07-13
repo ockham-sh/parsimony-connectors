@@ -95,7 +95,10 @@ def sec_edgar_full_text_search(
                 "score": hit.get("_score"),
             }
         )
-    return pd.DataFrame(rows)[list(FULL_TEXT_SEARCH_COLUMNS)]
+    df = pd.DataFrame(rows)[list(FULL_TEXT_SEARCH_COLUMNS)]
+    df["filing_date"] = pd.to_datetime(df["filing_date"])
+    df["period_ending"] = pd.to_datetime(df["period_ending"])
+    return df
 
 
 def _load_company_tickers() -> list[dict[str, Any]]:

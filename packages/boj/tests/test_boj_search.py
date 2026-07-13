@@ -58,7 +58,7 @@ def test_connectors_are_tool_tagged() -> None:
 
 
 def test_databases_search_output_includes_dispatch_columns() -> None:
-    cfg = boj_databases_search.output_config
+    cfg = boj_databases_search.output_spec
     assert cfg is not None
     assert [c.name for c in cfg.columns] == [
         "db",
@@ -70,7 +70,7 @@ def test_databases_search_output_includes_dispatch_columns() -> None:
 
 
 def test_series_search_output_includes_db_for_fetch() -> None:
-    cfg = boj_series_search.output_config
+    cfg = boj_series_search.output_spec
     assert cfg is not None
     assert [c.name for c in cfg.columns] == ["code", "title", "score", "db"]
 

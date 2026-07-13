@@ -137,8 +137,8 @@ def test_enumerate_treasury_live() -> None:
     assert df["description"].astype(str).str.len().gt(0).any(), "no real description text"
     # The canonical debt measure is discoverable.
     assert df["code"].str.contains("debt_to_penny").any(), "debt_to_penny not enumerated"
-    # build_entities round-trips on a real slice (catalog-build entry point).
-    entities = TREASURY_ENUMERATE_OUTPUT.build_entities(df.head(20))
+    # entities_from_raw round-trips on a real slice (catalog-build entry point).
+    entities = entities_from_raw(df.head(20), TREASURY_ENUMERATE_OUTPUT)
     assert len(entities) == 20
     assert entities[0].namespace == CATALOG_NAMESPACE
 

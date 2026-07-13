@@ -149,8 +149,8 @@ def test_bdf_fetch_parses_json_response() -> None:
     assert list(df.columns) == ["key", "title", "date", "value"]
     assert len(df) == 2
     assert df.iloc[0]["title"] == "US dollar/Euro spot rate"
-    assert df["date"].dtype.kind == "M"  # declared dtype="datetime"
-    assert df["value"].dtype.kind == "f"  # declared dtype="numeric"
+    assert df["date"].dtype.kind == "M"  # body parses dates to datetime
+    assert df["value"].dtype.kind == "f"  # body parses values to floats
     assert df["value"].tolist() == [1.0832, 1.0874]
 
     # api_key rides the Authorization header (header auth → never a query param).
@@ -297,8 +297,8 @@ def test_enumerate_bdf_bounded_shape_and_metadata() -> None:
     usd = series[series["code"] == "EXR.M.USD.EUR.SP00.E"].iloc[0]
     assert "dollar US" in usd["description"]
 
-    # build_entities round-trips on the real-shape slice.
-    entities = BDF_ENUMERATE_OUTPUT.build_entities(df)
+    # entities_from_raw round-trips on the real-shape slice.
+    entities = entities_from_raw(df, BDF_ENUMERATE_OUTPUT)
     assert len(entities) == len(df)
     assert entities[0].namespace == "bdf"
 

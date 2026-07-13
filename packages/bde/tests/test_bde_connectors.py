@@ -9,6 +9,7 @@ import httpx
 import pandas as pd
 import pytest
 import respx
+from parsimony.catalog.source import entities_from_raw
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 from parsimony.result import Result
 
@@ -42,7 +43,7 @@ _ENUMERATE_FRAME_COLUMNS = [
 
 def _enumerate_frame(result: Result) -> pd.DataFrame:
     """Project enumerator tabular output into a flat frame for assertions."""
-    entries = BDE_ENUMERATE_OUTPUT.build_entities(result.data)
+    entries = entities_from_raw(result.data, BDE_ENUMERATE_OUTPUT)
     if not entries:
         return pd.DataFrame(columns=_ENUMERATE_FRAME_COLUMNS)
     rows = [{"key": entry.code, "title": entry.title, **entry.metadata} for entry in entries]
@@ -95,10 +96,10 @@ def test_bde_fetch_parses_single_series_response() -> None:
     df = result.data
     assert list(df["key"].unique()) == ["D_1NBAF472"]
     assert df["title"].iloc[0] == "One-year Euribor"
-    # The ISO timestamp is parsed to a real datetime (declared dtype="datetime").
+    # The ISO timestamp is parsed to a real datetime by the connector body.
     assert df["date"].dtype.kind == "M"
     assert df["date"].iloc[0] == pd.Timestamp("2026-01-01")
-    # Values coerce to the declared numeric dtype.
+    # The body parses values to floats.
     assert df["value"].dtype.kind == "f"
     assert df["value"].iloc[0] == pytest.approx(2.804)
 
@@ -859,7 +860,7 @@ def test_enumerate_bde_returns_empty_when_all_chapters_fail() -> None:
 
     df = _enumerate_frame(enumerate_bde())
     assert len(df) == 0
-    # Schema columns are still present so downstream OutputConfig.apply works.
+    # Schema columns are still present so downstream OutputSpec.apply works.
     assert "key" in df.columns
     assert "description" in df.columns
     assert "source" in df.columns

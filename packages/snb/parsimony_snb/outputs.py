@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
 # Compound code ``{cube_id}#{series_key}`` so every addressable SNB series has a
 # unique catalog entry; agents split on ``#`` to recover the fetchable cube_id and
 # the dimension selection. Mirrors Treasury's ``{endpoint}#{field}`` and rba's
 # ``{table_id}#{series_id}``. Warehouse cubes carry ``@``/``.`` in the cube_id but
 # never ``#``, so the split is unambiguous.
-SNB_ENUMERATE_OUTPUT = OutputConfig(
+SNB_ENUMERATE_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="snb"),
         Column(name="title", role=ColumnRole.TITLE),
@@ -31,18 +31,17 @@ SNB_ENUMERATE_OUTPUT = OutputConfig(
     ]
 )
 
-SNB_FETCH_OUTPUT = OutputConfig(
+SNB_FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="cube_id", role=ColumnRole.KEY, namespace="snb"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="date", dtype="datetime", role=ColumnRole.DATA),
+        Column(name="date", role=ColumnRole.DATA),
         # The cube's string dimension code columns (D0/D1/… or named warehouse
         # dimensions) and the numeric ``Value`` fold in as DATA automatically.
     ]
 )
 
-#: The exact column order an ``@enumerator`` must return (it enforces an exact
-#: match and drops unmapped columns). Mirrors ``SNB_ENUMERATE_OUTPUT`` order.
+#: The column order the enumerator returns. Mirrors ``SNB_ENUMERATE_OUTPUT`` order.
 _ENUMERATE_COLUMNS: tuple[str, ...] = (
     "code",
     "title",

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
 from parsimony_bdf.catalog_build import build_bdf_catalog
 
@@ -11,7 +11,7 @@ BdfSearchParams = CatalogSearchParams
 
 PARSIMONY_BDF_CATALOG_URL_ENV = "PARSIMONY_BDF_CATALOG_URL"
 
-BDF_SEARCH_OUTPUT = OutputConfig(
+BDF_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="bdf"),
         Column(name="title", role=ColumnRole.TITLE),

@@ -37,7 +37,9 @@ def sec_edgar_insider_transactions(cik: str, limit: int = 20) -> pd.DataFrame:
     ua = user_agent()
     cik_padded = normalize_cik(cik)
     df = _edgar._sync_get_insider_transactions(cik_padded, limit, ua)
-    return df.reindex(columns=list(INSIDER_TRANSACTIONS_COLUMNS))
+    df = df.reindex(columns=list(INSIDER_TRANSACTIONS_COLUMNS))
+    df["shares"] = pd.to_numeric(df["shares"], errors="coerce")
+    return df
 
 
 @connector(output=HOLDINGS_13F_OUTPUT, tags=["sec_edgar"])

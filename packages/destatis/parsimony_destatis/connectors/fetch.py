@@ -358,4 +358,6 @@ def destatis_fetch(
             message=f"No observations in {start_year or '..'}–{end_year or '..'} for table {table_code}",
             query_params={"name": table_code, "start_year": start_year, "end_year": end_year},
         )
-    return df.reset_index(drop=True)
+    df = df.reset_index(drop=True)
+    df["date"] = pd.to_datetime(df["date"])
+    return df

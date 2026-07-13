@@ -256,8 +256,8 @@ def test_fmp_prices_dividend_adjusted_renames_adj_columns() -> None:
 
 @respx.mock
 def test_fmp_prices_intraday_preserves_time_component() -> None:
-    """Regression: HISTORICAL_PRICES_OUTPUT.date must be datetime, not date.
-    `date` runs dt.normalize() which would zero out intraday times."""
+    """Regression: fmp_prices must parse `date` as datetime WITHOUT normalizing,
+    otherwise intraday times would be zeroed out."""
     respx.get(f"{_BASE}/historical-chart/1min").mock(
         return_value=httpx.Response(
             200,

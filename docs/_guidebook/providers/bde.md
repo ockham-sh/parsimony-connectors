@@ -88,7 +88,7 @@
 - Response formats: API = **gzip-compressed JSON** (must send `Accept-Encoding: gzip` / use `--compressed`; `fetch_json`/httpx handle this automatically). Catalog = **CP1252 CSV** (comma-delimited, quoted, `\r`-ish line endings, embedded newlines in quoted fields → must use a real CSV parser, not line-split).
 - Error shape: **HTTP 412** + `{"errNum":412,"errMsgUsr":"Error de validación en la solicitud","errMsgDebug":"La serie X no existe"}` for an invalid/absent series. listaSeries 412s the **entire batch** on one bad code (no partial result).
 - Anti-bot: none — plain `curl --compressed` works; no TLS-fingerprint blocking, no `curl_cffi` needed.
-- Date format: ISO-8601 with time, `YYYY-MM-DDTHH:MM:SSZ`, **newest-first**. Daily = full date (skips weekends/holidays); monthly = `YYYY-MM-01`; quarterly = first month of quarter (01/04/07/10); annual = `YYYY-01-01`. `bde_fetch` truncates to the date (declared `dtype="datetime"`).
+- Date format: ISO-8601 with time, `YYYY-MM-DDTHH:MM:SSZ`, **newest-first**. Daily = full date (skips weekends/holidays); monthly = `YYYY-MM-01`; quarterly = first month of quarter (01/04/07/10); annual = `YYYY-01-01`. `bde_fetch` truncates to the date and coerces it to datetime in the body.
 - `rango` is **frequency-dependent** (BdE validates server-side): monthly/quarterly/semestral → `30M`/`60M`/`MAX`/`YYYY`; daily/business-daily → `3M`/`12M`/`36M`/`YYYY` (**not `MAX`**); annual → `60M`/`MAX`/`YYYY`. A multi-series request mixing daily + non-daily under one explicit range 412s — pass a 4-digit year (works for every frequency) or `None`.
 
 ---

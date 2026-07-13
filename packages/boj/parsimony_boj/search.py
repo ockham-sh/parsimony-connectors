@@ -10,7 +10,7 @@ from parsimony.catalog.search import CatalogLRU, resolved_catalog_url
 from parsimony.catalog.source import lazy_catalog_dir
 from parsimony.connector import connector
 from parsimony.errors import EmptyDataError
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 from pydantic import BaseModel, Field
 
 from parsimony_boj.catalog_build import (
@@ -60,7 +60,7 @@ def _normalize_db(db: str) -> str:
     return db.strip().upper()
 
 
-DATABASES_SEARCH_OUTPUT = OutputConfig(
+DATABASES_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="db", role=ColumnRole.KEY),
         Column(name="title", role=ColumnRole.TITLE),
@@ -120,7 +120,7 @@ def boj_databases_search(
     return pd.DataFrame(rows)
 
 
-SERIES_SEARCH_OUTPUT = OutputConfig(
+SERIES_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="boj"),
         Column(name="title", role=ColumnRole.TITLE),

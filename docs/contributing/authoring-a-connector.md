@@ -129,7 +129,7 @@ packages/foo/
 ├── parsimony_foo/
 │   ├── __init__.py        # thin facade: re-export CONNECTORS + load
 │   ├── _http.py           # transport clients (base URLs, key resolution)
-│   ├── outputs.py         # OutputConfig schemas for every verb
+│   ├── outputs.py         # OutputSpec schemas for every verb
 │   ├── parsing.py         # response parsing (optional)
 │   ├── catalog_build.py   # build_foo_catalog() -> Catalog
 │   ├── search.py          # make_local_search_connector(...)
@@ -190,16 +190,16 @@ import pandas as pd
 from parsimony import Namespace
 from parsimony.connector import connector
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 from parsimony.transport.helpers import fetch_json, make_http_client, require_key
 
-FETCH_OUTPUT = OutputConfig(
+FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="series_id", role=ColumnRole.KEY, namespace="fred"),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="units_short", role=ColumnRole.METADATA),
-        Column(name="date", dtype="datetime", role=ColumnRole.DATA),
-        Column(name="value", dtype="numeric", role=ColumnRole.DATA),
+        Column(name="date", role=ColumnRole.DATA),
+        Column(name="value", role=ColumnRole.DATA),
     ]
 )
 
@@ -230,6 +230,8 @@ def fred_fetch(
 
     df = pd.DataFrame(observations)
     df["series_id"] = sid
+    df["date"] = pd.to_datetime(df["date"])
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
     # ... enrich with metadata ...
     return df[[c.name for c in FETCH_OUTPUT.columns]]
 ```
@@ -243,20 +245,19 @@ The rules this demonstrates:
 - **`Annotated[str, Namespace("fred")]`** on the identity parameter scopes the code to the
   provider's namespace. Use it on the parameter that takes a code (`series_id`,
   `endpoint`).
-- **Declare an `output=` schema** with `Column`/`ColumnRole` (`KEY`/`TITLE`/`METADATA`/
+- **Declare an `output=` spec** with `Column`/`ColumnRole` (`KEY`/`TITLE`/`METADATA`/
   `DATA`; at most one `KEY`, at most one `TITLE`; `namespace=` only on `KEY`/`METADATA`).
-  On a plain `@connector`, `output=` is optional, and any returned column the schema does
-  not name **folds in as a `DATA` column** — useful when a provider's data columns vary by
-  endpoint (`treasury_fetch` relies on this). When you want only the declared columns,
-  slice the frame to `[c.name for c in OUTPUT.columns]` before returning, as `fred_fetch`
-  does, so stray provider columns do not become stray `DATA`.
+  On a plain `@connector`, `output=` is optional. The spec only annotates — the body owns
+  the shape. Coerce dtypes yourself (`pd.to_datetime`, `pd.to_numeric`) and slice the frame
+  to `[c.name for c in OUTPUT.columns]` before returning, as `fred_fetch` does, so stray
+  provider columns do not reach the payload undeclared.
 - **Return raw data.** A DataFrame here; a Series, scalar, or dict elsewhere. Never a
   `Result`, never a tuple.
 - **The docstring is the description.** 20–800 characters. Lead with a clear first
   sentence stating what the call returns — an agent reads it to decide whether to call.
 - **Validate inputs and fail with typed errors** (see [§8](#8-typed-errors)).
 
-For the full `Column`/`ColumnRole` reference and dtype coercion, see
+For the full `Column`/`ColumnRole` reference, see
 [../concepts/connectors.md](../concepts/connectors.md).
 
 ---
@@ -271,9 +272,9 @@ per addressable unit** so the build pipeline can index them.
 ```python
 import pandas as pd
 from parsimony.connector import enumerator
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
-TREASURY_ENUMERATE_OUTPUT = OutputConfig(
+TREASURY_ENUMERATE_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="treasury"),
         Column(name="title", role=ColumnRole.TITLE),

@@ -15,6 +15,7 @@ import httpx
 import pandas as pd
 import pytest
 import respx
+from parsimony.catalog.source import entities_from_raw
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
 
 from parsimony_bdp import CONNECTORS
@@ -283,8 +284,8 @@ def test_enumerate_bdp_two_level_paginated_crawl(monkeypatch: pytest.MonkeyPatch
     assert (series["title_pt"] == "").all()
     assert (df["source"] == "bpstat").all()
 
-    # build_entities round-trips on the real slice (catalog-build entry point).
-    entities = BDP_ENUMERATE_OUTPUT.build_entities(df)
+    # entities_from_raw round-trips on the real slice (catalog-build entry point).
+    entities = entities_from_raw(df, BDP_ENUMERATE_OUTPUT)
     assert len(entities) == len(df)
     assert entities[0].namespace == "bdp"
 

@@ -179,20 +179,20 @@ Everything here is `parsimony-core`. Imports: top-level `from parsimony import �
 | Check | When |
 |---|---|
 | loader/enumerator role-shape, enumerator return annotation, `secrets=` names match params, sync-ness (rejects `async def`) | decoration (import) |
-| `OutputConfig` "≤1 KEY / ≤1 TITLE / ≥1 KEY-or-TITLE-or-DATA" | `OutputConfig(...)` construction |
+| `OutputSpec` "≤1 KEY / ≤1 TITLE / ≥1 KEY-or-TITLE-or-DATA" | `OutputSpec(...)` construction |
 | enumerator returned-frame **exact** column match | every call (`ValueError` → `ParseError`) |
 | returned a `Result`/tuple | every call (`TypeError`) |
 
-### 4.2 Output schema: `OutputConfig`, `Column`, `ColumnRole`
+### 4.2 Output schema: `OutputSpec`, `Column`, `ColumnRole`
 
 ```python
-from parsimony.result import Column, ColumnRole, OutputConfig
-OutputConfig(columns=[
+from parsimony.result import Column, ColumnRole, OutputSpec
+OutputSpec(columns=[
     Column(name="series_id", role=ColumnRole.KEY, namespace="fred"),   # identity
     Column(name="title",     role=ColumnRole.TITLE),                   # human label
     Column(name="units",     role=ColumnRole.METADATA),               # searchable facet
-    Column(name="date",      role=ColumnRole.DATA, dtype="datetime"),
-    Column(name="value",     role=ColumnRole.DATA, dtype="numeric"),
+    Column(name="date",      role=ColumnRole.DATA),
+    Column(name="value",     role=ColumnRole.DATA),
 ])
 ```
 
@@ -492,10 +492,10 @@ embedder friendliness).
 ### 6.6 Parsing real-world payloads
 
 - **Coerce only the measure column** to numeric. `pd.to_numeric(errors="coerce")` over every
-  column silently NaNs string metadata (EIA `duoarea`/`product`, SNB dimension codes). A
-  `dtype="numeric"` column that becomes **all-NaN** raises `ParseError` (the framework's
-  all-NaN guard) — FRED encodes missing as the sentinel `"."`, so pick real-data windows in
-  live tests.
+  column silently NaNs string metadata (EIA `duoarea`/`product`, SNB dimension codes).
+  Coercion is the connector body's job — the framework never touches the returned frame —
+  so guard against an all-NaN measure column in your own parsing (FRED encodes missing as
+  the sentinel `"."`; pick real-data windows in live tests).
 - **Multi-host providers:** per-base-URL clients with the boundary documented in code
   (`sec_edgar`: `data.sec.gov` for JSON APIs, `www.sec.gov` for the ticker map + `/Archives`
   bodies — `data.sec.gov` 404s `/Archives`).
@@ -656,8 +656,6 @@ The catalog is a *designed* artifact. Techniques drawn from the existing connect
   `(agency, flow)` / per database for depth (sdmx → thousands of bundles; boj → per-DB). Keeps
   each namespace tractable and embedding memory bounded. `catalog_root` + per-probe
   `namespace` lets one `queries.yaml` validate the whole fan-out.
-- **Per-row namespaces** (`namespace="__row__"` + an `entity_namespace` METADATA column) when
-  one enumerator spans several entity families.
 - **Cardinality discipline.** Collapse high-cardinality cartesian products to a coarser
   discoverable entity rather than emitting every redundant crossing: snb collapses ~9
   mega-cubes (>100 dimension-leaf crossings) to a single `{cube}#` row to keep the catalog

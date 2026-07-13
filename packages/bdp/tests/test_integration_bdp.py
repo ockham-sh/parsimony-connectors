@@ -125,7 +125,7 @@ def test_enumerate_bdp_bounded_single_domain_live(monkeypatch: pytest.MonkeyPatc
     # KEY shape for series rows: "{domain}:{dataset}:{series}".
     assert series["code"].str.startswith(f"{_BOUNDED_DOMAIN_ID}:").all()
 
-    entities = BDP_ENUMERATE_OUTPUT.build_entities(df)
+    entities = entities_from_raw(df, BDP_ENUMERATE_OUTPUT)
     assert len(entities) == len(df)
     assert entities[0].namespace == "bdp"
 
