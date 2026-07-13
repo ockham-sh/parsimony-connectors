@@ -24,7 +24,7 @@ import pandas as pd
 import pytest
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
+from parsimony.result import Result
 from parsimony.transport import HttpClient
 from parsimony_test_support import assert_provenance_shape
 
@@ -48,7 +48,7 @@ def test_snb_fetch_rendoblim_live() -> None:
     result = snb_fetch(cube_id="rendoblim", from_date="2024")
 
     assert_provenance_shape(result, expected_source="snb_fetch", required_param_keys=["cube_id"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "SNB fetch of rendoblim returned an empty DataFrame"
     assert set(df["cube_id"]) == {"rendoblim"}
     # Real title from getCubeInfo, not the cube_id fallback.
@@ -63,7 +63,7 @@ def test_snb_fetch_rendoblim_live() -> None:
 
 def test_snb_fetch_devkum_multidim_live() -> None:
     """devkum (FX rates) is a two-dimension cube — exercises the multi-dim parse."""
-    df = snb_fetch(cube_id="devkum", from_date="2024").data
+    df = snb_fetch(cube_id="devkum", from_date="2024").raw
     assert not df.empty
     assert {"D0", "D1", "Value"} <= set(df.columns)
     assert df["D1"].nunique() > 1, "expected multiple currencies in the FX cube"
@@ -76,7 +76,7 @@ def test_snb_fetch_warehouse_live() -> None:
     The old connector excluded all warehouse cubes; this proves one is fetchable
     end-to-end through ``snb_fetch``'s id-shape routing.
     """
-    df = snb_fetch(cube_id="BSTA@SNB.AUR_U.ODF", from_date="2020").data
+    df = snb_fetch(cube_id="BSTA@SNB.AUR_U.ODF", from_date="2020").raw
     assert not df.empty, "warehouse fetch returned empty"
     assert set(df["cube_id"]) == {"BSTA@SNB.AUR_U.ODF"}
     # The warehouse CSV carries named dimension columns + a numeric Value.
@@ -120,7 +120,7 @@ def test_enumerate_snb_bounded_live(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(HttpClient, "request", _counting_request)
 
-    df = enumerate_snb().data
+    df = enumerate_snb().raw
 
     # 2 cubes: getCubeInfo ×2 + dimensions ×1 (warehouse has no dims call) ≈ 3, never ~2,300.
     assert len(calls) < 12, f"bounded crawl fired {len(calls)} requests — bound did not hold"
@@ -136,7 +136,7 @@ def test_enumerate_snb_bounded_live(monkeypatch: pytest.MonkeyPatch) -> None:
     wh = df[df["source"] == "snb_warehouse"]
     assert (wh["code"] == "BSTA@SNB.AUR_U.ODF#").any()
 
-    entities = SNB_ENUMERATE_OUTPUT.build_entities(df)
+    entities = list(Result(raw=df, output_spec=SNB_ENUMERATE_OUTPUT).entities.values())
     assert len(entities) == len(df)
     assert entities[0].namespace == "snb"
 
@@ -178,7 +178,7 @@ def test_snb_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         ),
     ]
     df = pd.DataFrame(rows, columns=cols)
-    entries = entities_from_raw(df, SNB_ENUMERATE_OUTPUT)
+    entries = list(Result(raw=df, output_spec=SNB_ENUMERATE_OUTPUT).entities.values())
     catalog = Catalog("snb", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()
@@ -187,11 +187,11 @@ def test_snb_search_over_bounded_catalog_live(tmp_path: Path) -> None:
 
     result = snb_search(query="Swiss Confederation bond yields", limit=5, catalog_url=str(out_dir))
     assert_provenance_shape(result, expected_source="snb_search", required_param_keys=["query"])
-    sdf = result.data
+    sdf = result.raw
     assert list(sdf.columns) == ["code", "title", "score"]
     assert not sdf.empty
     assert sdf.iloc[0]["code"] == "rendoblim#10J"
 
     # Ranking discriminates: the warehouse derivatives cube is the top hit for its query.
     wh = snb_search(query="outstanding derivative financial instruments", limit=5, catalog_url=str(out_dir))
-    assert wh.data.iloc[0]["code"] == "BSTA@SNB.AUR_U.ODF#"
+    assert wh.raw.iloc[0]["code"] == "BSTA@SNB.AUR_U.ODF#"

@@ -38,19 +38,19 @@ from parsimony_polymarket import CONNECTORS
 
 # 1. Search events by topic.
 events = CONNECTORS["polymarket_search_events"](search_text="inflation", limit=5)
-event_slug = events.data.iloc[0]["slug"]
+event_slug = events.raw.iloc[0]["slug"]
 
 # 2. Drill into the event's markets.
 markets = CONNECTORS["polymarket_event"](slug=event_slug)
-market_slug = markets.data.iloc[0]["market_slug"]
+market_slug = markets.raw.iloc[0]["market_slug"]
 
 # 3. Get the market's outcomes and their CLOB token ids.
 outcomes = CONNECTORS["polymarket_market"](slug=market_slug)
-token_id = outcomes.data.iloc[0]["clob_token_id"]
+token_id = outcomes.raw.iloc[0]["clob_token_id"]
 
 # 4. Pull that outcome's probability time series.
 history = CONNECTORS["polymarket_price_history"](token_id=token_id, interval="1w")
-print(history.data.head())
+print(history.raw.head())
 ```
 
 For multi-plugin composition:

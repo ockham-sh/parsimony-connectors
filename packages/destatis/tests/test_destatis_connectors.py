@@ -28,7 +28,7 @@ from parsimony.errors import (
     ProviderError,
     RateLimitError,
 )
-from parsimony.result import ColumnRole
+from parsimony.result import ColumnRole, Result
 
 from parsimony_destatis import CONNECTORS
 from parsimony_destatis.connectors.enumerate import enumerate_destatis
@@ -81,7 +81,7 @@ def test_connectors_collection_exposes_expected_names() -> None:
     assert names == {"destatis_fetch", "enumerate_destatis", "destatis_search"}
 
 
-def test_enumerate_output_schema_includes_description_metadata() -> None:
+def test_enumerate_output_spec_includes_description_metadata() -> None:
     """``description`` is ordinary metadata in the clean catalog contract."""
     by_name = {c.name: c for c in DESTATIS_ENUMERATE_OUTPUT.columns}
     assert by_name["description"].role == ColumnRole.METADATA
@@ -109,7 +109,7 @@ def test_destatis_fetch_parses_jsonstat_response() -> None:
     assert result.provenance.source == "destatis_fetch"
     # No credentials → provenance carries only the call args (no secrets).
     assert result.provenance.params["name"] == "61111-0001"
-    df = result.data
+    df = result.raw
     assert len(df) == 2
     assert "series_id" in df.columns
     assert df.iloc[0]["series_id"] == "61111-0001"
@@ -144,9 +144,7 @@ _JSONSTAT_TWO_YEARS = {
             "id": ["Zeit"],
             "size": [2],
             "value": [100.0, 200.0],
-            "dimension": {
-                "Zeit": {"category": {"index": {"2025-01": 0, "2026-01": 1}}}
-            },
+            "dimension": {"Zeit": {"category": {"index": {"2025-01": 0, "2026-01": 1}}}},
         }
     ]
 }
@@ -158,11 +156,9 @@ def test_destatis_fetch_applies_client_side_year_filter() -> None:
     the connector re-applies the window client-side: a 2025+2026 payload narrowed
     to ``start_year=2026`` keeps only the 2026 row.
     """
-    respx.get(f"{_BASE}/tables/61111-0001/data").mock(
-        return_value=httpx.Response(200, json=_JSONSTAT_TWO_YEARS)
-    )
+    respx.get(f"{_BASE}/tables/61111-0001/data").mock(return_value=httpx.Response(200, json=_JSONSTAT_TWO_YEARS))
 
-    df = destatis_fetch(name="61111-0001", start_year="2026").data
+    df = destatis_fetch(name="61111-0001", start_year="2026").raw
 
     assert len(df) == 1
     assert pd.to_datetime(df["date"]).dt.year.tolist() == [2026]
@@ -174,9 +170,7 @@ def test_destatis_fetch_empty_window_raises_empty_data() -> None:
     """A window that filters every row away raises ``EmptyDataError`` (matching
     the existing no-observations path) rather than returning an empty frame.
     """
-    respx.get(f"{_BASE}/tables/61111-0001/data").mock(
-        return_value=httpx.Response(200, json=_JSONSTAT_TWO_YEARS)
-    )
+    respx.get(f"{_BASE}/tables/61111-0001/data").mock(return_value=httpx.Response(200, json=_JSONSTAT_TWO_YEARS))
 
     with pytest.raises(EmptyDataError):
         destatis_fetch(name="61111-0001", start_year="2030")
@@ -286,9 +280,7 @@ def _jsonstat(table_code: str, ids: list[str], index: dict[str, list[str]], valu
                 "id": ids,
                 "size": [len(index[d]) for d in ids],
                 "value": value,
-                "dimension": {
-                    d: {"category": {"index": {k: i for i, k in enumerate(index[d])}}} for d in ids
-                },
+                "dimension": {d: {"category": {"index": {k: i for i, k in enumerate(index[d])}}} for d in ids},
             }
         ]
     }
@@ -309,7 +301,7 @@ def test_fetch_time_dim_is_reference_date_not_statistic_code() -> None:
     )
     respx.get(f"{_BASE}/tables/12411-0001/data").mock(return_value=httpx.Response(200, json=fixture))
 
-    df = (destatis_fetch(name="12411-0001")).data
+    df = (destatis_fetch(name="12411-0001")).raw
     assert df["date"].dtype.kind == "M"
     assert set(pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")) == {
         "1999-12-31",
@@ -333,7 +325,7 @@ def test_fetch_time_dim_iso_duration_period() -> None:
     )
     respx.get(f"{_BASE}/tables/42153-0001/data").mock(return_value=httpx.Response(200, json=fixture))
 
-    df = (destatis_fetch(name="42153-0001")).data
+    df = (destatis_fetch(name="42153-0001")).raw
     assert set(pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")) == {"2015-05-01", "2015-06-01"}
 
 
@@ -353,7 +345,7 @@ def test_fetch_month_of_year_classification_is_not_treated_as_time() -> None:
     )
     respx.get(f"{_BASE}/tables/00000-0001/data").mock(return_value=httpx.Response(200, json=fixture))
 
-    df = (destatis_fetch(name="00000-0001")).data
+    df = (destatis_fetch(name="00000-0001")).raw
     # Dates are the real years, not the MONAT codes or the statistic code.
     assert set(pd.to_datetime(df["date"]).dt.year) == {2023, 2024}
     # MONAT survives as a classification column carrying its month-of-year codes.
@@ -448,7 +440,7 @@ def test_enumerate_destatis_emits_statistic_and_table_rows() -> None:
     )
 
     result = enumerate_destatis()
-    df = result.data
+    df = result.raw
 
     # Exactly the 11-column schema, in declared order.
     assert list(df.columns) == list(ENUMERATE_COLUMNS)
@@ -507,7 +499,7 @@ def test_enumerate_destatis_lifts_parent_description_into_table_rows() -> None:
     )
 
     result = enumerate_destatis()
-    df = result.data
+    df = result.raw
 
     table_rows = df[df["entity_type"] == "table"]
     assert len(table_rows) == 2
@@ -532,7 +524,7 @@ def test_enumerate_destatis_keeps_statistic_when_subresources_fail(
     with caplog.at_level(logging.INFO, logger="parsimony_destatis"):
         result = enumerate_destatis()
 
-    df = result.data
+    df = result.raw
     assert list(df.columns) == list(ENUMERATE_COLUMNS)
     # The statistic survives as a single statistic row (no tables).
     assert len(df) == 1
@@ -551,15 +543,13 @@ def test_enumerate_destatis_tableless_statistic_still_emitted(
     row. Previously such a statistic vanished entirely.
     """
     _stub_index([{"code": "61121", "name": {"de": "VPI Sonderauswertung", "en": "CPI special"}}])
-    respx.get(f"{_BASE}/statistics/61121/information").mock(
-        return_value=httpx.Response(200, json=[])
-    )
+    respx.get(f"{_BASE}/statistics/61121/information").mock(return_value=httpx.Response(200, json=[]))
     respx.get(f"{_BASE}/statistics/61121/tables").mock(return_value=httpx.Response(404))
 
     with caplog.at_level(logging.INFO, logger="parsimony_destatis"):
         result = enumerate_destatis()
 
-    df = result.data
+    df = result.raw
     assert list(df.columns) == list(ENUMERATE_COLUMNS)
     assert len(df) == 1
     row = df.iloc[0]
@@ -581,7 +571,7 @@ def test_enumerate_destatis_empty_index_emits_header_only_frame(
     with caplog.at_level(logging.WARNING, logger="parsimony_destatis"):
         result = enumerate_destatis()
 
-    df = result.data
+    df = result.raw
     assert list(df.columns) == list(ENUMERATE_COLUMNS)
     assert df.empty
 
@@ -605,7 +595,7 @@ def test_enumerate_destatis_emits_columns_required_for_catalog_entries() -> None
     )
 
     result = enumerate_destatis()
-    entries = DESTATIS_ENUMERATE_OUTPUT.build_entities(result.data)
+    entries = list(Result(raw=result.raw, output_spec=DESTATIS_ENUMERATE_OUTPUT).entities.values())
 
     by_code = {e.code: e for e in entries}
     assert "61111" in by_code

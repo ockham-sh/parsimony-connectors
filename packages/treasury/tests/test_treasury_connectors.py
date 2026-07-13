@@ -87,7 +87,7 @@ def test_treasury_fetch_returns_records() -> None:
         "sort": None,
         "page_size": 100,
     }
-    df = result.data
+    df = result.raw
     assert "record_date" in df.columns
     assert list(df["endpoint"]) == ["v2/accounting/od/debt_to_penny"]
     assert list(df["title"]) == ["Debt to the Penny"]
@@ -104,7 +104,7 @@ def test_treasury_fetch_strips_leading_slash_in_endpoint() -> None:
     )
     result = treasury_fetch(endpoint="/v2/accounting/od/debt_to_penny")
     assert route.called
-    assert list(result.data["endpoint"]) == ["v2/accounting/od/debt_to_penny"]
+    assert list(result.raw["endpoint"]) == ["v2/accounting/od/debt_to_penny"]
 
 
 @respx.mock
@@ -207,7 +207,7 @@ def test_treasury_rates_fetch_parses_xml_and_normalises_record_date() -> None:
 
     result = treasury_rates_fetch(feed="daily_treasury_yield_curve", year=2026)
 
-    df = result.data
+    df = result.raw
     assert len(df) == 2
     # Native rate columns are preserved; numeric typing applied.
     assert df["BC_10YEAR"].tolist() == [4.20, 4.19]
@@ -224,10 +224,12 @@ def test_treasury_rates_fetch_parses_xml_and_normalises_record_date() -> None:
     # alongside the feed-specific rate columns (which are DATA).
     from parsimony.result import ColumnRole
 
-    assert result.output_schema is not None
-    roles = {c.name: c.role for c in result.output_schema.columns}
+    assert result.output_spec is not None
+    roles = {c.name: c.role for c in result.output_spec.columns}
     assert roles["source_url"] == ColumnRole.METADATA
-    assert roles["BC_10YEAR"] == ColumnRole.DATA
+    # The feed-specific native rate columns (BC_10YEAR, ...) aren't individually
+    # declared; the "*" wildcard folds them all in as DATA.
+    assert roles["*"] == ColumnRole.DATA
 
 
 @respx.mock
@@ -340,7 +342,7 @@ def test_enumerate_treasury_emits_one_row_per_measure_field() -> None:
 
     result = enumerate_treasury()
 
-    df = result.data
+    df = result.raw
     # @enumerator enforces an EXACT column match — the frame carries exactly the declared columns.
     assert list(df.columns) == [c.name for c in TREASURY_ENUMERATE_OUTPUT.columns]
     fiscal = df[df["source"] == "fiscal_data"]
@@ -391,7 +393,7 @@ def test_enumerate_treasury_handles_top_level_list_payload() -> None:
         )
     )
 
-    df = (enumerate_treasury()).data
+    df = (enumerate_treasury()).raw
     fiscal = df[df["source"] == "fiscal_data"]
     assert set(fiscal["code"]) == {"v2/accounting/od/debt_to_penny#tot_pub_debt_out_amt"}
 
@@ -449,7 +451,7 @@ def test_enumerate_treasury_keeps_tcir_string_rate_fields() -> None:
         )
     )
 
-    df = (enumerate_treasury()).data
+    df = (enumerate_treasury()).raw
     fiscal = df[df["source"] == "fiscal_data"]
     assert set(fiscal["code"]) == {"v1/accounting/od/tcir_monthly_table_2#monthly_rate"}
     row = fiscal.iloc[0]
@@ -464,7 +466,7 @@ def test_enumerate_treasury_appends_office_of_debt_management_rates() -> None:
     distinguish them from versioned Fiscal Data endpoints."""
     respx.get(_METADATA_URL).mock(return_value=httpx.Response(200, json={"datasets": []}))
 
-    df = (enumerate_treasury()).data
+    df = (enumerate_treasury()).raw
     rates = df[df["source"] == "treasury_rates"]
     assert len(rates) > 30, "expected the full rate-feed registry to land"
 

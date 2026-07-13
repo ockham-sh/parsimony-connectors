@@ -26,7 +26,7 @@ import pandas as pd
 import pytest
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
+from parsimony.result import Result
 from parsimony_test_support import assert_provenance_shape
 
 from parsimony_treasury import (
@@ -50,7 +50,7 @@ def test_treasury_fetch_debt_to_penny_live() -> None:
     )
 
     assert_provenance_shape(result, expected_source="treasury_fetch", required_param_keys=["endpoint"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "debt_to_penny returned an empty DataFrame"
     assert len(df) <= 10, "page_size not respected"
     assert list(df["endpoint"].unique()) == ["v2/accounting/od/debt_to_penny"]
@@ -69,7 +69,7 @@ def test_treasury_rates_fetch_yield_curve_live() -> None:
     result = treasury_rates_fetch(feed="daily_treasury_yield_curve", year=2024)
 
     assert_provenance_shape(result, expected_source="treasury_rates_fetch", required_param_keys=["feed"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "yield curve feed returned an empty DataFrame"
     # Real content from the XML: the 10-year tenor must carry real numeric rates.
     assert "BC_10YEAR" in df.columns, "native rate column BC_10YEAR missing"
@@ -88,7 +88,7 @@ def test_treasury_rates_fetch_bill_rates_live() -> None:
     # the alternate date-column branch of the XML parser against the real feed.
     result = treasury_rates_fetch(feed="daily_treasury_bill_rates", year=2024)
 
-    df = result.data
+    df = result.raw
     assert not df.empty, "bill rates feed returned an empty DataFrame"
     assert "ROUND_B1_YIELD_4WK_2" in df.columns, "native 4-week bill yield column missing"
     assert df["ROUND_B1_YIELD_4WK_2"].notna().any(), "no real 4-week bill yields"
@@ -110,7 +110,7 @@ def test_rate_feed_registry_has_no_live_phantom() -> None:
 
     for feed in ("daily_treasury_yield_curve", "daily_treasury_real_yield_curve", "daily_treasury_bill_rates"):
         result = treasury_rates_fetch(feed=feed, year=2025)
-        live_cols = set(result.data.columns)
+        live_cols = set(result.raw.columns)
         missing = registry_columns(feed) - live_cols
         assert not missing, f"{feed}: registry columns absent from the 2025 live feed (phantom?): {sorted(missing)}"
 
@@ -120,7 +120,7 @@ def test_enumerate_treasury_live() -> None:
     # network cost is a single request; we do NOT embed/build a catalog here.
     result = enumerate_treasury()
 
-    df = result.data
+    df = result.raw
     # @enumerator: exact column match against the declared schema.
     assert list(df.columns) == [c.name for c in TREASURY_ENUMERATE_OUTPUT.columns]
     assert not df.empty, "enumeration returned no rows"
@@ -137,8 +137,8 @@ def test_enumerate_treasury_live() -> None:
     assert df["description"].astype(str).str.len().gt(0).any(), "no real description text"
     # The canonical debt measure is discoverable.
     assert df["code"].str.contains("debt_to_penny").any(), "debt_to_penny not enumerated"
-    # build_entities round-trips on a real slice (catalog-build entry point).
-    entities = TREASURY_ENUMERATE_OUTPUT.build_entities(df.head(20))
+    # Entity projection round-trips on a real slice (catalog-build entry point).
+    entities = list(Result(raw=df.head(20), output_spec=TREASURY_ENUMERATE_OUTPUT).entities.values())
     assert len(entities) == 20
     assert entities[0].namespace == CATALOG_NAMESPACE
 
@@ -196,7 +196,7 @@ def test_treasury_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         },
     ]
     df = pd.DataFrame(rows, columns=[c.name for c in TREASURY_ENUMERATE_OUTPUT.columns])
-    entries = entities_from_raw(df, TREASURY_ENUMERATE_OUTPUT)
+    entries = list(Result(raw=df, output_spec=TREASURY_ENUMERATE_OUTPUT).entities.values())
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()
@@ -206,7 +206,7 @@ def test_treasury_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     result = treasury_search(query="10 year treasury yield curve", limit=5, catalog_url=str(out_dir))
 
     assert_provenance_shape(result, expected_source="treasury_search", required_param_keys=["query"])
-    sdf = result.data
+    sdf = result.raw
     assert list(sdf.columns) == ["code", "title", "score"]
     assert not sdf.empty, "search over the fixture catalog returned nothing"
     assert len(sdf) <= 3, "result not bounded by the fixture catalog"

@@ -93,9 +93,9 @@ runtime with `discover.load("<name>").names()`, or across everything with `parsi
 
 ## Dict-returning connectors
 
-Most connectors return a `Result` whose tabular payload is `result.df`. A few return a nested
-record instead — for these, the payload is `result.data` (a dict or list of dicts) and there
-is **no `.df`**:
+Most connectors return a `Result` whose tabular payload is `result.frame`. A few return a
+nested record instead — for these, the payload is `result.raw` (a dict or list of dicts) and
+`result.frame` raises `TypeError` (the result is not tabular):
 
 - `coingecko_coin_detail`
 - `eodhd_fundamentals`

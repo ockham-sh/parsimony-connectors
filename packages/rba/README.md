@@ -67,7 +67,7 @@ default; override with the `PARSIMONY_RBA_CATALOG_URL` env var or
 from parsimony_rba import CONNECTORS
 
 result = CONNECTORS["rba_fetch"](table_id="f1-data")
-print(result.data.head())
+print(result.raw.head())
 ```
 
 For multi-plugin composition:

@@ -54,7 +54,7 @@ def test_sdmx_datasets_search_agency_optional_fanout(monkeypatch: pytest.MonkeyP
         )
 
     monkeypatch.setattr(search_module, "_get_or_load_catalog", fake_get_or_load)
-    df = sdmx_datasets_search(query="Title", limit=2).data
+    df = sdmx_datasets_search(query="Title", limit=2).raw
     assert len(df) == 2
     assert "dsd" in df.columns
     assert len(calls) == 4
@@ -75,7 +75,7 @@ def test_sdmx_datasets_search_single_agency(monkeypatch: pytest.MonkeyPatch) -> 
         )
 
     monkeypatch.setattr(search_module, "_get_or_load_catalog", fake_get_or_load)
-    df = sdmx_datasets_search(query="yield", agency="ECB", limit=5).data
+    df = sdmx_datasets_search(query="yield", agency="ECB", limit=5).raw
     assert df.iloc[0]["flow_id"] == "ECB/YC"
 
 

@@ -23,8 +23,8 @@ from parsimony_boc import (
 
 
 def _enumerate_dataframe(result: Result) -> pd.DataFrame:
-    assert isinstance(result.data, pd.DataFrame)
-    return result.data
+    assert isinstance(result.raw, pd.DataFrame)
+    return result.raw
 
 
 def test_connectors_collection_exposes_expected_names() -> None:
@@ -32,7 +32,7 @@ def test_connectors_collection_exposes_expected_names() -> None:
     assert names == {"boc_fetch", "enumerate_boc", "boc_search"}
 
 
-def test_enumerate_output_schema_routes_description_as_metadata() -> None:
+def test_enumerate_output_spec_routes_description_as_metadata() -> None:
     """Upstream ``description`` text is ordinary catalog metadata."""
     from parsimony.result import ColumnRole
 
@@ -63,14 +63,14 @@ def test_boc_fetch_single_series_returns_observations() -> None:
     result = boc_fetch(series_name="FXUSDCAD")
 
     assert result.provenance.source == "boc_fetch"
-    df = result.data
+    df = result.raw
     assert len(df) == 2
     assert set(df["series_name"]) == {"FXUSDCAD"}
     assert df["title"].iloc[0] == "USD/CAD"
-    # Values parse to real numerics (declared dtype="numeric").
+    # Values parse to real numerics (coerced in boc_fetch).
     assert df["value"].dtype.kind == "f"
     assert df["value"].tolist() == [1.3852, 1.3840]
-    # Dates parse to real datetimes (declared dtype="datetime").
+    # Dates parse to real datetimes (coerced in boc_fetch).
     assert df["date"].dtype.kind == "M"
 
 
@@ -98,7 +98,7 @@ def test_boc_fetch_group_syntax_uses_group_endpoint() -> None:
     result = boc_fetch(series_name="group:FX_RATES_DAILY")
 
     assert result.provenance.source == "boc_fetch"
-    df = result.data
+    df = result.raw
     # Both series in the group panel are melted into long format.
     assert set(df["series_name"]) == {"FXUSDCAD", "FXEURCAD"}
     assert df["value"].notna().all()
@@ -401,9 +401,7 @@ def test_enumerate_boc_tolerates_failing_group_endpoint() -> None:
             json={"groups": {"FLAKY_GROUP": {"label": "Temporarily flaky group"}}},
         )
     )
-    respx.get("https://www.bankofcanada.ca/valet/groups/FLAKY_GROUP/json").mock(
-        return_value=httpx.Response(503)
-    )
+    respx.get("https://www.bankofcanada.ca/valet/groups/FLAKY_GROUP/json").mock(return_value=httpx.Response(503))
 
     df = _enumerate_dataframe(enumerate_boc())
     # Series rows: one (FXUSDCAD), no group membership (the fan-out failed).
@@ -447,9 +445,7 @@ def test_enumerate_boc_prunes_retired_group_on_404() -> None:
             json={"groupDetails": {"name": "FX_RATES_DAILY", "groupSeries": {"FXUSDCAD": {"label": "USD/CAD"}}}},
         )
     )
-    respx.get("https://www.bankofcanada.ca/valet/groups/EXP_20220303/json").mock(
-        return_value=httpx.Response(404)
-    )
+    respx.get("https://www.bankofcanada.ca/valet/groups/EXP_20220303/json").mock(return_value=httpx.Response(404))
 
     df = _enumerate_dataframe(enumerate_boc())
     group_rows = df[df["entity_type"] == "group"]
@@ -545,7 +541,7 @@ def test_enumerate_boc_emits_columns_required_for_catalog_entries() -> None:
     )
 
     result = enumerate_boc()
-    entries = BOC_ENUMERATE_OUTPUT.build_entities(result.data)
+    entries = list(Result(raw=result.raw, output_spec=BOC_ENUMERATE_OUTPUT).entities.values())
     # One series row plus one group row. Groups are catalogued as their
     # own discoverable entities so agents can find them via group-level
     # description text.

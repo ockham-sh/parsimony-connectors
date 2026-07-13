@@ -20,7 +20,7 @@ import httpx
 import pytest
 import respx
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
-from parsimony.result import ColumnRole
+from parsimony.result import ColumnRole, Result
 from parsimony_shared.cb_enumerate import MetadataCrawlConfig
 
 from parsimony_boj import (
@@ -55,6 +55,7 @@ def _instant_metadata_crawl(monkeypatch: pytest.MonkeyPatch) -> None:
         ),
     )
 
+
 _ENUMERATE_COLS = [
     "code",
     "title",
@@ -79,7 +80,7 @@ def test_connectors_collection_exposes_expected_names() -> None:
     assert names == {"boj_fetch", "enumerate_boj", "boj_databases_search", "boj_series_search"}
 
 
-def test_enumerate_output_schema_includes_description_metadata() -> None:
+def test_enumerate_output_spec_includes_description_metadata() -> None:
     """``description`` is ordinary metadata in the clean catalog contract."""
     by_name = {c.name: c for c in BOJ_ENUMERATE_OUTPUT.columns}
     assert by_name["description"].role == ColumnRole.METADATA
@@ -141,7 +142,7 @@ def test_boj_fetch_returns_observations() -> None:
     result = boj_fetch(db="FM08", code="FXERD01")
 
     assert result.provenance.source == "boj_fetch"
-    df = result.data
+    df = result.raw
     assert len(df) == 2
     assert df.iloc[0]["title"] == "JPY/USD Spot Rate"
     # Integer survey dates parse to ISO and coerce to the declared datetime dtype.
@@ -172,7 +173,7 @@ def test_boj_fetch_skips_null_values_keeps_real_ones() -> None:
     )
 
     result = boj_fetch(db="FM08", code="FXERD01")
-    df = result.data
+    df = result.raw
     assert len(df) == 1
     assert df.iloc[0]["value"] == 159.65
 
@@ -253,12 +254,10 @@ def test_boj_fetch_paginates_on_nextposition() -> None:
         "MESSAGE": "Successfully completed",
     }
     page2 = {"RESULTSET": [_series_row("S3", "3.0")]}  # no NEXTPOSITION -> done
-    respx.get(_DATA_URL).mock(
-        side_effect=[httpx.Response(200, json=page1), httpx.Response(200, json=page2)]
-    )
+    respx.get(_DATA_URL).mock(side_effect=[httpx.Response(200, json=page1), httpx.Response(200, json=page2)])
 
     result = boj_fetch(db="FM08", code="S1,S2,S3")
-    df = result.data
+    df = result.raw
 
     assert set(df["code"]) == {"S1", "S2", "S3"}, "pagination dropped series"
     assert len(df) == 3
@@ -271,12 +270,10 @@ def test_boj_fetch_pagination_stops_when_cursor_does_not_advance() -> None:
     respx raise, so success proves the loop stopped."""
     page1 = {"RESULTSET": [_series_row("S1", "1.0")], "NEXTPOSITION": 2}
     page2 = {"RESULTSET": [_series_row("S2", "2.0")], "NEXTPOSITION": 2}  # does NOT advance
-    respx.get(_DATA_URL).mock(
-        side_effect=[httpx.Response(200, json=page1), httpx.Response(200, json=page2)]
-    )
+    respx.get(_DATA_URL).mock(side_effect=[httpx.Response(200, json=page1), httpx.Response(200, json=page2)])
 
     result = boj_fetch(db="FM08", code="S1,S2")
-    df = result.data
+    df = result.raw
     assert set(df["code"]) == {"S1", "S2"}
 
 
@@ -342,7 +339,7 @@ def test_enumerate_boj_emits_series_rows_with_real_breadcrumb() -> None:
     _stub_metadata_endpoint(json=_FM08_PAYLOAD)
 
     result = enumerate_boj()
-    df = result.data
+    df = result.raw
 
     assert list(df.columns) == _ENUMERATE_COLS
 
@@ -371,7 +368,7 @@ def test_enumerate_boj_breadcrumb_never_a_bare_integer() -> None:
     _stub_metadata_endpoint(json=_FM08_PAYLOAD)
 
     result = enumerate_boj()
-    series = result.data[result.data["entity_type"] == "series"]
+    series = result.raw[result.raw["entity_type"] == "series"]
     for bc in series["breadcrumb"]:
         assert not str(bc).strip().isdigit(), f"breadcrumb leaked a raw ordinal: {bc!r}"
 
@@ -382,7 +379,7 @@ def test_enumerate_boj_emits_db_rows_with_db_prefix_key() -> None:
     _stub_metadata_endpoint(json={"RESULTSET": []})
 
     result = enumerate_boj()
-    df = result.data
+    df = result.raw
 
     db_rows = df[df["entity_type"] == "db"]
     assert len(db_rows) == 50
@@ -406,7 +403,7 @@ def test_enumerate_boj_handles_403_with_retry_then_warning(
     with caplog.at_level(logging.WARNING, logger="parsimony_boj"):
         result = enumerate_boj()
 
-    df = result.data
+    df = result.raw
     assert list(df.columns) == _ENUMERATE_COLS
     warning_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert any("failed metadata fetch" in m.lower() for m in warning_messages)
@@ -419,8 +416,8 @@ def test_enumerate_boj_build_entities_round_trip() -> None:
 
     result = enumerate_boj()
     # The respx stub returns the same payload for every DB; dedupe on code.
-    frame = result.data.drop_duplicates(subset=["code"], keep="first")
-    entries = BOJ_ENUMERATE_OUTPUT.build_entities(frame)
+    frame = result.raw.drop_duplicates(subset=["code"], keep="first")
+    entries = list(Result(raw=frame, output_spec=BOJ_ENUMERATE_OUTPUT).entities.values())
 
     by_code = {e.code: e for e in entries}
     series_entry = by_code["FXERD01"]

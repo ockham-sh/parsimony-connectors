@@ -1,15 +1,15 @@
 """Declarative output schemas for the Finnhub connectors.
 
-One :class:`OutputConfig` per connector that projects a shaped DataFrame
+One :class:`OutputSpec` per connector that projects a shaped DataFrame
 out of Finnhub's raw JSON. Columns declared here are the contract with
 the MCP tool catalog — renaming or re-ordering them is a breaking change.
 """
 
 from __future__ import annotations
 
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
-SEARCH_OUTPUT = OutputConfig(
+SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace="finnhub_symbol"),
         Column(name="description", role=ColumnRole.TITLE),
@@ -20,13 +20,13 @@ SEARCH_OUTPUT = OutputConfig(
 
 # Company profile for one symbol — a one-row frame (the raw endpoint returns a
 # single JSON record). The three share/cap figures are the quantitative DATA.
-PROFILE_OUTPUT = OutputConfig(
+PROFILE_OUTPUT = OutputSpec(
     columns=[
         Column(name="ticker", role=ColumnRole.KEY, namespace="finnhub_symbol"),
         Column(name="name", role=ColumnRole.TITLE),
-        Column(name="marketCapitalization", dtype="numeric"),
-        Column(name="shareOutstanding", dtype="numeric"),
-        Column(name="floatingShare", dtype="numeric"),
+        Column(name="marketCapitalization"),
+        Column(name="shareOutstanding"),
+        Column(name="floatingShare"),
         Column(name="country", role=ColumnRole.METADATA),
         Column(name="currency", role=ColumnRole.METADATA),
         Column(name="estimateCurrency", role=ColumnRole.METADATA),
@@ -39,53 +39,53 @@ PROFILE_OUTPUT = OutputConfig(
     ]
 )
 
-QUOTE_OUTPUT = OutputConfig(
+QUOTE_OUTPUT = OutputSpec(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace="finnhub_symbol"),
-        Column(name="current_price", dtype="numeric"),
-        Column(name="change", dtype="numeric"),
-        Column(name="change_percent", dtype="numeric"),
-        Column(name="high", dtype="numeric"),
-        Column(name="low", dtype="numeric"),
-        Column(name="open", dtype="numeric"),
-        Column(name="prev_close", dtype="numeric"),
-        Column(name="timestamp", role=ColumnRole.METADATA, dtype="timestamp"),
+        Column(name="current_price"),
+        Column(name="change"),
+        Column(name="change_percent"),
+        Column(name="high"),
+        Column(name="low"),
+        Column(name="open"),
+        Column(name="prev_close"),
+        Column(name="timestamp", role=ColumnRole.METADATA),
     ]
 )
 
-PEERS_OUTPUT = OutputConfig(
+PEERS_OUTPUT = OutputSpec(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace="finnhub_symbol"),
     ]
 )
 
-RECOMMENDATION_OUTPUT = OutputConfig(
+RECOMMENDATION_OUTPUT = OutputSpec(
     columns=[
-        Column(name="period", role=ColumnRole.KEY, dtype="date"),
-        Column(name="strong_buy", dtype="numeric"),
-        Column(name="buy", dtype="numeric"),
-        Column(name="hold", dtype="numeric"),
-        Column(name="sell", dtype="numeric"),
-        Column(name="strong_sell", dtype="numeric"),
+        Column(name="period", role=ColumnRole.KEY),
+        Column(name="strong_buy"),
+        Column(name="buy"),
+        Column(name="hold"),
+        Column(name="sell"),
+        Column(name="strong_sell"),
     ]
 )
 
-EARNINGS_OUTPUT = OutputConfig(
+EARNINGS_OUTPUT = OutputSpec(
     columns=[
-        Column(name="period", role=ColumnRole.KEY, dtype="date"),
+        Column(name="period", role=ColumnRole.KEY),
         Column(name="quarter", role=ColumnRole.METADATA),
         Column(name="year", role=ColumnRole.METADATA),
-        Column(name="eps_actual", dtype="numeric"),
-        Column(name="eps_estimate", dtype="numeric"),
-        Column(name="eps_surprise", dtype="numeric"),
-        Column(name="eps_surprise_percent", dtype="numeric"),
+        Column(name="eps_actual"),
+        Column(name="eps_estimate"),
+        Column(name="eps_surprise"),
+        Column(name="eps_surprise_percent"),
     ]
 )
 
-NEWS_OUTPUT = OutputConfig(
+NEWS_OUTPUT = OutputSpec(
     columns=[
         Column(name="id", role=ColumnRole.KEY),
-        Column(name="datetime", role=ColumnRole.METADATA, dtype="timestamp"),
+        Column(name="datetime", role=ColumnRole.METADATA),
         Column(name="headline", role=ColumnRole.TITLE),
         Column(name="source", role=ColumnRole.METADATA),
         Column(name="category", role=ColumnRole.METADATA),
@@ -96,37 +96,37 @@ NEWS_OUTPUT = OutputConfig(
     ]
 )
 
-EARNINGS_CAL_OUTPUT = OutputConfig(
+EARNINGS_CAL_OUTPUT = OutputSpec(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace="finnhub_symbol"),
-        Column(name="date", role=ColumnRole.METADATA, dtype="date"),
+        Column(name="date", role=ColumnRole.METADATA),
         Column(name="year", role=ColumnRole.METADATA),
         Column(name="quarter", role=ColumnRole.METADATA),
         Column(name="hour", role=ColumnRole.METADATA),
-        Column(name="eps_estimate", dtype="numeric"),
-        Column(name="eps_actual", dtype="numeric"),
-        Column(name="revenue_estimate", dtype="numeric"),
-        Column(name="revenue_actual", dtype="numeric"),
+        Column(name="eps_estimate"),
+        Column(name="eps_actual"),
+        Column(name="revenue_estimate"),
+        Column(name="revenue_actual"),
     ]
 )
 
-IPO_CAL_OUTPUT = OutputConfig(
+IPO_CAL_OUTPUT = OutputSpec(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace="finnhub_symbol"),
         Column(name="name", role=ColumnRole.TITLE),
-        Column(name="date", role=ColumnRole.METADATA, dtype="date"),
+        Column(name="date", role=ColumnRole.METADATA),
         Column(name="exchange", role=ColumnRole.METADATA),
         Column(name="status", role=ColumnRole.METADATA),
         # Finnhub reports IPO price as a string that is sometimes a single value
         # ("18.00") and sometimes a range ("18.00-20.00"). Coercing to numeric
         # silently nulls every range, so keep the verbatim string as metadata.
         Column(name="price_range", role=ColumnRole.METADATA),
-        Column(name="number_of_shares", dtype="numeric"),
-        Column(name="total_shares_value", dtype="numeric"),
+        Column(name="number_of_shares"),
+        Column(name="total_shares_value"),
     ]
 )
 
-ENUMERATE_OUTPUT = OutputConfig(
+ENUMERATE_OUTPUT = OutputSpec(
     columns=[
         Column(name="symbol", role=ColumnRole.KEY, namespace="finnhub_symbol"),
         Column(name="description", role=ColumnRole.TITLE),

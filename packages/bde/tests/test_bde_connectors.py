@@ -42,7 +42,7 @@ _ENUMERATE_FRAME_COLUMNS = [
 
 def _enumerate_frame(result: Result) -> pd.DataFrame:
     """Project enumerator tabular output into a flat frame for assertions."""
-    entries = BDE_ENUMERATE_OUTPUT.build_entities(result.data)
+    entries = list(Result(raw=result.raw, output_spec=BDE_ENUMERATE_OUTPUT).entities.values())
     if not entries:
         return pd.DataFrame(columns=_ENUMERATE_FRAME_COLUMNS)
     rows = [{"key": entry.code, "title": entry.title, **entry.metadata} for entry in entries]
@@ -92,10 +92,10 @@ def test_bde_fetch_parses_single_series_response() -> None:
     assert result.provenance.source == "bde_fetch"
     # Secrets/keyless: provenance records the call-time args verbatim.
     assert result.provenance.params == {"key": "D_1NBAF472", "time_range": None, "lang": "en"}
-    df = result.data
+    df = result.raw
     assert list(df["key"].unique()) == ["D_1NBAF472"]
     assert df["title"].iloc[0] == "One-year Euribor"
-    # The ISO timestamp is parsed to a real datetime (declared dtype="datetime").
+    # The ISO timestamp is parsed to a real datetime (coerced in bde_fetch).
     assert df["date"].dtype.kind == "M"
     assert df["date"].iloc[0] == pd.Timestamp("2026-01-01")
     # Values coerce to the declared numeric dtype.
@@ -119,7 +119,7 @@ def test_bde_fetch_sorts_observations_ascending_by_date() -> None:
         )
     )
 
-    df = bde_fetch(key="D_1NBAF472").data
+    df = bde_fetch(key="D_1NBAF472").raw
 
     assert list(df["value"]) == [1.0, 2.0, 3.0]
     assert list(df["date"]) == [
@@ -143,7 +143,7 @@ def test_bde_fetch_multi_series_kept_contiguous_when_sorting() -> None:
         )
     )
 
-    df = bde_fetch(key="AAA,BBB").data
+    df = bde_fetch(key="AAA,BBB").raw
 
     assert list(df["key"]) == ["AAA", "AAA", "BBB", "BBB"]
     assert list(df["value"]) == [10.0, 20.0, 1.0, 2.0]
@@ -160,7 +160,7 @@ def test_bde_fetch_sends_one_request_for_comma_joined_keys() -> None:
         )
     )
 
-    df = (bde_fetch(key="D_1NBAF472, DTCCBCEUSDEUR.B")).data
+    df = (bde_fetch(key="D_1NBAF472, DTCCBCEUSDEUR.B")).raw
 
     assert len(route.calls) == 1
     sent = route.calls.last.request
@@ -382,6 +382,8 @@ _CSV_BE = _csv(
         ),
     ],
 )
+
+
 # ``pb`` (Bank Lending Survey) is recovered from the bulk ``pb.zip``, whose
 # value files are TRANSPOSED: row 0 is the real fetchable ``DPB…`` codes, row 2
 # the ``PB_x_y.z`` aliases, then description/units/frequency rows, then one row
@@ -650,12 +652,8 @@ def test_enumerate_bde_dedupes_cross_chapter_repeats() -> None:
         respx.get(f"{_CSV_BASE}/catalogo_{chapter}.csv").mock(
             return_value=httpx.Response(200, content=_csv(_HEADER, []).encode("cp1252"))
         )
-    respx.get(f"{_CSV_BASE}/catalogo_be.csv").mock(
-        return_value=httpx.Response(200, content=dup.encode("cp1252"))
-    )
-    respx.get(f"{_CSV_BASE}/catalogo_si.csv").mock(
-        return_value=httpx.Response(200, content=dup_si.encode("cp1252"))
-    )
+    respx.get(f"{_CSV_BASE}/catalogo_be.csv").mock(return_value=httpx.Response(200, content=dup.encode("cp1252")))
+    respx.get(f"{_CSV_BASE}/catalogo_si.csv").mock(return_value=httpx.Response(200, content=dup_si.encode("cp1252")))
     respx.get(PB_ZIP_URL).mock(return_value=httpx.Response(503))
 
     df = _enumerate_frame(enumerate_bde())
@@ -770,16 +768,10 @@ def test_enumerate_bde_degrades_gracefully_on_chapter_outage() -> None:
     is best-effort; partial is strictly better than empty."""
     # Three CSV chapters succeed; the rest (and pb.zip) fail — verify we still
     # get the surviving rows rather than losing everything.
-    respx.get(f"{_CSV_BASE}/catalogo_be.csv").mock(
-        return_value=httpx.Response(200, content=_CSV_BE.encode("cp1252"))
-    )
+    respx.get(f"{_CSV_BASE}/catalogo_be.csv").mock(return_value=httpx.Response(200, content=_CSV_BE.encode("cp1252")))
     respx.get(f"{_CSV_BASE}/catalogo_cf.csv").mock(return_value=httpx.Response(503))
-    respx.get(f"{_CSV_BASE}/catalogo_ie.csv").mock(
-        return_value=httpx.Response(200, content=_CSV_IE.encode("cp1252"))
-    )
-    respx.get(f"{_CSV_BASE}/catalogo_si.csv").mock(
-        return_value=httpx.Response(200, content=_CSV_SI.encode("cp1252"))
-    )
+    respx.get(f"{_CSV_BASE}/catalogo_ie.csv").mock(return_value=httpx.Response(200, content=_CSV_IE.encode("cp1252")))
+    respx.get(f"{_CSV_BASE}/catalogo_si.csv").mock(return_value=httpx.Response(200, content=_CSV_SI.encode("cp1252")))
     respx.get(f"{_CSV_BASE}/catalogo_tc.csv").mock(return_value=httpx.Response(500))
     respx.get(f"{_CSV_BASE}/catalogo_ti.csv").mock(return_value=httpx.Response(503))
     respx.get(PB_ZIP_URL).mock(return_value=httpx.Response(503))
@@ -840,9 +832,7 @@ def test_enumerate_bde_skips_rows_missing_serie() -> None:
         respx.get(f"{_CSV_BASE}/catalogo_{chapter}.csv").mock(
             return_value=httpx.Response(200, content=header_only.encode("cp1252"))
         )
-    respx.get(f"{_CSV_BASE}/catalogo_ti.csv").mock(
-        return_value=httpx.Response(200, content=bogus.encode("cp1252"))
-    )
+    respx.get(f"{_CSV_BASE}/catalogo_ti.csv").mock(return_value=httpx.Response(200, content=bogus.encode("cp1252")))
     respx.get(PB_ZIP_URL).mock(return_value=httpx.Response(503))
 
     df = _enumerate_frame(enumerate_bde())
@@ -859,7 +849,7 @@ def test_enumerate_bde_returns_empty_when_all_chapters_fail() -> None:
 
     df = _enumerate_frame(enumerate_bde())
     assert len(df) == 0
-    # Schema columns are still present so downstream OutputConfig.apply works.
+    # Schema columns are still present so downstream OutputSpec.apply works.
     assert "key" in df.columns
     assert "description" in df.columns
     assert "source" in df.columns

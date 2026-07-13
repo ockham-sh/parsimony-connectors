@@ -38,7 +38,7 @@ TITLE_INDEX_MAX_VALUES = 100_000
 AGENCY_CSV: dict[AgencyId, tuple[str, str]] = {
     AgencyId.ESTAT: (
         "https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1",
-        "application/vnd.sdmx.data+csv;version=1.0.0",
+        "application/vnd.sdmx.raw+csv;version=1.0.0",
     ),
     AgencyId.ECB: (
         "https://data-api.ecb.europa.eu/service",
@@ -46,7 +46,7 @@ AGENCY_CSV: dict[AgencyId, tuple[str, str]] = {
     ),
     AgencyId.IMF_DATA: (
         "https://api.imf.org/external/sdmx/2.1",
-        "application/vnd.sdmx.data+csv;version=1.0.0",
+        "application/vnd.sdmx.raw+csv;version=1.0.0",
     ),
 }
 

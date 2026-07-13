@@ -70,7 +70,7 @@ def test_eodhd_search_apple() -> None:
     result = eodhd_search.bind(api_key=key)(query="apple")
 
     assert_provenance_shape(result, expected_source="eodhd_search", required_param_keys=["query"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "search for 'apple' returned no rows"
     assert "AAPL" in set(df["Code"]), f"AAPL missing: {list(df['Code'])[:10]}"
     assert df["Name"].str.len().gt(0).any(), "Name column is empty for every result"
@@ -82,7 +82,7 @@ def test_eodhd_search_type_filter() -> None:
     key = _key()
     result = eodhd_search.bind(api_key=key)(query="apple", type="etf")
 
-    df = result.data
+    df = result.raw
     assert not df.empty, "etf-filtered search returned no rows"
     assert df["Name"].str.len().gt(0).any()
     assert_no_secret_leak(result, secret=key)
@@ -93,7 +93,7 @@ def test_eodhd_exchanges() -> None:
     result = eodhd_exchanges.bind(api_key=key)()
 
     assert_provenance_shape(result, expected_source="eodhd_exchanges")
-    df = result.data
+    df = result.raw
     assert not df.empty, "exchanges-list returned no rows"
     assert "US" in set(df["Code"]), "US exchange missing"
     assert df["Name"].str.len().gt(0).any(), "exchange Name is empty for every row"
@@ -106,7 +106,7 @@ def test_eodhd_exchange_symbols_us_bounded() -> None:
     result = eodhd_exchange_symbols.bind(api_key=key)(exchange="US", type="common_stock")
 
     assert_provenance_shape(result, expected_source="eodhd_exchange_symbols", required_param_keys=["exchange"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "US exchange-symbol-list returned no rows"
     head = df.head(2000)
     assert head["Code"].str.len().gt(0).all(), "Code empty in head slice"
@@ -120,7 +120,7 @@ def test_eodhd_eod_aapl_window() -> None:
     result = eodhd_eod.bind(api_key=key)(ticker="AAPL.US", from_date="2025-06-02", to_date="2025-06-06")
 
     assert_provenance_shape(result, expected_source="eodhd_eod", required_param_keys=["ticker"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "AAPL EOD window returned no rows"
     assert df["close"].notna().any(), "close is entirely NaN"
     assert df["volume"].notna().any(), "volume is entirely NaN"
@@ -132,7 +132,7 @@ def test_eodhd_live_aapl() -> None:
     result = eodhd_live.bind(api_key=key)(ticker="AAPL.US")
 
     assert_provenance_shape(result, expected_source="eodhd_live", required_param_keys=["ticker"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "live quote returned no rows"
     assert df.iloc[0]["code"].upper().startswith("AAPL")
     assert df["close"].notna().any(), "live close is entirely NaN"
@@ -144,7 +144,7 @@ def test_eodhd_dividends_aapl() -> None:
     result = eodhd_dividends.bind(api_key=key)(ticker="AAPL.US", from_date="2020-01-01")
 
     assert_provenance_shape(result, expected_source="eodhd_dividends", required_param_keys=["ticker"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "AAPL dividends returned no rows"
     assert df["value"].notna().any(), "dividend value is entirely NaN"
     assert_no_secret_leak(result, secret=key)
@@ -155,7 +155,7 @@ def test_eodhd_splits_aapl() -> None:
     result = eodhd_splits.bind(api_key=key)(ticker="AAPL.US", from_date="1980-01-01")
 
     assert_provenance_shape(result, expected_source="eodhd_splits", required_param_keys=["ticker"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "AAPL splits returned no rows"
     assert df["split"].str.contains("/").any(), "split ratio string missing the '/' separator"
     assert_no_secret_leak(result, secret=key)
@@ -174,7 +174,7 @@ def test_eodhd_news_aapl() -> None:
         return
 
     assert_provenance_shape(result, expected_source="eodhd_news")
-    df = result.data
+    df = result.raw
     assert not df.empty, "AAPL news returned no rows"
     assert df["title"].str.len().gt(0).any(), "news titles are all empty"
     assert_no_secret_leak(result, secret=key)
@@ -201,7 +201,7 @@ def _content_or_payment_required(connector_fn, kwargs, source: str, key: str) ->
         return
 
     assert_provenance_shape(result, expected_source=source)
-    data = result.data
+    data = result.raw
     if isinstance(data, pd.DataFrame):
         assert not data.empty, f"{source}: licensed key returned an empty frame"
     else:  # eodhd_fundamentals returns a dict

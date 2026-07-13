@@ -5,7 +5,7 @@ A connector exposes a provider's data through two separate jobs:
 - **Discovery** answers *"what data exists?"* — given a query, return the codes (series IDs,
   table IDs, dataset IDs) you can address, plus enough metadata to dispatch a fetch.
 - **Fetch** answers *"give me the values for this code"* — given a code, return a `Result`
-  with `result.df`, `result.data`, and `result.provenance`.
+  with `result.frame`, `result.raw`, and `result.provenance`.
 
 These are always different connectors. Discovery never returns observations; fetch never
 guesses a code. The agent loop is: search to find a code, then fetch that code.
@@ -17,11 +17,11 @@ connectors = discover.load("fred")
 
 # 1. discover: find the code
 hits = connectors["fred_search"](search_text="US unemployment rate")
-code = hits.df.iloc[0]["id"]          # e.g. "UNRATE"
+code = hits.frame.iloc[0]["id"]          # e.g. "UNRATE"
 
 # 2. fetch: pull the values for that code
 series = connectors["fred_fetch"](series_id=code)
-print(series.df.head())
+print(series.frame.head())
 ```
 
 The two discovery shapes below differ only in *where the search runs*. The fetch side is the
@@ -94,7 +94,8 @@ what search reads at runtime. Conceptually the build pipeline is:
 
 1. An `@enumerator` connector emits **one row per addressable unit**: a `KEY` (the code plus
    its namespace), a `TITLE`, and any `METADATA` columns.
-2. `entities_from_raw(result, OUTPUT)` converts that frame into entities.
+2. `result.entities` converts that frame into entities, reading roles off
+   `result.output_spec`.
 3. `Catalog(namespace, indexes=discovery_indexes(entries), default_field="title")` wraps the
    entities with the index policy.
 4. `catalog.build()` constructs the indexes; `catalog.save(url)` writes the snapshot.

@@ -32,7 +32,7 @@ docstrings tag the minimum plan as ``[Free+]``, ``[EOD+Intraday+]``, or
 Internal layout (not part of the public contract):
 
 * :mod:`parsimony_eodhd._http` — keyed client builder and error mapping.
-* :mod:`parsimony_eodhd.outputs` — declarative :class:`OutputConfig` schemas.
+* :mod:`parsimony_eodhd.outputs` — declarative :class:`OutputSpec` schemas.
 """
 
 from __future__ import annotations
@@ -113,7 +113,7 @@ def _select_declared(df: pd.DataFrame, output: Any) -> pd.DataFrame:
     """Project a frame to the columns the schema declares, in declared order.
 
     Drops provider extras not in the schema. Missing declared columns are filled
-    with ``NA`` so :class:`~parsimony.result.OutputConfig` can shape sparse
+    with ``NA`` so :class:`~parsimony.result.OutputSpec` can shape sparse
     payloads (calendar types, dividend-adjusted prices, etc.) without folding
     extras in as stray DATA columns. Wildcard (``"*"``) schemas keep unmapped
     columns after the fixed prefix.
@@ -363,8 +363,8 @@ def eodhd_fundamentals(ticker: Annotated[str, Namespace("eodhd_symbols")], api_k
     dict (not a DataFrame). Typical equity top-level keys: General, Highlights,
     Valuation, SharesStats, Technicals, SplitsDividends, AnalystRatings, Holders,
     InsiderTransactions, Financials, Earnings. ETFs differ (General, Technicals,
-    ETF_Data). Navigate via result.data, e.g.
-    result.data['Highlights']['MarketCapitalization']. Requires a paid plan; a
+    ETF_Data). Navigate via result.raw, e.g.
+    result.raw['Highlights']['MarketCapitalization']. Requires a paid plan; a
     free key returns PaymentRequiredError.
     """
     t = _safe_path_token(ticker, "ticker")

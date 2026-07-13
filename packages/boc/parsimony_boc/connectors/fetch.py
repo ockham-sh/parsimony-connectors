@@ -111,6 +111,7 @@ def boc_fetch(
             message=f"No observations returned for: {series_name}",
             query_params={"series_name": series_name, "start_date": start_date, "end_date": end_date},
         )
+    df["date"] = pd.to_datetime(df["date"])
 
     return df
 

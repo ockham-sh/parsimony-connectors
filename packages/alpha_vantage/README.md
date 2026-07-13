@@ -59,7 +59,7 @@ from parsimony_alpha_vantage import load
 # from provenance (it is declared secrets=("api_key",) on each verb).
 connectors = load(api_key=os.environ["ALPHA_VANTAGE_API_KEY"])
 result = connectors["alpha_vantage_quote"](symbol="IBM")
-print(result.data.head())
+print(result.raw.head())
 ```
 
 For multi-plugin composition (autoloads everything installed):

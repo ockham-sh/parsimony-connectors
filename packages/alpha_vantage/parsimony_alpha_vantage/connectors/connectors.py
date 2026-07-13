@@ -125,6 +125,14 @@ def _require_nonempty(value: str, name: str) -> str:
     return cleaned
 
 
+def _coerce_numeric(df: pd.DataFrame, columns: tuple[str, ...]) -> pd.DataFrame:
+    """Coerce the given columns to numeric in place, leaving others untouched."""
+    for col in columns:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
+
+
 # ---------------------------------------------------------------------------
 # Discovery — Symbol Search
 # ---------------------------------------------------------------------------
@@ -213,7 +221,11 @@ def alpha_vantage_quote(symbol: Annotated[str, Namespace("alpha_vantage")], *, a
         "change": q.get("change"),
         "change_percent": change_pct,
     }
-    return pd.DataFrame([row])
+    df = pd.DataFrame([row])
+    df["latest_trading_day"] = pd.to_datetime(df["latest_trading_day"]).dt.date
+    return _coerce_numeric(
+        df, ("price", "open", "high", "low", "volume", "previous_close", "change", "change_percent")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -574,7 +586,7 @@ def alpha_vantage_fx_rate(from_currency: str, to_currency: str, *, api_key: str 
         "ask_price": r.get("Ask Price"),
         "last_refreshed": r.get("Last Refreshed", ""),
     }
-    return pd.DataFrame([row])
+    return _coerce_numeric(pd.DataFrame([row]), ("exchange_rate", "bid_price", "ask_price"))
 
 
 # ---------------------------------------------------------------------------
@@ -1125,6 +1137,9 @@ def alpha_vantage_technical(
         rows.append(row)
 
     df = pd.DataFrame(rows)
+    # `date` may carry a time component for intraday intervals — parse with
+    # to_datetime (not `.dt.normalize()`, which would zero it out).
+    df["date"] = pd.to_datetime(df["date"])
     # Coerce only the indicator value columns to numeric — never the key columns.
     for col in df.columns:
         if col not in ("date", "symbol"):

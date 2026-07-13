@@ -129,7 +129,7 @@ packages/foo/
 ├── parsimony_foo/
 │   ├── __init__.py        # thin facade: re-export CONNECTORS + load
 │   ├── _http.py           # transport clients (base URLs, key resolution)
-│   ├── outputs.py         # OutputConfig schemas for every verb
+│   ├── outputs.py         # OutputSpec schemas for every verb
 │   ├── parsing.py         # response parsing (optional)
 │   ├── catalog_build.py   # build_foo_catalog() -> Catalog
 │   ├── search.py          # make_local_search_connector(...)
@@ -190,16 +190,16 @@ import pandas as pd
 from parsimony import Namespace
 from parsimony.connector import connector
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 from parsimony.transport.helpers import fetch_json, make_http_client, require_key
 
-FETCH_OUTPUT = OutputConfig(
+FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="series_id", role=ColumnRole.KEY, namespace="fred"),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="units_short", role=ColumnRole.METADATA),
-        Column(name="date", dtype="datetime", role=ColumnRole.DATA),
-        Column(name="value", dtype="numeric", role=ColumnRole.DATA),
+        Column(name="date", role=ColumnRole.DATA),
+        Column(name="value", role=ColumnRole.DATA),
     ]
 )
 
@@ -231,6 +231,9 @@ def fred_fetch(
     df = pd.DataFrame(observations)
     df["series_id"] = sid
     # ... enrich with metadata ...
+    # OutputSpec never coerces dtypes — do it here, explicitly.
+    df["date"] = pd.to_datetime(df["date"])
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
     return df[[c.name for c in FETCH_OUTPUT.columns]]
 ```
 
@@ -244,19 +247,24 @@ The rules this demonstrates:
   provider's namespace. Use it on the parameter that takes a code (`series_id`,
   `endpoint`).
 - **Declare an `output=` schema** with `Column`/`ColumnRole` (`KEY`/`TITLE`/`METADATA`/
-  `DATA`; at most one `KEY`, at most one `TITLE`; `namespace=` only on `KEY`/`METADATA`).
-  On a plain `@connector`, `output=` is optional, and any returned column the schema does
-  not name **folds in as a `DATA` column** — useful when a provider's data columns vary by
-  endpoint (`treasury_fetch` relies on this). When you want only the declared columns,
-  slice the frame to `[c.name for c in OUTPUT.columns]` before returning, as `fred_fetch`
-  does, so stray provider columns do not become stray `DATA`.
+  `DATA`; at most one `KEY`, at most one `TITLE`; `namespace=` only on `KEY`). It is a
+  **passive declaration** — the framework attaches it to the result unchanged and never
+  inspects, coerces, or filters the DataFrame you return. On a plain `@connector`, `output=`
+  is optional; any column you return that the schema doesn't name simply exists on
+  `result.raw`, undeclared (useful when a provider's data columns vary by endpoint —
+  `treasury_fetch` relies on this). When you want only the declared columns on
+  `result.raw`, slice the frame yourself to `[c.name for c in OUTPUT.columns]` before
+  returning, as `fred_fetch` does, so stray provider columns don't ride along.
+- **Cast dtypes yourself.** `Column` has no `dtype=` field; `fred_fetch` parses `date` with
+  `pd.to_datetime` and `value` with `pd.to_numeric` before returning, rather than declaring
+  it on the schema.
 - **Return raw data.** A DataFrame here; a Series, scalar, or dict elsewhere. Never a
   `Result`, never a tuple.
 - **The docstring is the description.** 20–800 characters. Lead with a clear first
   sentence stating what the call returns — an agent reads it to decide whether to call.
 - **Validate inputs and fail with typed errors** (see [§8](#8-typed-errors)).
 
-For the full `Column`/`ColumnRole` reference and dtype coercion, see
+For the full `Column`/`ColumnRole` reference, see
 [../concepts/connectors.md](../concepts/connectors.md).
 
 ---
@@ -271,9 +279,9 @@ per addressable unit** so the build pipeline can index them.
 ```python
 import pandas as pd
 from parsimony.connector import enumerator
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
-TREASURY_ENUMERATE_OUTPUT = OutputConfig(
+TREASURY_ENUMERATE_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="treasury"),
         Column(name="title", role=ColumnRole.TITLE),
@@ -302,12 +310,15 @@ Enumerator-specific constraints (the conformance gate checks them):
 
 - **Schema shape:** exactly **one namespaced `KEY`** plus **one or more `TITLE`**
   columns, and **no `DATA`** columns. `namespace=` on the `KEY` is **mandatory** — the
-  catalog derives entity identity from it.
-- **Annotate `-> pd.DataFrame`.** It is required, not cosmetic.
-- **Return the exact declared columns.** The decorator drops unmapped columns, then runs
-  an exact-match check at call time. Build the frame with exactly the declared columns in
-  order (the `pd.DataFrame(rows, columns=columns)` idiom above). A missing or undeclared
-  column raises `ValueError`.
+  catalog derives entity identity from it. This shape is checked at decoration time.
+- **Annotate `-> pd.DataFrame`.** It is required, not cosmetic; also checked at decoration
+  time.
+- **Return the exact declared columns anyway, even though nothing enforces it at call
+  time.** `OutputSpec` is passive — the decorator does not inspect your returned frame's
+  columns. But `catalog_build.py` reads `result.entities` right after, and *that*
+  raises `ValueError` if a declared column is missing from the data — so build the frame
+  with exactly the declared columns in order (the `pd.DataFrame(rows, columns=columns)`
+  idiom above) to catch drift early and keep the catalog free of stray columns.
 - Recall is driven by **`title`/`description` text content**, not by how many `METADATA`
   columns you attach. Name the descriptive field `description` so the index picks it up
   (a column named `definition` is never searched). Metadata columns are the search hit's
@@ -321,26 +332,27 @@ steps:
 ```python
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
 
 from parsimony_treasury.connectors.enumerate import enumerate_treasury
-from parsimony_treasury.outputs import TREASURY_ENUMERATE_OUTPUT
 
 CATALOG_NAMESPACE = "treasury"
 
 
 def build_treasury_catalog() -> Catalog:
     result = enumerate_treasury()
-    entries = entities_from_raw(result, TREASURY_ENUMERATE_OUTPUT)
+    entries = list(result.entities.values())
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()
     return catalog
 ```
 
-- **`entities_from_raw(result, OUTPUT)`** converts the enumerator's `Result` into catalog
-  entities. (This is the real function name. Older notes may say `entries_from_result` or
-  `entities_from_result` — both are wrong.)
+- **`result.entities`** converts the enumerator's `Result` into catalog entities (a lazy
+  `Mapping[EntityRef, Entity]` — `.values()` gives the plain iterable `discovery_indexes`
+  and `set_entities` want), reading roles off `result.output_spec` (the same `OutputSpec`
+  the `@enumerator` decorator was given). (This is the current API. Older notes may say
+  `entities_from_raw`, `entries_from_result`, `entities_from_result`, or `to_entities()` —
+  all are stale; see [../concepts/connectors.md](../concepts/connectors.md).)
 - **`discovery_indexes(entries)`** builds the index policy: a `code` index (BM25, exact
   lookup), and `title` + `description` indexes that are adaptive — **Hybrid BM25 + vector**
   when a field has fewer than 1000 unique values, **BM25-only** at or above 1000.

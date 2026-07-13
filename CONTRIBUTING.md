@@ -108,7 +108,7 @@ Scaffold `packages/foo/` by copying an existing small plugin (e.g.
 - `README.md` — see any existing plugin for the standard shape.
 - `scripts/build_catalog.py` *(only if maintainers build a hosted
   catalog)* — operator driver that calls the enumerator, converts with
-  `entities_from_raw`, builds the index policy with `discovery_indexes`, sets
+  `list(result.entities.values())`, builds the index policy with `discovery_indexes`, sets
   `default_field`, calls `catalog.build()`, then
   `catalog.save(...)` for local paths or `hf://...` uploads.
 

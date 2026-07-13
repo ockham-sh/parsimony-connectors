@@ -164,4 +164,6 @@ def bdp_fetch(
             },
         )
 
-    return pd.DataFrame(rows, columns=list(FETCH_COLUMNS))
+    df = pd.DataFrame(rows, columns=list(FETCH_COLUMNS))
+    df["date"] = pd.to_datetime(df["date"])
+    return df

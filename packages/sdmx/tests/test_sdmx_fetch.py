@@ -114,7 +114,7 @@ class TestSdmxFetch:
         )
         result = _call_sdmx_fetch(params)
 
-        df = result.data
+        df = result.raw
         # Declared columns lead in config order; the per-flow dims (as {dim}_code,
         # matching sdmx_series_search) + series_url trail (caught by the greedy-last
         # "*" wildcard as METADATA). Dimension labels ride in `title`, not columns.
@@ -178,8 +178,8 @@ class TestSdmxFetch:
         params = SdmxFetchParams(dataset_key="ECB-YC", series_key="M.DE")
         result = _call_sdmx_fetch(params)
 
-        assert "series_url" in result.data.columns
-        parsed = urlparse(str(result.data["series_url"].iloc[0]))
+        assert "series_url" in result.raw.columns
+        parsed = urlparse(str(result.raw["series_url"].iloc[0]))
         assert parsed.scheme == "https"
         assert parsed.hostname == "data.ecb.europa.eu"
 
@@ -201,15 +201,15 @@ class TestSdmxFetch:
 
         params = SdmxFetchParams(dataset_key="WB_WDI-WDI", series_key="A.USA")
         result = _call_sdmx_fetch(params)
-        assert "series_url" not in result.data.columns or result.data["series_url"].isna().all()
+        assert "series_url" not in result.raw.columns or result.raw["series_url"].isna().all()
 
-    def test_fetch_result_carries_output_schema(self, patch_sdmx: dict[str, Any]) -> None:
+    def test_fetch_result_carries_output_spec(self, patch_sdmx: dict[str, Any]) -> None:
         from parsimony.result import ColumnRole
 
         from parsimony_sdmx.connectors.fetch import SdmxFetchParams
 
         # Round-trip through the actual (decorated) fetch to confirm the static
-        # OutputConfig is applied to the result.
+        # OutputSpec is applied to the result.
         dim_ids = ["FREQ"]
         structure_msg = _structure_msg(dim_ids, "YC")
         data_msg = SimpleNamespace(data="<observations>")
@@ -221,18 +221,20 @@ class TestSdmxFetch:
         params = SdmxFetchParams(dataset_key="ECB-YC", series_key="M")
         result = _call_sdmx_fetch(params)
 
-        roles = {c.name: c.role for c in result.output_schema.columns}
+        roles = {c.name: c.role for c in result.output_spec.columns}
         assert roles["series_key"] == ColumnRole.KEY
         assert roles["title"] == ColumnRole.TITLE
         assert roles["value"] == ColumnRole.DATA
         assert roles["TIME_PERIOD"] == ColumnRole.DATA
-        # The per-flow dimension's code column is caught as METADATA by the wildcard.
-        assert roles["FREQ_code"] == ColumnRole.METADATA
+        # The per-flow dimension (FREQ, undeclared) is caught by the "*" wildcard
+        # as METADATA — OutputSpec is static and never expands the wildcard, so
+        # this is checked on the wildcard itself rather than per-dimension-name.
+        assert roles["*"] == ColumnRole.METADATA
         # series_key carries no namespace — matches sdmx_series_search's key column.
-        key_col = next(c for c in result.output_schema.columns if c.name == "series_key")
+        key_col = next(c for c in result.output_spec.columns if c.name == "series_key")
         assert key_col.namespace is None
         # TIME_PERIOD stays the raw SDMX period string, not coerced to datetime.
-        assert result.data["TIME_PERIOD"].iloc[0] == "2024-01"
+        assert result.raw["TIME_PERIOD"].iloc[0] == "2024-01"
 
 
 class TestSdmxFetchBatch:
@@ -279,19 +281,19 @@ class TestSdmxFetchBatch:
         fetch_mod, calls = self._stub_one(monkeypatch)
         keys = ["M.I15.TOTAL.ES", "M.RCH_A.TOTAL.ES", "M.RCH_M.TOTAL.ES"]
         result = fetch_mod.sdmx_fetch(dataset_ref="ESTAT-PRC_HICP_MINR", series_ref=keys)
-        assert list(result.data["series_key"]) == keys
+        assert list(result.raw["series_key"]) == keys
         assert set(calls) == set(keys)
 
     def test_request_order_preserved_despite_concurrency(self, monkeypatch: pytest.MonkeyPatch) -> None:
         fetch_mod, _ = self._stub_one(monkeypatch, delay_first=True)
         keys = [f"M.K{i}" for i in range(5)]  # K0 is slowest; map must still return in input order
         result = fetch_mod.sdmx_fetch(dataset_ref="ECB-YC", series_ref=keys)
-        assert list(result.data["series_key"]) == keys
+        assert list(result.raw["series_key"]) == keys
 
     def test_single_string_takes_unbatched_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
         fetch_mod, calls = self._stub_one(monkeypatch)
         result = fetch_mod.sdmx_fetch(dataset_ref="ECB-YC", series_ref="M.DE.EUR")
-        assert list(result.data["series_key"]) == ["M.DE.EUR"]
+        assert list(result.raw["series_key"]) == ["M.DE.EUR"]
         assert calls == ["M.DE.EUR"]
 
     def test_empty_list_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -360,7 +362,7 @@ class TestStructureSharing:
         assert client.dataflow.call_count == 1
         # ...but every key still gets its own data request.
         assert client.get.call_count == 3
-        assert len(result.data) == 3
+        assert len(result.raw) == 3
 
     def test_single_key_call_also_resolves_structure_once(self, patch_sdmx: dict[str, Any]) -> None:
         from parsimony_sdmx.connectors.fetch import sdmx_fetch
@@ -435,11 +437,10 @@ class TestSdmxFetchOutput:
         # No namespace — matches sdmx_series_search's key column (the join target).
         assert by_name["series_key"].namespace is None
         assert by_name["title"].role == ColumnRole.TITLE
-        # TIME_PERIOD stays a raw SDMX period string (dtype 'auto' = no coercion).
+        # TIME_PERIOD stays a raw SDMX period string — OutputSpec is purely
+        # declarative and never coerces dtypes.
         assert by_name["TIME_PERIOD"].role == ColumnRole.DATA
-        assert by_name["TIME_PERIOD"].dtype == "auto"
         assert by_name["value"].role == ColumnRole.DATA
-        assert by_name["value"].dtype == "numeric"
         # Per-flow dimension columns + optional series_url are caught by the
         # wildcard as METADATA rather than enumerated statically.
         assert by_name["*"].role == ColumnRole.METADATA

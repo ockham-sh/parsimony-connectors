@@ -45,7 +45,7 @@ python -c "from parsimony import discover; print([p.name for p in discover.iter_
 from parsimony_snb import CONNECTORS
 
 result = CONNECTORS["snb_fetch"](cube_id="rendoblim")
-print(result.data.head())
+print(result.raw.head())
 ```
 
 For multi-plugin composition:

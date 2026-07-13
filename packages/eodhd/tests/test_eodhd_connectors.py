@@ -111,7 +111,7 @@ def test_eodhd_search_returns_rows_and_strips_key() -> None:
     # Theme-B: the bound key must not appear in provenance.
     assert _KEY not in str(result.provenance.params)
     assert "api_key" not in result.provenance.params
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["Code"] == "AAPL"
     # Provider extras are projected out (only declared columns survive).
     assert "isPrimary" not in df.columns
@@ -217,7 +217,7 @@ def test_eodhd_eod_returns_ohlc_and_drops_warning() -> None:
         )
     )
     result = eodhd_eod.bind(api_key=_KEY)(ticker="AAPL.US")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["close"] == 171.5
     assert "warning" not in df.columns
 
@@ -260,7 +260,7 @@ def test_eodhd_live_returns_quote() -> None:
         )
     )
     result = eodhd_live.bind(api_key=_KEY)(ticker="AAPL.US")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["code"] == "AAPL.US"
     assert df.iloc[0]["close"] == 310.26
 
@@ -296,7 +296,7 @@ def test_eodhd_intraday_returns_bars() -> None:
         )
     )
     result = eodhd_intraday.bind(api_key=_KEY)(ticker="AAPL.US", interval="5m")
-    assert result.data.iloc[0]["close"] == 1.5
+    assert result.raw.iloc[0]["close"] == 1.5
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +326,7 @@ def test_eodhd_bulk_eod_returns_rows() -> None:
         )
     )
     result = eodhd_bulk_eod.bind(api_key=_KEY)(exchange="US")
-    assert result.data.iloc[0]["code"] == "AAPL"
+    assert result.raw.iloc[0]["code"] == "AAPL"
 
 
 # ---------------------------------------------------------------------------
@@ -354,7 +354,7 @@ def test_eodhd_dividends_returns_rows() -> None:
         )
     )
     result = eodhd_dividends.bind(api_key=_KEY)(ticker="AAPL.US")
-    assert result.data.iloc[0]["value"] == 0.1925
+    assert result.raw.iloc[0]["value"] == 0.1925
 
 
 @respx.mock
@@ -370,7 +370,7 @@ def test_eodhd_splits_returns_rows() -> None:
         return_value=httpx.Response(200, json=[{"date": "1987-06-16", "split": "2.000000/1.000000"}])
     )
     result = eodhd_splits.bind(api_key=_KEY)(ticker="AAPL.US")
-    assert result.data.iloc[0]["split"] == "2.000000/1.000000"
+    assert result.raw.iloc[0]["split"] == "2.000000/1.000000"
 
 
 # ---------------------------------------------------------------------------
@@ -387,8 +387,8 @@ def test_eodhd_fundamentals_returns_dict() -> None:
         )
     )
     result = eodhd_fundamentals.bind(api_key=_KEY)(ticker="AAPL.US")
-    assert isinstance(result.data, dict)
-    assert result.data["General"]["Code"] == "AAPL"
+    assert isinstance(result.raw, dict)
+    assert result.raw["General"]["Code"] == "AAPL"
 
 
 @respx.mock
@@ -426,7 +426,7 @@ def test_eodhd_calendar_unwraps_earnings() -> None:
         )
     )
     result = eodhd_calendar.bind(api_key=_KEY)(type="earnings")
-    assert result.data.iloc[0]["code"] == "AAPL.US"
+    assert result.raw.iloc[0]["code"] == "AAPL.US"
 
 
 @respx.mock
@@ -437,7 +437,7 @@ def test_eodhd_calendar_ipos_uses_correct_path() -> None:
     )
     result = eodhd_calendar.bind(api_key=_KEY)(type="ipos")
     assert route.called
-    assert result.data.iloc[0]["code"] == "NEW.US"
+    assert result.raw.iloc[0]["code"] == "NEW.US"
 
 
 # ---------------------------------------------------------------------------
@@ -464,7 +464,7 @@ def test_eodhd_news_returns_rows_and_drops_sentiment() -> None:
         )
     )
     result = eodhd_news.bind(api_key=_KEY)(ticker="AAPL.US")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["title"] == "Apple beats earnings"
     assert "sentiment" not in df.columns
 
@@ -497,7 +497,7 @@ def test_eodhd_macro_returns_rows() -> None:
         )
     )
     result = eodhd_macro.bind(api_key=_KEY)(country="USA", indicator="gdp_current_usd")
-    assert result.data.iloc[0]["Value"] == 27000000000000.0
+    assert result.raw.iloc[0]["Value"] == 27000000000000.0
 
 
 def test_eodhd_macro_rejects_empty_indicator() -> None:
@@ -514,7 +514,7 @@ def test_eodhd_macro_bulk_returns_rows() -> None:
         )
     )
     result = eodhd_macro_bulk.bind(api_key=_KEY)(country="USA")
-    assert result.data.iloc[0]["Value"] == 1.0
+    assert result.raw.iloc[0]["Value"] == 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -541,7 +541,7 @@ def test_eodhd_technical_returns_indicator_columns() -> None:
         )
     )
     result = eodhd_technical.bind(api_key=_KEY)(ticker="AAPL.US", function="sma")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["sma"] == 170.5
 
 
@@ -576,7 +576,7 @@ def test_eodhd_insider_returns_rows() -> None:
         )
     )
     result = eodhd_insider.bind(api_key=_KEY)(ticker="AAPL.US")
-    assert result.data.iloc[0]["code"] == "AAPL.US"
+    assert result.raw.iloc[0]["code"] == "AAPL.US"
 
 
 # ---------------------------------------------------------------------------
@@ -607,7 +607,7 @@ def test_eodhd_screener_unwraps_data() -> None:
     result = eodhd_screener.bind(api_key=_KEY)(
         filters=[("market_capitalization", ">", "1000000000")], sort="market_capitalization"
     )
-    assert result.data.iloc[0]["code"] == "AAPL"
+    assert result.raw.iloc[0]["code"] == "AAPL"
 
 
 def test_eodhd_screener_rejects_bad_limit() -> None:
@@ -632,7 +632,7 @@ def test_eodhd_exchanges_lists_exchanges() -> None:
         )
     )
     result = eodhd_exchanges.bind(api_key=_KEY)()
-    assert set(result.data["Code"]) == {"US", "LSE"}
+    assert set(result.raw["Code"]) == {"US", "LSE"}
 
 
 @respx.mock
@@ -654,8 +654,8 @@ def test_eodhd_exchange_symbols_lists_symbols() -> None:
         )
     )
     result = eodhd_exchange_symbols.bind(api_key=_KEY)(exchange="US")
-    assert result.data.iloc[0]["Code"] == "AAPL"
-    assert result.data.iloc[0]["Isin"] == "US0378331005"
+    assert result.raw.iloc[0]["Code"] == "AAPL"
+    assert result.raw.iloc[0]["Isin"] == "US0378331005"
 
 
 def test_eodhd_exchange_symbols_rejects_unsafe_exchange() -> None:

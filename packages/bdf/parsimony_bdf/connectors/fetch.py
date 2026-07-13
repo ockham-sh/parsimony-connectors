@@ -77,7 +77,9 @@ def _parse_observations(payload: Any, series_key: str) -> pd.DataFrame:
 
     if not rows:
         raise EmptyDataError("bdf", query_params={"key": series_key})
-    return pd.DataFrame(rows, columns=list(FETCH_COLUMNS))
+    df = pd.DataFrame(rows, columns=list(FETCH_COLUMNS))
+    df["date"] = pd.to_datetime(df["date"])
+    return df
 
 
 @connector(output=BDF_FETCH_OUTPUT, tags=["macro", "fr"], secrets=("api_key",))

@@ -108,7 +108,7 @@ def test_env_var_fallback_resolves_key(monkeypatch) -> None:
     with respx.mock:
         respx.get(f"{_BASE}/quote").mock(return_value=httpx.Response(200, json={"c": 171.5, "pc": 170.5}))
         result = finnhub_quote(symbol="AAPL")
-    assert result.data.iloc[0]["symbol"] == "AAPL"
+    assert result.raw.iloc[0]["symbol"] == "AAPL"
 
 
 # ---------------------------------------------------------------------------
@@ -136,8 +136,8 @@ def test_finnhub_search_returns_matches() -> None:
     )
     result = finnhub_search.bind(api_key=_KEY)(query="apple")
     assert result.provenance.source == "finnhub_search"
-    assert result.data.iloc[0]["symbol"] == "AAPL"
-    assert result.data.iloc[0]["description"] == "APPLE INC"
+    assert result.raw.iloc[0]["symbol"] == "AAPL"
+    assert result.raw.iloc[0]["description"] == "APPLE INC"
 
 
 @respx.mock
@@ -183,7 +183,7 @@ def test_finnhub_quote_returns_single_row() -> None:
         )
     )
     result = finnhub_quote.bind(api_key=_KEY)(symbol="AAPL")
-    df = result.data
+    df = result.raw
     assert len(df) == 1
     assert df.iloc[0]["symbol"] == "AAPL"
     assert df.iloc[0]["current_price"] == 171.5
@@ -208,10 +208,10 @@ def test_finnhub_profile_returns_frame() -> None:
     )
     result = finnhub_profile.bind(api_key=_KEY)(symbol="AAPL")
     # One-row frame (the raw endpoint returns a single record).
-    assert len(result.data) == 1
-    assert result.data.iloc[0]["name"] == "Apple Inc"
+    assert len(result.raw) == 1
+    assert result.raw.iloc[0]["name"] == "Apple Inc"
     # A declared field absent from this payload is materialised (schema is a contract).
-    assert "marketCapitalization" in result.data.columns
+    assert "marketCapitalization" in result.raw.columns
 
 
 @respx.mock
@@ -230,7 +230,7 @@ def test_finnhub_profile_empty_raises_empty_data() -> None:
 def test_finnhub_peers_returns_symbols() -> None:
     respx.get(f"{_BASE}/stock/peers").mock(return_value=httpx.Response(200, json=["AAPL", "DELL", "HPQ"]))
     result = finnhub_peers.bind(api_key=_KEY)(symbol="AAPL")
-    assert set(result.data["symbol"]) == {"AAPL", "DELL", "HPQ"}
+    assert set(result.raw["symbol"]) == {"AAPL", "DELL", "HPQ"}
 
 
 @respx.mock
@@ -254,7 +254,7 @@ def test_finnhub_recommendation_returns_rows() -> None:
         )
     )
     result = finnhub_recommendation.bind(api_key=_KEY)(symbol="AAPL")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["strong_buy"] == 14
     assert df.iloc[0]["buy"] == 24
 
@@ -290,7 +290,7 @@ def test_finnhub_earnings_returns_rows() -> None:
         )
     )
     result = finnhub_earnings.bind(api_key=_KEY)(symbol="AAPL")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["eps_actual"] == 2.01
     assert df.iloc[0]["eps_estimate"] == 1.9884
 
@@ -313,7 +313,7 @@ def test_finnhub_basic_financials_returns_dict() -> None:
         return_value=httpx.Response(200, json={"metric": {"peTTM": 30.5}, "series": {"annual": {}}})
     )
     result = finnhub_basic_financials.bind(api_key=_KEY)(symbol="AAPL")
-    assert result.data["metric"]["peTTM"] == 30.5
+    assert result.raw["metric"]["peTTM"] == 30.5
 
 
 @respx.mock
@@ -349,7 +349,7 @@ def test_finnhub_company_news_returns_rows() -> None:
         )
     )
     result = finnhub_company_news.bind(api_key=_KEY)(symbol="AAPL", from_date="2024-01-01", to_date="2024-01-31")
-    assert result.data.iloc[0]["headline"] == "Apple beats"
+    assert result.raw.iloc[0]["headline"] == "Apple beats"
 
 
 @respx.mock
@@ -390,7 +390,7 @@ def test_finnhub_market_news_returns_rows() -> None:
         )
     )
     result = finnhub_market_news.bind(api_key=_KEY)(category="general")
-    assert result.data.iloc[0]["headline"] == "Markets up"
+    assert result.raw.iloc[0]["headline"] == "Markets up"
 
 
 @respx.mock
@@ -428,8 +428,8 @@ def test_finnhub_earnings_calendar_returns_rows() -> None:
         )
     )
     result = finnhub_earnings_calendar.bind(api_key=_KEY)(from_date="2026-06-01", to_date="2026-06-30")
-    assert result.data.iloc[0]["symbol"] == "WSE"
-    assert result.data.iloc[0]["eps_estimate"] == 0.1949
+    assert result.raw.iloc[0]["symbol"] == "WSE"
+    assert result.raw.iloc[0]["eps_estimate"] == 0.1949
 
 
 @respx.mock
@@ -481,7 +481,7 @@ def test_finnhub_ipo_calendar_preserves_price_range_string() -> None:
         )
     )
     result = finnhub_ipo_calendar.bind(api_key=_KEY)(from_date="2026-06-01", to_date="2026-06-30")
-    df = result.data
+    df = result.raw
     # Range string is preserved verbatim (the old float() parse silently nulled it).
     prices = dict(zip(df["name"], df["price_range"], strict=True))
     assert prices["Forbright, Inc."] == "18.00-20.00"
@@ -519,7 +519,7 @@ def test_enumerate_finnhub_returns_exact_columns() -> None:
         )
     )
     result = enumerate_finnhub.bind(api_key=_KEY)(exchange="US")
-    df = result.data
+    df = result.raw
     assert list(df.columns) == [
         "symbol",
         "description",

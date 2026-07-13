@@ -58,7 +58,7 @@ Get a free key at https://www.eia.gov/opendata/register.php.
 from parsimony_eia import CONNECTORS
 
 result = CONNECTORS["eia_fetch"](route="petroleum/pri/spt", frequency="monthly")
-print(result.data.head())
+print(result.raw.head())
 ```
 
 For multi-plugin composition:

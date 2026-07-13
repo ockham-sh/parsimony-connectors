@@ -54,10 +54,17 @@ def test_full_text_search_live() -> None:
     result = sec_edgar_full_text_search(query="climate risk", forms="10-K", limit=20)
 
     assert_provenance_shape(result, expected_source="sec_edgar_full_text_search", required_param_keys=["query"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "full-text search returned no hits"
     assert list(df.columns) == [
-        "accession", "display_name", "form", "filing_date", "cik", "document", "period_ending", "score",
+        "accession",
+        "display_name",
+        "form",
+        "filing_date",
+        "cik",
+        "document",
+        "period_ending",
+        "score",
     ]
     # Real content: every hit must carry an accession, a fetchable document, and the requested form.
     assert df["accession"].astype(str).str.len().gt(0).all(), "blank accession"
@@ -71,7 +78,7 @@ def test_find_company_apple() -> None:
     result = sec_edgar_find_company(identifier="AAPL")
 
     assert_provenance_shape(result, expected_source="sec_edgar_find_company", required_param_keys=["identifier"])
-    df = result.data
+    df = result.raw
     assert not df.empty
     assert list(df.columns) == ["cik", "title", "ticker"]
     aapl = df[df["ticker"] == "AAPL"]
@@ -86,7 +93,7 @@ def test_submissions_apple() -> None:
     result = sec_edgar_submissions(cik=_APPLE_CIK, limit=10)
 
     assert_provenance_shape(result, expected_source="sec_edgar_submissions", required_param_keys=["cik"])
-    df = result.data
+    df = result.raw
     assert not df.empty
     assert list(df.columns) == ["accessionNumber", "filingDate", "form", "primaryDocument", "reportDate"]
     assert len(df) <= 10, "limit not respected"
@@ -104,8 +111,8 @@ def test_submissions_include_older_reaches_history() -> None:
     recent_only = sec_edgar_submissions(cik=_APPLE_CIK, form="10-K", limit=50)
     with_older = sec_edgar_submissions(cik=_APPLE_CIK, form="10-K", limit=50, include_older=True)
 
-    assert len(with_older.data) > len(recent_only.data), "include_older surfaced no additional 10-Ks"
-    oldest = with_older.data["filingDate"].astype(str).min()
+    assert len(with_older.raw) > len(recent_only.raw), "include_older surfaced no additional 10-Ks"
+    oldest = with_older.raw["filingDate"].astype(str).min()
     assert oldest < "2010-01-01", f"include_older did not reach pre-2010 filings (oldest={oldest})"
 
 
@@ -114,10 +121,8 @@ def test_company_concept_apple_assets() -> None:
 
     result = sec_edgar_company_concept(cik=_APPLE_CIK, tag="Assets")
 
-    assert_provenance_shape(
-        result, expected_source="sec_edgar_company_concept", required_param_keys=["cik", "tag"]
-    )
-    df = result.data
+    assert_provenance_shape(result, expected_source="sec_edgar_company_concept", required_param_keys=["cik", "tag"])
+    df = result.raw
     assert not df.empty, "no Assets facts returned"
     assert {"end", "val", "unit", "form", "filed", "accn"} <= set(df.columns)
     # Real content: values present and large (Apple's total assets are ~$3e11).
@@ -132,7 +137,7 @@ def test_company_facts_apple() -> None:
     result = sec_edgar_company_facts(cik=_APPLE_CIK)
 
     assert_provenance_shape(result, expected_source="sec_edgar_company_facts", required_param_keys=["cik"])
-    facts = result.data
+    facts = result.raw
     assert isinstance(facts, dict)
     assert facts.get("cik") == 320193
     assert "APPLE" in str(facts.get("entityName", "")).upper()
@@ -146,14 +151,14 @@ def test_fetch_filing_apple_latest() -> None:
     # Resolve a real, recent accession from the live submissions feed rather
     # than hardcoding one (filings roll forward over time).
     subs = sec_edgar_submissions(cik=_APPLE_CIK, form="10-K", limit=5)
-    accession = str(subs.data.iloc[0]["accessionNumber"])
+    accession = str(subs.raw.iloc[0]["accessionNumber"])
 
     result = sec_edgar_fetch_filing(cik=_APPLE_CIK, accession_number=accession)
 
     assert_provenance_shape(
         result, expected_source="sec_edgar_fetch_filing", required_param_keys=["cik", "accession_number"]
     )
-    data = result.data
+    data = result.raw
     assert isinstance(data, dict), f"expected a filing dict, got {type(data)!r}"
     assert data["cik"] == _APPLE_CIK_PADDED
     assert data["document"], "no document name resolved"
@@ -168,7 +173,7 @@ def test_frames_cross_section_live() -> None:
     result = sec_edgar_frames(tag="AccountsPayableCurrent", period="CY2019Q1I", unit="USD")
 
     assert_provenance_shape(result, expected_source="sec_edgar_frames", required_param_keys=["tag", "period"])
-    df = result.data
+    df = result.raw
     assert not df.empty
     assert list(df.columns)[:2] == ["cik", "entityName"]
     # A real cross-section spans thousands of filers with populated values.
@@ -218,7 +223,7 @@ def test_income_statement_apple() -> None:
     result = sec_edgar_income_statement(cik=_APPLE_CIK)
 
     assert_provenance_shape(result, expected_source="sec_edgar_income_statement", required_param_keys=["cik"])
-    _assert_tidy_statement(result.data, concept_keyword="Revenue")
+    _assert_tidy_statement(result.raw, concept_keyword="Revenue")
 
 
 def test_balance_sheet_apple() -> None:
@@ -227,7 +232,7 @@ def test_balance_sheet_apple() -> None:
     result = sec_edgar_balance_sheet(cik=_APPLE_CIK)
 
     assert_provenance_shape(result, expected_source="sec_edgar_balance_sheet", required_param_keys=["cik"])
-    _assert_tidy_statement(result.data, concept_keyword="Asset")
+    _assert_tidy_statement(result.raw, concept_keyword="Asset")
 
 
 def test_cash_flow_apple() -> None:
@@ -236,7 +241,7 @@ def test_cash_flow_apple() -> None:
     result = sec_edgar_cash_flow(cik=_APPLE_CIK)
 
     assert_provenance_shape(result, expected_source="sec_edgar_cash_flow", required_param_keys=["cik"])
-    _assert_tidy_statement(result.data, concept_keyword="Cash")
+    _assert_tidy_statement(result.raw, concept_keyword="Cash")
 
 
 def test_insider_transactions_apple() -> None:
@@ -244,10 +249,8 @@ def test_insider_transactions_apple() -> None:
 
     result = sec_edgar_insider_transactions(cik=_APPLE_CIK, limit=10)
 
-    assert_provenance_shape(
-        result, expected_source="sec_edgar_insider_transactions", required_param_keys=["cik"]
-    )
-    df = result.data
+    assert_provenance_shape(result, expected_source="sec_edgar_insider_transactions", required_param_keys=["cik"])
+    df = result.raw
     assert not df.empty, "no insider transactions returned"
     assert list(df.columns) == list(INSIDER_TRANSACTIONS_COLUMNS), df.columns.tolist()
     # Form 4 transactions carry a date, a named insider, and a share count.
@@ -263,7 +266,7 @@ def test_holdings_13f_berkshire() -> None:
     result = sec_edgar_holdings_13f(cik=_BERKSHIRE_CIK)
 
     assert_provenance_shape(result, expected_source="sec_edgar_holdings_13f", required_param_keys=["cik"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "no 13F holdings returned"
     assert list(df.columns) == list(HOLDINGS_13F_COLUMNS), df.columns.tolist()
     # Berkshire's 13F lists dozens of positions; every row is a real security.

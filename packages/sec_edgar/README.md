@@ -51,11 +51,11 @@ from parsimony_sec_edgar import CONNECTORS
 
 # Discover filings by content across all filers...
 hits = CONNECTORS["sec_edgar_full_text_search"](query="climate risk", forms="10-K")
-print(hits.data.head())
+print(hits.raw.head())
 
 # ...or look up a known issuer and read its financials as a timeseries.
 rev = CONNECTORS["sec_edgar_company_concept"](cik="320193", tag="Revenues")
-print(rev.data.head())
+print(rev.raw.head())
 ```
 
 For multi-plugin composition:

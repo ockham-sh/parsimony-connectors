@@ -166,6 +166,7 @@ def bde_fetch(
             message=f"No observations parsed for: {','.join(keys)}",
             query_params={"key": key, "time_range": time_range, "lang": lang},
         )
+    df["date"] = pd.to_datetime(df["date"])
 
     # BdE returns observations newest-first; sort ascending so downstream joins
     # don't need to re-sort. Sort by (key, date) so a multi-series request keeps

@@ -25,13 +25,13 @@ import pytest
 import respx
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
 from parsimony.errors import (
     EmptyDataError,
     InvalidParameterError,
     ParseError,
     UnauthorizedError,
 )
+from parsimony.result import Result
 from parsimony_test_support import CANARY_KEY, assert_no_secret_leak
 
 from parsimony_bdf import CONNECTORS, load
@@ -145,12 +145,12 @@ def test_bdf_fetch_parses_json_response() -> None:
     result = bdf_fetch.bind(api_key=_KEY)(key="EXR.M.USD.EUR.SP00.E")
 
     assert result.provenance.source == "bdf_fetch"
-    df = result.data
+    df = result.raw
     assert list(df.columns) == ["key", "title", "date", "value"]
     assert len(df) == 2
     assert df.iloc[0]["title"] == "US dollar/Euro spot rate"
-    assert df["date"].dtype.kind == "M"  # declared dtype="datetime"
-    assert df["value"].dtype.kind == "f"  # declared dtype="numeric"
+    assert df["date"].dtype.kind == "M"  # coerced in bdf_fetch
+    assert df["value"].dtype.kind == "f"  # coerced in bdf_fetch
     assert df["value"].tolist() == [1.0832, 1.0874]
 
     # api_key rides the Authorization header (header auth → never a query param).
@@ -194,7 +194,7 @@ def test_bdf_fetch_handles_null_obs_value() -> None:
     ]
     respx.get(_OBSERVATIONS_URL).mock(return_value=httpx.Response(200, json=payload))
 
-    df = bdf_fetch.bind(api_key=_KEY)(key="X").data
+    df = bdf_fetch.bind(api_key=_KEY)(key="X").raw
     assert len(df) == 2
     assert pd.isna(df.iloc[0]["value"])
     assert df.iloc[1]["value"] == 3.84
@@ -252,7 +252,7 @@ def test_bdf_fetch_env_fallback_supplies_key(monkeypatch: pytest.MonkeyPatch) ->
 
     result = bdf_fetch(key="EXR.M.USD.EUR.SP00.E")
 
-    assert not result.data.empty
+    assert not result.raw.empty
     assert route.calls.last.request.headers["Authorization"] == f"Apikey {_KEY}"
 
 
@@ -267,7 +267,7 @@ def test_enumerate_bdf_bounded_shape_and_metadata() -> None:
     respx.get(_SERIES_URL).mock(return_value=httpx.Response(200, json=_BDF_SERIES_JSON))
 
     result = enumerate_bdf.bind(api_key=_KEY)()
-    df = result.data
+    df = result.raw
 
     # @enumerator enforces an EXACT column match against the declared schema.
     assert list(df.columns) == list(ENUMERATE_COLUMNS)
@@ -298,7 +298,7 @@ def test_enumerate_bdf_bounded_shape_and_metadata() -> None:
     assert "dollar US" in usd["description"]
 
     # build_entities round-trips on the real-shape slice.
-    entities = BDF_ENUMERATE_OUTPUT.build_entities(df)
+    entities = list(Result(raw=df, output_spec=BDF_ENUMERATE_OUTPUT).entities.values())
     assert len(entities) == len(df)
     assert entities[0].namespace == "bdf"
 
@@ -310,7 +310,7 @@ def test_enumerate_bdf_emits_stub_only_on_series_fetch_failure() -> None:
     respx.get(_SERIES_URL).mock(return_value=httpx.Response(500, text="boom"))
 
     result = enumerate_bdf.bind(api_key=_KEY)()
-    df = result.data
+    df = result.raw
 
     assert list(df.columns) == list(ENUMERATE_COLUMNS)
     assert len(df) == 1
@@ -324,7 +324,7 @@ def test_enumerate_bdf_emits_series_only_when_dataset_list_fails() -> None:
     respx.get(_DATASETS_URL).mock(return_value=httpx.Response(500, text="boom"))
     respx.get(_SERIES_URL).mock(return_value=httpx.Response(200, json=_BDF_SERIES_JSON))
 
-    df = enumerate_bdf.bind(api_key=_KEY)().data
+    df = enumerate_bdf.bind(api_key=_KEY)().raw
     assert list(df.columns) == list(ENUMERATE_COLUMNS)
     assert (df["entity_type"] == "series").all()
     assert len(df) == 2
@@ -335,7 +335,7 @@ def test_enumerate_bdf_empty_catalog_when_both_sources_fail() -> None:
     respx.get(_DATASETS_URL).mock(return_value=httpx.Response(500, text="boom"))
     respx.get(_SERIES_URL).mock(return_value=httpx.Response(500, text="boom"))
 
-    df = enumerate_bdf.bind(api_key=_KEY)().data
+    df = enumerate_bdf.bind(api_key=_KEY)().raw
     assert list(df.columns) == list(ENUMERATE_COLUMNS)
     assert df.empty
 
@@ -379,7 +379,7 @@ def test_enumerate_bdf_series_seam_is_monkeypatchable(monkeypatch: pytest.Monkey
         respx.get(_DATASETS_URL).mock(return_value=httpx.Response(200, json=_BDF_DATASETS_JSON))
         result = enumerate_bdf.bind(api_key=_KEY)()
 
-    df = result.data
+    df = result.raw
     assert len(df) == 3  # 1 stub + 2 series, from the patched slice
 
 
@@ -430,7 +430,7 @@ def _enumerate_rows() -> list[dict[str, str]]:
 
 def _build_fixture_catalog(out_dir: Path) -> None:
     df = pd.DataFrame(_enumerate_rows(), columns=list(ENUMERATE_COLUMNS))
-    entries = entities_from_raw(df, BDF_ENUMERATE_OUTPUT)
+    entries = list(Result(raw=df, output_spec=BDF_ENUMERATE_OUTPUT).entities.values())
     catalog = Catalog("bdf", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()
@@ -443,7 +443,7 @@ def test_bdf_search_ranks_over_fixture_catalog(tmp_path: Path) -> None:
 
     result = bdf_search(query="dollar euro exchange rate", limit=5, catalog_url=str(out_dir))
 
-    sdf = result.data
+    sdf = result.raw
     assert list(sdf.columns) == ["code", "title", "score"]
     assert not sdf.empty
     assert len(sdf) <= 3
@@ -452,7 +452,7 @@ def test_bdf_search_ranks_over_fixture_catalog(tmp_path: Path) -> None:
 
     # Ranking discriminates: a different query surfaces a different top hit.
     infl = bdf_search(query="consumer prices annual rate of change", limit=5, catalog_url=str(out_dir))
-    assert infl.data.iloc[0]["code"] == "ICP.M.FR.N.000000.4.ANR"
+    assert infl.raw.iloc[0]["code"] == "ICP.M.FR.N.000000.4.ANR"
 
 
 def test_bdf_search_raises_empty_data_on_no_match(tmp_path: Path) -> None:

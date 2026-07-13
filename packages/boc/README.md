@@ -67,10 +67,10 @@ from parsimony_boc import CONNECTORS
 
 # find a series (or a whole panel) in the catalog
 hits = CONNECTORS["boc_search"](query="US dollar Canadian dollar exchange rate")
-code = hits.data.iloc[0]["code"]            # e.g. "FXUSDCAD" or "group:FX_RATES_DAILY"
+code = hits.raw.iloc[0]["code"]            # e.g. "FXUSDCAD" or "group:FX_RATES_DAILY"
 # fetch observations
 result = CONNECTORS["boc_fetch"](series_name=code, start_date="2024-01-01")
-print(result.data.head())
+print(result.raw.head())
 ```
 
 For multi-plugin composition (autoloads everything installed):

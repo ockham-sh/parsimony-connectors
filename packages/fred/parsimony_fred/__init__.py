@@ -25,7 +25,7 @@ from parsimony.errors import (
     InvalidParameterError,
     ParseError,
 )
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 from parsimony.transport import HttpClient, check_status
 from parsimony.transport.helpers import make_http_client, require_key
 
@@ -38,19 +38,19 @@ _ENV_VAR = "FRED_API_KEY"
 # Output schemas
 # ---------------------------------------------------------------------------
 
-FETCH_OUTPUT = OutputConfig(
+FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="series_id", role=ColumnRole.KEY, namespace="fred"),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="units_short", role=ColumnRole.METADATA),
         Column(name="frequency_short", role=ColumnRole.METADATA),
         Column(name="seasonal_adjustment_short", role=ColumnRole.METADATA),
-        Column(name="date", dtype="datetime", role=ColumnRole.DATA),
-        Column(name="value", dtype="numeric", role=ColumnRole.DATA),
+        Column(name="date", role=ColumnRole.DATA),
+        Column(name="value", role=ColumnRole.DATA),
     ]
 )
 
-SEARCH_OUTPUT = OutputConfig(
+SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="id", role=ColumnRole.KEY, namespace="fred"),
         Column(name="title", role=ColumnRole.TITLE),

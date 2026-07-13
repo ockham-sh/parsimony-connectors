@@ -68,7 +68,7 @@ def test_coingecko_search_bitcoin() -> None:
     result = coingecko_search.bind(api_key=key)(query="bitcoin")
 
     assert_provenance_shape(result, expected_source="coingecko_search", required_param_keys=["query"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "search for 'bitcoin' returned no rows"
     assert "bitcoin" in set(df["id"]), f"bitcoin missing from results: {list(df['id'])[:10]}"
     assert df["name"].str.len().gt(0).any(), "name column is empty for every result"
@@ -80,7 +80,7 @@ def test_coingecko_trending() -> None:
     result = coingecko_trending.bind(api_key=key)()
 
     assert_provenance_shape(result, expected_source="coingecko_trending")
-    df = result.data
+    df = result.raw
     assert not df.empty, "trending returned no rows"
     assert df["name"].str.len().gt(0).any(), "trending name column is empty"
     # score is the value of this discovery feed — must carry real numbers.
@@ -101,7 +101,7 @@ def test_coingecko_top_gainers_losers_pro_only_or_payment_required() -> None:
 
     # PRO key path: real rows with both directions present.
     assert_provenance_shape(result, expected_source="coingecko_top_gainers_losers")
-    df = result.data
+    df = result.raw
     assert not df.empty, "top gainers/losers returned no rows on a plan that grants access"
     assert df["usd_price_percent_change"].notna().any(), "percent change is entirely NaN"
     assert_no_secret_leak(result, secret=key)
@@ -117,7 +117,7 @@ def test_coingecko_price_btc_eth() -> None:
     result = coingecko_price.bind(api_key=key)(ids="bitcoin,ethereum")
 
     assert_provenance_shape(result, expected_source="coingecko_price", required_param_keys=["ids"])
-    df = result.data
+    df = result.raw
     assert set(df["id"]) == {"bitcoin", "ethereum"}
     # The dynamic per-currency column must carry a real price.
     assert "usd" in df.columns, f"usd column missing: {list(df.columns)}"
@@ -130,7 +130,7 @@ def test_coingecko_markets_top_ranked() -> None:
     result = coingecko_markets.bind(api_key=key)(per_page=5)
 
     assert_provenance_shape(result, expected_source="coingecko_markets")
-    df = result.data
+    df = result.raw
     assert not df.empty, "markets returned no rows"
     assert df["current_price"].notna().any(), "current_price is entirely NaN"
     assert df["market_cap"].notna().any(), "market_cap is entirely NaN"
@@ -143,7 +143,7 @@ def test_coingecko_coin_detail_bitcoin() -> None:
     result = coingecko_coin_detail.bind(api_key=key)(coin_id="bitcoin")
 
     assert_provenance_shape(result, expected_source="coingecko_coin_detail", required_param_keys=["coin_id"])
-    data = result.data
+    data = result.raw
     assert isinstance(data, dict)
     assert data["id"] == "bitcoin"
     # Description (the value of this verb over coingecko_markets) must be real prose.
@@ -162,7 +162,7 @@ def test_coingecko_market_chart_btc_1d() -> None:
     result = coingecko_market_chart.bind(api_key=key)(coin_id="bitcoin", days="1")
 
     assert_provenance_shape(result, expected_source="coingecko_market_chart", required_param_keys=["coin_id"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "market chart returned no rows"
     assert df["price"].notna().any(), "price is entirely NaN"
     assert df["market_cap"].notna().any(), "market_cap is entirely NaN"
@@ -182,7 +182,7 @@ def test_coingecko_market_chart_range_recent_or_payment_required() -> None:
         return
 
     assert_provenance_shape(result, expected_source="coingecko_market_chart_range", required_param_keys=["coin_id"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "market chart range returned no rows"
     assert df["price"].notna().any(), "price is entirely NaN"
     assert_no_secret_leak(result, secret=key)
@@ -203,7 +203,7 @@ def test_coingecko_ohlc_btc() -> None:
     result = coingecko_ohlc.bind(api_key=key)(coin_id="bitcoin", days=7)
 
     assert_provenance_shape(result, expected_source="coingecko_ohlc", required_param_keys=["coin_id"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "ohlc returned no rows"
     assert df["close"].notna().any(), "close is entirely NaN"
     assert df["open"].notna().any(), "open is entirely NaN"
@@ -222,7 +222,7 @@ def test_coingecko_token_price_onchain_usdt() -> None:
     assert_provenance_shape(
         result, expected_source="coingecko_token_price_onchain", required_param_keys=["network", "contract_addresses"]
     )
-    df = result.data
+    df = result.raw
     assert not df.empty, "on-chain price returned no rows"
     assert _USDT in set(df["contract_address"])
     assert df["price_usd"].notna().any(), "price_usd is entirely NaN"
@@ -242,7 +242,7 @@ def test_enumerate_coingecko_bounded() -> None:
     result = enumerate_coingecko.bind(api_key=key)()
 
     assert_provenance_shape(result, expected_source="enumerate_coingecko")
-    df = result.data
+    df = result.raw
     # Exact-match enumerator schema.
     assert list(df.columns) == ["id", "name", "symbol", "platforms"]
     assert not df.empty, "coin enumeration returned no rows"

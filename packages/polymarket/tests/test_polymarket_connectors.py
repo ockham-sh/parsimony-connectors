@@ -74,7 +74,7 @@ def test_search_events_returns_declared_columns() -> None:
     )
     result = polymarket_search_events(search_text="inflation", limit=5)
     assert result.provenance.source == "polymarket_search_events"
-    assert set(result.data.columns) == {
+    assert set(result.raw.columns) == {
         "slug",
         "title",
         "description",
@@ -84,7 +84,7 @@ def test_search_events_returns_declared_columns() -> None:
         "active",
         "closed",
     }
-    row = result.data.iloc[0]
+    row = result.raw.iloc[0]
     assert row["slug"] == "june-inflation"
     assert row["markets_count"] == 2
     assert row["volume"] == 1234.5
@@ -152,7 +152,7 @@ def test_event_returns_market_rows() -> None:
     )
     result = polymarket_event(slug="june-inflation")
     assert result.provenance.source == "polymarket_event"
-    assert set(result.data.columns) == {
+    assert set(result.raw.columns) == {
         "market_slug",
         "market_question",
         "market_description",
@@ -162,7 +162,7 @@ def test_event_returns_market_rows() -> None:
         "market_active",
         "market_closed",
     }
-    row = result.data.iloc[0]
+    row = result.raw.iloc[0]
     assert row["market_slug"] == "will-cpi"
     assert row["market_outcomes_count"] == 2
     assert row["market_volume"] == 50.0
@@ -178,7 +178,7 @@ def test_event_accepts_list_envelope() -> None:
         )
     )
     result = polymarket_event(slug="june-inflation")
-    assert result.data.iloc[0]["market_slug"] == "m"
+    assert result.raw.iloc[0]["market_slug"] == "m"
 
 
 @respx.mock
@@ -190,9 +190,7 @@ def test_event_no_markets_raises_empty_data() -> None:
 
 @respx.mock
 def test_event_error_body_raises_parse_error() -> None:
-    respx.get(_EVENT_URL).mock(
-        return_value=httpx.Response(200, json={"type": "not found", "error": "x"})
-    )
+    respx.get(_EVENT_URL).mock(return_value=httpx.Response(200, json={"type": "not found", "error": "x"}))
     with pytest.raises(ParseError):
         polymarket_event(slug="june-inflation")
 
@@ -221,9 +219,9 @@ def test_market_returns_outcome_tokens() -> None:
     )
     result = polymarket_market(slug="will-cpi")
     assert result.provenance.source == "polymarket_market"
-    assert set(result.data.columns) == {"clob_token_id", "outcome"}
-    assert result.data["outcome"].tolist() == ["Yes", "No"]
-    assert result.data["clob_token_id"].tolist() == ["111", "222"]
+    assert set(result.raw.columns) == {"clob_token_id", "outcome"}
+    assert result.raw["outcome"].tolist() == ["Yes", "No"]
+    assert result.raw["clob_token_id"].tolist() == ["111", "222"]
 
 
 @respx.mock
@@ -237,9 +235,7 @@ def test_market_no_tokens_raises_empty_data() -> None:
 
 @respx.mock
 def test_market_missing_outcomes_raises_parse_error() -> None:
-    respx.get(_MARKET_URL).mock(
-        return_value=httpx.Response(200, json={"type": "err", "error": "no"})
-    )
+    respx.get(_MARKET_URL).mock(return_value=httpx.Response(200, json={"type": "err", "error": "no"}))
     with pytest.raises(ParseError):
         polymarket_market(slug="will-cpi")
 
@@ -264,7 +260,7 @@ def test_price_history_returns_tidy_series() -> None:
     )
     result = polymarket_price_history(token_id="111", interval="1w")
     assert result.provenance.source == "polymarket_price_history"
-    df = result.data
+    df = result.raw
     assert set(df.columns) == {"token", "timestamp", "probability"}
     assert len(df) == 2
     assert df["token"].iloc[0] == "111"

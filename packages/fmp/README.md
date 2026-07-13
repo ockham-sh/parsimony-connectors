@@ -52,7 +52,7 @@ from parsimony_fmp import load
 
 connectors = load(api_key="<your-key>")   # or rely on FMP_API_KEY
 result = connectors["fmp_quotes"](symbols="AAPL,TSLA,MSFT")
-print(result.data.head())
+print(result.raw.head())
 ```
 
 For multi-plugin composition:

@@ -71,13 +71,13 @@ from parsimony_boj import CONNECTORS
 
 # step 1: find the database
 dbs = CONNECTORS["boj_databases_search"](query="foreign exchange rates")
-db = dbs.data.iloc[0]["db"]                  # e.g. "FM08"
+db = dbs.raw.iloc[0]["db"]                  # e.g. "FM08"
 # step 2: find a series within it
 hits = CONNECTORS["boj_series_search"](query="US dollar spot", db=db)
-code = hits.data.iloc[0]["code"]             # e.g. "FXERD01"
+code = hits.raw.iloc[0]["code"]             # e.g. "FXERD01"
 # fetch observations
 result = CONNECTORS["boj_fetch"](db=db, code=code, start_date="202401")
-print(result.data.head())
+print(result.raw.head())
 ```
 
 For multi-plugin composition (autoloads everything installed):

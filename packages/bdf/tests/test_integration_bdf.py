@@ -28,7 +28,7 @@ import pandas as pd
 import pytest
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
+from parsimony.result import Result
 from parsimony_test_support import (
     assert_no_secret_leak,
     assert_provenance_shape,
@@ -57,7 +57,7 @@ def test_bdf_fetch_known_series_live() -> None:
     result = bound(key=_KNOWN_KEY, start_period="2020-01-01", end_period="2023-12-31")
 
     assert_provenance_shape(result, expected_source="bdf_fetch", required_param_keys=["key"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "BdF fetch returned an empty DataFrame"
     assert list(df["key"].unique()) == [_KNOWN_KEY]
     # Real content, not just shape.
@@ -68,7 +68,7 @@ def test_bdf_fetch_known_series_live() -> None:
     # FX rate magnitude sanity-check.
     vals = df["value"].dropna()
     assert ((vals > 0) & (vals < 10)).all(), f"FX rates out of plausible range: {vals.tolist()[:5]}"
-    # Dates parse to real datetimes (declared dtype="datetime").
+    # Dates parse to real datetimes (coerced in bdf_fetch).
     assert df["date"].dtype.kind == "M"
     assert df["date"].notna().any(), "record dates all NaT"
 
@@ -91,7 +91,7 @@ def test_enumerate_bdf_bounded_single_dataset_live(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(enum_mod, "_list_all_series", _bounded_series)
 
     result = enumerate_bdf.bind(api_key=creds["BDF_API_KEY"])()
-    df = result.data
+    df = result.raw
 
     # @enumerator enforces an EXACT column match against the declared schema.
     assert list(df.columns) == list(ENUMERATE_COLUMNS)
@@ -109,7 +109,7 @@ def test_enumerate_bdf_bounded_single_dataset_live(monkeypatch: pytest.MonkeyPat
     assert series["path"].astype(str).str.len().gt(0).any(), "breadcrumb path not populated"
 
     # build_entities round-trips on the real slice.
-    entities = BDF_ENUMERATE_OUTPUT.build_entities(df)
+    entities = list(Result(raw=df, output_spec=BDF_ENUMERATE_OUTPUT).entities.values())
     assert len(entities) == len(df)
     assert entities[0].namespace == "bdf"
 
@@ -158,7 +158,7 @@ def test_bdf_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         },
     ]
     df = pd.DataFrame(rows, columns=list(ENUMERATE_COLUMNS))
-    entries = entities_from_raw(df, BDF_ENUMERATE_OUTPUT)
+    entries = list(Result(raw=df, output_spec=BDF_ENUMERATE_OUTPUT).entities.values())
     catalog = Catalog("bdf", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()
@@ -168,7 +168,7 @@ def test_bdf_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     result = bdf_search(query="dollar euro exchange rate", limit=5, catalog_url=str(out_dir))
 
     assert_provenance_shape(result, expected_source="bdf_search", required_param_keys=["query"])
-    sdf = result.data
+    sdf = result.raw
     assert list(sdf.columns) == ["code", "title", "score"]
     assert not sdf.empty, "search over the fixture catalog returned nothing"
     assert len(sdf) <= 3
@@ -177,4 +177,4 @@ def test_bdf_search_over_bounded_catalog_live(tmp_path: Path) -> None:
 
     # Ranking discriminates: a different query surfaces a different top hit.
     infl = bdf_search(query="consumer prices annual rate of change", limit=5, catalog_url=str(out_dir))
-    assert infl.data.iloc[0]["code"] == "ICP.M.FR.N.000000.4.ANR"
+    assert infl.raw.iloc[0]["code"] == "ICP.M.FR.N.000000.4.ANR"

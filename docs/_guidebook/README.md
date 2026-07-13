@@ -144,13 +144,13 @@ series set is enumerable.
 ## 4. Framework contract (reference)
 
 Everything here is `parsimony-core`. Imports: top-level `from parsimony import …` exposes the
-~36 curated names; some names live only in submodules (noted below).
+~37 curated names; some names live only in submodules (noted below).
 
 ### 4.1 The three decorators
 
 | Decorator | Output contract | Feeds | Use for |
 |---|---|---|---|
-| `@connector` | `output=` optional; unmapped returned columns fold in as DATA | anything | fetches, native-search wrappers, dict/scalar lookups |
+| `@connector` | `output=` optional, attached unchanged — never applied to returned columns | anything | fetches, native-search wrappers, dict/scalar lookups |
 | `@loader(output=…)` | **exactly one** namespaced KEY + **≥1 DATA**, **no** TITLE/METADATA | a data store (`InMemoryDataStore.load_result`) | persisting observation values |
 | `@enumerator(output=…)` | **exactly one** namespaced KEY + **≥1 TITLE**, **no DATA**; must annotate `-> pd.DataFrame` | a `Catalog` | discovering *what entities exist* |
 
@@ -179,46 +179,48 @@ Everything here is `parsimony-core`. Imports: top-level `from parsimony import �
 | Check | When |
 |---|---|
 | loader/enumerator role-shape, enumerator return annotation, `secrets=` names match params, sync-ness (rejects `async def`) | decoration (import) |
-| `OutputConfig` "≤1 KEY / ≤1 TITLE / ≥1 KEY-or-TITLE-or-DATA" | `OutputConfig(...)` construction |
-| enumerator returned-frame **exact** column match | every call (`ValueError` → `ParseError`) |
+| `OutputSpec` "≤1 KEY / ≤1 TITLE" | `OutputSpec(...)` construction |
 | returned a `Result`/tuple | every call (`TypeError`) |
+| KEY namespace present, declared columns exist in the data | entity projection (`result.entities` / `result.data`) — **not** at connector-call time |
 
-### 4.2 Output schema: `OutputConfig`, `Column`, `ColumnRole`
+### 4.2 Output schema: `OutputSpec`, `Column`, `ColumnRole`
 
 ```python
-from parsimony.result import Column, ColumnRole, OutputConfig
-OutputConfig(columns=[
+from parsimony.result import Column, ColumnRole, OutputSpec
+OutputSpec(columns=[
     Column(name="series_id", role=ColumnRole.KEY, namespace="fred"),   # identity
     Column(name="title",     role=ColumnRole.TITLE),                   # human label
     Column(name="units",     role=ColumnRole.METADATA),               # searchable facet
-    Column(name="date",      role=ColumnRole.DATA, dtype="datetime"),
-    Column(name="value",     role=ColumnRole.DATA, dtype="numeric"),
+    Column(name="date",      role=ColumnRole.DATA),
+    Column(name="value",     role=ColumnRole.DATA),
 ])
 ```
 
-- `ColumnRole` ∈ {`KEY`, `TITLE`, `METADATA`, `DATA`}. At most one KEY, at most one TITLE,
-  at least one of DATA/KEY/TITLE.
-- `namespace=` is allowed **only** on KEY or METADATA columns and must be non-empty. The KEY
-  namespace is **mandatory** for loaders/enumerators — the catalog/store derive entity
-  identity from it.
-- `dtype` ∈ `auto | datetime | timestamp | date | numeric | bool | <any pandas dtype>`.
-  `timestamp` expects **unix epoch seconds** (it divides ms-looking values by 1000).
-- `Column(name="*")` is a **wildcard** that absorbs every returned column not otherwise
-  claimed — use it (as METADATA on an enumerator, or as a catch-all DATA on a wide fetch like
-  a 40-field financial statement) when columns vary per call.
+- `ColumnRole` ∈ {`KEY`, `TITLE`, `METADATA`, `DATA`}. At most one KEY, at most one TITLE.
+- `namespace=` is allowed **only** on a KEY column and must be non-empty when set. It may be
+  **omitted at declaration time** (e.g. a per-call dynamic namespace); it is only required when
+  an entity projection is actually requested. Loaders/enumerators enforce it eagerly at
+  decoration time instead, since their whole point is to feed a store/catalog.
+- **`OutputSpec` is passive — it never coerces, renames, reorders, or drops a column.** There is
+  no `dtype=` field on `Column`. If a provider hands you string dates or numbers, convert them
+  in the connector body (`pd.to_datetime`, `.astype(float)`, `pd.to_numeric`) before you return.
+- `Column(name="*")` is a **wildcard**, meaningful only at entity-projection time: it claims
+  every DataFrame column not otherwise taken by an explicit KEY/TITLE/DATA/METADATA entry (as
+  METADATA on an enumerator, or DATA on a wide fetch like a 40-field financial statement) when
+  columns vary per call.
 - `exclude_from_llm_view=True` (KEY/METADATA only) keeps a noisy column out of the agent view
   while retaining it in data.
-- **`@connector`/`@loader` fold unmapped returned columns in as DATA** (`merge_unmapped_as_data=
-  True`). So `return df[[c.name for c in OUTPUT.columns]]` if you don't want provider
-  passthrough columns (e.g. FRED's stray `realtime_start`). **`@enumerator` does the opposite**:
-  it drops unmapped columns, then requires an **exact** match — declare *every* column you want
-  in the catalog and return exactly those.
+- The returned DataFrame's actual columns and the `OutputSpec`'s declared columns are two
+  independent things — nothing keeps them in sync for you at call time. Whatever you return is
+  exactly what lands on `result.raw`, unmapped columns included. The alignment is only checked
+  by whatever projects entities from the result later (`result.entities` / `result.data`),
+  which raises `ValueError` if a declared column is missing.
 
 ### 4.3 `Result` / `Provenance`
 
 The framework builds `Provenance(source=<connector name>, source_description=<description>,
 fetched_at=<utc now>, params=<call args minus declared secrets and minus bound args>)`. There is
-**one** `Result` type (`data: Any`; tabular when `data` is a DataFrame); a tabular `Result`
+**one** `Result` type (`raw: Any`; tabular when `raw` is a DataFrame); a tabular `Result`
 round-trips to Arrow/Parquet with the schema + provenance embedded. Oversized provenance fields
 are replaced with a structured marker (never a prefix, which could leak a secret head).
 
@@ -251,7 +253,7 @@ agent-facing string** with the right "DO NOT retry" directive.
 | `RateLimitError(provider, retry_after, *, quota_exhausted=False)` | 429 | `retry_after` is **seconds** (>86400 raises); `quota_exhausted=True` = billing-period |
 | `ProviderError(provider, status_code)` | 5xx / 404 / timeout(408) | carries the status |
 | `EmptyDataError(provider, query_params=…)` | 200 with zero rows | recovery path is adjust-params; no "DO NOT retry" |
-| `ParseError(provider, msg=None)` | 200 but unparseable / schema drift | the honest mapping for a 200-with-error-body |
+| `ParseError(provider, msg=None)` | 200 but unparseable | the honest mapping for a 200-with-error-body; raise it yourself for a bad response shape — `OutputSpec` mismatches raise `ValueError` from entity projection instead, not `ParseError` |
 | `InvalidParameterError(provider, message)` | bad call-time arg (pre-network) | `message` required |
 | `CatalogNotFoundError(msg)` | catalog bundle missing | import from `parsimony.errors`, not top-level |
 
@@ -491,11 +493,12 @@ embedder friendliness).
 
 ### 6.6 Parsing real-world payloads
 
-- **Coerce only the measure column** to numeric. `pd.to_numeric(errors="coerce")` over every
-  column silently NaNs string metadata (EIA `duoarea`/`product`, SNB dimension codes). A
-  `dtype="numeric"` column that becomes **all-NaN** raises `ParseError` (the framework's
-  all-NaN guard) — FRED encodes missing as the sentinel `"."`, so pick real-data windows in
-  live tests.
+- **Coerce only the measure column** to numeric, in the connector body — `OutputSpec` never
+  coerces dtypes for you. `pd.to_numeric(errors="coerce")` over every column silently NaNs
+  string metadata (EIA `duoarea`/`product`, SNB dimension codes). If your own coercion turns a
+  measure column **all-NaN**, raise `ParseError`/`EmptyDataError` yourself — nothing in the
+  framework guards against it any more — and note FRED encodes missing as the sentinel `"."`,
+  so pick real-data windows in live tests.
 - **Multi-host providers:** per-base-URL clients with the boundary documented in code
   (`sec_edgar`: `data.sec.gov` for JSON APIs, `www.sec.gov` for the ticker map + `/Archives`
   bodies — `data.sec.gov` 404s `/Archives`).
@@ -527,8 +530,8 @@ When a provider has no native search, three roles, cleanly separated:
 
    ```python
    def build_<p>_catalog(...) -> Catalog:
-       result   = enumerate_<p>(...)                                # the @enumerator (sync)
-       entries  = entities_from_raw(result.data, <P>_ENUMERATE_OUTPUT)  # DataFrame → list[Entity]
+       result   = enumerate_<p>(...)                # the @enumerator (sync) -> Result
+       entries  = list(result.entities.values())     # Result -> list[Entity]
        catalog  = Catalog(NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
        catalog.set_entities(entries)
        catalog.build()
@@ -910,14 +913,16 @@ The traps that bite regardless of provider:
   subclass (§4.5).
 - **200-with-error-body** → `RateLimitError(quota_exhausted=True)` or `ParseError`, never a fake
   `status_code=0`/`ProviderError` (§6.4).
-- **Blanket `to_numeric` NaNs string metadata** — coerce only the measure column; all-NaN →
-  `ParseError`, so pick real-data windows live (§6.6).
+- **Blanket `to_numeric` NaNs string metadata** — coerce only the measure column, yourself, in
+  the connector body; if that coercion produces an all-NaN measure, raise `ParseError`/
+  `EmptyDataError` yourself and pick real-data windows live (§6.6).
 - **Query-param key redaction only covers known names** — a custom-named query key leaks to logs
   (§4.6).
 - **Present-but-invalid key is often not 401** (FRED → 400) (§5.5).
-- **Enumerators require an EXACT column match and silently drop unmapped columns** — declare
-  every column and `return df[DECLARED].head(limit)`; plain `@connector`/`@loader` fold unmapped
-  columns in as DATA, so `return df[[declared]]` to drop passthrough (§4.2).
+- **`OutputSpec` never checks your returned columns against the declaration, at any decorator** —
+  a missing declared column only surfaces later, as a `ValueError`, when something projects
+  entities from the result (`result.entities` / `result.data`). Return
+  `df[[declared]]` yourself if you don't want provider passthrough columns on `result.raw` (§4.2).
 - **`Connectors` is name-keyed** — `bundle[0]` raises `KeyError`; merge with `+`.
 - **`CatalogNotFoundError` and all `parsimony.transport.*` are not top-level** — import from the
   submodule.

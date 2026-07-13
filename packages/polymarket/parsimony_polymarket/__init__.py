@@ -35,7 +35,7 @@ from typing import Any
 import pandas as pd
 from parsimony.connector import Connectors, connector, enumerator
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 from parsimony.transport import HttpClient
 from parsimony.transport.helpers import fetch_json, make_http_client
 
@@ -58,7 +58,7 @@ _INTERVALS = ("max", "1m", "1w", "1d", "6h", "1h")
 # as METADATA so the caller can triage which market is worth pulling — they are
 # descriptive attributes of the entity, not observation values.
 
-_SEARCH_EVENTS_OUTPUT = OutputConfig(
+_SEARCH_EVENTS_OUTPUT = OutputSpec(
     columns=[
         Column(name="slug", role=ColumnRole.KEY, namespace="polymarket_event"),
         Column(name="title", role=ColumnRole.TITLE),
@@ -71,7 +71,7 @@ _SEARCH_EVENTS_OUTPUT = OutputConfig(
     ]
 )
 
-_EVENT_MARKETS_OUTPUT = OutputConfig(
+_EVENT_MARKETS_OUTPUT = OutputSpec(
     columns=[
         Column(name="market_slug", role=ColumnRole.KEY, namespace="polymarket_market"),
         Column(name="market_question", role=ColumnRole.TITLE),
@@ -84,7 +84,7 @@ _EVENT_MARKETS_OUTPUT = OutputConfig(
     ]
 )
 
-_MARKET_OUTCOMES_OUTPUT = OutputConfig(
+_MARKET_OUTCOMES_OUTPUT = OutputSpec(
     columns=[
         Column(name="clob_token_id", role=ColumnRole.KEY, namespace="polymarket_token"),
         Column(name="outcome", role=ColumnRole.TITLE),
@@ -92,10 +92,10 @@ _MARKET_OUTCOMES_OUTPUT = OutputConfig(
 )
 
 # price history IS observation data: one probability per timestamp for one token.
-_PRICE_HISTORY_OUTPUT = OutputConfig(
+_PRICE_HISTORY_OUTPUT = OutputSpec(
     columns=[
         Column(name="token", role=ColumnRole.KEY, namespace="polymarket_token"),
-        Column(name="timestamp", dtype="datetime", role=ColumnRole.DATA),
+        Column(name="timestamp", role=ColumnRole.DATA),
         Column(name="probability", role=ColumnRole.DATA),
     ]
 )

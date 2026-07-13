@@ -58,7 +58,7 @@ def test_connectors_are_tool_tagged() -> None:
 
 
 def test_databases_search_output_includes_dispatch_columns() -> None:
-    cfg = boj_databases_search.output_config
+    cfg = boj_databases_search.output_spec
     assert cfg is not None
     assert [c.name for c in cfg.columns] == [
         "db",
@@ -70,7 +70,7 @@ def test_databases_search_output_includes_dispatch_columns() -> None:
 
 
 def test_series_search_output_includes_db_for_fetch() -> None:
-    cfg = boj_series_search.output_config
+    cfg = boj_series_search.output_spec
     assert cfg is not None
     assert [c.name for c in cfg.columns] == ["code", "title", "score", "db"]
 
@@ -88,7 +88,7 @@ def test_series_search_loads_per_db_namespace(monkeypatch: pytest.MonkeyPatch) -
     result = boj_series_search(query="USD", db="FM08", limit=1)
 
     assert seen == [f"{DEFAULT_CATALOG_ROOT}/boj_series_fm08"]
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["code"] == "FXERD01"
     assert df.iloc[0]["db"] == "FM08"
 
@@ -106,7 +106,7 @@ def test_databases_search_loads_databases_bundle(monkeypatch: pytest.MonkeyPatch
     result = boj_databases_search(query="exchange", limit=1)
 
     assert seen == [f"{DEFAULT_CATALOG_ROOT}/boj_databases"]
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["db"] == "FM08"
     assert df.iloc[0]["series_namespace"] == "boj_series_fm08"
 

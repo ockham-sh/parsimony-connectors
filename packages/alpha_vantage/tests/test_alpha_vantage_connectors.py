@@ -243,7 +243,7 @@ def test_search_returns_rows_and_strips_key() -> None:
     assert result.provenance.source == "alpha_vantage_search"
     assert "api_key" not in result.provenance.params, "Theme-B: key leaked to provenance"
     assert _KEY not in str(result.provenance.params)
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["symbol"] == "AAPL"
     assert df.iloc[0]["name"] == "Apple Inc"
 
@@ -279,7 +279,7 @@ def test_quote_returns_single_row() -> None:
         }
     )
     result = alpha_vantage_quote.bind(api_key=_KEY)(symbol="IBM")
-    df = result.data
+    df = result.raw
     assert len(df) == 1
     assert df.iloc[0]["symbol"] == "IBM"
     # `%` stripped → numeric coercion succeeds.
@@ -321,7 +321,7 @@ def _ohlcv_body(ts_key: str) -> dict:
 def test_ohlcv_series_inject_symbol_and_drop_meta(fn, ts_key) -> None:
     _mock(_ohlcv_body(ts_key))
     result = fn.bind(api_key=_KEY)(symbol="AAPL")
-    df = result.data
+    df = result.raw
     # Symbol injected (raw payload has no symbol row field); Meta Data dropped.
     assert set(df.columns) == {"symbol", "date", "open", "high", "low", "close", "volume"}
     assert df.iloc[0]["symbol"] == "AAPL"
@@ -345,7 +345,7 @@ def test_intraday_uses_timestamp_and_injects_symbol() -> None:
         }
     )
     result = alpha_vantage_intraday.bind(api_key=_KEY)(symbol="AAPL", interval="60min")
-    df = result.data
+    df = result.raw
     assert "timestamp" in df.columns
     assert df.iloc[0]["symbol"] == "AAPL"
 
@@ -366,7 +366,7 @@ def test_daily_empty_raises_empty_data() -> None:
 def test_overview_returns_single_keyed_row() -> None:
     _mock({"Symbol": "IBM", "Name": "International Business Machines", "Sector": "TECHNOLOGY", "PERatio": "None"})
     result = alpha_vantage_overview.bind(api_key=_KEY)(symbol="IBM")
-    df = result.data
+    df = result.raw
     assert len(df) == 1
     assert df.iloc[0]["Symbol"] == "IBM"
     assert df.iloc[0]["Name"] == "International Business Machines"
@@ -394,7 +394,7 @@ def test_overview_empty_raises_empty_data() -> None:
 def test_statements_return_period_rows_keyed_by_symbol(fn, key) -> None:
     _mock({key: [{"fiscalDateEnding": "2025-12-31", "totalRevenue": "1000"}]})
     result = fn.bind(api_key=_KEY)(symbol="IBM")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["symbol"] == "IBM"
     assert df.iloc[0]["fiscalDateEnding"] == "2025-12-31"
 
@@ -424,7 +424,7 @@ def test_earnings_returns_quarterly_rows() -> None:
         }
     )
     result = alpha_vantage_earnings.bind(api_key=_KEY)(symbol="IBM")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["symbol"] == "IBM"
     assert df["reportedEPS"].notna().any()
 
@@ -441,7 +441,7 @@ def test_etf_profile_returns_holding_rows() -> None:
         }
     )
     result = alpha_vantage_etf_profile.bind(api_key=_KEY)(symbol="SPY")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["symbol"] == "SPY"
     assert set(df["holding_symbol"]) == {"AAPL", "MSFT"}
     assert df["weight"].notna().any()
@@ -476,7 +476,7 @@ def test_fx_rate_returns_single_row() -> None:
         }
     )
     result = alpha_vantage_fx_rate.bind(api_key=_KEY)(from_currency="USD", to_currency="EUR")
-    df = result.data
+    df = result.raw
     assert len(df) == 1
     assert df.iloc[0]["from_currency"] == "USD"
     assert df.iloc[0]["exchange_rate"] == pytest.approx(0.8611)
@@ -495,7 +495,7 @@ def test_fx_rate_returns_single_row() -> None:
 def test_fx_series_injects_pair_key(fn, ts_key) -> None:
     _mock({ts_key: {"2026-04-18": {"1. open": "1.10", "2. high": "1.12", "3. low": "1.09", "4. close": "1.11"}}})
     result = fn.bind(api_key=_KEY)(from_symbol="EUR", to_symbol="USD")
-    df = result.data
+    df = result.raw
     # The synthetic KEY (no `pair` field in the raw payload).
     assert df.iloc[0]["pair"] == "EUR/USD"
     assert set(df.columns) == {"pair", "date", "open", "high", "low", "close"}
@@ -539,7 +539,7 @@ def test_crypto_series_injects_symbol_key(fn, ts_key) -> None:
         }
     )
     result = fn.bind(api_key=_KEY)(symbol="BTC", market="USD")
-    df = result.data
+    df = result.raw
     # Raw crypto rows carry NO symbol field — it must be injected from the param.
     assert df.iloc[0]["symbol"] == "BTC"
     assert set(df.columns) == {"symbol", "date", "open", "high", "low", "close", "volume"}
@@ -569,7 +569,7 @@ def test_econ_returns_observation_rows() -> None:
         }
     )
     result = alpha_vantage_econ.bind(api_key=_KEY)(function="REAL_GDP")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["name"] == "REAL_GDP"
     assert df["value"].notna().any()
     # "." sentinel coerces to null (not a crash).
@@ -592,7 +592,7 @@ def test_econ_empty_raises_empty_data() -> None:
 def test_metal_spot_returns_single_row() -> None:
     _mock({"nominal": "Gold", "price": "2350.50", "timestamp": "2026-06-03"})
     result = alpha_vantage_metal_spot.bind(api_key=_KEY)(symbol="GOLD")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["symbol"] == "GOLD"
     assert df["price"].notna().any()
 
@@ -601,7 +601,7 @@ def test_metal_spot_returns_single_row() -> None:
 def test_metal_history_returns_price_rows() -> None:
     _mock({"data": [{"date": "2026-05-01", "price": "2340.0"}, {"date": "2026-04-01", "price": "."}]})
     result = alpha_vantage_metal_history.bind(api_key=_KEY)(symbol="GOLD", interval="monthly")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["symbol"] == "GOLD"
     assert df["price"].notna().any()
 
@@ -637,7 +637,7 @@ def test_news_returns_article_rows() -> None:
         }
     )
     result = alpha_vantage_news.bind(api_key=_KEY)(tickers="AAPL", limit=5)
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["title"] == "Markets rally"
     assert df["overall_sentiment_score"].notna().any()
 
@@ -668,7 +668,7 @@ def test_top_movers_returns_categorized_rows() -> None:
         }
     )
     result = alpha_vantage_top_movers.bind(api_key=_KEY)()
-    df = result.data
+    df = result.raw
     assert set(df["category"]) == {"top_gainers", "top_losers"}
     assert df["change_percentage"].notna().any()
 
@@ -706,7 +706,7 @@ def test_options_returns_contract_rows() -> None:
         }
     )
     result = alpha_vantage_options.bind(api_key=_KEY)(symbol="IBM")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["contractID"] == "IBM260101C00100000"
     assert df["strike"].notna().any()
 
@@ -730,7 +730,7 @@ def test_technical_injects_symbol_and_coerces_values() -> None:
         }
     )
     result = alpha_vantage_technical.bind(api_key=_KEY)(symbol="AAPL", function="SMA")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["symbol"] == "AAPL"
     assert df["SMA"].notna().any()
 
@@ -751,7 +751,7 @@ def test_technical_intraday_preserves_time_component() -> None:
     result = alpha_vantage_technical.bind(api_key=_KEY)(
         symbol="AAPL", function="SMA", interval="1min", time_period=20, series_type="close"
     )
-    times = result.data["date"].dt.time.astype(str).tolist()
+    times = result.raw["date"].dt.time.astype(str).tolist()
     assert "00:00:00" not in times, f"intraday timestamps normalized to midnight: {times}"
     assert set(times) == {"14:30:00", "14:29:00"}
 
@@ -781,7 +781,7 @@ def test_earnings_calendar_returns_rows() -> None:
     )
     _mock(text=csv)
     result = alpha_vantage_earnings_calendar.bind(api_key=_KEY)(horizon="3month")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["symbol"] == "IBM"
     assert df["reportDate"].notna().any()
 
@@ -794,7 +794,7 @@ def test_ipo_calendar_returns_rows() -> None:
     )
     _mock(text=csv)
     result = alpha_vantage_ipo_calendar.bind(api_key=_KEY)()
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["symbol"] == "NEWCO"
 
 
@@ -820,7 +820,7 @@ def test_enumerate_returns_declared_columns() -> None:
     )
     _mock(text=csv)
     result = enumerate_alpha_vantage.bind(api_key=_KEY)(state="active")
-    df = result.data
+    df = result.raw
     # Enumerator drops unmapped (delistingDate) and exact-matches the schema.
     assert set(df.columns) == {"symbol", "name", "exchange", "assetType", "ipoDate", "status"}
     assert "AAPL" in set(df["symbol"])
@@ -834,4 +834,4 @@ def test_enumerate_bounds_row_count() -> None:
     body = "".join(f"SYM{i},Name {i},NASDAQ,Stock,2000-01-01,Active\n" for i in range(6001))
     _mock(text=header + body)
     result = enumerate_alpha_vantage.bind(api_key=_KEY)(state="active")
-    assert len(result.data) == 5000
+    assert len(result.raw) == 5000

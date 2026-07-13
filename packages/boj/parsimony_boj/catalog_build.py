@@ -8,7 +8,7 @@ from typing import Any
 
 import pandas as pd
 from parsimony.catalog import BM25Index, Catalog, CatalogIndex, Entity
-from parsimony.catalog.source import _dataframe_from_raw, entities_from_raw
+from parsimony.result import OutputSpec, Result
 
 from parsimony_boj.catalog_policy import adaptive_field_index, discovery_indexes
 
@@ -23,6 +23,14 @@ def series_namespace(db_code: str) -> str:
     return f"boj_series_{db_code.strip().lower()}"
 
 
+def _as_dataframe(raw: Any) -> pd.DataFrame:
+    return raw.raw if isinstance(raw, Result) else raw
+
+
+def _entities(df: pd.DataFrame, output: OutputSpec) -> list[Entity]:
+    return list(Result(raw=df, output_spec=output).entities.values())
+
+
 def entities_from_boj_enumeration(raw: Any) -> list[Entity]:
     """Project enumerate output to entities, partitioned by database.
 
@@ -33,18 +41,18 @@ def entities_from_boj_enumeration(raw: Any) -> list[Entity]:
     """
     from parsimony_boj import BOJ_ENUMERATE_OUTPUT
 
-    df = _dataframe_from_raw(raw)
+    df = _as_dataframe(raw)
     entries: list[Entity] = []
 
     db_df = df.loc[df["entity_type"] == "db"]
     if not db_df.empty:
         db_df = db_df.drop_duplicates(subset=["code"], keep="first")
-        entries.extend(entities_from_raw(db_df.reset_index(drop=True), BOJ_ENUMERATE_OUTPUT))
+        entries.extend(_entities(db_df.reset_index(drop=True), BOJ_ENUMERATE_OUTPUT))
 
     series_df = df.loc[df["entity_type"] == "series"]
     for _, group in series_df.groupby("db", sort=True):
         deduped = group.drop_duplicates(subset=["code"], keep="first")
-        entries.extend(entities_from_raw(deduped.reset_index(drop=True), BOJ_ENUMERATE_OUTPUT))
+        entries.extend(_entities(deduped.reset_index(drop=True), BOJ_ENUMERATE_OUTPUT))
 
     return entries
 
@@ -111,7 +119,7 @@ def split_enumerated_df(
     db_df = df[db_mask].copy()
     series_df = df[~db_mask].copy()
 
-    db_entities_raw: list[Entity] = entities_from_raw(db_df, BOJ_ENUMERATE_OUTPUT) if not db_df.empty else []
+    db_entities_raw: list[Entity] = _entities(db_df, BOJ_ENUMERATE_OUTPUT) if not db_df.empty else []
     databases = [_database_entry(e) for e in db_entities_raw]
 
     series_by_db: dict[str, list[Entity]] = {}
@@ -119,7 +127,7 @@ def split_enumerated_df(
         if grp.empty:
             continue
         grp = grp.drop_duplicates(subset=["code"])
-        converted = [_series_entry(e, db_code=str(raw_db_code)) for e in entities_from_raw(grp, BOJ_ENUMERATE_OUTPUT)]
+        converted = [_series_entry(e, db_code=str(raw_db_code)) for e in _entities(grp, BOJ_ENUMERATE_OUTPUT)]
         if converted:
             series_by_db[str(raw_db_code)] = converted
 
@@ -171,7 +179,7 @@ def build_boj_series_catalog_for_db(db_code: str) -> Catalog:
 
     normalized = db_code.strip().upper()
     df = fetch_boj_enumeration_rows_for_db(normalized)
-    entries = entities_from_raw(df, BOJ_ENUMERATE_OUTPUT)
+    entries = _entities(df, BOJ_ENUMERATE_OUTPUT)
     _, series_by_db = split_enumerated_entries(entries)
     rows = series_by_db.get(normalized) or series_by_db.get(db_code.strip()) or []
     if not rows:

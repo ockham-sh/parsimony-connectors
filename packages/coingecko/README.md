@@ -56,7 +56,7 @@ from parsimony_coingecko import load
 # Bind the key off the call surface (kept out of provenance and logs).
 connectors = load(api_key=os.environ["COINGECKO_API_KEY"])
 result = connectors["coingecko_price"](ids="bitcoin", vs_currencies="usd")
-print(result.data.head())
+print(result.raw.head())
 ```
 
 If the key is not bound, each connector falls back to `COINGECKO_API_KEY` from the

@@ -240,7 +240,7 @@ def test_series_search_surfaces_title(tmp_path: Path, monkeypatch: pytest.Monkey
         dataset_id="TEST",
         query="Monthly",
         catalog_root=str(catalogs_dir),
-    ).data
+    ).raw
 
     assert "title" in df.columns
     titles = dict(zip(df["key"], df["title"], strict=True))
@@ -263,7 +263,7 @@ def test_series_search_filter_only_allows_enumeration_limit(tmp_path: Path, monk
         filter_json='{"REF_AREA_code": ["DE"]}',
         limit=5000,
         catalog_root=str(catalogs_dir),
-    ).data
+    ).raw
 
     assert set(df["key"]) == {"M.DE", "A.DE"}
 
@@ -312,14 +312,14 @@ def test_series_search_coerces_scalar_filter_json(tmp_path: Path, monkeypatch: p
         query="Monthly",
         filter_json='{"FREQ_code": "M"}',
         catalog_root=str(catalogs_dir),
-    ).data
+    ).raw
     listed = sdmx_series_search(
         agency="ECB",
         dataset_id="TEST",
         query="Monthly",
         filter_json='{"FREQ_code": ["M"]}',
         catalog_root=str(catalogs_dir),
-    ).data
+    ).raw
 
     assert set(scalar["key"]) == set(listed["key"])
     assert set(scalar["key"]) <= {"M.DE", "M.FR"}
@@ -420,7 +420,7 @@ def test_series_search_code_filter_matches(tmp_path: Path, monkeypatch: pytest.M
         query="Monthly",
         filter_json='{"FREQ_code": ["M"]}',
         catalog_root=str(catalogs_dir),
-    ).data
+    ).raw
 
     keys = set(df["key"])
     assert keys <= {"M.DE", "M.FR"}
@@ -458,7 +458,7 @@ def test_series_search_strips_flow_prefixed_keys(tmp_path: Path, monkeypatch: py
         dataset_id="TEST",
         filter_json='{"REF_AREA_code": ["DE"]}',
         catalog_root=str(catalogs_dir),
-    ).data
+    ).raw
 
     assert set(df["key"]) == {"M.DE", "A.DE"}
     # The title lookup happens on the raw (still-prefixed) keys and must survive the strip.
@@ -777,7 +777,7 @@ def test_series_search_bare_query_spans_dimension_labels(tmp_path: Path, monkeyp
         dataset_id="BOPX",
         query="current account",
         catalog_root=str(catalogs_dir),
-    ).data
+    ).raw
 
     keys = list(df["key"])
     # Title-only scoring cannot rank Q.993 at all; the label surface pins it first.

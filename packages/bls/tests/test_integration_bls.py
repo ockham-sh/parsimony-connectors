@@ -31,7 +31,7 @@ def test_bls_fetch_unemployment() -> None:
     # LNS14000000 is the canonical US unemployment rate series from BLS.
     result = bound(series_id="LNS14000000", start_year="2025", end_year="2026")
     assert_provenance_shape(result, expected_source="bls_fetch", required_param_keys=["series_id"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "BLS fetch of LNS14000000 returned empty"
     assert {"date", "value"}.issubset(df.columns)
     assert df["value"].notna().any()
@@ -41,7 +41,7 @@ def test_bls_fetch_unemployment_live() -> None:
     bound = bls_fetch.bind(api_key=_KEY)
     result = bound(series_id="LNS14000000", start_year="2024", end_year="2026")
     assert_provenance_shape(result, expected_source="bls_fetch", required_param_keys=["series_id"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "BLS fetch of LNS14000000 returned empty"
     assert {"date", "value"}.issubset(df.columns)
     assert df["value"].notna().any()
@@ -49,7 +49,7 @@ def test_bls_fetch_unemployment_live() -> None:
 
 def test_enumerate_surveys_live() -> None:
     result = enumerate_bls_surveys.bind(api_key=_KEY)()
-    df = result.data
+    df = result.raw
     assert_provenance_shape(result, expected_source="enumerate_bls_surveys")
     assert len(df) >= 60, f"expected the full survey roster, got {len(df)}"
     assert "CU" in set(df["code"])
@@ -58,7 +58,7 @@ def test_enumerate_surveys_live() -> None:
 def test_enumerate_series_live_composes_titles() -> None:
     # Title-less survey: titles must be composed from dimension labels, not blank.
     result = enumerate_bls_series(survey=_SMALL_SURVEY)
-    df = result.data
+    df = result.raw
     assert not df.empty
     assert df["title"].str.len().gt(0).all(), "blank composed title in a title-less survey"
     assert (df["code"].str.startswith("JT")).all()

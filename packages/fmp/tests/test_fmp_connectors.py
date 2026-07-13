@@ -102,7 +102,7 @@ def test_fmp_search_returns_rows_and_strips_key() -> None:
     # Theme-B: the bound key must not appear in provenance.
     assert _KEY not in str(result.provenance.params)
     assert "api_key" not in result.provenance.params
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["symbol"] == "AAPL"
     assert "isPrimary" not in df.columns
 
@@ -138,7 +138,7 @@ def test_fmp_taxonomy_sectors() -> None:
         return_value=httpx.Response(200, json=[{"sector": "Technology"}, {"sector": "Energy"}])
     )
     result = fmp_taxonomy.bind(api_key=_KEY)(type="sectors")
-    assert set(result.data["sector"]) == {"Technology", "Energy"}
+    assert set(result.raw["sector"]) == {"Technology", "Energy"}
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +175,7 @@ def test_fmp_quotes_returns_rows() -> None:
         )
     )
     result = fmp_quotes.bind(api_key=_KEY)(symbols="AAPL")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["symbol"] == "AAPL"
     assert df.iloc[0]["changePercentage"] == -1.56
     # the schema declares only columns the live payload carries
@@ -215,7 +215,7 @@ def test_fmp_prices_daily_returns_ohlcv() -> None:
         )
     )
     result = fmp_prices.bind(api_key=_KEY)(symbol="AAPL", frequency="daily")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["close"] == 198.89
     # symbol is a provider extra here (prices schema is date-keyed, no symbol col)
     assert "symbol" not in df.columns
@@ -243,7 +243,7 @@ def test_fmp_prices_dividend_adjusted_renames_adj_columns() -> None:
         )
     )
     result = fmp_prices.bind(api_key=_KEY)(symbol="AAPL", frequency="dividend_adjusted")
-    df = result.data
+    df = result.raw
     assert "close" in df.columns, f"close dropped — columns are {list(df.columns)}"
     assert df.iloc[0]["close"] == 197.48
     assert df.iloc[0]["open"] == 197.95
@@ -268,7 +268,7 @@ def test_fmp_prices_intraday_preserves_time_component() -> None:
         )
     )
     result = fmp_prices.bind(api_key=_KEY)(symbol="AAPL", frequency="1min")
-    times = result.data["date"].dt.time.astype(str).tolist()
+    times = result.raw["date"].dt.time.astype(str).tolist()
     assert "00:00:00" not in times
     assert times[0] == "14:30:00"
 
@@ -316,7 +316,7 @@ def test_fmp_company_profile_returns_row_and_drops_extras() -> None:
         )
     )
     result = fmp_company_profile.bind(api_key=_KEY)(symbol="AAPL")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["companyName"] == "Apple Inc."
     assert "cusip" not in df.columns
 
@@ -340,7 +340,7 @@ def test_fmp_peers_returns_peer_group() -> None:
         )
     )
     result = fmp_peers.bind(api_key=_KEY)(symbol="AAPL")
-    assert set(result.data["symbol"]) == {"GOOGL", "META"}
+    assert set(result.raw["symbol"]) == {"GOOGL", "META"}
 
 
 # ---------------------------------------------------------------------------
@@ -374,7 +374,7 @@ def test_fmp_income_statements_projects_declared_columns() -> None:
         )
     )
     result = fmp_income_statements.bind(api_key=_KEY)(symbol="AAPL", limit=1)
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["revenue"] == 4e11
     assert "cik" not in df.columns
     assert "fiscalYear" not in df.columns
@@ -401,7 +401,7 @@ def test_fmp_balance_sheet_keeps_extras_via_wildcard() -> None:
         )
     )
     result = fmp_balance_sheet_statements.bind(api_key=_KEY)(symbol="AAPL", limit=1)
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["totalAssets"] == 3.5e11
     assert "goodwill" in df.columns  # wildcard keeps it
 
@@ -429,7 +429,7 @@ def test_fmp_cash_flow_statements_returns_rows() -> None:
         )
     )
     result = fmp_cash_flow_statements.bind(api_key=_KEY)(symbol="AAPL", limit=1)
-    assert result.data.iloc[0]["freeCashFlow"] == 1.1e11
+    assert result.raw.iloc[0]["freeCashFlow"] == 1.1e11
 
 
 # ---------------------------------------------------------------------------
@@ -446,7 +446,7 @@ def test_fmp_corporate_history_earnings() -> None:
         )
     )
     result = fmp_corporate_history.bind(api_key=_KEY)(symbol="AAPL", event_type="earnings")
-    assert result.data.iloc[0]["symbol"] == "AAPL"
+    assert result.raw.iloc[0]["symbol"] == "AAPL"
 
 
 @respx.mock
@@ -455,7 +455,7 @@ def test_fmp_event_calendar_dividends() -> None:
         return_value=httpx.Response(200, json=[{"symbol": "AAPL", "date": "2026-06-05", "dividend": 0.27}])
     )
     result = fmp_event_calendar.bind(api_key=_KEY)(event_type="dividends", from_date="2026-06-01", to_date="2026-06-10")
-    assert result.data.iloc[0]["dividend"] == 0.27
+    assert result.raw.iloc[0]["dividend"] == 0.27
 
 
 @respx.mock
@@ -486,7 +486,7 @@ def test_fmp_analyst_estimates_returns_rows() -> None:
         )
     )
     result = fmp_analyst_estimates.bind(api_key=_KEY)(symbol="AAPL")
-    assert result.data.iloc[0]["epsAvg"] == 9.5
+    assert result.raw.iloc[0]["epsAvg"] == 9.5
 
 
 # ---------------------------------------------------------------------------
@@ -514,7 +514,7 @@ def test_fmp_news_returns_articles() -> None:
         )
     )
     result = fmp_news.bind(api_key=_KEY)(type="news", symbols="AAPL")
-    df = result.data
+    df = result.raw
     assert df.iloc[0]["title"] == "Apple beats earnings"
     assert "publisher" not in df.columns
 
@@ -548,7 +548,7 @@ def test_fmp_insider_trades_returns_rows() -> None:
         )
     )
     result = fmp_insider_trades.bind(api_key=_KEY)(symbol="AAPL")
-    assert result.data.iloc[0]["reportingName"] == "Cook Timothy"
+    assert result.raw.iloc[0]["reportingName"] == "Cook Timothy"
 
 
 @respx.mock
@@ -578,7 +578,7 @@ def test_fmp_institutional_positions_returns_row() -> None:
         )
     )
     result = fmp_institutional_positions.bind(api_key=_KEY)(symbol="AAPL", year="2024", quarter="1")
-    assert result.data.iloc[0]["investorsHolding"] == 5272
+    assert result.raw.iloc[0]["investorsHolding"] == 5272
 
 
 def test_fmp_institutional_positions_rejects_bad_quarter() -> None:
@@ -595,7 +595,7 @@ def test_fmp_earnings_transcript_returns_text() -> None:
         )
     )
     result = fmp_earnings_transcript.bind(api_key=_KEY)(symbol="AAPL", year="2024", quarter="1")
-    assert result.data.iloc[0]["content"].startswith("Operator")
+    assert result.raw.iloc[0]["content"].startswith("Operator")
 
 
 def test_fmp_earnings_transcript_rejects_bad_quarter() -> None:
@@ -628,7 +628,7 @@ def test_fmp_index_constituents_sp500() -> None:
         )
     )
     result = fmp_index_constituents.bind(api_key=_KEY)(index="SP500")
-    assert result.data.iloc[0]["symbol"] == "AAPL"
+    assert result.raw.iloc[0]["symbol"] == "AAPL"
 
 
 @respx.mock
@@ -649,8 +649,8 @@ def test_fmp_market_movers_gainers() -> None:
         )
     )
     result = fmp_market_movers.bind(api_key=_KEY)(type="gainers")
-    assert result.data.iloc[0]["symbol"] == "XOS"
-    assert result.data.iloc[0]["changesPercentage"] == 234.5
+    assert result.raw.iloc[0]["symbol"] == "XOS"
+    assert result.raw.iloc[0]["changesPercentage"] == 234.5
 
 
 # ---------------------------------------------------------------------------

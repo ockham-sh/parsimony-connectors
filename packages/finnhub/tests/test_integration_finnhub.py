@@ -70,7 +70,7 @@ def test_finnhub_search_apple_returns_aapl() -> None:
     result = finnhub_search.bind(api_key=key)(query="apple")
 
     assert_provenance_shape(result, expected_source="finnhub_search", required_param_keys=["query"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "search for 'apple' returned no rows"
     assert "AAPL" in set(df["symbol"]), f"AAPL missing: {list(df['symbol'])[:10]}"
     # Real content: descriptions (company names) must be populated.
@@ -88,7 +88,7 @@ def test_finnhub_quote_aapl() -> None:
     result = finnhub_quote.bind(api_key=key)(symbol="AAPL")
 
     assert_provenance_shape(result, expected_source="finnhub_quote", required_param_keys=["symbol"])
-    df = result.data
+    df = result.raw
     assert len(df) == 1
     assert df.iloc[0]["symbol"] == "AAPL"
     # current_price must be a real, positive number.
@@ -107,7 +107,7 @@ def test_finnhub_profile_aapl() -> None:
     result = finnhub_profile.bind(api_key=key)(symbol="AAPL")
 
     assert_provenance_shape(result, expected_source="finnhub_profile", required_param_keys=["symbol"])
-    data = result.data
+    data = result.raw
     assert isinstance(data, dict)
     assert data.get("ticker") == "AAPL"
     assert "Apple" in data.get("name", ""), f"unexpected name: {data.get('name')!r}"
@@ -121,7 +121,7 @@ def test_finnhub_peers_aapl() -> None:
     result = finnhub_peers.bind(api_key=key)(symbol="AAPL")
 
     assert_provenance_shape(result, expected_source="finnhub_peers", required_param_keys=["symbol"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "peers returned no rows"
     assert "AAPL" in set(df["symbol"]), "AAPL not in its own peer set"
     assert len(df) > 1, "peer list has only one entry"
@@ -133,7 +133,7 @@ def test_finnhub_recommendation_aapl() -> None:
     result = finnhub_recommendation.bind(api_key=key)(symbol="AAPL")
 
     assert_provenance_shape(result, expected_source="finnhub_recommendation", required_param_keys=["symbol"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "recommendation returned no rows"
     # Real content: the buy/hold counts must carry numbers, not be all-NaN.
     assert df["buy"].notna().any(), "buy column entirely NaN"
@@ -149,7 +149,7 @@ def test_finnhub_earnings_aapl() -> None:
     result = finnhub_earnings.bind(api_key=key)(symbol="AAPL")
 
     assert_provenance_shape(result, expected_source="finnhub_earnings", required_param_keys=["symbol"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "earnings returned no rows"
     assert df["eps_actual"].notna().any(), "eps_actual entirely NaN"
     assert df["eps_estimate"].notna().any(), "eps_estimate entirely NaN"
@@ -161,7 +161,7 @@ def test_finnhub_basic_financials_aapl() -> None:
     result = finnhub_basic_financials.bind(api_key=key)(symbol="AAPL")
 
     assert_provenance_shape(result, expected_source="finnhub_basic_financials", required_param_keys=["symbol"])
-    data = result.data
+    data = result.raw
     assert isinstance(data, dict)
     metric = data.get("metric", {})
     assert metric, "metric dict is empty"
@@ -181,7 +181,7 @@ def test_finnhub_company_news_aapl_recent() -> None:
     result = finnhub_company_news.bind(api_key=key)(symbol="AAPL", from_date=frm, to_date=to)
 
     assert_provenance_shape(result, expected_source="finnhub_company_news", required_param_keys=["symbol"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "no AAPL news in the recent window"
     assert df["headline"].str.len().gt(0).any(), "all headlines empty"
     assert df["datetime"].notna().any(), "all news timestamps missing"
@@ -193,7 +193,7 @@ def test_finnhub_market_news_general() -> None:
     result = finnhub_market_news.bind(api_key=key)(category="general")
 
     assert_provenance_shape(result, expected_source="finnhub_market_news")
-    df = result.data
+    df = result.raw
     assert not df.empty, "market news returned no rows"
     assert df["headline"].str.len().gt(0).any(), "all market headlines empty"
     assert_no_secret_leak(result, secret=key)
@@ -212,7 +212,7 @@ def test_finnhub_earnings_calendar_window() -> None:
     result = finnhub_earnings_calendar.bind(api_key=key)(from_date=frm, to_date=to)
 
     assert_provenance_shape(result, expected_source="finnhub_earnings_calendar")
-    df = result.data
+    df = result.raw
     assert not df.empty, "earnings calendar returned no events"
     assert df["symbol"].str.len().gt(0).all(), "some calendar rows have no symbol"
     # At least some events should carry a date and an EPS estimate.
@@ -228,7 +228,7 @@ def test_finnhub_ipo_calendar_window() -> None:
     result = finnhub_ipo_calendar.bind(api_key=key)(from_date=frm, to_date=to)
 
     assert_provenance_shape(result, expected_source="finnhub_ipo_calendar")
-    df = result.data
+    df = result.raw
     assert not df.empty, "IPO calendar returned no events"
     assert df["name"].str.len().gt(0).any(), "all IPO names empty"
     # price_range preserves the verbatim string — confirm at least one is populated.
@@ -246,7 +246,7 @@ def test_enumerate_finnhub_bounded() -> None:
     result = enumerate_finnhub.bind(api_key=key)(exchange="US")
 
     assert_provenance_shape(result, expected_source="enumerate_finnhub")
-    df = result.data
+    df = result.raw
     # Exact-match enumerator schema.
     assert list(df.columns) == [
         "symbol",

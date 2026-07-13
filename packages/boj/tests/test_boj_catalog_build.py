@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 from parsimony.catalog import BM25Index, HybridIndex
-from parsimony.catalog.source import entities_from_raw
+from parsimony.result import Result
 
 from parsimony_boj import BOJ_ENUMERATE_OUTPUT, catalog_build
 from parsimony_boj.catalog_build import (
@@ -49,7 +49,7 @@ def _flat_rows() -> pd.DataFrame:
 
 
 def _flat_entries():
-    return entities_from_raw(_flat_rows(), BOJ_ENUMERATE_OUTPUT)
+    return list(Result(raw=_flat_rows(), output_spec=BOJ_ENUMERATE_OUTPUT).entities.values())
 
 
 def test_series_namespace_is_lowercase() -> None:

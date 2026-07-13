@@ -40,10 +40,8 @@ _SEARCH_COLUMNS = {
 def test_polymarket_search_events_live() -> None:
     result = polymarket_search_events(search_text="inflation", limit=5)
 
-    assert_provenance_shape(
-        result, expected_source="polymarket_search_events", required_param_keys=["search_text"]
-    )
-    df = result.data
+    assert_provenance_shape(result, expected_source="polymarket_search_events", required_param_keys=["search_text"])
+    df = result.raw
     assert not df.empty, "Gamma /public-search returned an empty DataFrame"
     assert set(df.columns) == _SEARCH_COLUMNS
     assert df["slug"].astype(str).str.len().gt(0).all(), "blank event slug"
@@ -55,14 +53,14 @@ def test_polymarket_search_events_live() -> None:
 
 def test_polymarket_navigation_chain_live() -> None:
     # search -> event -> market -> price history, entirely against the live APIs.
-    events = polymarket_search_events(search_text="inflation", limit=5).data
+    events = polymarket_search_events(search_text="inflation", limit=5).raw
     ev_slug = str(events.iloc[0]["slug"])
 
-    markets = polymarket_event(slug=ev_slug).data
+    markets = polymarket_event(slug=ev_slug).raw
     assert not markets.empty, f"event {ev_slug!r} exposed no markets"
     mk_slug = str(markets.iloc[0]["market_slug"])
 
-    outcomes = polymarket_market(slug=mk_slug).data
+    outcomes = polymarket_market(slug=mk_slug).raw
     assert not outcomes.empty, f"market {mk_slug!r} exposed no outcome tokens"
     assert set(outcomes.columns) == {"clob_token_id", "outcome"}
 
@@ -78,10 +76,8 @@ def test_polymarket_navigation_chain_live() -> None:
     if hist is None:
         pytest.skip("no outcome token on the sampled market returned a price history")
 
-    assert_provenance_shape(
-        hist, expected_source="polymarket_price_history", required_param_keys=["token_id"]
-    )
-    hdf = hist.data
+    assert_provenance_shape(hist, expected_source="polymarket_price_history", required_param_keys=["token_id"])
+    hdf = hist.raw
     assert not hdf.empty
     assert set(hdf.columns) == {"token", "timestamp", "probability"}
     assert hdf["probability"].between(0.0, 1.0).all(), "probability outside [0,1]"

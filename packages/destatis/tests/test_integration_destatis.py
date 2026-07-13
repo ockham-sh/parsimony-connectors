@@ -32,8 +32,8 @@ import pandas as pd
 import pytest
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
 from parsimony.errors import RateLimitError
+from parsimony.result import Result
 from parsimony_test_support import assert_provenance_shape
 
 from parsimony_destatis.connectors import enumerate as enumerate_module
@@ -58,7 +58,7 @@ def test_destatis_fetch_known_table_live() -> None:
     result = destatis_fetch(name=_KNOWN_TABLE)
 
     assert_provenance_shape(result, expected_source="destatis_fetch", required_param_keys=["name"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "GENESIS fetch returned an empty DataFrame"
     assert (df["series_id"] == _KNOWN_TABLE).all()
     # Real content, not just shape: values are real numbers, not all-NaN/constant.
@@ -70,7 +70,7 @@ def test_destatis_fetch_known_table_live() -> None:
     # rather than assume a single positive price level.
     vals = df["value"].dropna()
     assert ((vals > -50) & (vals < 1000)).all(), f"CPI values out of plausible range: {vals.tolist()[:5]}"
-    # Dates parse to real datetimes (declared dtype="datetime").
+    # Dates parse to real datetimes (coerced in destatis_fetch).
     assert df["date"].dtype.kind == "M"
     assert df["date"].notna().any(), "record dates all NaT"
 
@@ -78,7 +78,7 @@ def test_destatis_fetch_known_table_live() -> None:
 def test_destatis_fetch_year_range_live() -> None:
     """A bounded year range still returns real CPI observations."""
     result = destatis_fetch(name=_KNOWN_TABLE, start_year="2015", end_year="2020")
-    df = result.data
+    df = result.raw
     assert not df.empty
     assert df["value"].notna().any(), "no real values in the requested window"
 
@@ -96,7 +96,7 @@ def test_destatis_fetch_reference_date_table_live() -> None:
     hard-failed before the fix).
     """
     result = destatis_fetch(name=_REFERENCE_DATE_TABLE)
-    df = result.data
+    df = result.raw
     assert not df.empty, "reference-date table returned no rows"
     assert df["date"].dtype.kind == "M", "STAG dates did not parse to datetimes"
     assert df["date"].notna().any(), "all reference dates NaT"
@@ -126,7 +126,7 @@ def test_enumerate_destatis_bounded_single_statistic_live(
     except RateLimitError:
         pytest.skip("GENESIS transiently rate-limited the bounded enumerate crawl")
 
-    df = result.data
+    df = result.raw
     # @enumerator enforces an EXACT column match against the declared schema.
     assert list(df.columns) == [c.name for c in DESTATIS_ENUMERATE_OUTPUT.columns]
     assert not df.empty, "bounded enumerate returned no rows"
@@ -153,7 +153,7 @@ def test_enumerate_destatis_bounded_single_statistic_live(
     assert df["variable_names_en"].str.len().gt(0).any(), "variable_names_en all empty"
 
     # build_entities round-trips on the real slice (the catalog-build entry point).
-    entities = DESTATIS_ENUMERATE_OUTPUT.build_entities(df)
+    entities = list(Result(raw=df, output_spec=DESTATIS_ENUMERATE_OUTPUT).entities.values())
     assert len(entities) == len(df)
     assert entities[0].namespace == "destatis"
 
@@ -214,7 +214,7 @@ def test_destatis_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         },
     ]
     df = pd.DataFrame(rows, columns=[c.name for c in DESTATIS_ENUMERATE_OUTPUT.columns])
-    entries = entities_from_raw(df, DESTATIS_ENUMERATE_OUTPUT)
+    entries = list(Result(raw=df, output_spec=DESTATIS_ENUMERATE_OUTPUT).entities.values())
     catalog = Catalog("destatis", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()
@@ -224,7 +224,7 @@ def test_destatis_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     result = destatis_search(query="consumer prices inflation", limit=5, catalog_url=str(out_dir))
 
     assert_provenance_shape(result, expected_source="destatis_search", required_param_keys=["query"])
-    sdf = result.data
+    sdf = result.raw
     assert list(sdf.columns) == ["code", "title", "score"]
     assert not sdf.empty, "search over the fixture catalog returned nothing"
     assert len(sdf) <= 3, "search returned more than the 3-row fixture catalog"
@@ -236,4 +236,4 @@ def test_destatis_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     # Ranking actually discriminates: a different query surfaces a different
     # entry as the top hit (not the same row regardless of query).
     other = destatis_search(query="unemployment labour market", limit=5, catalog_url=str(out_dir))
-    assert other.data.iloc[0]["code"] == "13211-0001"
+    assert other.raw.iloc[0]["code"] == "13211-0001"

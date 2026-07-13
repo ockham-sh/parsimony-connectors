@@ -25,7 +25,7 @@ import pandas as pd
 import pytest
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
+from parsimony.result import Result
 from parsimony_test_support import assert_provenance_shape
 
 from parsimony_bdp.connectors import enumerate as enum_mod
@@ -65,7 +65,7 @@ def test_bdp_fetch_known_dataset_live() -> None:
     )
 
     assert_provenance_shape(result, expected_source="bdp_fetch", required_param_keys=["dataset_id"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "BdP fetch returned an empty DataFrame"
     assert df["series_id"].nunique() >= 1
     assert df["title"].astype(str).str.len().gt(0).all(), "blank title"
@@ -85,7 +85,7 @@ def test_bdp_fetch_series_filter_live() -> None:
         series_ids=series_id,
         start_date="2024-01-01",
     )
-    df = result.data
+    df = result.raw
     assert set(df["series_id"]) == {series_id}, f"filter not honoured: {set(df['series_id'])}"
     assert df["value"].notna().any()
 
@@ -107,7 +107,7 @@ def test_enumerate_bdp_bounded_single_domain_live(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(cb_enumerate.ThrottledJsonFetcher, "get_json", _counting_get_json)
 
     result = enumerate_bdp()
-    df = result.data
+    df = result.raw
 
     # The bound held: domain 48 → 1 datasets-list page + 1 detail page. A
     # handful, never ~720.
@@ -125,7 +125,7 @@ def test_enumerate_bdp_bounded_single_domain_live(monkeypatch: pytest.MonkeyPatc
     # KEY shape for series rows: "{domain}:{dataset}:{series}".
     assert series["code"].str.startswith(f"{_BOUNDED_DOMAIN_ID}:").all()
 
-    entities = BDP_ENUMERATE_OUTPUT.build_entities(df)
+    entities = list(Result(raw=df, output_spec=BDP_ENUMERATE_OUTPUT).entities.values())
     assert len(entities) == len(df)
     assert entities[0].namespace == "bdp"
 
@@ -158,7 +158,7 @@ def test_bdp_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         ),
     ]
     df = pd.DataFrame(rows, columns=cols)
-    entries = entities_from_raw(df, BDP_ENUMERATE_OUTPUT)
+    entries = list(Result(raw=df, output_spec=BDP_ENUMERATE_OUTPUT).entities.values())
     catalog = Catalog("bdp", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()
@@ -168,7 +168,7 @@ def test_bdp_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     result = bdp_search(query="economic activity coincident indicator", limit=5, catalog_url=str(out_dir))
 
     assert_provenance_shape(result, expected_source="bdp_search", required_param_keys=["query"])
-    sdf = result.data
+    sdf = result.raw
     assert list(sdf.columns) == ["code", "title", "score"]
     assert not sdf.empty
     assert sdf.iloc[0]["code"] == "48:ds1:12099329"
@@ -177,4 +177,4 @@ def test_bdp_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     # Ranking actually discriminates: a different query surfaces a different
     # series as the top hit (not the same row regardless of query).
     inflation = bdp_search(query="consumer price inflation HICP", limit=5, catalog_url=str(out_dir))
-    assert inflation.data.iloc[0]["code"] == "12:ds2:55501"
+    assert inflation.raw.iloc[0]["code"] == "12:ds2:55501"

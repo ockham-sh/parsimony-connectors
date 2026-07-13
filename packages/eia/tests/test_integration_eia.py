@@ -24,7 +24,7 @@ import pandas as pd
 import pytest
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
+from parsimony.result import Result
 from parsimony_test_support import assert_no_secret_leak, assert_provenance_shape, require_env
 
 from parsimony_eia.connectors import enumerate as enumerate_module
@@ -48,7 +48,7 @@ def test_eia_fetch_petroleum_spot_prices() -> None:
     result = bound(route="petroleum/pri/spt")
 
     assert_provenance_shape(result, expected_source="eia_fetch", required_param_keys=["route"])
-    df = result.data
+    df = result.raw
     assert not df.empty
     assert {"period", "value"}.issubset(df.columns)
     assert df["value"].notna().any(), "value column is entirely NaN"
@@ -64,7 +64,7 @@ def test_eia_fetch_petroleum_spot_prices_paginates() -> None:
     result = bound(route=_SPOT_ROUTE, frequency="daily")
 
     assert_provenance_shape(result, expected_source="eia_fetch", required_param_keys=["route"])
-    df = result.data
+    df = result.raw
     assert len(df) > 5000, f"pagination did not pass the 5000-row cap: got {len(df)} rows"
     assert {"period", "value"}.issubset(df.columns)
     assert df["value"].notna().any(), "value column is entirely NaN — measure facet not returned"
@@ -80,12 +80,10 @@ def test_eia_fetch_non_value_measure_route() -> None:
     creds = require_env("EIA_API_KEY")
     bound = eia_fetch.bind(api_key=creds["EIA_API_KEY"])
 
-    result = bound(
-        route="electricity/retail-sales", measure="price", frequency="annual", start="2015", end="2020"
-    )
+    result = bound(route="electricity/retail-sales", measure="price", frequency="annual", start="2015", end="2020")
 
     assert_provenance_shape(result, expected_source="eia_fetch", required_param_keys=["route", "measure"])
-    df = result.data
+    df = result.raw
     assert not df.empty
     assert "value" in df.columns, f"measure not normalized to value: {df.columns.tolist()}"
     assert df["value"].notna().any(), "normalized value column is entirely NaN"
@@ -100,7 +98,7 @@ def test_eia_fetch_with_facet_filter_narrows() -> None:
     result = bound(
         route=_SPOT_ROUTE, frequency="daily", facets={"series": "RWTC"}, start="2024-01-01", end="2024-03-31"
     )
-    df = result.data
+    df = result.raw
     assert not df.empty, "facet-filtered fetch returned nothing"
     assert (df["series"] == "RWTC").all(), "facet filter did not narrow to the requested series"
     assert df["value"].notna().any()
@@ -115,7 +113,7 @@ def test_eia_fetch_series_legacy_id_paginates() -> None:
     result = bound(series_id=_WTI_SERIES)
 
     assert_provenance_shape(result, expected_source="eia_fetch_series", required_param_keys=["series_id"])
-    df = result.data
+    df = result.raw
     assert len(df) > 5000, f"seriesid pagination did not pass the cap: {len(df)} rows"
     assert (df["series_id"] == _WTI_SERIES).all()
     assert df["value"].notna().any()
@@ -130,7 +128,7 @@ def test_eia_facets_lists_real_values() -> None:
     result = bound(route=_SPOT_ROUTE, facet="product")
 
     assert_provenance_shape(result, expected_source="eia_facets", required_param_keys=["route", "facet"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "facet value list was empty"
     assert (df["facet"] == "product").all()
     assert df["name"].str.len().gt(0).any(), "facet value names all blank"
@@ -145,7 +143,7 @@ def test_enumerate_eia_lists_top_level_routes() -> None:
     result = bound()
 
     assert_provenance_shape(result, expected_source="enumerate_eia")
-    df = result.data
+    df = result.raw
     assert not df.empty
 
 
@@ -160,7 +158,7 @@ def test_enumerate_eia_bounded_single_category_live(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(enumerate_module, "_load_top_routes", _bounded_top)
     result = enumerate_eia.bind(api_key=require_env("EIA_API_KEY")["EIA_API_KEY"])()
 
-    df = result.data
+    df = result.raw
     assert list(df.columns) == [c.name for c in EIA_ENUMERATE_OUTPUT.columns]
     assert not df.empty, "bounded enumerate returned no datasets"
     assert (df["code"].str.startswith("coal/") | (df["code"] == "coal")).all(), "leaf routes not under coal"
@@ -169,8 +167,8 @@ def test_enumerate_eia_bounded_single_category_live(monkeypatch: pytest.MonkeyPa
     assert df["description"].str.len().gt(0).all(), "blank descriptions"
     assert df["frequencies"].str.len().gt(0).any(), "no frequencies captured"
 
-    # entities_from_raw round-trips on the real slice.
-    entities = entities_from_raw(df, EIA_ENUMERATE_OUTPUT)
+    # Entity projection round-trips on the real slice.
+    entities = list(Result(raw=df, output_spec=EIA_ENUMERATE_OUTPUT).entities.values())
     assert len(entities) == len(df)
     assert entities[0].namespace == "eia"
 
@@ -229,7 +227,7 @@ def test_eia_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         },
     ]
     df = pd.DataFrame(rows, columns=[c.name for c in EIA_ENUMERATE_OUTPUT.columns])
-    entries = entities_from_raw(df, EIA_ENUMERATE_OUTPUT)
+    entries = list(Result(raw=df, output_spec=EIA_ENUMERATE_OUTPUT).entities.values())
     catalog = Catalog("eia", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()
@@ -239,11 +237,11 @@ def test_eia_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     result = eia_search(query="electricity retail sales price", limit=5, catalog_url=str(out_dir))
 
     assert_provenance_shape(result, expected_source="eia_search", required_param_keys=["query"])
-    sdf = result.data
+    sdf = result.raw
     assert list(sdf.columns) == ["code", "title", "score"]
     assert not sdf.empty, "search over the fixture catalog returned nothing"
     assert sdf.iloc[0]["code"] == "electricity/retail-sales"
 
     # Ranking discriminates: a different query surfaces a different top hit.
     other = eia_search(query="natural gas futures price", limit=5, catalog_url=str(out_dir))
-    assert other.data.iloc[0]["code"] == "natural-gas/pri/fut"
+    assert other.raw.iloc[0]["code"] == "natural-gas/pri/fut"

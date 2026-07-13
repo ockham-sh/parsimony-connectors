@@ -16,6 +16,7 @@ import pandas as pd
 import pytest
 import respx
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
+from parsimony.result import Result
 
 from parsimony_bdp import CONNECTORS
 from parsimony_bdp.connectors import enumerate as enum_mod
@@ -69,7 +70,7 @@ def test_bdp_fetch_parses_json_stat_response() -> None:
     result = bdp_fetch(domain_id=11, dataset_id="ABC")
 
     assert result.provenance.source == "bdp_fetch"
-    df = result.data
+    df = result.raw
     assert len(df) == 2
     assert df.iloc[0]["series_id"] == "s1"
     assert df.iloc[0]["title"] == "Consumer Prices"
@@ -92,7 +93,7 @@ def test_bdp_fetch_melts_multiple_series_single_request() -> None:
         )
     )
 
-    df = (bdp_fetch(domain_id=11, dataset_id="ABC")).data
+    df = (bdp_fetch(domain_id=11, dataset_id="ABC")).raw
 
     assert len(route.calls) == 1
     assert set(df["series_id"]) == {"s1", "s2"}
@@ -101,10 +102,8 @@ def test_bdp_fetch_melts_multiple_series_single_request() -> None:
 
 @respx.mock
 def test_bdp_fetch_tolerates_null_value() -> None:
-    respx.get(_DATASET_URL).mock(
-        return_value=httpx.Response(200, json=_json_stat(values=[100.0, None]))
-    )
-    df = (bdp_fetch(domain_id=11, dataset_id="ABC")).data
+    respx.get(_DATASET_URL).mock(return_value=httpx.Response(200, json=_json_stat(values=[100.0, None])))
+    df = (bdp_fetch(domain_id=11, dataset_id="ABC")).raw
     assert df["value"].isna().any()
     assert df["value"].notna().any()
 
@@ -260,7 +259,7 @@ def test_enumerate_bdp_two_level_paginated_crawl(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(enum_mod, "_list_domains", lambda fetcher: _async_return(_BOUNDED_DOMAINS))
     _mock_two_level_crawl()
 
-    df = (enumerate_bdp()).data
+    df = (enumerate_bdp()).raw
 
     # @enumerator enforces an EXACT column match.
     assert list(df.columns) == list(ENUMERATE_COLUMNS)
@@ -284,7 +283,7 @@ def test_enumerate_bdp_two_level_paginated_crawl(monkeypatch: pytest.MonkeyPatch
     assert (df["source"] == "bpstat").all()
 
     # build_entities round-trips on the real slice (catalog-build entry point).
-    entities = BDP_ENUMERATE_OUTPUT.build_entities(df)
+    entities = list(Result(raw=df, output_spec=BDP_ENUMERATE_OUTPUT).entities.values())
     assert len(entities) == len(df)
     assert entities[0].namespace == "bdp"
 
@@ -293,7 +292,7 @@ def test_enumerate_bdp_two_level_paginated_crawl(monkeypatch: pytest.MonkeyPatch
 def test_enumerate_bdp_empty_catalog_on_domains_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(enum_mod, "_list_domains", lambda fetcher: _async_return([]))
 
-    df = (enumerate_bdp()).data
+    df = (enumerate_bdp()).raw
     assert len(df) == 0
     assert list(df.columns) == list(ENUMERATE_COLUMNS)
 

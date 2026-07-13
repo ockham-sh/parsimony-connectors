@@ -73,12 +73,12 @@ from parsimony_bls import CONNECTORS
 surveys = CONNECTORS["bls_surveys_search"](query="consumer price index")
 # 2. search that survey's series (lexical or structured FIELD: value)
 hits = CONNECTORS["bls_series_search"](survey="CU", query="gasoline all types")
-series_id = hits.data.iloc[0]["series_id"]   # e.g. "CUUR0000SETB01"
+series_id = hits.raw.iloc[0]["series_id"]   # e.g. "CUUR0000SETB01"
 # 3. fetch observations
 result = CONNECTORS["bls_fetch"](
     series_id=series_id, start_year="2020", end_year="2026"
 )
-print(result.data.head())
+print(result.raw.head())
 ```
 
 For multi-plugin composition (autoloads everything installed):

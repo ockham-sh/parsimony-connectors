@@ -61,7 +61,7 @@ from parsimony_eodhd import load
 # load() binds the API key off the call surface (and out of provenance).
 connectors = load(api_key=os.environ["EODHD_API_KEY"])
 result = connectors["eodhd_eod"](ticker="AAPL.US")
-print(result.data.head())
+print(result.raw.head())
 ```
 
 For multi-plugin composition:

@@ -67,8 +67,8 @@ def _parse_boj_date(date_str: str, freq: str) -> str:
     Survey dates are compact integers whose width follows the series frequency
     (``19990101`` daily, ``199901`` monthly, ``199901`` quarter-of-year,
     ``1999`` annual). Unrecognised widths pass through unchanged so the
-    downstream ``dtype="datetime"`` coercion can surface a real parse problem
-    rather than us silently mangling the value.
+    downstream ``pd.to_datetime`` coercion in ``boj_fetch`` can surface a real
+    parse problem rather than us silently mangling the value.
     """
     freq_lower = freq.lower()
     if freq_lower in ("dm", "daily", "weekly"):
@@ -228,7 +228,9 @@ def boj_fetch(
             query_params={"db": db_clean, "code": codes},
         )
 
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"])
+    return df
 
 
 __all__ = ["boj_fetch"]

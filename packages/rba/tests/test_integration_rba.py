@@ -35,7 +35,7 @@ import pandas as pd
 import pytest
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
+from parsimony.result import Result
 from parsimony_test_support import assert_provenance_shape
 
 import parsimony_rba.connectors.enumerate as rba_enum
@@ -82,7 +82,7 @@ def test_rba_fetch_cash_rate_live() -> None:
     result = rba_fetch(table_id="f1-data")
 
     assert_provenance_shape(result, expected_source="rba_fetch", required_param_keys=["table_id"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "RBA fetch of f1-data returned an empty DataFrame"
     assert set(df["table_id"]) == {"f1-data"}
 
@@ -97,7 +97,7 @@ def test_rba_fetch_cash_rate_live() -> None:
     # Australian cash rate has sat in roughly 0%–8% over the published window.
     assert ((vals >= 0.0) & (vals <= 8.0)).all(), f"cash rate out of plausible band: {vals.tolist()[:5]}"
 
-    # Dates parse to real datetimes (declared dtype="datetime").
+    # Dates parse to real datetimes (coerced in rba_fetch).
     assert df["date"].dtype.kind == "M"
     assert df["date"].notna().any(), "observation dates all NaT"
 
@@ -112,7 +112,7 @@ def test_rba_fetch_xlsx_exclusive_bond_purchase_program_live() -> None:
     result = rba_fetch(table_id="a03/Bond Purchase Program")
 
     assert_provenance_shape(result, expected_source="rba_fetch", required_param_keys=["table_id"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "Bond Purchase Program fetch returned no rows"
     assert set(df["table_id"]) == {"a03/Bond Purchase Program"}
     # Face value of bonds purchased under the BPP — a real BPP series id.
@@ -131,7 +131,7 @@ def test_rba_fetch_xls_hist_discontinued_live() -> None:
     result = rba_fetch(table_id="b03hist")
 
     assert_provenance_shape(result, expected_source="rba_fetch", required_param_keys=["table_id"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "b03hist (xls-hist) fetch returned no rows"
     assert set(df["table_id"]) == {"b03hist"}
     assert df["value"].notna().any(), "xls-hist series carried no real values"
@@ -172,7 +172,7 @@ def test_enumerate_rba_bounded_live(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(Session, "get", _counting_get)
 
     result = enumerate_rba()
-    df = result.data
+    df = result.raw
 
     # The bound held: exactly the one real CSV — XLSX and xls-hist passes are
     # short-circuited to zero requests by the seam monkeypatches. Never ~250.
@@ -193,7 +193,7 @@ def test_enumerate_rba_bounded_live(monkeypatch: pytest.MonkeyPatch) -> None:
     assert any(c.startswith("f1-data#FIRMMCRTD") for c in df["code"]), "FIRMMCRTD not enumerated"
 
     # build_entities round-trips on the real slice (the catalog-build entry point).
-    entities = RBA_ENUMERATE_OUTPUT.build_entities(df)
+    entities = list(Result(raw=df, output_spec=RBA_ENUMERATE_OUTPUT).entities.values())
     assert len(entities) == len(df)
     assert entities[0].namespace == "rba"
 
@@ -238,7 +238,7 @@ def test_rba_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         ),
     ]
     df = pd.DataFrame(rows, columns=cols)
-    entries = entities_from_raw(df, RBA_ENUMERATE_OUTPUT)
+    entries = list(Result(raw=df, output_spec=RBA_ENUMERATE_OUTPUT).entities.values())
     catalog = Catalog("rba", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()
@@ -248,7 +248,7 @@ def test_rba_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     result = rba_search(query="cash rate target monetary policy", limit=5, catalog_url=str(out_dir))
 
     assert_provenance_shape(result, expected_source="rba_search", required_param_keys=["query"])
-    sdf = result.data
+    sdf = result.raw
     assert list(sdf.columns) == ["code", "title", "score"]
     assert not sdf.empty, "search over the fixture catalog returned nothing"
     assert len(sdf) <= 3, "search exceeded the fixture catalog"
@@ -259,4 +259,4 @@ def test_rba_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     # Ranking actually discriminates: a different query surfaces a different
     # series as the top hit (not the same row regardless of query).
     fx = rba_search(query="US dollar exchange rate", limit=5, catalog_url=str(out_dir))
-    assert fx.data.iloc[0]["code"] == "g1-data#FXRUSD"
+    assert fx.raw.iloc[0]["code"] == "g1-data#FXRUSD"

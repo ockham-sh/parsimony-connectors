@@ -47,7 +47,7 @@ def _publish(catalog, *, save_root: str | None, push_root: str | None) -> None:
 
 def build_all(*, save_root: str | None, push_root: str | None, db_filter: set[str] | None) -> None:
     result = enumerate_boj()
-    databases, series_by_db = split_enumerated_df(result.data)
+    databases, series_by_db = split_enumerated_df(result.raw)
     logger.info(
         "BoJ enumerate split: %d databases, %d series namespaces",
         len(databases),
@@ -71,7 +71,7 @@ def build_all(*, save_root: str | None, push_root: str | None, db_filter: set[st
 
 def build_databases_only(*, save_root: str | None, push_root: str | None) -> None:
     result = enumerate_boj()
-    databases, _ = split_enumerated_df(result.data)
+    databases, _ = split_enumerated_df(result.raw)
     catalog = build_databases_catalog(databases)
     _publish(catalog, save_root=save_root, push_root=push_root)
     logger.info("Built %s with %d entries", catalog.name, len(catalog))
@@ -84,7 +84,7 @@ def build_one_series(
     push_root: str | None,
 ) -> None:
     result = enumerate_boj()
-    _, series_by_db = split_enumerated_df(result.data)
+    _, series_by_db = split_enumerated_df(result.raw)
     rows = series_by_db.get(db_code.upper()) or series_by_db.get(db_code)
     if not rows:
         raise ValueError(f"No series rows for db={db_code!r} after enumeration")

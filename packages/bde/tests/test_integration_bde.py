@@ -27,7 +27,7 @@ import pandas as pd
 import pytest
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
+from parsimony.result import Result
 from parsimony_test_support import assert_provenance_shape
 
 from parsimony_bde.connectors import enumerate as enumerate_module
@@ -48,7 +48,7 @@ def test_bde_fetch_known_series_live() -> None:
     result = bde_fetch(key="D_1NBAF472")
 
     assert_provenance_shape(result, expected_source="bde_fetch", required_param_keys=["key"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "BdE fetch returned an empty DataFrame"
     assert list(df["key"].unique()) == ["D_1NBAF472"]
     # Real content, not just shape: the title is real prose and values are real
@@ -60,7 +60,7 @@ def test_bde_fetch_known_series_live() -> None:
     # Euribor is a small percentage rate — sanity-check the magnitude.
     vals = df["value"].dropna()
     assert ((vals > -2) & (vals < 25)).all(), f"rates out of plausible range: {vals.tolist()[:5]}"
-    # Dates parse to real datetimes (declared dtype="datetime").
+    # Dates parse to real datetimes (coerced in bde_fetch).
     assert df["date"].dtype.kind == "M"
     assert df["date"].notna().any(), "record dates all NaT"
 
@@ -73,7 +73,7 @@ def test_bde_fetch_multi_series_single_request_live() -> None:
     # works for both. See LESSONS — this is a real per-series provider rule.
     result = bde_fetch(key="D_1NBAF472,DTCCBCEUSDEUR.B", time_range="2024")
 
-    df = result.data
+    df = result.raw
     assert set(df["key"]) == {"D_1NBAF472", "DTCCBCEUSDEUR.B"}
     # Both series carry real values across the requested year.
     for serie in ("D_1NBAF472", "DTCCBCEUSDEUR.B"):
@@ -87,7 +87,7 @@ def test_bde_fetch_recovered_pb_series_live() -> None:
     This is the whole point of the pb.zip recovery — the catalog key works."""
     result = bde_fetch(key="DPBCOCCNFNOAPTOPN.T.ES", time_range="MAX")
 
-    df = result.data
+    df = result.raw
     assert list(df["key"].unique()) == ["DPBCOCCNFNOAPTOPN.T.ES"]
     assert df["value"].notna().any(), "recovered BLS series has no real values"
 
@@ -110,7 +110,7 @@ def test_enumerate_bde_recovers_bank_lending_survey_live(
     recovered as real fetchable ``DPB…`` codes — and that a sampled one fetches."""
     monkeypatch.setattr(enumerate_module, "CATALOG_CHAPTERS", ())
 
-    df = enumerate_bde().data
+    df = enumerate_bde().raw
     assert not df.empty, "pb.zip recovery returned no rows"
     assert (df["category"] == "Bank Lending Survey").all()
     # Real fetchable codes, not the un-fetchable PB_x_y.z aliases.
@@ -120,7 +120,7 @@ def test_enumerate_bde_recovers_bank_lending_survey_live(
     assert df["alias"].str.startswith("PB_").any(), "alias metadata missing"
     # Spot-check: a recovered code actually fetches.
     sample = df.iloc[0]["key"]
-    fetched = bde_fetch(key=sample, time_range="MAX").data
+    fetched = bde_fetch(key=sample, time_range="MAX").raw
     assert fetched["value"].notna().any(), f"recovered code {sample} not fetchable"
 
 
@@ -135,7 +135,7 @@ def test_enumerate_bde_bounded_single_chapter_live(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(enumerate_module, "_fetch_pb_survey", _no_pb)
 
     result = enumerate_bde()
-    df = result.data
+    df = result.raw
 
     # @enumerator enforces an EXACT column match against the declared schema.
     assert list(df.columns) == [c.name for c in BDE_ENUMERATE_OUTPUT.columns]
@@ -156,7 +156,7 @@ def test_enumerate_bde_bounded_single_chapter_live(monkeypatch: pytest.MonkeyPat
     assert df["n_obs"].astype(str).str.len().gt(0).any(), "n_obs not populated"
 
     # build_entities round-trips on the real slice (the catalog-build entry point).
-    entities = BDE_ENUMERATE_OUTPUT.build_entities(df)
+    entities = list(Result(raw=df, output_spec=BDE_ENUMERATE_OUTPUT).entities.values())
     assert len(entities) == len(df)
     assert entities[0].namespace == "bde"
 
@@ -220,7 +220,7 @@ def test_bde_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         },
     ]
     df = pd.DataFrame(rows, columns=[c.name for c in BDE_ENUMERATE_OUTPUT.columns])
-    entries = entities_from_raw(df, BDE_ENUMERATE_OUTPUT)
+    entries = list(Result(raw=df, output_spec=BDE_ENUMERATE_OUTPUT).entities.values())
     catalog = Catalog("bde", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()
@@ -230,7 +230,7 @@ def test_bde_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     result = bde_search(query="one-year euribor", limit=5, catalog_url=str(out_dir))
 
     assert_provenance_shape(result, expected_source="bde_search", required_param_keys=["query"])
-    sdf = result.data
+    sdf = result.raw
     assert list(sdf.columns) == ["code", "title", "score"]
     assert not sdf.empty, "search over the fixture catalog returned nothing"
     # Bounded by the 3-row fixture — never the full catalog.
@@ -243,4 +243,4 @@ def test_bde_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     # Ranking actually discriminates: a different query surfaces a different
     # series as the top hit (not the same row regardless of query).
     fx = bde_search(query="dollar euro exchange rate", limit=5, catalog_url=str(out_dir))
-    assert fx.data.iloc[0]["code"] == "DTCCBCEUSDEUR.B"
+    assert fx.raw.iloc[0]["code"] == "DTCCBCEUSDEUR.B"

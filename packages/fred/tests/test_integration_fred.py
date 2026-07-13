@@ -31,7 +31,7 @@ def test_fred_search_unemployment_returns_unrate() -> None:
     result = bound(search_text="unemployment rate")
 
     assert_provenance_shape(result, expected_source="fred_search", required_param_keys=["search_text"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "FRED search returned empty DataFrame for 'unemployment rate'"
     # UNRATE is the canonical FRED series for US unemployment — if the search
     # doesn't surface it at all, the connector is broken.
@@ -49,7 +49,7 @@ def test_fred_fetch_unrate_returns_observations() -> None:
     result = bound(series_id="UNRATE")
 
     assert_provenance_shape(result, expected_source="fred_fetch", required_param_keys=["series_id"])
-    df = result.data
+    df = result.raw
     assert not df.empty, "FRED fetch returned empty DataFrame for UNRATE"
     # Observations carry a date and a value at minimum.
     assert {"date", "value"}.issubset(df.columns), f"Missing date/value columns: {df.columns.tolist()}"
@@ -73,7 +73,7 @@ def test_fred_fetch_respects_observation_window() -> None:
         expected_source="fred_fetch",
         required_param_keys=["series_id", "observation_start", "observation_end"],
     )
-    df = result.data
+    df = result.raw
     assert not df.empty, "windowed UNRATE fetch returned empty DataFrame"
     # 2020 is monthly → 12 observations; the window must actually constrain the result.
     assert len(df) == 12, f"expected 12 monthly obs in 2020, got {len(df)}"

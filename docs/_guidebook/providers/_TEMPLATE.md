@@ -129,8 +129,8 @@
 
 ## 6. Output schemas
 
-- Fetch `OutputConfig`: KEY=..., DATA=..., dtypes=...
-- Search `OutputConfig`: code/title/score (+ any dispatch metadata the agent needs to route a fetch)
+- Fetch `OutputSpec`: KEY=..., DATA=... (dtype coercion, if any, happens in the connector body, not the schema)
+- Search `OutputSpec`: code/title/score (+ any dispatch metadata the agent needs to route a fetch)
 - Compound-code / dispatch notes (how search results map back to a fetch call):
 
 ---

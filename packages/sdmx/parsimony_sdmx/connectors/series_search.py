@@ -18,7 +18,7 @@ from parsimony.catalog.source import lazy_catalog_dir
 from parsimony.catalog.storage import read_meta
 from parsimony.connector import connector
 from parsimony.errors import CatalogNotFoundError, ConnectorError, EmptyDataError, InvalidParameterError
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 from pydantic import BaseModel, Field
 
 from parsimony_sdmx.catalog_series import _strip_flow_prefix
@@ -325,7 +325,7 @@ def _search_surface(
     return [name for name in surface if _has_index(catalog, name)] or None
 
 
-SERIES_SEARCH_OUTPUT = OutputConfig(
+SERIES_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="key", role=ColumnRole.KEY),
         Column(name=TITLE_FIELD, role=ColumnRole.TITLE),
