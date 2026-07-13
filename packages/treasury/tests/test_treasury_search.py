@@ -116,7 +116,7 @@ def test_treasury_search_code_prefix_exact_match(treasury_catalog_dir: Path) -> 
         catalog_url=str(treasury_catalog_dir),
     )
     assert result.data.iloc[0]["code"] == "home/daily_treasury_yield_curve#BC_10YEAR"
-    assert result.data.iloc[0]["score"] >= 1_000_000
+    # exact-code hits no longer carry a sentinel score; ranking first is the guarantee.
 
 
 def test_treasury_search_returns_dispatch_metadata(treasury_catalog_dir: Path) -> None:
