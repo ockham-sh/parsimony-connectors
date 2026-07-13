@@ -19,15 +19,15 @@ import pandas as pd
 from parsimony import Namespace
 from parsimony.connector import connector
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
-FETCH_OUTPUT = OutputConfig(
+FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="series_id", role=ColumnRole.KEY, namespace="fred"),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="units_short", role=ColumnRole.METADATA),
-        Column(name="date", dtype="datetime", role=ColumnRole.DATA),
-        Column(name="value", dtype="numeric", role=ColumnRole.DATA),
+        Column(name="date", role=ColumnRole.DATA),
+        Column(name="value", role=ColumnRole.DATA),
     ]
 )
 
@@ -47,6 +47,8 @@ def fred_fetch(
     if not sid:
         raise InvalidParameterError("fred", "series_id must be non-empty")
     # ... call the API, build a DataFrame ...
+    df["date"] = pd.to_datetime(df["date"])          # OutputSpec never coerces —
+    df["value"] = pd.to_numeric(df["value"])          # cast in the connector body.
     return df  # raw DataFrame, never a Result
 ```
 
@@ -77,10 +79,12 @@ the stricter loader or enumerator shapes.
 def provider_fetch(...) -> pd.DataFrame: ...
 ```
 
-`output=` is optional. When present, declared columns are mapped by role and any
-returned column the schema does not name folds in as a `DATA` column. When
-absent, the framework still wraps the return value; the result simply has no
-column governance.
+`output=` is optional. When present, it is attached to the result as
+`result.output_spec` **unchanged** — the framework never inspects, reorders, or
+filters your returned DataFrame against it. Any column you return that the
+schema doesn't name simply exists on `result.data`, undeclared. When `output=`
+is absent, the framework still wraps the return value; the result simply has
+no column governance.
 
 ### `@enumerator`
 
@@ -93,11 +97,12 @@ def provider_enumerate(...) -> pd.DataFrame: ...
 ```
 
 The output schema must be **exactly one namespaced `KEY` column plus one or more
-`TITLE` columns, and no `DATA` columns**. The function must be annotated
-`-> pd.DataFrame`, and the returned frame must match the declared columns
-**exactly**: unmapped columns are dropped, then an exact-match check runs at call
-time. A frame that is missing a declared column, or carries an undeclared one,
-raises `ValueError`.
+`TITLE` columns, and no `DATA` columns** — checked at decoration time. The
+function must also be annotated `-> pd.DataFrame`. The decorator does **not**
+check the returned frame's actual columns against the schema at call time —
+`OutputSpec` is passive everywhere. That check happens later, when something
+calls `result.to_entities()` (or reads `result.entities`) on the enumerator's
+output: a declared column missing from the data raises `ValueError` there.
 
 ### `@loader`
 
@@ -121,19 +126,21 @@ end-to-end build.
 
 ## The output schema
 
-The schema is declarative. You describe the *roles* of columns and the framework
-applies them — coercing dtypes, dropping hidden columns from the agent view, and
-deriving entity identity for catalogs.
+The schema is declarative and **passive**: you describe the *roles* of columns,
+and that's the whole job. The framework never applies it to the data — no dtype
+coercion, no renaming, no reordering, no dropping. It only labels columns so a
+later consumer (the LLM card, a catalog's entity projection, a data store) knows
+what each one means.
 
 ```python
-from parsimony.result import OutputConfig, Column, ColumnRole
+from parsimony.result import OutputSpec, Column, ColumnRole
 
-OutputConfig(columns=[
+OutputSpec(columns=[
     Column(name="series_id", role=ColumnRole.KEY, namespace="fred"),
     Column(name="title",     role=ColumnRole.TITLE),
     Column(name="units",     role=ColumnRole.METADATA),
-    Column(name="date",      role=ColumnRole.DATA, dtype="datetime"),
-    Column(name="value",     role=ColumnRole.DATA, dtype="numeric"),
+    Column(name="date",      role=ColumnRole.DATA),
+    Column(name="value",     role=ColumnRole.DATA),
 ])
 ```
 
@@ -146,22 +153,24 @@ OutputConfig(columns=[
 | `METADATA` | Descriptive attributes (units, frequency, dates). | Any number. |
 | `DATA` | The observations themselves (a date, a value). | Any number. |
 
-A schema must define **at least one of `KEY` / `TITLE` / `DATA`**. A bare
-`@connector` only needs enough to describe its payload; the stricter decorators
-add the constraints listed above.
+There is no minimum-column requirement at declaration time — an `OutputSpec`
+with zero columns is valid. The stricter decorators (`@loader`, `@enumerator`)
+layer their own multiplicity requirements on top; see [The three decorators](#the-three-decorators).
 
 ### Column options
 
-- `namespace=` is allowed **only** on a `KEY` or `METADATA` column, and is
-  **mandatory** on a loader's or enumerator's `KEY` (the catalog and store derive
-  entity identity from it). On a `KEY` it scopes the entity codes; on
-  `METADATA` it is a lightweight annotation Parsimony does not enforce.
-- `dtype=` coerces the column. Values: `auto` (default, no coercion),
-  `datetime`, `timestamp`, `date`, `numeric`, `bool`, or any pandas dtype
-  string. A `numeric`/`timestamp` column that coerces entirely to NaN/NaT raises
-  rather than emitting a silently empty column.
-- `Column(name="*")` is a wildcard catch-all that claims every otherwise
-  unmapped column.
+- `namespace=` is allowed **only** on a `KEY` column, and only needs to be
+  **non-empty when set**. It may be omitted at declaration time (e.g. a
+  per-call dynamic namespace); it becomes mandatory only when something
+  actually projects entities from the result (`result.entities` /
+  `result.to_entities()`) — or, eagerly, at decoration time for `@loader` and
+  `@enumerator`, since their whole point is to feed a store/catalog.
+- There is no `dtype=` — `Column` has no dtype field. Cast values yourself, in
+  the connector body, before you return (`pd.to_datetime`, `pd.to_numeric`,
+  `.astype(...)`).
+- `Column(name="*")` is a wildcard, meaningful only at entity-projection time:
+  it claims every DataFrame column not otherwise taken by an explicit KEY/
+  TITLE/DATA/METADATA entry.
 - `exclude_from_llm_view=True` keeps a column in the data payload but out of the
   agent-facing view. It is rejected on `DATA` and `TITLE` columns (those must
   always be visible).
@@ -171,8 +180,9 @@ add the constraints listed above.
 The framework wraps every connector return value in a `parsimony.result.Result`.
 Connectors never construct one. A `Result` carries:
 
-- `data` — the raw payload (DataFrame, scalar, dict, …).
-- `output_schema` — the resolved `OutputConfig`, when one was declared.
+- `data` — the raw payload (DataFrame, scalar, dict, …), exactly as returned —
+  never copied, coerced, renamed, or reordered.
+- `output_spec` — the `OutputSpec`, when one was declared, attached unchanged.
 - `provenance` — a `Provenance` recording `source` (the connector name),
   `source_description`, `fetched_at` (UTC), and `params` (the call arguments,
   minus anything declared in `secrets=` and minus bound arguments). Oversized
@@ -183,11 +193,12 @@ Connectors never construct one. A `Result` carries:
 
 | Accessor | Returns |
 |---|---|
-| `result.df` / `result.frame` | The DataFrame; raises `TypeError` if the payload is not tabular. |
+| `result.frame` | The DataFrame; raises `TypeError` if the payload is not tabular. |
 | `result.data` | The raw payload (used for dict/scalar results). |
 | `result.is_tabular` | Whether `data` is a DataFrame. |
 | `result.text` | The payload as a string. |
 | `result.columns` | The declared `Column` list (empty when no schema). |
+| `result.entities` / `result.to_entities()` | Lazy `(namespace, code)`-keyed projection / `list[Entity]`, built from `output_spec` against `data` — see [discovery and catalogs](discovery-and-catalogs.md). |
 | `result.to_llm(max_rows=..., max_chars=...)` | A bounded, governed string view for agent context — honest row/column counts, hidden columns dropped, first N rows. |
 
 ## Descriptions and tags

@@ -7,7 +7,7 @@ carries source/endpoint/field so an agent can dispatch without string-splitting 
 from __future__ import annotations
 
 from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
 from parsimony_treasury.catalog_build import build_treasury_catalog
 
@@ -15,7 +15,7 @@ TreasurySearchParams = CatalogSearchParams
 
 PARSIMONY_TREASURY_CATALOG_URL_ENV = "PARSIMONY_TREASURY_CATALOG_URL"
 
-TREASURY_SEARCH_OUTPUT = OutputConfig(
+TREASURY_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="treasury"),
         Column(name="title", role=ColumnRole.TITLE),

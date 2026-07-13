@@ -32,7 +32,7 @@ def test_connectors_collection_exposes_expected_names() -> None:
     assert names == {"boc_fetch", "enumerate_boc", "boc_search"}
 
 
-def test_enumerate_output_schema_routes_description_as_metadata() -> None:
+def test_enumerate_output_spec_routes_description_as_metadata() -> None:
     """Upstream ``description`` text is ordinary catalog metadata."""
     from parsimony.result import ColumnRole
 
@@ -67,10 +67,10 @@ def test_boc_fetch_single_series_returns_observations() -> None:
     assert len(df) == 2
     assert set(df["series_name"]) == {"FXUSDCAD"}
     assert df["title"].iloc[0] == "USD/CAD"
-    # Values parse to real numerics (declared dtype="numeric").
+    # Values parse to real numerics (coerced in boc_fetch).
     assert df["value"].dtype.kind == "f"
     assert df["value"].tolist() == [1.3852, 1.3840]
-    # Dates parse to real datetimes (declared dtype="datetime").
+    # Dates parse to real datetimes (coerced in boc_fetch).
     assert df["date"].dtype.kind == "M"
 
 
@@ -545,7 +545,7 @@ def test_enumerate_boc_emits_columns_required_for_catalog_entries() -> None:
     )
 
     result = enumerate_boc()
-    entries = BOC_ENUMERATE_OUTPUT.build_entities(result.data)
+    entries = Result(data=result.data, output_spec=BOC_ENUMERATE_OUTPUT).to_entities()
     # One series row plus one group row. Groups are catalogued as their
     # own discoverable entities so agents can find them via group-level
     # description text.

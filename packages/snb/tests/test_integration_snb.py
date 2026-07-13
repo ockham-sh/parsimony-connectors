@@ -24,7 +24,7 @@ import pandas as pd
 import pytest
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
+from parsimony.result import Result
 from parsimony.transport import HttpClient
 from parsimony_test_support import assert_provenance_shape
 
@@ -136,7 +136,7 @@ def test_enumerate_snb_bounded_live(monkeypatch: pytest.MonkeyPatch) -> None:
     wh = df[df["source"] == "snb_warehouse"]
     assert (wh["code"] == "BSTA@SNB.AUR_U.ODF#").any()
 
-    entities = SNB_ENUMERATE_OUTPUT.build_entities(df)
+    entities = Result(data=df, output_spec=SNB_ENUMERATE_OUTPUT).to_entities()
     assert len(entities) == len(df)
     assert entities[0].namespace == "snb"
 
@@ -178,7 +178,7 @@ def test_snb_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         ),
     ]
     df = pd.DataFrame(rows, columns=cols)
-    entries = entities_from_raw(df, SNB_ENUMERATE_OUTPUT)
+    entries = Result(data=df, output_spec=SNB_ENUMERATE_OUTPUT).to_entities()
     catalog = Catalog("snb", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()

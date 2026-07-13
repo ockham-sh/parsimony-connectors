@@ -173,7 +173,7 @@ All probes 2026-06-09, throwaway UA `parsimony-connectors research espinetandreu
 - `submissions`: KEY=`accessionNumber` (ns sec_edgar), DATA=`filingDate`(datetime),`form`,`primaryDocument`,`reportDate`(datetime).
 - `company_concept`: DATA-only tidy long frame — `end`(datetime),`val`(numeric),`unit`,`fy`,`fp`,`form`,`filed`(datetime),`accn`,`start`(datetime). Concept identity (cik/taxonomy/tag) rides in provenance params.
 - `frames`: KEY=`cik` (ns sec_edgar), TITLE=`entityName`, DATA=`val`(numeric),`end`(datetime),`loc`,`accn`,`start`(datetime).
-- `company_facts`, `fetch_filing`: return a raw `dict` (no OutputConfig), as today.
+- `company_facts`, `fetch_filing`: return a raw `dict` (no OutputSpec), as today.
 
 ## 7. Tests
 

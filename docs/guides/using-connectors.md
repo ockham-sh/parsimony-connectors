@@ -111,12 +111,12 @@ from parsimony import discover
 connectors = discover.load("riksbank")
 
 hits = connectors["riksbank_search"](query="EUR SEK exchange rate", limit=5)
-print(hits.df[["code", "title", "score"]])
+print(hits.frame[["code", "title", "score"]])
 
 # Take a code from the search results and fetch it.
-code = hits.df.iloc[0]["code"]
+code = hits.frame.iloc[0]["code"]
 result = connectors["riksbank_fetch"](series_id=code)
-print(result.df.head())
+print(result.frame.head())
 ```
 
 The catalog snapshot loads lazily on first search and is cached under
@@ -137,7 +137,7 @@ from parsimony import discover
 connectors = discover.load("fred")
 
 hits = connectors["fred_search"](search_text="US unemployment rate")
-series_id = hits.df.iloc[0]["id"]
+series_id = hits.frame.iloc[0]["id"]
 result = connectors["fred_fetch"](series_id=series_id)
 ```
 
@@ -154,8 +154,7 @@ payload.
 ```python
 result = connectors["fred_fetch"](series_id="UNRATE")
 
-result.df          # the DataFrame
-result.frame       # the same DataFrame (alias)
+result.frame       # the DataFrame; raises TypeError if the payload isn't tabular
 result.data        # the raw payload (here, the same DataFrame)
 result.is_tabular  # True
 ```

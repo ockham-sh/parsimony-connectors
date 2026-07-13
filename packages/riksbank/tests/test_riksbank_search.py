@@ -9,7 +9,7 @@ import pytest
 import respx
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
+from parsimony.result import Result
 
 from parsimony_riksbank import RIKSBANK_ENUMERATE_OUTPUT, enumerate_riksbank, riksbank_search
 
@@ -107,7 +107,7 @@ def riksbank_catalog_dir(tmp_path: Path) -> Path:
         df = enumerate_riksbank().data
     # Drop the SWEA-payload SWESTR; keep the static registry row (source="swestr").
     df = df[~((df["code"] == "SWESTR") & (df["source"] == "swea"))]
-    entries = entities_from_raw(df, RIKSBANK_ENUMERATE_OUTPUT)
+    entries = Result(data=df, output_spec=RIKSBANK_ENUMERATE_OUTPUT).to_entities()
     # Build OUTSIDE the respx mock: the hybrid index embeds via sentence-transformers,
     # which fetches its model from Hugging Face. Under respx (assert_all_mocked) that
     # request errors as "not mocked"; the mock is only needed for the enumerate HTTP.

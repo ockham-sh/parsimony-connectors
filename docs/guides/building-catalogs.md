@@ -68,7 +68,7 @@ enumerate  →  build  →  validate  →  publish to HF  →  lazy load at runt
 
    ```python
    result  = enumerate_<p>()
-   entries = entities_from_raw(result, <P>_ENUMERATE_OUTPUT)
+   entries = result.to_entities()
    catalog = Catalog(namespace, indexes=discovery_indexes(entries), default_field="title")
    catalog.set_entities(entries)
    catalog.build()

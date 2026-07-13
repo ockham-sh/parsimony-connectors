@@ -27,7 +27,7 @@ import pandas as pd
 import pytest
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
+from parsimony.result import Result
 from parsimony_test_support import assert_provenance_shape
 
 from parsimony_bde.connectors import enumerate as enumerate_module
@@ -60,7 +60,7 @@ def test_bde_fetch_known_series_live() -> None:
     # Euribor is a small percentage rate — sanity-check the magnitude.
     vals = df["value"].dropna()
     assert ((vals > -2) & (vals < 25)).all(), f"rates out of plausible range: {vals.tolist()[:5]}"
-    # Dates parse to real datetimes (declared dtype="datetime").
+    # Dates parse to real datetimes (coerced in bde_fetch).
     assert df["date"].dtype.kind == "M"
     assert df["date"].notna().any(), "record dates all NaT"
 
@@ -156,7 +156,7 @@ def test_enumerate_bde_bounded_single_chapter_live(monkeypatch: pytest.MonkeyPat
     assert df["n_obs"].astype(str).str.len().gt(0).any(), "n_obs not populated"
 
     # build_entities round-trips on the real slice (the catalog-build entry point).
-    entities = BDE_ENUMERATE_OUTPUT.build_entities(df)
+    entities = Result(data=df, output_spec=BDE_ENUMERATE_OUTPUT).to_entities()
     assert len(entities) == len(df)
     assert entities[0].namespace == "bde"
 
@@ -220,7 +220,7 @@ def test_bde_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         },
     ]
     df = pd.DataFrame(rows, columns=[c.name for c in BDE_ENUMERATE_OUTPUT.columns])
-    entries = entities_from_raw(df, BDE_ENUMERATE_OUTPUT)
+    entries = Result(data=df, output_spec=BDE_ENUMERATE_OUTPUT).to_entities()
     catalog = Catalog("bde", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()

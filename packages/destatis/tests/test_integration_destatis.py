@@ -32,8 +32,8 @@ import pandas as pd
 import pytest
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
 from parsimony.errors import RateLimitError
+from parsimony.result import Result
 from parsimony_test_support import assert_provenance_shape
 
 from parsimony_destatis.connectors import enumerate as enumerate_module
@@ -70,7 +70,7 @@ def test_destatis_fetch_known_table_live() -> None:
     # rather than assume a single positive price level.
     vals = df["value"].dropna()
     assert ((vals > -50) & (vals < 1000)).all(), f"CPI values out of plausible range: {vals.tolist()[:5]}"
-    # Dates parse to real datetimes (declared dtype="datetime").
+    # Dates parse to real datetimes (coerced in destatis_fetch).
     assert df["date"].dtype.kind == "M"
     assert df["date"].notna().any(), "record dates all NaT"
 
@@ -153,7 +153,7 @@ def test_enumerate_destatis_bounded_single_statistic_live(
     assert df["variable_names_en"].str.len().gt(0).any(), "variable_names_en all empty"
 
     # build_entities round-trips on the real slice (the catalog-build entry point).
-    entities = DESTATIS_ENUMERATE_OUTPUT.build_entities(df)
+    entities = Result(data=df, output_spec=DESTATIS_ENUMERATE_OUTPUT).to_entities()
     assert len(entities) == len(df)
     assert entities[0].namespace == "destatis"
 
@@ -214,7 +214,7 @@ def test_destatis_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         },
     ]
     df = pd.DataFrame(rows, columns=[c.name for c in DESTATIS_ENUMERATE_OUTPUT.columns])
-    entries = entities_from_raw(df, DESTATIS_ENUMERATE_OUTPUT)
+    entries = Result(data=df, output_spec=DESTATIS_ENUMERATE_OUTPUT).to_entities()
     catalog = Catalog("destatis", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()

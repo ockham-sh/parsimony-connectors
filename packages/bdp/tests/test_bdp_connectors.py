@@ -16,6 +16,7 @@ import pandas as pd
 import pytest
 import respx
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
+from parsimony.result import Result
 
 from parsimony_bdp import CONNECTORS
 from parsimony_bdp.connectors import enumerate as enum_mod
@@ -284,7 +285,7 @@ def test_enumerate_bdp_two_level_paginated_crawl(monkeypatch: pytest.MonkeyPatch
     assert (df["source"] == "bpstat").all()
 
     # build_entities round-trips on the real slice (catalog-build entry point).
-    entities = BDP_ENUMERATE_OUTPUT.build_entities(df)
+    entities = Result(data=df, output_spec=BDP_ENUMERATE_OUTPUT).to_entities()
     assert len(entities) == len(df)
     assert entities[0].namespace == "bdp"
 

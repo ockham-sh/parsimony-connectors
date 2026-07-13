@@ -38,7 +38,7 @@ from parsimony import discover
 
 connectors = discover.load_all()                         # every installed parsimony-* provider
 unrate = connectors["fred_fetch"](series_id="UNRATE")    # returns a typed Result
-print(unrate.df.tail())                                  # tabular results expose .df
+print(unrate.frame.tail())                               # tabular results expose .frame
 ```
 
 Use `discover.load("fred", "sdmx")` to load a named subset. The kernel finds installed providers through Python entry points (`parsimony.providers`): add a `parsimony-*` package and it appears in `connectors`; remove it and it disappears. There is no central registry.

@@ -29,7 +29,7 @@ free plan returns 403 (→ :class:`PaymentRequiredError`). See
 Internal layout (not part of the public contract):
 
 * :mod:`parsimony_finnhub._http` — keyed client builder and error mapping.
-* :mod:`parsimony_finnhub.outputs` — declarative :class:`OutputConfig` schemas.
+* :mod:`parsimony_finnhub.outputs` — declarative :class:`OutputSpec` schemas.
 """
 
 from __future__ import annotations

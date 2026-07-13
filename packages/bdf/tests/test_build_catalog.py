@@ -10,7 +10,7 @@ from __future__ import annotations
 import pandas as pd
 from parsimony.catalog import BM25Index, Catalog, HybridIndex
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
+from parsimony.result import Result
 
 from parsimony_bdf.catalog_build import CATALOG_NAMESPACE
 from parsimony_bdf.outputs import BDF_ENUMERATE_OUTPUT, ENUMERATE_COLUMNS
@@ -38,7 +38,7 @@ def _sample_entries() -> list:
         },
     ]
     df = pd.DataFrame(rows, columns=list(ENUMERATE_COLUMNS))
-    return entities_from_raw(df, BDF_ENUMERATE_OUTPUT)
+    return Result(data=df, output_spec=BDF_ENUMERATE_OUTPUT).to_entities()
 
 
 def test_discovery_indexes_for_bdf_sample() -> None:

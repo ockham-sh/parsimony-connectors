@@ -29,7 +29,7 @@ import pandas as pd
 import pytest
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
+from parsimony.result import Result
 from parsimony.transport import HttpClient
 from parsimony_test_support import assert_provenance_shape
 
@@ -144,7 +144,7 @@ def test_enumerate_boc_bounded_groups_live(monkeypatch: pytest.MonkeyPatch) -> N
     assert len(fx_members) >= 1, "no series resolved FX_RATES_DAILY membership from the live fan-out"
 
     # build_entities round-trips on the real slice (the catalog-build entry point).
-    entities = BOC_ENUMERATE_OUTPUT.build_entities(df)
+    entities = Result(data=df, output_spec=BOC_ENUMERATE_OUTPUT).to_entities()
     assert len(entities) == len(df)
     assert entities[0].namespace == "boc"
 
@@ -191,7 +191,7 @@ def test_boc_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         ),
     ]
     df = pd.DataFrame(rows, columns=cols)
-    entries = entities_from_raw(df, BOC_ENUMERATE_OUTPUT)
+    entries = Result(data=df, output_spec=BOC_ENUMERATE_OUTPUT).to_entities()
     catalog = Catalog("boc", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()

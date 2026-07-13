@@ -11,10 +11,8 @@ from __future__ import annotations
 
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
 
 from parsimony_bdf.connectors.enumerate import enumerate_bdf
-from parsimony_bdf.outputs import BDF_ENUMERATE_OUTPUT
 
 CATALOG_NAMESPACE = "bdf"
 
@@ -27,7 +25,7 @@ def build_bdf_catalog(*, api_key: str | None = None) -> Catalog:
     set), so the snapshot can be built straight from the environment.
     """
     result = enumerate_bdf(api_key=(api_key or "").strip())
-    entries = entities_from_raw(result, BDF_ENUMERATE_OUTPUT)
+    entries = result.to_entities()
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()

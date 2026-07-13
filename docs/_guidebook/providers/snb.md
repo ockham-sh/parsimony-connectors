@@ -183,12 +183,14 @@
 
 ## 6. Output schemas
 
-- **Enumerate `OutputConfig`:** KEY `code` (ns `snb`); TITLE `title`; METADATA `description`,
+- **Enumerate `OutputSpec`:** KEY `code` (ns `snb`); TITLE `title`; METADATA `description`,
   `source` (`snb_data_portal`|`snb_warehouse`), `cube_id`, `series_key`, `dimension_path`,
   `category` (the `publishingTitle`/topic), `frequency`, `unit`.
-- **Fetch `OutputConfig`:** KEY `cube_id` (ns `snb`), TITLE `title`, DATA `date`
-  (dtype datetime). Dimension code columns + `Value` fold in as DATA (`merge_unmapped_as_data`).
-- **Search `OutputConfig`:** `code`/`title`/`score`. Agent splits `code` on `#` and passes
+- **Fetch `OutputSpec`:** KEY `cube_id` (ns `snb`), TITLE `title`, DATA `date`
+  (`snb_fetch` parses it with `pd.to_datetime` before returning — `OutputSpec` never coerces).
+  Dimension code columns and `Value` are additional columns `snb_fetch` returns but does not
+  declare on the schema.
+- **Search `OutputSpec`:** `code`/`title`/`score`. Agent splits `code` on `#` and passes
   the cube_id part to `snb_fetch`.
 
 ## 7. Tests

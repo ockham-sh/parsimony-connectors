@@ -26,7 +26,7 @@ import pandas as pd
 import pytest
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
+from parsimony.result import Result
 from parsimony_test_support import assert_provenance_shape
 
 from parsimony_treasury import (
@@ -137,8 +137,8 @@ def test_enumerate_treasury_live() -> None:
     assert df["description"].astype(str).str.len().gt(0).any(), "no real description text"
     # The canonical debt measure is discoverable.
     assert df["code"].str.contains("debt_to_penny").any(), "debt_to_penny not enumerated"
-    # build_entities round-trips on a real slice (catalog-build entry point).
-    entities = TREASURY_ENUMERATE_OUTPUT.build_entities(df.head(20))
+    # Entity projection round-trips on a real slice (catalog-build entry point).
+    entities = Result(data=df.head(20), output_spec=TREASURY_ENUMERATE_OUTPUT).to_entities()
     assert len(entities) == 20
     assert entities[0].namespace == CATALOG_NAMESPACE
 
@@ -196,7 +196,7 @@ def test_treasury_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         },
     ]
     df = pd.DataFrame(rows, columns=[c.name for c in TREASURY_ENUMERATE_OUTPUT.columns])
-    entries = entities_from_raw(df, TREASURY_ENUMERATE_OUTPUT)
+    entries = Result(data=df, output_spec=TREASURY_ENUMERATE_OUTPUT).to_entities()
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()

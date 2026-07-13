@@ -151,4 +151,5 @@ def rba_fetch(table_id: Annotated[str, Namespace("rba")]) -> pd.DataFrame:
             query_params={"table_id": table_id},
         )
 
+    df["date"] = pd.to_datetime(df["date"])
     return df

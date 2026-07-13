@@ -26,7 +26,7 @@ fails fast with :class:`UnauthorizedError` naming the env var.
 
 Internal layout (not part of the public contract):
 
-* :mod:`parsimony_tiingo.outputs` — declarative :class:`OutputConfig` schemas.
+* :mod:`parsimony_tiingo.outputs` — declarative :class:`OutputSpec` schemas.
 """
 
 from __future__ import annotations

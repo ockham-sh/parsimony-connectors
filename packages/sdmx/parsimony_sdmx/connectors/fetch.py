@@ -23,7 +23,7 @@ from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError, 
 from parsimony.result import (
     Column,
     ColumnRole,
-    OutputConfig,
+    OutputSpec,
 )
 from pydantic import BaseModel, Field, field_validator
 from requests.exceptions import ConnectionError as RequestsConnectionError
@@ -133,12 +133,12 @@ class _ResolvedStructure:
 # dimension and a key list can mix frequencies, so there is no honest single-instant
 # form — coercing would fabricate precision and outright fails on quarterly/weekly
 # labels. Consumers parse to a datetime axis on demand (``pd.PeriodIndex``).
-SDMX_FETCH_OUTPUT = OutputConfig(
+SDMX_FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="series_key", role=ColumnRole.KEY),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="TIME_PERIOD", role=ColumnRole.DATA),
-        Column(name="value", dtype="numeric", role=ColumnRole.DATA),
+        Column(name="value", role=ColumnRole.DATA),
         Column(name="*", role=ColumnRole.METADATA),
     ]
 )
@@ -605,7 +605,9 @@ def _do_sdmx_fetch(params: SdmxFetchParams, structure: _ResolvedStructure) -> An
 
     dim_out = [dim_code_field(dim_id) for dim_id in dsd_dim_ids]
     unit_out = [c for col in unit_cols for c in (dim_code_field(col), dim_label_field(col))]
-    long_df = df[["series_key", "title", *dim_out, *unit_out, "TIME_PERIOD", "value"]].copy()
+    # Declared columns (series_key, title, TIME_PERIOD, value) lead in schema order;
+    # the per-flow dimension/unit columns + series_url trail as the "*" wildcard METADATA.
+    long_df = df[["series_key", "title", "TIME_PERIOD", "value", *dim_out, *unit_out]].copy()
 
     series_url = build_sdmx_dataset_url(agency_id, dataset_id)
     if series_url:

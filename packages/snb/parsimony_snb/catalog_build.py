@@ -4,17 +4,15 @@ from __future__ import annotations
 
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
 
 from parsimony_snb.connectors.enumerate import enumerate_snb
-from parsimony_snb.outputs import SNB_ENUMERATE_OUTPUT
 
 CATALOG_NAMESPACE = "snb"
 
 
 def build_snb_catalog() -> Catalog:
     result = enumerate_snb()
-    entries = entities_from_raw(result, SNB_ENUMERATE_OUTPUT)
+    entries = result.to_entities()
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()

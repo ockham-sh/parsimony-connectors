@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
 # The enumerator emits two entity kinds, distinguished by ``entity_type``:
 #
@@ -17,7 +17,7 @@ from parsimony.result import Column, ColumnRole, OutputConfig
 # bilingual long titles plus the breadcrumb ``path`` and dataset context are
 # folded into ``description`` so the discovery index (which also covers
 # ``description``) gives recall in both languages.
-BDF_ENUMERATE_OUTPUT = OutputConfig(
+BDF_ENUMERATE_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="bdf"),
         Column(name="title", role=ColumnRole.TITLE),
@@ -33,12 +33,12 @@ BDF_ENUMERATE_OUTPUT = OutputConfig(
     ]
 )
 
-BDF_FETCH_OUTPUT = OutputConfig(
+BDF_FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="key", role=ColumnRole.KEY, namespace="bdf"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="date", dtype="datetime", role=ColumnRole.DATA),
-        Column(name="value", dtype="numeric", role=ColumnRole.DATA),
+        Column(name="date", role=ColumnRole.DATA),
+        Column(name="value", role=ColumnRole.DATA),
     ]
 )
 

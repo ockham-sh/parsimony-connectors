@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
+from parsimony.result import Result
 
 from parsimony_treasury import TREASURY_ENUMERATE_OUTPUT, treasury_search
 from parsimony_treasury.catalog_build import CATALOG_NAMESPACE
@@ -71,7 +71,7 @@ def _build_fixture_catalog(tmp_path: Path) -> Path:
         },
     ]
     df = pd.DataFrame(rows, columns=[c.name for c in TREASURY_ENUMERATE_OUTPUT.columns])
-    entries = entities_from_raw(df, TREASURY_ENUMERATE_OUTPUT)
+    entries = Result(data=df, output_spec=TREASURY_ENUMERATE_OUTPUT).to_entities()
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()

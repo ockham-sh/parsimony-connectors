@@ -8,9 +8,9 @@ three families carry a ``<family>/...`` prefix (see each family module).
 
 from __future__ import annotations
 
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
-RIKSBANK_ENUMERATE_OUTPUT = OutputConfig(
+RIKSBANK_ENUMERATE_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="riksbank"),
         Column(name="title", role=ColumnRole.TITLE),
@@ -31,52 +31,52 @@ RIKSBANK_ENUMERATE_OUTPUT = OutputConfig(
 ENUMERATE_COLUMNS: tuple[str, ...] = tuple(c.name for c in RIKSBANK_ENUMERATE_OUTPUT.columns)
 
 # --- SWEA fetch ---
-RIKSBANK_FETCH_OUTPUT = OutputConfig(
+RIKSBANK_FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="series_id", role=ColumnRole.KEY, namespace="riksbank"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="date", dtype="datetime", role=ColumnRole.DATA),
-        Column(name="value", dtype="numeric", role=ColumnRole.DATA),
+        Column(name="date", role=ColumnRole.DATA),
+        Column(name="value", role=ColumnRole.DATA),
     ]
 )
 
 # --- SWESTR fetch (native trade metadata folds in as extra DATA columns) ---
-RIKSBANK_SWESTR_FETCH_OUTPUT = OutputConfig(
+RIKSBANK_SWESTR_FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="series", role=ColumnRole.KEY, namespace="riksbank"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="date", dtype="datetime", role=ColumnRole.DATA),
-        Column(name="value", dtype="numeric", role=ColumnRole.DATA),
+        Column(name="date", role=ColumnRole.DATA),
+        Column(name="value", role=ColumnRole.DATA),
     ]
 )
 
 # --- Monetary Policy fetch (policy_round + forecast_cutoff_date fold in) ---
-RIKSBANK_MONETARY_POLICY_FETCH_OUTPUT = OutputConfig(
+RIKSBANK_MONETARY_POLICY_FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="series", role=ColumnRole.KEY, namespace="riksbank"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="date", dtype="datetime", role=ColumnRole.DATA),
-        Column(name="value", dtype="numeric", role=ColumnRole.DATA),
+        Column(name="date", role=ColumnRole.DATA),
+        Column(name="value", role=ColumnRole.DATA),
     ]
 )
 
 # --- Turnover fetch (asset/contract/counterparty facets fold in) ---
-RIKSBANK_TURNOVER_FETCH_OUTPUT = OutputConfig(
+RIKSBANK_TURNOVER_FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="market", role=ColumnRole.KEY, namespace="riksbank"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="period", dtype="datetime", role=ColumnRole.DATA),
-        Column(name="amount", dtype="numeric", role=ColumnRole.DATA),
+        Column(name="period", role=ColumnRole.DATA),
+        Column(name="amount", role=ColumnRole.DATA),
     ]
 )
 
 # --- Holdings fetch (security group / issuer / ISIN / maturity fold in) ---
-RIKSBANK_HOLDINGS_FETCH_OUTPUT = OutputConfig(
+RIKSBANK_HOLDINGS_FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="dataset", role=ColumnRole.KEY, namespace="riksbank"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="date", dtype="datetime", role=ColumnRole.DATA),
-        Column(name="balance_nominal_number", dtype="numeric", role=ColumnRole.DATA),
+        Column(name="date", role=ColumnRole.DATA),
+        Column(name="balance_nominal_number", role=ColumnRole.DATA),
     ]
 )
 

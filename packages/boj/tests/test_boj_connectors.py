@@ -20,7 +20,7 @@ import httpx
 import pytest
 import respx
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
-from parsimony.result import ColumnRole
+from parsimony.result import ColumnRole, Result
 from parsimony_shared.cb_enumerate import MetadataCrawlConfig
 
 from parsimony_boj import (
@@ -79,7 +79,7 @@ def test_connectors_collection_exposes_expected_names() -> None:
     assert names == {"boj_fetch", "enumerate_boj", "boj_databases_search", "boj_series_search"}
 
 
-def test_enumerate_output_schema_includes_description_metadata() -> None:
+def test_enumerate_output_spec_includes_description_metadata() -> None:
     """``description`` is ordinary metadata in the clean catalog contract."""
     by_name = {c.name: c for c in BOJ_ENUMERATE_OUTPUT.columns}
     assert by_name["description"].role == ColumnRole.METADATA
@@ -420,7 +420,7 @@ def test_enumerate_boj_build_entities_round_trip() -> None:
     result = enumerate_boj()
     # The respx stub returns the same payload for every DB; dedupe on code.
     frame = result.data.drop_duplicates(subset=["code"], keep="first")
-    entries = BOJ_ENUMERATE_OUTPUT.build_entities(frame)
+    entries = Result(data=frame, output_spec=BOJ_ENUMERATE_OUTPUT).to_entities()
 
     by_code = {e.code: e for e in entries}
     series_entry = by_code["FXERD01"]

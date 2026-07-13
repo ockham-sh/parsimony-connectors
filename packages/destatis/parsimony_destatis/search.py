@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
 from parsimony_destatis.catalog_build import build_destatis_catalog
 
@@ -11,7 +11,7 @@ DestatisSearchParams = CatalogSearchParams
 
 PARSIMONY_DESTATIS_CATALOG_URL_ENV = "PARSIMONY_DESTATIS_CATALOG_URL"
 
-DESTATIS_SEARCH_OUTPUT = OutputConfig(
+DESTATIS_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="destatis"),
         Column(name="title", role=ColumnRole.TITLE),

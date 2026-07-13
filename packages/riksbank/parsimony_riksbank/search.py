@@ -7,7 +7,7 @@ title/description relevance, so no provider-specific search routing is needed he
 from __future__ import annotations
 
 from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
 from parsimony_riksbank.catalog_build import build_riksbank_catalog
 
@@ -15,7 +15,7 @@ RiksbankSearchParams = CatalogSearchParams
 
 PARSIMONY_RIKSBANK_CATALOG_URL_ENV = "PARSIMONY_RIKSBANK_CATALOG_URL"
 
-RIKSBANK_SEARCH_OUTPUT = OutputConfig(
+RIKSBANK_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="riksbank"),
         Column(name="title", role=ColumnRole.TITLE),

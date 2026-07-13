@@ -24,8 +24,8 @@ import pandas as pd
 import pytest
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
 from parsimony.errors import RateLimitError
+from parsimony.result import Result
 from parsimony_test_support import assert_provenance_shape, require_env
 
 from parsimony_riksbank import (
@@ -210,7 +210,7 @@ def test_enumerate_riksbank_live() -> None:
     assert df["title"].astype(str).str.len().gt(0).all()
     assert df["description"].astype(str).str.len().gt(0).any()
 
-    entities = RIKSBANK_ENUMERATE_OUTPUT.build_entities(df)
+    entities = Result(data=df, output_spec=RIKSBANK_ENUMERATE_OUTPUT).to_entities()
     assert len(entities) == len(df)
     assert entities[0].namespace == "riksbank"
 
@@ -243,7 +243,7 @@ def test_riksbank_search_over_bounded_catalog_live(tmp_path: Path) -> None:
              "The Riksbank's securities holdings aggregated by security group.", "holdings"),
     ]
     df = pd.DataFrame(rows, columns=cols)
-    entries = entities_from_raw(df, RIKSBANK_ENUMERATE_OUTPUT)
+    entries = Result(data=df, output_spec=RIKSBANK_ENUMERATE_OUTPUT).to_entities()
     catalog = Catalog("riksbank", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()

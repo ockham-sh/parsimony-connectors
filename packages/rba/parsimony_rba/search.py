@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
 from parsimony_rba.catalog_build import build_rba_catalog
 
@@ -11,7 +11,7 @@ RbaSearchParams = CatalogSearchParams
 
 PARSIMONY_RBA_CATALOG_URL_ENV = "PARSIMONY_RBA_CATALOG_URL"
 
-RBA_SEARCH_OUTPUT = OutputConfig(
+RBA_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="rba"),
         Column(name="title", role=ColumnRole.TITLE),

@@ -25,13 +25,13 @@ import pytest
 import respx
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
 from parsimony.errors import (
     EmptyDataError,
     InvalidParameterError,
     ParseError,
     UnauthorizedError,
 )
+from parsimony.result import Result
 from parsimony_test_support import CANARY_KEY, assert_no_secret_leak
 
 from parsimony_bdf import CONNECTORS, load
@@ -149,8 +149,8 @@ def test_bdf_fetch_parses_json_response() -> None:
     assert list(df.columns) == ["key", "title", "date", "value"]
     assert len(df) == 2
     assert df.iloc[0]["title"] == "US dollar/Euro spot rate"
-    assert df["date"].dtype.kind == "M"  # declared dtype="datetime"
-    assert df["value"].dtype.kind == "f"  # declared dtype="numeric"
+    assert df["date"].dtype.kind == "M"  # coerced in bdf_fetch
+    assert df["value"].dtype.kind == "f"  # coerced in bdf_fetch
     assert df["value"].tolist() == [1.0832, 1.0874]
 
     # api_key rides the Authorization header (header auth → never a query param).
@@ -298,7 +298,7 @@ def test_enumerate_bdf_bounded_shape_and_metadata() -> None:
     assert "dollar US" in usd["description"]
 
     # build_entities round-trips on the real-shape slice.
-    entities = BDF_ENUMERATE_OUTPUT.build_entities(df)
+    entities = Result(data=df, output_spec=BDF_ENUMERATE_OUTPUT).to_entities()
     assert len(entities) == len(df)
     assert entities[0].namespace == "bdf"
 
@@ -430,7 +430,7 @@ def _enumerate_rows() -> list[dict[str, str]]:
 
 def _build_fixture_catalog(out_dir: Path) -> None:
     df = pd.DataFrame(_enumerate_rows(), columns=list(ENUMERATE_COLUMNS))
-    entries = entities_from_raw(df, BDF_ENUMERATE_OUTPUT)
+    entries = Result(data=df, output_spec=BDF_ENUMERATE_OUTPUT).to_entities()
     catalog = Catalog("bdf", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()

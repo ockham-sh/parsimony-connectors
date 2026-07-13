@@ -35,7 +35,7 @@ import pandas as pd
 import pytest
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
+from parsimony.result import Result
 from parsimony_test_support import assert_provenance_shape
 
 import parsimony_rba.connectors.enumerate as rba_enum
@@ -97,7 +97,7 @@ def test_rba_fetch_cash_rate_live() -> None:
     # Australian cash rate has sat in roughly 0%–8% over the published window.
     assert ((vals >= 0.0) & (vals <= 8.0)).all(), f"cash rate out of plausible band: {vals.tolist()[:5]}"
 
-    # Dates parse to real datetimes (declared dtype="datetime").
+    # Dates parse to real datetimes (coerced in rba_fetch).
     assert df["date"].dtype.kind == "M"
     assert df["date"].notna().any(), "observation dates all NaT"
 
@@ -193,7 +193,7 @@ def test_enumerate_rba_bounded_live(monkeypatch: pytest.MonkeyPatch) -> None:
     assert any(c.startswith("f1-data#FIRMMCRTD") for c in df["code"]), "FIRMMCRTD not enumerated"
 
     # build_entities round-trips on the real slice (the catalog-build entry point).
-    entities = RBA_ENUMERATE_OUTPUT.build_entities(df)
+    entities = Result(data=df, output_spec=RBA_ENUMERATE_OUTPUT).to_entities()
     assert len(entities) == len(df)
     assert entities[0].namespace == "rba"
 
@@ -238,7 +238,7 @@ def test_rba_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         ),
     ]
     df = pd.DataFrame(rows, columns=cols)
-    entries = entities_from_raw(df, RBA_ENUMERATE_OUTPUT)
+    entries = Result(data=df, output_spec=RBA_ENUMERATE_OUTPUT).to_entities()
     catalog = Catalog("rba", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()

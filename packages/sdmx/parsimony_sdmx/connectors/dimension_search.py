@@ -14,7 +14,7 @@ import pyarrow.dataset as ds
 from parsimony.catalog.storage import read_meta
 from parsimony.connector import connector
 from parsimony.errors import ConnectorError, EmptyDataError, InvalidParameterError
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 from pydantic import BaseModel, Field
 
 from parsimony_sdmx.catalog_series import collect_distinct_from_columnar
@@ -38,7 +38,7 @@ from parsimony_sdmx.series_fields import SERIES_PARQUET, dim_code_field, dim_lab
 RANKED_LIMIT = 50
 
 
-DIMENSION_SEARCH_OUTPUT = OutputConfig(
+DIMENSION_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY),
         Column(name="label", role=ColumnRole.TITLE),

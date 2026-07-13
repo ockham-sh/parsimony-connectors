@@ -203,13 +203,13 @@ class TestSdmxFetch:
         result = _call_sdmx_fetch(params)
         assert "series_url" not in result.data.columns or result.data["series_url"].isna().all()
 
-    def test_fetch_result_carries_output_schema(self, patch_sdmx: dict[str, Any]) -> None:
+    def test_fetch_result_carries_output_spec(self, patch_sdmx: dict[str, Any]) -> None:
         from parsimony.result import ColumnRole
 
         from parsimony_sdmx.connectors.fetch import SdmxFetchParams
 
         # Round-trip through the actual (decorated) fetch to confirm the static
-        # OutputConfig is applied to the result.
+        # OutputSpec is applied to the result.
         dim_ids = ["FREQ"]
         structure_msg = _structure_msg(dim_ids, "YC")
         data_msg = SimpleNamespace(data="<observations>")
@@ -221,15 +221,17 @@ class TestSdmxFetch:
         params = SdmxFetchParams(dataset_key="ECB-YC", series_key="M")
         result = _call_sdmx_fetch(params)
 
-        roles = {c.name: c.role for c in result.output_schema.columns}
+        roles = {c.name: c.role for c in result.output_spec.columns}
         assert roles["series_key"] == ColumnRole.KEY
         assert roles["title"] == ColumnRole.TITLE
         assert roles["value"] == ColumnRole.DATA
         assert roles["TIME_PERIOD"] == ColumnRole.DATA
-        # The per-flow dimension's code column is caught as METADATA by the wildcard.
-        assert roles["FREQ_code"] == ColumnRole.METADATA
+        # The per-flow dimension (FREQ, undeclared) is caught by the "*" wildcard
+        # as METADATA — OutputSpec is static and never expands the wildcard, so
+        # this is checked on the wildcard itself rather than per-dimension-name.
+        assert roles["*"] == ColumnRole.METADATA
         # series_key carries no namespace — matches sdmx_series_search's key column.
-        key_col = next(c for c in result.output_schema.columns if c.name == "series_key")
+        key_col = next(c for c in result.output_spec.columns if c.name == "series_key")
         assert key_col.namespace is None
         # TIME_PERIOD stays the raw SDMX period string, not coerced to datetime.
         assert result.data["TIME_PERIOD"].iloc[0] == "2024-01"
@@ -435,11 +437,10 @@ class TestSdmxFetchOutput:
         # No namespace — matches sdmx_series_search's key column (the join target).
         assert by_name["series_key"].namespace is None
         assert by_name["title"].role == ColumnRole.TITLE
-        # TIME_PERIOD stays a raw SDMX period string (dtype 'auto' = no coercion).
+        # TIME_PERIOD stays a raw SDMX period string — OutputSpec is purely
+        # declarative and never coerces dtypes.
         assert by_name["TIME_PERIOD"].role == ColumnRole.DATA
-        assert by_name["TIME_PERIOD"].dtype == "auto"
         assert by_name["value"].role == ColumnRole.DATA
-        assert by_name["value"].dtype == "numeric"
         # Per-flow dimension columns + optional series_url are caught by the
         # wildcard as METADATA rather than enumerated statically.
         assert by_name["*"].role == ColumnRole.METADATA

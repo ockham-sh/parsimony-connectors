@@ -74,4 +74,5 @@ def snb_fetch(
     # getCubeInfo metadata (falls back to the cube_id if the call fails).
     info = _http.get_cube_info(http, cube_id, lang=lang)
     df["title"] = str((info or {}).get("title") or "").strip() or cube_id
+    df["date"] = pd.to_datetime(df["date"])
     return df

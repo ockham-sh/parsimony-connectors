@@ -13,7 +13,7 @@ from typing import Any
 import pandas as pd
 from parsimony.catalog import BM25Index, Catalog, HybridIndex
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
+from parsimony.result import Result
 
 from parsimony_riksbank.catalog_build import CATALOG_NAMESPACE
 from parsimony_riksbank.outputs import ENUMERATE_COLUMNS, RIKSBANK_ENUMERATE_OUTPUT
@@ -34,7 +34,7 @@ def _sample_entries() -> list:
         _row("holdings/swedish_securities_aggregated", "Holdings aggregated", "Securities holdings.", "holdings"),
     ]
     df = pd.DataFrame(rows, columns=list(ENUMERATE_COLUMNS))
-    return entities_from_raw(df, RIKSBANK_ENUMERATE_OUTPUT)
+    return Result(data=df, output_spec=RIKSBANK_ENUMERATE_OUTPUT).to_entities()
 
 
 def test_discovery_indexes_for_riksbank_sample() -> None:

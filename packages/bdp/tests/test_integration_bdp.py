@@ -25,7 +25,7 @@ import pandas as pd
 import pytest
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
+from parsimony.result import Result
 from parsimony_test_support import assert_provenance_shape
 
 from parsimony_bdp.connectors import enumerate as enum_mod
@@ -125,7 +125,7 @@ def test_enumerate_bdp_bounded_single_domain_live(monkeypatch: pytest.MonkeyPatc
     # KEY shape for series rows: "{domain}:{dataset}:{series}".
     assert series["code"].str.startswith(f"{_BOUNDED_DOMAIN_ID}:").all()
 
-    entities = BDP_ENUMERATE_OUTPUT.build_entities(df)
+    entities = Result(data=df, output_spec=BDP_ENUMERATE_OUTPUT).to_entities()
     assert len(entities) == len(df)
     assert entities[0].namespace == "bdp"
 
@@ -158,7 +158,7 @@ def test_bdp_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         ),
     ]
     df = pd.DataFrame(rows, columns=cols)
-    entries = entities_from_raw(df, BDP_ENUMERATE_OUTPUT)
+    entries = Result(data=df, output_spec=BDP_ENUMERATE_OUTPUT).to_entities()
     catalog = Catalog("bdp", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()

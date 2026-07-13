@@ -11,10 +11,8 @@ from __future__ import annotations
 
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
 
 from parsimony_eia.connectors.enumerate import enumerate_eia
-from parsimony_eia.outputs import EIA_ENUMERATE_OUTPUT
 
 CATALOG_NAMESPACE = "eia"
 
@@ -27,7 +25,7 @@ def build_eia_catalog(*, api_key: str | None = None) -> Catalog:
     set), so the snapshot can be built straight from the environment.
     """
     result = enumerate_eia(api_key=(api_key or "").strip())
-    entries = entities_from_raw(result, EIA_ENUMERATE_OUTPUT)
+    entries = result.to_entities()
     catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()

@@ -224,10 +224,12 @@ def test_treasury_rates_fetch_parses_xml_and_normalises_record_date() -> None:
     # alongside the feed-specific rate columns (which are DATA).
     from parsimony.result import ColumnRole
 
-    assert result.output_schema is not None
-    roles = {c.name: c.role for c in result.output_schema.columns}
+    assert result.output_spec is not None
+    roles = {c.name: c.role for c in result.output_spec.columns}
     assert roles["source_url"] == ColumnRole.METADATA
-    assert roles["BC_10YEAR"] == ColumnRole.DATA
+    # The feed-specific native rate columns (BC_10YEAR, ...) aren't individually
+    # declared; the "*" wildcard folds them all in as DATA.
+    assert roles["*"] == ColumnRole.DATA
 
 
 @respx.mock

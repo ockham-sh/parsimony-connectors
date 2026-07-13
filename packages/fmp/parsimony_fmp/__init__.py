@@ -24,7 +24,7 @@ plan-gated — their docstrings tag the minimum plan (``[All plans]``,
 Internal layout (not part of the public contract):
 
 * :mod:`parsimony_fmp._http` — keyed client builder and error mapping.
-* :mod:`parsimony_fmp.outputs` — declarative :class:`OutputConfig` schemas.
+* :mod:`parsimony_fmp.outputs` — declarative :class:`OutputSpec` schemas.
 * :mod:`parsimony_fmp._screener` — the screener's classification frozensets,
   pushdown map, and fan-out orchestration.
 """
@@ -99,7 +99,7 @@ def _select_declared(df: pd.DataFrame, output: Any) -> pd.DataFrame:
 
     Drops provider extras not in the schema. Missing declared columns are filled
     with ``NA`` so sparse upstream payloads still satisfy
-    :class:`~parsimony.result.OutputConfig`. Wildcard (``"*"``) schemas keep
+    :class:`~parsimony.result.OutputSpec`. Wildcard (``"*"``) schemas keep
     unmapped columns after the fixed prefix.
     """
     names = [c.name for c in output.columns]
@@ -281,7 +281,11 @@ def fmp_prices(
     df = _to_frame(data, "fmp_prices", {"symbol": sym})
     if frequency == "dividend_adjusted":
         df = df.rename(columns=_DIVIDEND_ADJUSTED_RENAME)
-    return _select_declared(df, HISTORICAL_PRICES_OUTPUT)
+    df = _select_declared(df, HISTORICAL_PRICES_OUTPUT)
+    # `date` may carry a time component for intraday frequencies — parse with
+    # to_datetime (not `.dt.normalize()`, which would zero it out).
+    df["date"] = pd.to_datetime(df["date"])
+    return df
 
 
 # ---------------------------------------------------------------------------

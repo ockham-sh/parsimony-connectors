@@ -165,7 +165,9 @@ def bls_fetch(
 
     # BLS returns observations newest-first; sort ascending so downstream joins
     # don't need to re-sort.
-    return pd.DataFrame(rows).sort_values("date", ignore_index=True)
+    df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"])
+    return df.sort_values("date", ignore_index=True)
 
 
 __all__ = ["bls_fetch"]

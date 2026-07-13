@@ -96,19 +96,19 @@ connectors = discover.load("fred")
 
 # 1. Search for a series. Calling a connector returns a Result.
 hits = connectors["fred_search"](search_text="US unemployment rate")
-print(hits.df[["id", "title"]].head())
+print(hits.frame[["id", "title"]].head())
 # id      title
 # UNRATE  Unemployment Rate
 # ...
 
 # 2. Fetch observations by series_id.
 result = connectors["fred_fetch"](series_id="UNRATE")
-print(result.df.head())
+print(result.frame.head())
 #   series_id              title units_short  ... date        value
 # 0    UNRATE  Unemployment Rate     Percent  ... 1948-01-01    3.4
 ```
 
-`result.df` is a pandas DataFrame (`result.frame` is the same object).
+`result.frame` is a pandas DataFrame (it raises `TypeError` if the payload isn't tabular).
 `result.provenance` records where the data came from:
 
 ```python
@@ -148,13 +148,13 @@ connectors = discover.load("treasury")
 
 # 1. Search the catalog. No API key needed.
 hits = connectors["treasury_search"](query="federal debt outstanding")
-print(hits.df[["code", "title", "endpoint"]].head())
+print(hits.frame[["code", "title", "endpoint"]].head())
 
 # 2. Fetch by endpoint, using a code/endpoint surfaced by the search.
 result = connectors["treasury_fetch"](
     endpoint="v2/accounting/od/debt_to_penny",
 )
-print(result.df.head())
+print(result.frame.head())
 ```
 
 Because Treasury is keyless, there is nothing to configure. The catalog

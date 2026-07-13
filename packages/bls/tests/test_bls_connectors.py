@@ -65,7 +65,7 @@ def test_bls_fetch_returns_series_observations() -> None:
     assert df.iloc[0]["frequency"] == "Monthly"
     # Rows are sorted ascending by date, so the earlier M02 observation (whose
     # suppressed "-" value coerces to null) is first and the M03 value is last.
-    # ``date`` is coerced to datetime by the output config (dtype="datetime").
+    # ``date`` is coerced to datetime in bls_fetch.
     assert list(df["date"].dt.strftime("%Y-%m-%d")) == ["2026-02-01", "2026-03-01"]
     assert df.iloc[0]["value"] != df.iloc[0]["value"]  # NaN
     assert df.iloc[1]["value"] == 4.1
@@ -301,13 +301,16 @@ def test_build_series_catalog_search_offline(_patch_flatfiles) -> None:
 def test_build_surveys_catalog_attaches_manifest(monkeypatch) -> None:
     # tier-1 enumerate is API-driven; stub it so the test stays offline.
     import pandas as pd
+    from parsimony.result import Result
 
     from parsimony_bls import catalog_build as cb
+    from parsimony_bls.outputs import BLS_SURVEYS_ENUM_OUTPUT
 
     def fake_surveys(api_key=""):
-        return pd.DataFrame(
+        df = pd.DataFrame(
             [{"code": "CU", "title": "Consumer Price Index", "survey": "CU", "has_series_catalog": True}]
         )
+        return Result(data=df, output_spec=BLS_SURVEYS_ENUM_OUTPUT)
 
     monkeypatch.setattr(cb, "enumerate_bls_surveys", fake_surveys)
 

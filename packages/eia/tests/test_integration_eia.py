@@ -24,7 +24,7 @@ import pandas as pd
 import pytest
 from parsimony.catalog import Catalog
 from parsimony.catalog.policy import discovery_indexes
-from parsimony.catalog.source import entities_from_raw
+from parsimony.result import Result
 from parsimony_test_support import assert_no_secret_leak, assert_provenance_shape, require_env
 
 from parsimony_eia.connectors import enumerate as enumerate_module
@@ -169,8 +169,8 @@ def test_enumerate_eia_bounded_single_category_live(monkeypatch: pytest.MonkeyPa
     assert df["description"].str.len().gt(0).all(), "blank descriptions"
     assert df["frequencies"].str.len().gt(0).any(), "no frequencies captured"
 
-    # entities_from_raw round-trips on the real slice.
-    entities = entities_from_raw(df, EIA_ENUMERATE_OUTPUT)
+    # Entity projection round-trips on the real slice.
+    entities = Result(data=df, output_spec=EIA_ENUMERATE_OUTPUT).to_entities()
     assert len(entities) == len(df)
     assert entities[0].namespace == "eia"
 
@@ -229,7 +229,7 @@ def test_eia_search_over_bounded_catalog_live(tmp_path: Path) -> None:
         },
     ]
     df = pd.DataFrame(rows, columns=[c.name for c in EIA_ENUMERATE_OUTPUT.columns])
-    entries = entities_from_raw(df, EIA_ENUMERATE_OUTPUT)
+    entries = Result(data=df, output_spec=EIA_ENUMERATE_OUTPUT).to_entities()
     catalog = Catalog("eia", indexes=discovery_indexes(entries), default_field="title")
     catalog.set_entities(entries)
     catalog.build()

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from parsimony.result import Column, ColumnRole, OutputConfig
+from parsimony.result import Column, ColumnRole, OutputSpec
 
 # Compound code ``{endpoint}#{field}`` so every addressable Fiscal Data measure has
 # a unique catalog entry; agents split on ``#`` to recover the fetchable endpoint and
 # the column to read off the row. ODM rate-feed rows use ``home/{feed}#{column}`` (the
 # ``home/`` prefix + the ``source`` column route a search hit to the right fetch verb).
-TREASURY_ENUMERATE_OUTPUT = OutputConfig(
+TREASURY_ENUMERATE_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="treasury"),
         Column(name="title", role=ColumnRole.TITLE),
@@ -38,11 +38,11 @@ _ENUMERATE_COLUMNS: tuple[str, ...] = tuple(c.name for c in TREASURY_ENUMERATE_O
 # Treasury Fiscal Data returns tabular datasets — the output is a DataFrame whose
 # columns depend on the endpoint. A minimal schema with just the identity key; the
 # actual data columns vary per endpoint and fold in as DATA.
-TREASURY_FETCH_OUTPUT = OutputConfig(
+TREASURY_FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="endpoint", role=ColumnRole.KEY, namespace="treasury"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="record_date", dtype="datetime", role=ColumnRole.DATA),
+        Column(name="record_date", role=ColumnRole.DATA),
     ]
 )
 
@@ -50,12 +50,15 @@ TREASURY_FETCH_OUTPUT = OutputConfig(
 # (``BC_10YEAR`` for the par curve, ``ROUND_B1_YIELD_4WK_2`` for bills). The schema
 # names only the columns we always materialise; the feed-specific rate columns fold in
 # as DATA. ``source_url`` is declared METADATA so it does not fold in as a data measure.
-TREASURY_RATES_FETCH_OUTPUT = OutputConfig(
+TREASURY_RATES_FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="feed", role=ColumnRole.KEY, namespace="treasury"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="record_date", dtype="datetime", role=ColumnRole.DATA),
+        Column(name="record_date", role=ColumnRole.DATA),
         Column(name="source_url", role=ColumnRole.METADATA),
+        # The feed-specific native rate columns (e.g. BC_10YEAR) vary by feed and
+        # are not individually declared; the wildcard folds them all in as DATA.
+        Column(name="*", role=ColumnRole.DATA),
     ]
 )
 
