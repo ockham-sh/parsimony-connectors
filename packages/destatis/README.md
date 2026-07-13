@@ -34,7 +34,7 @@ of scope.
 pip install parsimony-destatis
 ```
 
-Pulls in `parsimony-core>=0.7,<0.8` automatically. Verify discovery:
+Pulls in a compatible `parsimony-core` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
