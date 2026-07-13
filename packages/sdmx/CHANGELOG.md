@@ -20,8 +20,8 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   the conflicting columns (#48).
 - `sdmx_dimension_search` accepts `filter_json` (same syntax as `sdmx_series_search`) and scopes
   results to values populated *within* that slice, with the same eager validation and autopsy.
-- `sdmx_fetch` surfaces `UNIT` / `UNIT_MULT` series attributes as labeled metadata columns;
-  `value` is coerced numeric.
+- `sdmx_fetch` surfaces `UNIT` / `UNIT_MULT` series attributes as split
+  `UNIT_code` / `UNIT_label` metadata columns; `value` is coerced numeric.
 - `sdmx_fetch` verifies `'+'`-OR coverage: a requested code that contributed zero observations
   raises `EmptyDataError` naming the dimension and codes instead of silently vanishing.
 
@@ -51,6 +51,12 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   hard-errors ("not published; ask the maintainers to build it") with no live fallback.
 - `sdmx_series_search` `filter_json` now accepts a bare scalar value as a single-code filter
   (`{"geo_code": "DE"}` == `{"geo_code": ["DE"]}`).
+- **`sdmx_fetch` emits each dimension as a bare `{dim}_code` column** (e.g. `FREQ_code="M"`)
+  instead of a combined `"M (Monthly)"` display string, so the code is usable directly for
+  filter/groupby/re-fetch and lines up with `sdmx_series_search`'s code fields. The human labels
+  already ride in `title`, so a per-dimension label column would only restate them; `UNIT` /
+  `UNIT_MULT` keep a `_label` since their meaning qualifies `value` and is not in the title.
+  Column *casing* stays provider-inherited (ESTAT lowercase, ECB uppercase) (#46).
 
 ### Fixed
 

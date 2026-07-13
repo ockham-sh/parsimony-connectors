@@ -115,20 +115,22 @@ class TestSdmxFetch:
         result = _call_sdmx_fetch(params)
 
         df = result.data
-        # Declared columns lead in config order; the per-flow dims + series_url
-        # trail (caught by the greedy-last "*" wildcard as METADATA).
+        # Declared columns lead in config order; the per-flow dims (as {dim}_code,
+        # matching sdmx_series_search) + series_url trail (caught by the greedy-last
+        # "*" wildcard as METADATA). Dimension labels ride in `title`, not columns.
         assert list(df.columns) == [
             "series_key",
             "title",
             "TIME_PERIOD",
             "value",
-            "FREQ",
-            "REF_AREA",
-            "CURRENCY",
+            "FREQ_code",
+            "REF_AREA_code",
+            "CURRENCY_code",
             "series_url",
         ]
         assert list(df["series_key"]) == ["M.DE.EUR", "M.FR.EUR"]
-        assert list(df["FREQ"]) == ["M", "M"]
+        assert list(df["FREQ_code"]) == ["M", "M"]
+        assert "FREQ_label" not in df.columns  # dimension labels live in `title`, not restated
         # Title falls back to series_key when no labels are known.
         assert all(df["title"].str.len() > 0)
 
@@ -224,8 +226,8 @@ class TestSdmxFetch:
         assert roles["title"] == ColumnRole.TITLE
         assert roles["value"] == ColumnRole.DATA
         assert roles["TIME_PERIOD"] == ColumnRole.DATA
-        # The per-flow dimension is caught as METADATA by the wildcard.
-        assert roles["FREQ"] == ColumnRole.METADATA
+        # The per-flow dimension's code column is caught as METADATA by the wildcard.
+        assert roles["FREQ_code"] == ColumnRole.METADATA
         # series_key carries no namespace — matches sdmx_series_search's key column.
         key_col = next(c for c in result.output_schema.columns if c.name == "series_key")
         assert key_col.namespace is None

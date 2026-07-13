@@ -258,8 +258,13 @@ class TestUnitAttributePassthrough:
 
         df = fetch_mod.sdmx_fetch(dataset_ref="ECB-TEST", series_ref="M.DE").data
 
-        assert "UNIT" in df.columns and "UNIT_MULT" in df.columns
-        assert "OBS_STATUS" not in df.columns
-        assert "Percent" in str(df["UNIT"].iloc[0])  # labeled via the codelist map
+        # Dimensions are code-only (their labels ride in `title`); UNIT / UNIT_MULT keep
+        # a label because it qualifies `value` and is not carried by the title.
+        assert {"UNIT_code", "UNIT_label", "UNIT_MULT_code", "UNIT_MULT_label"} <= set(df.columns)
+        assert "UNIT" not in df.columns
+        assert "FREQ_label" not in df.columns and "REF_AREA_label" not in df.columns
+        assert "OBS_STATUS" not in df.columns and "OBS_STATUS_code" not in df.columns
+        assert df["UNIT_code"].iloc[0] == "PC"
+        assert df["UNIT_label"].iloc[0] == "Percent"  # labeled via the codelist map
         assert df["value"].dtype.kind == "f"  # object "3.2" coerced to numeric
         assert df["value"].iloc[0] == pytest.approx(3.2)
