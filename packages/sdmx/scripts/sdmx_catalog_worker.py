@@ -105,8 +105,6 @@ def _index_one(
     result = build_flow_catalog(
         series_parquet=staging_parquet,
         namespace=namespace,
-        agency=agency,
-        flow_id=flow_id,
         structure=structure,
         catalogs_dir=layout.catalogs,
         staging_dir=layout.staging / "catalog_partial",

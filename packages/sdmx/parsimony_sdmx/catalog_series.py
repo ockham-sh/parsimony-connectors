@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import csv
-import json
 import logging
 import shutil
 from collections.abc import Mapping, Sequence
@@ -439,12 +438,9 @@ def build_flow_catalog(
     *,
     series_parquet: Path,
     namespace: str,
-    agency: AgencyId,
-    flow_id: str,
     structure: StructureRecord,
     catalogs_dir: Path,
     staging_dir: Path,
-    builder: str = "packages/sdmx/scripts/sdmx_catalog_worker.py",
     embedder: SentenceTransformerEmbedder | None = None,
     distinct: dict[str, dict[str, str]] | None = None,
 ) -> CatalogBuildResult:
@@ -466,21 +462,6 @@ def build_flow_catalog(
         embedder=embedder,
     )
     catalog._save_to_path(partial)  # noqa: SLF001
-
-    raw_meta = json.loads((partial / META_FILENAME).read_text(encoding="utf-8"))
-    raw_meta["sdmx"] = {
-        "catalog_kind": CATALOG_KIND,
-        "agency": agency.value,
-        "flow_id": flow_id,
-        "dsd_order": list(structure.dsd_order),
-        "series_count": series_count,
-    }
-    from parsimony.catalog.storage import CatalogMeta
-    from parsimony.catalog.validation import compute_manifest_contract_sha256
-
-    meta_obj = CatalogMeta.model_validate(raw_meta)
-    raw_meta["build"]["manifest_contract_sha256"] = compute_manifest_contract_sha256(meta_obj)
-    (partial / META_FILENAME).write_text(json.dumps(raw_meta, indent=2), encoding="utf-8")
 
     target = catalogs_dir / namespace
     _atomic_write_dir(partial, target)

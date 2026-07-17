@@ -6,11 +6,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from parsimony.catalog import Catalog
-from parsimony.catalog.storage import read_meta
 from parsimony.catalog.validation import validate_catalog_snapshot
 
 from parsimony_sdmx.catalog_manifest import BuildRoot
-from parsimony_sdmx.catalog_series import CATALOG_KIND, SERIES_AGENCIES, is_series_catalog
+from parsimony_sdmx.catalog_series import SERIES_AGENCIES, is_series_catalog
 from parsimony_sdmx.core.agencies import ALL_AGENCIES
 from parsimony_sdmx.core.namespaces import datasets_namespace
 
@@ -65,20 +64,6 @@ def validate_release_catalog_dir(catalog_dir: Path) -> list[str]:
     return errors
 
 
-def validate_series_catalog(catalog_dir: Path) -> list[str]:
-    errors = validate_release_catalog_dir(catalog_dir)
-    if errors:
-        return errors
-
-    meta = read_meta(catalog_dir)
-    sdmx = meta.sdmx or {}
-    if sdmx.get("catalog_kind") != CATALOG_KIND:
-        errors.append(f"{catalog_dir.name}: sdmx.catalog_kind != {CATALOG_KIND}")
-    if int(sdmx.get("series_count") or 0) != meta.entry_count:
-        errors.append(f"{catalog_dir.name}: series_count mismatch meta.entry_count")
-    return errors
-
-
 def validate_release_root(
     layout: BuildRoot,
     *,
@@ -127,9 +112,9 @@ def validate_release_root(
             if not is_series_catalog(child):
                 report.fail(f"{name}: not a v1 series catalog")
                 continue
-            errs = validate_series_catalog(child)
+            errs = validate_release_catalog_dir(child)
             for err in errs:
-                report.fail(err)
+                report.fail(f"{name}: {err}")
             else:
                 report.series_catalogs.append(name)
                 if sample_search:

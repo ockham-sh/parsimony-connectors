@@ -20,13 +20,13 @@ from pydantic import BaseModel, Field
 from parsimony_sdmx.catalog_series import collect_distinct_from_columnar
 from parsimony_sdmx.connectors.series_search import (
     ENUMERATION_LIMIT,
+    _dims_from_schema,
     _filter_autopsy,
     _load_series_catalog,
     _not_published,
     _parse_agency,
     _parse_filter_json,
     _resolve_catalog_path,
-    _sdmx_meta,
     _validate_filter_columns,
     _validate_filter_values,
 )
@@ -126,7 +126,10 @@ def sdmx_dimension_search(
     if not catalog_path.is_dir():
         raise ConnectorError(_not_published(label), provider="sdmx")
 
-    dsd_order = tuple(_sdmx_meta(catalog_path).get("dsd_order") or ())
+    meta = read_meta(catalog_path)
+    parquet_path = catalog_path / (meta.backend.rows_filename or SERIES_PARQUET)
+    dataset = ds.dataset(str(parquet_path), format="parquet")
+    dsd_order = _dims_from_schema(dataset.schema.names)
     if params.dimension not in dsd_order:
         raise InvalidParameterError(
             "sdmx",
@@ -144,9 +147,6 @@ def sdmx_dimension_search(
     try:
         populated: dict[str, str] | None = None
         if filter_spec:
-            meta = read_meta(catalog_path)
-            parquet_path = catalog_path / (meta.backend.rows_filename or SERIES_PARQUET)
-            dataset = ds.dataset(str(parquet_path), format="parquet")
             _validate_filter_values(filter_spec, dataset, agency=agency_id.value, flow=flow)
             populated = _distinct_within_slice(dataset, params.dimension, filter_spec)
         if q is not None:
@@ -164,8 +164,6 @@ def sdmx_dimension_search(
                 {"code": code, "label": value_label} for code, value_label in list(populated.items())[: params.limit]
             ]
         else:
-            meta = read_meta(catalog_path)
-            parquet_path = catalog_path / (meta.backend.rows_filename or SERIES_PARQUET)
             distinct = collect_distinct_from_columnar(parquet_path, (params.dimension,))[params.dimension]
             rows = [{"code": code, "label": label} for code, label in list(distinct.items())[: params.limit]]
     except (FileNotFoundError, ValueError) as exc:

@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Sequence
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 import pandas as pd
 import pyarrow.compute as pc
@@ -127,12 +128,13 @@ def _parse_agency(agency: str) -> AgencyId:
         raise InvalidParameterError("sdmx", f"unknown agency {agency!r}") from exc
 
 
-def _sdmx_meta(catalog_dir: Path) -> dict[str, Any]:
-    raw = json.loads((catalog_dir / "meta.json").read_text(encoding="utf-8"))
-    sdmx = raw.get("sdmx")
-    if isinstance(sdmx, dict):
-        return sdmx
-    return {}
+def _dims_from_schema(columns: Sequence[str]) -> tuple[str, ...]:
+    """Dimension ids in DSD order, read off the ``{dim}_code`` column sequence.
+
+    The catalog builder emits one ``_code``/``_label`` column pair per DSD
+    dimension, in DSD key order — the parquet schema is the declaration.
+    """
+    return tuple(c[: -len("_code")] for c in columns if c.endswith("_code"))
 
 
 def _parse_filter_json(filter_json: str) -> dict[str, list[str]]:
@@ -414,10 +416,9 @@ def sdmx_series_search(
     except (FileNotFoundError, ValueError) as exc:
         raise ConnectorError(f"Invalid series catalog for {namespace}: {exc}", provider="sdmx") from exc
 
-    sdmx_meta = _sdmx_meta(catalog_path)
-    dsd_order = tuple(sdmx_meta.get("dsd_order") or ())
     parquet_path = catalog_path / (meta.backend.rows_filename or SERIES_PARQUET)
     dataset = ds.dataset(str(parquet_path), format="parquet")
+    dsd_order = _dims_from_schema(dataset.schema.names)
     if params.fields is not None or params.filter_json is not None:
         filter_spec: dict[str, list[str]] = {}
         if params.filter_json:
