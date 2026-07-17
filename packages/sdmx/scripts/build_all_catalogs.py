@@ -142,8 +142,8 @@ def run_agency_batch(
         "agency",
         "--agency",
         agency.value,
-        "--save-root",
-        str(layout.catalogs),
+        "--root",
+        str(layout.root),
         "--parallel",
         str(parallel),
         "--fetch-timeout-s",
@@ -467,7 +467,7 @@ def run_build(
             logger.info("Skipping series phases for %s (no CSV series support)", agency.value)
             continue
 
-        flows = list_structure_flows(layout.catalogs, agency.value)
+        flows = list_structure_flows(layout.structures, agency.value)
         if max_catalogs is not None:
             flows = flows[:max_catalogs]
         manifest.ensure_series_tasks(agency.value, flows)

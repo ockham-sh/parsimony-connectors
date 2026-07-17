@@ -468,9 +468,9 @@ def build_flow_catalog(
     return CatalogBuildResult(namespace=namespace, series_count=series_count, catalog_kind=CATALOG_KIND)
 
 
-def load_structure_marker(catalogs_dir: Path, agency: AgencyId, dataset_id: str) -> StructureRecord:
+def load_structure_marker(structures_dir: Path, agency: AgencyId, dataset_id: str) -> StructureRecord:
     marker_ns = structure_marker_namespace(agency, dataset_id)
-    path = catalogs_dir / marker_ns / "structure.json"
+    path = structures_dir / marker_ns / "structure.json"
     if not path.is_file():
         raise FileNotFoundError(f"Structure marker missing: {path}")
     return read_structure(path)

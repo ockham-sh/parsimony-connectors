@@ -46,8 +46,6 @@ class ValidationReport:
     warnings: list[str] = field(default_factory=list)
     dataset_catalogs: list[str] = field(default_factory=list)
     series_catalogs: list[str] = field(default_factory=list)
-    codelist_count: int = 0
-    structure_marker_count: int = 0
 
     def fail(self, message: str) -> None:
         self.ok = False
@@ -99,16 +97,7 @@ def validate_release_root(
         if not child.is_dir():
             continue
         name = child.name
-        if name.startswith("sdmx_codelist_"):
-            report.codelist_count += 1
-            errs = validate_release_catalog_dir(child)
-            for err in errs:
-                report.fail(f"{name}: {err}")
-        elif name.startswith("sdmx_structure_"):
-            report.structure_marker_count += 1
-            if not (child / "structure.json").is_file():
-                report.fail(f"{name}: missing structure.json")
-        elif name.startswith("sdmx_series_"):
+        if name.startswith("sdmx_series_"):
             if not is_series_catalog(child):
                 report.fail(f"{name}: not a v1 series catalog")
                 continue
@@ -121,6 +110,8 @@ def validate_release_root(
                     cat = Catalog.load(f"file://{child.resolve()}")
                     if len(cat.search("monthly", limit=1)) == 0 and len(cat) > 0:
                         report.warnings.append(f"{name}: sample search returned no hits")
+        elif not name.startswith("sdmx_datasets_"):
+            report.fail(f"{name}: unexpected directory in release root (only series/datasets catalogs ship)")
 
     if require_series_agencies:
         for agency in SERIES_AGENCIES:

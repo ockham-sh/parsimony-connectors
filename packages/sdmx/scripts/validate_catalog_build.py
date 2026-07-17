@@ -26,8 +26,6 @@ def main() -> None:
                 "warnings": report.warnings,
                 "dataset_catalog_count": len(report.dataset_catalogs),
                 "series_catalog_count": len(report.series_catalogs),
-                "codelist_count": report.codelist_count,
-                "structure_marker_count": report.structure_marker_count,
             },
             indent=2,
         )
