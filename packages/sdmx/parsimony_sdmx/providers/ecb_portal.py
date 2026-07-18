@@ -1,4 +1,8 @@
-"""Scrape ECB data-portal dataset descriptions with a disk-backed cache.
+"""Scrape ECB data-portal dataset names with a disk-backed cache.
+
+The portal names fill in for dataflows the ECB SDMX registry leaves
+unnamed (Name == id, e.g. "PAY"); only the listing's link text (the
+dataset name) is kept — the prose description is not consumed anywhere.
 
 Each subprocess starts fresh, so in-memory caching does nothing — the
 disk cache keyed by ``(URL, UTC date)`` lets multiple workers in a day
@@ -38,9 +42,9 @@ logger = logging.getLogger(__name__)
 PORTAL_URL = "https://data.ecb.europa.eu/data/datasets"
 _DATASET_HREF_RE = re.compile(r"/data/datasets/([A-Z][A-Z0-9_.-]{0,199})$")
 
-# Value hardening: portal descriptions should be short human-readable
-# strings. Anything longer is suspicious; control chars are forbidden
-# because they can corrupt operator terminals and spoof log lines.
+# Value hardening: portal names should be short human-readable strings.
+# Anything longer is suspicious; control chars are forbidden because
+# they can corrupt operator terminals and spoof log lines.
 _MAX_VALUE_LEN = 2048
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
@@ -82,7 +86,7 @@ def scrape_ecb_portal(
     today: date | None = None,
     http_config: HttpConfig | None = None,
 ) -> dict[str, str]:
-    """Return ``{dataset_id: description}`` parsed from the ECB portal listing.
+    """Return ``{dataset_id: name}`` parsed from the ECB portal listing.
 
     When ``cache_dir`` is ``None``, defaults to ``default_cache_dir()``.
     Set ``cache_dir=Path("/dev/null")`` or similar to disable caching —
@@ -98,10 +102,10 @@ def scrape_ecb_portal(
         return cached
 
     html = bounded_get(session, url, config=http_config)
-    descriptions = _parse_portal_listing(html)
+    names = _parse_portal_listing(html)
 
-    _write_cache(cache_dir, url, today, descriptions)
-    return descriptions
+    _write_cache(cache_dir, url, today, names)
+    return names
 
 
 def _parse_portal_listing(html: bytes) -> dict[str, str]:
@@ -127,17 +131,7 @@ def _parse_portal_listing(html: bytes) -> dict[str, str]:
             logger.warning("Skipping unparseable ECB dataset id %r", match.group(1))
             continue
         name = link.get_text(strip=True) or ""
-        desc_div = item.find("div", {"class": "expandable-description"})
-        description = desc_div.get_text(strip=True) if desc_div else ""
-        if name and description:
-            combined = f"{name}: {description}"
-        elif name:
-            combined = name
-        elif description:
-            combined = description
-        else:
-            continue
-        sanitised = _sanitise_value(combined)
+        sanitised = _sanitise_value(name)
         if sanitised:
             result[dataset_id] = sanitised
     return result

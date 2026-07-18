@@ -10,7 +10,6 @@ from parsimony.catalog import Catalog, Entity
 
 from parsimony_sdmx._isolation import FetchStructureError, ListDatasetsError, fetch_structure, list_datasets
 from parsimony_sdmx.catalog_policy import (
-    dsd_description_text,
     dsd_summary_from_structure,
     sdmx_datasets_indexes,
 )
@@ -46,7 +45,7 @@ def datasets_catalog(entries: Sequence[Entity], *, agency: AgencyId | str | None
     namespace = datasets_namespace(agency_id)
     return Catalog(
         namespace,
-        indexes=sdmx_datasets_indexes(entries),
+        indexes=sdmx_datasets_indexes(),
         default_field="title",
     )
 
@@ -64,17 +63,15 @@ def dataset_entities_from_records(records: Sequence[DatasetRecord]) -> list[Enti
     ]
 
 
-def dataset_entity_from_structure(record: StructureRecord) -> Entity:
+def dataset_entity_from_structure(record: StructureRecord, *, title: str | None = None) -> Entity:
     dsd = dsd_summary_from_structure(record)
-    description = dsd_description_text(record)
     return Entity(
         namespace=datasets_namespace(record.agency_id),
         code=dataset_code(record.agency_id, record.dataset_id),
-        title=record.title,
+        title=title or record.title,
         metadata={
             "agency": record.agency_id,
             "dataset_id": record.dataset_id,
-            "description": description,
             "dsd": dsd,
             "dsd_order": list(record.dsd_order),
         },
@@ -85,13 +82,19 @@ def enrich_dataset_entities_with_dsd(
     entries: Sequence[Entity],
     structures: dict[str, StructureRecord],
 ) -> list[Entity]:
+    """Add DSD metadata to listed entries; never replace their identity.
+
+    The listing title is authoritative — it went through the provider's title
+    resolution (e.g. ECB's portal fallback for flows the registry leaves
+    unnamed), which the per-flow structure fetch does not.
+    """
     out: list[Entity] = []
     for entry in entries:
         structure = structures.get(entry.code)
         if structure is None:
             out.append(entry)
             continue
-        out.append(dataset_entity_from_structure(structure))
+        out.append(dataset_entity_from_structure(structure, title=entry.title))
     return out
 
 
