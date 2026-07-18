@@ -44,11 +44,7 @@ def test_sdmx_datasets_search_agency_optional_fanout(monkeypatch: pytest.MonkeyP
                     namespace=namespace,
                     code=f"{namespace}|FLOW",
                     title=f"Title for {namespace}",
-                    metadata={
-                        "agency": namespace.removeprefix("sdmx_datasets_").upper(),
-                        "dataset_id": "FLOW",
-                        "dsd": [{"dimension_id": "FREQ", "codelist_id": "CL_FREQ"}],
-                    },
+                    metadata={"dimensions": ["FREQ"]},
                 )
             ],
         )
@@ -56,7 +52,7 @@ def test_sdmx_datasets_search_agency_optional_fanout(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(search_module, "_get_or_load_catalog", fake_get_or_load)
     df = sdmx_datasets_search(query="Title", limit=2).raw
     assert len(df) == 2
-    assert "dsd" in df.columns
+    assert "dimensions" in df.columns
     assert len(calls) == 4
 
 
@@ -69,14 +65,14 @@ def test_sdmx_datasets_search_single_agency(monkeypatch: pytest.MonkeyPatch) -> 
                     namespace=namespace,
                     code="ECB|YC",
                     title="Yield curve",
-                    metadata={"agency": "ECB", "dataset_id": "YC", "dsd": []},
+                    metadata={"dimensions": []},
                 )
             ],
         )
 
     monkeypatch.setattr(search_module, "_get_or_load_catalog", fake_get_or_load)
     df = sdmx_datasets_search(query="yield", agency="ECB", limit=5).raw
-    assert df.iloc[0]["flow_id"] == "ECB/YC"
+    assert df.iloc[0]["dataset_ref"] == "ECB-YC"
 
 
 def test_search_matches_titles_only(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -91,16 +87,14 @@ def test_search_matches_titles_only(monkeypatch: pytest.MonkeyPatch) -> None:
                     namespace=namespace,
                     code="ECB|UNE",
                     title="Unemployment rate",
-                    metadata={"agency": "ECB", "dataset_id": "UNE", "dsd": []},
+                    metadata={"dimensions": []},
                 ),
                 Entity(
                     namespace=namespace,
                     code="ECB|ILC",
                     title="Benefit entitlement",
                     metadata={
-                        "agency": "ECB",
-                        "dataset_id": "ILC",
-                        "dsd": [],
+                        "dimensions": [],
                         "description": "risk; examples: Sickness, Unemployment, Work-related accident",
                     },
                 ),
@@ -133,3 +127,29 @@ def test_default_catalog_root_is_hf_dev_sdmx() -> None:
 
 def test_catalog_url_env_constant() -> None:
     assert PARSIMONY_SDMX_CATALOG_URL_ENV == "PARSIMONY_SDMX_CATALOG_URL"
+
+
+def test_dataset_ref_is_accepted_by_sdmx_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The emitted ref must validate as sdmx_fetch's dataset_key, unparsed.
+
+    These two connectors used to disagree about the separator, so a hit pasted
+    straight into sdmx_fetch was rejected.
+    """
+    from parsimony_sdmx.connectors.fetch import SdmxFetchParams
+
+    def fake_get_or_load(namespace: str, **kwargs: Any) -> Catalog:
+        return _catalog_with_entities(
+            namespace,
+            [
+                Entity(
+                    namespace=namespace,
+                    code="ECB|YC",
+                    title="Yield curve",
+                    metadata={"dimensions": ["FREQ", "REF_AREA"]},
+                )
+            ],
+        )
+
+    monkeypatch.setattr(search_module, "_get_or_load_catalog", fake_get_or_load)
+    ref = sdmx_datasets_search(query="yield", agency="ECB", limit=1).raw.iloc[0]["dataset_ref"]
+    assert SdmxFetchParams(dataset_key=ref, series_key="M.EUR").dataset_key == "ECB-YC"

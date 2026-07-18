@@ -2,10 +2,10 @@
 
 Indexing policy (centralized in :mod:`parsimony_sdmx.catalog_policy`):
 
-* **Dataset catalogs** (one per agency) index ``code``, ``title``, ``description``.
-  Each flow carries a summarized ``dsd`` in metadata (dimension order, codelist
-  refs, sample codes) — dimension codes/labels are indexed per-flow by the
-  series catalog build, not as standalone codelist catalogs.
+* **Dataset catalogs** (one per agency) index ``code`` and ``title``. Each flow
+  carries its ``dimensions`` (dimension-id list, in DSD order) in metadata —
+  dimension codes/labels are indexed per-flow by the series catalog build, not
+  as standalone codelist catalogs.
 
 Operator notes:
 
@@ -35,7 +35,7 @@ from parsimony_sdmx.catalog_build import (
     build_datasets_catalog,
     build_structure_for_flow,
     dataset_entities_from_records,
-    enrich_dataset_entities_with_dsd,
+    enrich_dataset_entities_with_dimensions,
 )
 from parsimony_sdmx.catalog_manifest import DEFAULT_ROOT, BuildRoot
 from parsimony_sdmx.core.agencies import ALL_AGENCIES, AgencyId
@@ -152,7 +152,7 @@ def build_datasets(
         raise ValueError(f"Could not list datasets for {agency.value}: {exc.message}") from exc
     entries = dataset_entities_from_records(records)
     if structures:
-        entries = enrich_dataset_entities_with_dsd(entries, structures)
+        entries = enrich_dataset_entities_with_dimensions(entries, structures)
     catalog = build_datasets_catalog(entries, agency=agency, existing_path=existing_path)
     if structures:
         logger.info("Enriched %s with %d structure marker(s)", namespace, len(structures))

@@ -6,13 +6,16 @@ from parsimony.entity import Entity
 
 from parsimony_sdmx.catalog_build import (
     dataset_code,
+    dataset_entities_from_records,
     dataset_entity_from_structure,
-    enrich_dataset_entities_with_dsd,
+    datasets_catalog,
+    enrich_dataset_entities_with_dimensions,
     merge_dataset_entry_lists,
 )
 from parsimony_sdmx.core.models import (
     CodelistCode,
     CodelistRecord,
+    DatasetRecord,
     DimensionStructure,
     StructureRecord,
 )
@@ -42,24 +45,22 @@ def _structure(dataset_id: str = "YC", cl_id: str = "CL_FREQ") -> StructureRecor
     )
 
 
-def test_dataset_entity_from_structure_includes_dsd() -> None:
+def test_dataset_entity_from_structure_includes_dimensions() -> None:
     entry = dataset_entity_from_structure(_structure())
     assert entry.code == "ECB|YC"
     assert entry.namespace == "sdmx_datasets_ecb"
-    assert entry.metadata["dsd"][0]["dimension_id"] == "FREQ"
-    assert entry.metadata["dsd"][0]["codelist_id"] == "CL_FREQ"
-    assert "description" not in entry.metadata
+    assert entry.metadata == {"dimensions": ["FREQ", "REF_AREA"]}
 
 
-def test_enrich_dataset_entities_with_dsd() -> None:
+def test_enrich_dataset_entities_with_dimensions() -> None:
     base = Entity(
         namespace="sdmx_datasets_ecb",
         code=dataset_code("ECB", "YC"),
         title="Yield curve",
-        metadata={"agency": "ECB", "dataset_id": "YC"},
+        metadata={"dimensions": []},
     )
-    enriched = enrich_dataset_entities_with_dsd([base], {dataset_code("ECB", "YC"): _structure()})
-    assert enriched[0].metadata["dsd"][0]["codelist_id"] == "CL_FREQ"
+    enriched = enrich_dataset_entities_with_dimensions([base], {dataset_code("ECB", "YC"): _structure()})
+    assert enriched[0].metadata["dimensions"] == ["FREQ", "REF_AREA"]
 
 
 def test_enrich_preserves_listing_title() -> None:
@@ -69,9 +70,9 @@ def test_enrich_preserves_listing_title() -> None:
         namespace="sdmx_datasets_ecb",
         code=dataset_code("ECB", "YC"),
         title="Yield curve (portal name)",
-        metadata={"agency": "ECB", "dataset_id": "YC"},
+        metadata={"dimensions": []},
     )
-    enriched = enrich_dataset_entities_with_dsd([base], {dataset_code("ECB", "YC"): _structure()})
+    enriched = enrich_dataset_entities_with_dimensions([base], {dataset_code("ECB", "YC"): _structure()})
     assert enriched[0].title == "Yield curve (portal name)"
 
 
@@ -81,7 +82,7 @@ def test_merge_dataset_entry_lists_upserts_by_code() -> None:
             namespace="sdmx_datasets_ecb",
             code="ECB|MIR",
             title="Old title",
-            metadata={"agency": "ECB", "dataset_id": "MIR"},
+            metadata={"dimensions": []},
         )
     ]
     updates = [
@@ -89,8 +90,26 @@ def test_merge_dataset_entry_lists_upserts_by_code() -> None:
             namespace="sdmx_datasets_ecb",
             code="ECB|YC",
             title="Yield curve",
-            metadata={"agency": "ECB", "dataset_id": "YC", "dsd": [{"dimension_id": "FREQ", "values": []}]},
+            metadata={"dimensions": ["FREQ"]},
         )
     ]
     merged = merge_dataset_entry_lists(existing, updates)
     assert {(e.code, e.title) for e in merged} == {("ECB|MIR", "Old title"), ("ECB|YC", "Yield curve")}
+
+
+def test_listing_entities_declare_dimensions_before_any_structure_fetch() -> None:
+    """The listing carries no DSD, but the key must exist so the column always does."""
+    entries = dataset_entities_from_records([DatasetRecord(dataset_id="YC", agency_id="ECB", title="Yield curve")])
+    assert entries[0].metadata == {"dimensions": []}
+
+
+def test_listing_entities_skip_derived_views() -> None:
+    records = [
+        DatasetRecord(dataset_id="YC", agency_id="ECB", title="Yield curve"),
+        DatasetRecord(dataset_id="$DV_ABC", agency_id="ESTAT", title="Derived view"),
+    ]
+    assert [e.code for e in dataset_entities_from_records(records)] == ["ECB|YC"]
+
+
+def test_datasets_catalog_namespace_follows_agency() -> None:
+    assert datasets_catalog(agency="ECB").name == "sdmx_datasets_ecb"

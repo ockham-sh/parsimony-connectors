@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from parsimony.catalog import BM25Index, CatalogIndex, HybridIndex, VectorIndex
 from parsimony.catalog.policy import HYBRID_BM25_WEIGHT, HYBRID_VECTOR_WEIGHT
 from parsimony.embedder import EmbeddingProvider, SentenceTransformerEmbedder
@@ -41,26 +39,9 @@ def sdmx_datasets_indexes(embedder: EmbeddingProvider | None = None) -> dict[str
     }
 
 
-def dsd_summary_from_structure(record: Any) -> list[dict[str, Any]]:
-    """Build JSON-serializable DSD summary for dataset catalog metadata."""
-    summary: list[dict[str, Any]] = []
-    for dim in record.dimensions:
-        summary.append(
-            {
-                "dimension_id": dim.dimension_id,
-                "name": dim.name or dim.dimension_id,
-                "codelist_id": dim.codelist_id,
-                "code_count": dim.code_count,
-                "sample": [{"code": sample.code, "label": sample.label} for sample in dim.sample],
-            }
-        )
-    return summary
-
-
 __all__ = [
     "HYBRID_BM25_WEIGHT",
     "HYBRID_VECTOR_WEIGHT",
-    "dsd_summary_from_structure",
     "sdmx_datasets_indexes",
     "sdmx_title_index",
 ]
