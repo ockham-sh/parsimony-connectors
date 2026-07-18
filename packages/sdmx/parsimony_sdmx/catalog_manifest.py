@@ -27,13 +27,19 @@ STATUS_DEBT = "debt"
 
 @dataclass(frozen=True, slots=True)
 class BuildRoot:
-    """Resolved layout under the catalog build root."""
+    """Resolved layout under the catalog build root.
+
+    ``catalogs`` holds exactly the release payload (what gets uploaded);
+    build-internal artifacts — including structure markers, the DSD-fetch
+    cache — live under ``staging`` and never ship.
+    """
 
     root: Path
     catalogs: Path
     state: Path
     logs: Path
     staging: Path
+    structures: Path
     manifest_db: Path
     debt_log: Path
     progress_json: Path
@@ -48,6 +54,7 @@ class BuildRoot:
             state=base / "state",
             logs=base / "logs",
             staging=base / "staging",
+            structures=base / "staging" / "structures",
             manifest_db=base / "state" / "manifest.sqlite",
             debt_log=base / "state" / "debt.jsonl",
             progress_json=base / "logs" / "progress.json",
@@ -56,7 +63,7 @@ class BuildRoot:
         layout.catalogs.mkdir(parents=True, exist_ok=True)
         layout.state.mkdir(parents=True, exist_ok=True)
         layout.logs.mkdir(parents=True, exist_ok=True)
-        layout.staging.mkdir(parents=True, exist_ok=True)
+        layout.structures.mkdir(parents=True, exist_ok=True)
         return layout
 
 

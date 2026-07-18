@@ -9,6 +9,9 @@ Indexing policy (centralized in :mod:`parsimony_sdmx.catalog_policy`):
 
 Operator notes:
 
+* All modes take ``--root`` (a :class:`BuildRoot` layout). Release catalogs are
+  written under ``<root>/catalogs``; structure markers — the build-internal
+  DSD-fetch cache — under ``<root>/staging/structures`` and never ship.
 * ``--catalog structure`` fetches DSD for one flow and writes a structure
   marker under ``sdmx_structure_<agency>_<dataset>``.
 * ``--catalog agency`` lists all flows, fetches structure for each, emits the
@@ -23,7 +26,6 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, replace
-from pathlib import Path
 
 from parsimony.catalog import Catalog
 
@@ -35,6 +37,7 @@ from parsimony_sdmx.catalog_build import (
     dataset_entities_from_records,
     enrich_dataset_entities_with_dsd,
 )
+from parsimony_sdmx.catalog_manifest import DEFAULT_ROOT, BuildRoot
 from parsimony_sdmx.core.agencies import ALL_AGENCIES, AgencyId
 from parsimony_sdmx.core.models import DatasetRecord, StructureRecord
 from parsimony_sdmx.core.namespaces import datasets_namespace
@@ -75,25 +78,16 @@ def build_structure(
     return StructureBuildResult(record=record, marker_namespace=structure_marker_namespace(agency, dataset_id))
 
 
-def _save_path(root: str | None, namespace: str) -> str | None:
-    if root is None:
-        return None
-    return str(Path(root) / namespace)
-
-
-def _marker_exists(root: str | None, namespace: str) -> bool:
-    save = _save_path(root, namespace)
-    return save is not None and (Path(save) / "meta.json").exists()
+def _marker_exists(layout: BuildRoot, namespace: str) -> bool:
+    return (layout.structures / namespace / "meta.json").exists()
 
 
 def _skip_dataset_ids(raw: list[str] | None) -> set[str]:
     return {item.strip().upper() for item in raw or [] if item.strip()}
 
 
-def _publish(catalog: Catalog, *, save_root: str | None, push: str | None, push_root: str | None) -> None:
-    save = _save_path(save_root, catalog.name)
-    if save is not None:
-        catalog.save(save, builder="packages/sdmx/scripts/build_catalog.py")
+def _publish(catalog: Catalog, *, layout: BuildRoot, push: str | None, push_root: str | None) -> None:
+    catalog.save(str(layout.catalogs / catalog.name), builder="packages/sdmx/scripts/build_catalog.py")
     targets: list[str] = []
     if push is not None:
         targets.append(push)
@@ -112,8 +106,8 @@ def _publish(catalog: Catalog, *, save_root: str | None, push: str | None, push_
                 logger.warning("HF push attempt %d failed for %s; retrying", attempt, url)
 
 
-def _write_structure_marker(save_root: str, result: StructureBuildResult) -> None:
-    marker_dir = Path(save_root) / result.marker_namespace
+def _write_structure_marker(layout: BuildRoot, result: StructureBuildResult) -> None:
+    marker_dir = layout.structures / result.marker_namespace
     marker_dir.mkdir(parents=True, exist_ok=True)
     write_structure(result.record, marker_dir / "structure.json")
     meta = {
@@ -125,15 +119,12 @@ def _write_structure_marker(save_root: str, result: StructureBuildResult) -> Non
     (marker_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
 
-def _load_structure_markers(save_root: str | None, agency: AgencyId) -> dict[str, StructureRecord]:
-    if save_root is None:
-        return {}
-    root = Path(save_root)
+def _load_structure_markers(layout: BuildRoot, agency: AgencyId) -> dict[str, StructureRecord]:
     prefix = f"sdmx_structure_{agency.value.lower()}_"
     out: dict[str, StructureRecord] = {}
-    if not root.is_dir():
+    if not layout.structures.is_dir():
         return out
-    for sub in sorted(root.iterdir()):
+    for sub in sorted(layout.structures.iterdir()):
         if not sub.is_dir() or not sub.name.startswith(prefix):
             continue
         structure_path = sub / "structure.json"
@@ -149,12 +140,12 @@ def _load_structure_markers(save_root: str | None, agency: AgencyId) -> dict[str
 def build_datasets(
     *,
     agency: AgencyId,
-    save_root: str | None = None,
+    layout: BuildRoot,
     structures: dict[str, StructureRecord] | None = None,
 ) -> Catalog:
-    structures = structures or _load_structure_markers(save_root, agency)
+    structures = structures or _load_structure_markers(layout, agency)
     namespace = datasets_namespace(agency)
-    existing_path = _save_path(save_root, namespace)
+    existing_path = str(layout.catalogs / namespace)
     try:
         records = list_datasets(agency.value, LISTING_TIMEOUT_S)
     except ListDatasetsError as exc:
@@ -169,19 +160,19 @@ def build_datasets(
 
 
 def build_one(args: argparse.Namespace) -> Catalog:
+    layout = BuildRoot.create(args.root)
     if args.catalog == "datasets":
         if args.agency is None:
             raise ValueError("--agency is required for --catalog datasets")
-        catalog = build_datasets(agency=args.agency, save_root=args.save_root)
+        catalog = build_datasets(agency=args.agency, layout=layout)
         logger.info("Built %s catalog with %d entries", catalog.name, len(catalog))
-        _publish(catalog, save_root=args.save_root, push=args.push, push_root=args.push_root)
+        _publish(catalog, layout=layout, push=args.push, push_root=args.push_root)
         return catalog
 
     if args.agency is None or args.dataset_id is None:
         raise ValueError("--agency and --dataset-id are required for --catalog structure")
     build = build_structure(args.agency, args.dataset_id, fetch_timeout_s=args.fetch_timeout_s)
-    if args.save_root is not None:
-        _write_structure_marker(args.save_root, build)
+    _write_structure_marker(layout, build)
     logger.info(
         "Built structure marker %s (%d codelists)",
         build.marker_namespace,
@@ -193,6 +184,7 @@ def build_one(args: argparse.Namespace) -> Catalog:
 def build_agency_batch(args: argparse.Namespace) -> None:
     if args.agency is None:
         raise ValueError("--agency is required for --catalog agency")
+    layout = BuildRoot.create(args.root)
     try:
         records = list_datasets(args.agency.value, LISTING_TIMEOUT_S)
     except ListDatasetsError as exc:
@@ -213,9 +205,7 @@ def build_agency_batch(args: argparse.Namespace) -> None:
     skipped = 0
     failed: list[str] = []
     structures: dict[str, StructureRecord] = {}
-    resume_cache: dict[str, StructureRecord] = (
-        _load_structure_markers(args.save_root, args.agency) if args.resume else {}
-    )
+    resume_cache: dict[str, StructureRecord] = _load_structure_markers(layout, args.agency) if args.resume else {}
 
     from parsimony_sdmx.catalog_build import dataset_code
 
@@ -228,7 +218,7 @@ def build_agency_batch(args: argparse.Namespace) -> None:
         marker_ns = structure_marker_namespace(args.agency, record.dataset_id)
         code = dataset_code(record.agency_id, record.dataset_id)
         with sem:
-            if args.resume and _marker_exists(args.save_root, marker_ns):
+            if args.resume and _marker_exists(layout, marker_ns):
                 cached = resume_cache.get(code)
                 if cached is not None:
                     _record_structure(code, cached)
@@ -244,8 +234,7 @@ def build_agency_batch(args: argparse.Namespace) -> None:
                 if not args.keep_going:
                     raise
                 return
-            if args.save_root is not None:
-                _write_structure_marker(args.save_root, result)
+            _write_structure_marker(layout, result)
             _record_structure(code, result.record)
             with state_lock:
                 built += 1
@@ -259,8 +248,8 @@ def build_agency_batch(args: argparse.Namespace) -> None:
         with ThreadPoolExecutor(max_workers=parallel) as pool:
             list(pool.map(_build_one, selected))
 
-    ds_catalog = build_datasets(agency=args.agency, save_root=args.save_root, structures=structures)
-    _publish(ds_catalog, save_root=args.save_root, push=args.push, push_root=args.push_root)
+    ds_catalog = build_datasets(agency=args.agency, layout=layout, structures=structures)
+    _publish(ds_catalog, layout=layout, push=args.push, push_root=args.push_root)
     logger.info("Published %s with %d entries (%d with DSD)", ds_catalog.name, len(ds_catalog), len(structures))
 
     logger.info(
@@ -300,7 +289,7 @@ def main() -> None:
     parser.add_argument("--resume", action="store_true", help="Skip flows with existing structure markers.")
     parser.add_argument("--keep-going", action="store_true", help="Continue agency batches after a flow failure.")
     parser.add_argument("--skip-dataset-id", action="append", help="Dataset id to skip in agency batches.")
-    parser.add_argument("--save-root", help="Local directory where namespace subdirectories are written.")
+    parser.add_argument("--root", default=str(DEFAULT_ROOT), help="Catalog build root (BuildRoot layout).")
     parser.add_argument("--push", help="Single catalog URL to push.")
     parser.add_argument("--push-root", help="Root catalog URL for namespace subdirectories.")
     args = parser.parse_args()

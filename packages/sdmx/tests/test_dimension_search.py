@@ -18,7 +18,6 @@ from parsimony.errors import ConnectorError, EmptyDataError, InvalidParameterErr
 from parsimony_sdmx.catalog_series import build_flow_catalog
 from parsimony_sdmx.connectors.dimension_search import sdmx_dimension_search
 from parsimony_sdmx.connectors.series_search import _clear_series_catalog_lru
-from parsimony_sdmx.core.agencies import AgencyId
 from parsimony_sdmx.core.models import (
     CodelistCode,
     CodelistRecord,
@@ -91,8 +90,6 @@ def catalog_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
     build_flow_catalog(
         series_parquet=parquet,
         namespace="sdmx_series_ecb_test",
-        agency=AgencyId.ECB,
-        flow_id="TEST",
         structure=_structure(),
         catalogs_dir=catalogs_dir,
         staging_dir=tmp_path / "partial",

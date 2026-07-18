@@ -6,11 +6,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from parsimony.catalog import Catalog
-from parsimony.catalog.storage import read_meta
 from parsimony.catalog.validation import validate_catalog_snapshot
 
 from parsimony_sdmx.catalog_manifest import BuildRoot
-from parsimony_sdmx.catalog_series import CATALOG_KIND, SERIES_AGENCIES, is_series_catalog
+from parsimony_sdmx.catalog_series import SERIES_AGENCIES, is_series_catalog
 from parsimony_sdmx.core.agencies import ALL_AGENCIES
 from parsimony_sdmx.core.namespaces import datasets_namespace
 
@@ -47,8 +46,6 @@ class ValidationReport:
     warnings: list[str] = field(default_factory=list)
     dataset_catalogs: list[str] = field(default_factory=list)
     series_catalogs: list[str] = field(default_factory=list)
-    codelist_count: int = 0
-    structure_marker_count: int = 0
 
     def fail(self, message: str) -> None:
         self.ok = False
@@ -62,20 +59,6 @@ def validate_release_catalog_dir(catalog_dir: Path) -> list[str]:
         validate_catalog_snapshot(catalog_dir)
     except ValueError as exc:
         errors.append(str(exc))
-    return errors
-
-
-def validate_series_catalog(catalog_dir: Path) -> list[str]:
-    errors = validate_release_catalog_dir(catalog_dir)
-    if errors:
-        return errors
-
-    meta = read_meta(catalog_dir)
-    sdmx = meta.sdmx or {}
-    if sdmx.get("catalog_kind") != CATALOG_KIND:
-        errors.append(f"{catalog_dir.name}: sdmx.catalog_kind != {CATALOG_KIND}")
-    if int(sdmx.get("series_count") or 0) != meta.entry_count:
-        errors.append(f"{catalog_dir.name}: series_count mismatch meta.entry_count")
     return errors
 
 
@@ -114,28 +97,21 @@ def validate_release_root(
         if not child.is_dir():
             continue
         name = child.name
-        if name.startswith("sdmx_codelist_"):
-            report.codelist_count += 1
-            errs = validate_release_catalog_dir(child)
-            for err in errs:
-                report.fail(f"{name}: {err}")
-        elif name.startswith("sdmx_structure_"):
-            report.structure_marker_count += 1
-            if not (child / "structure.json").is_file():
-                report.fail(f"{name}: missing structure.json")
-        elif name.startswith("sdmx_series_"):
+        if name.startswith("sdmx_series_"):
             if not is_series_catalog(child):
                 report.fail(f"{name}: not a v1 series catalog")
                 continue
-            errs = validate_series_catalog(child)
+            errs = validate_release_catalog_dir(child)
             for err in errs:
-                report.fail(err)
+                report.fail(f"{name}: {err}")
             else:
                 report.series_catalogs.append(name)
                 if sample_search:
                     cat = Catalog.load(f"file://{child.resolve()}")
                     if len(cat.search("monthly", limit=1)) == 0 and len(cat) > 0:
                         report.warnings.append(f"{name}: sample search returned no hits")
+        elif not name.startswith("sdmx_datasets_"):
+            report.fail(f"{name}: unexpected directory in release root (only series/datasets catalogs ship)")
 
     if require_series_agencies:
         for agency in SERIES_AGENCIES:

@@ -21,7 +21,6 @@ from parsimony_sdmx.catalog_series import (
 from parsimony_sdmx.connectors import dimension_search, series_search
 from parsimony_sdmx.connectors.dimension_search import sdmx_dimension_search
 from parsimony_sdmx.connectors.series_search import _clear_series_catalog_lru, sdmx_series_search
-from parsimony_sdmx.core.agencies import AgencyId
 from parsimony_sdmx.core.models import (
     CodelistCode,
     CodelistRecord,
@@ -126,8 +125,6 @@ def test_build_and_search_tiny_catalog(tmp_path: Path, monkeypatch: pytest.Monke
     result = build_flow_catalog(
         series_parquet=parquet,
         namespace=namespace,
-        agency=AgencyId.ECB,
-        flow_id="TEST",
         structure=_tiny_structure(),
         catalogs_dir=catalogs_dir,
         staging_dir=tmp_path / "partial",
@@ -164,8 +161,6 @@ def test_broad_title_search_via_parquet(tmp_path: Path, monkeypatch: pytest.Monk
     build_flow_catalog(
         series_parquet=parquet,
         namespace=namespace,
-        agency=AgencyId.ECB,
-        flow_id="TEST",
         structure=_tiny_structure(),
         catalogs_dir=catalogs_dir,
         staging_dir=tmp_path / "partial",
@@ -191,8 +186,6 @@ def test_search_values_linked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     build_flow_catalog(
         series_parquet=parquet,
         namespace=namespace,
-        agency=AgencyId.ECB,
-        flow_id="TEST",
         structure=_tiny_structure(),
         catalogs_dir=catalogs_dir,
         staging_dir=tmp_path / "partial",
@@ -221,8 +214,6 @@ def _build_searchable_catalog(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     build_flow_catalog(
         series_parquet=parquet,
         namespace=namespace,
-        agency=AgencyId.ECB,
-        flow_id="TEST",
         structure=_tiny_structure(),
         catalogs_dir=catalogs_dir,
         staging_dir=tmp_path / "partial",
@@ -445,8 +436,6 @@ def test_series_search_strips_flow_prefixed_keys(tmp_path: Path, monkeypatch: py
     build_flow_catalog(
         series_parquet=parquet,
         namespace=namespace,
-        agency=AgencyId.ECB,
-        flow_id="TEST",
         structure=_tiny_structure(),
         catalogs_dir=catalogs_dir,
         staging_dir=tmp_path / "partial",
@@ -764,8 +753,6 @@ def test_series_search_bare_query_spans_dimension_labels(tmp_path: Path, monkeyp
     build_flow_catalog(
         series_parquet=parquet,
         namespace="sdmx_series_ecb_bopx",
-        agency=AgencyId.ECB,
-        flow_id="BOPX",
         structure=_bop_shaped_structure(),
         catalogs_dir=catalogs_dir,
         staging_dir=tmp_path / "partial",

@@ -57,7 +57,7 @@ def run_series_fetch(layout: BuildRoot, agency: AgencyId, flow_id: str) -> dict:
     staging = _series_staging_dir(layout, namespace)
     staging.mkdir(parents=True, exist_ok=True)
     parquet_path = staging / SERIES_PARQUET
-    structure = load_structure_marker(layout.catalogs, agency, flow_id)
+    structure = load_structure_marker(layout.structures, agency, flow_id)
     cfg = HttpConfig(read_timeout=600.0, max_response_bytes=800 * 1024 * 1024)
     session = build_session(cfg)
     try:
@@ -99,14 +99,12 @@ def _index_one(
     if not staging_parquet.is_file():
         raise FileNotFoundError(f"Missing staging parquet: {staging_parquet}")
 
-    structure = load_structure_marker(layout.catalogs, agency, flow_id)
+    structure = load_structure_marker(layout.structures, agency, flow_id)
     distinct = collect_distinct_from_columnar(staging_parquet, structure.dsd_order)
 
     result = build_flow_catalog(
         series_parquet=staging_parquet,
         namespace=namespace,
-        agency=agency,
-        flow_id=flow_id,
         structure=structure,
         catalogs_dir=layout.catalogs,
         staging_dir=layout.staging / "catalog_partial",
