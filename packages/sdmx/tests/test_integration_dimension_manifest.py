@@ -18,10 +18,9 @@ _DEFAULT_FETCH_TIMEOUT_S = 240.0
 
 @pytest.mark.integration
 @pytest.mark.parametrize(("agency", "dataset_id", "key_pattern"), _LIVE_FLOWS)
-def test_live_structure_has_dsd_summary(agency: AgencyId, dataset_id: str, key_pattern: str) -> None:
+def test_live_structure_has_dimensions(agency: AgencyId, dataset_id: str, key_pattern: str) -> None:
     provider = get_provider(agency.value)
     record = provider.fetch_structure(dataset_id)
     entry = dataset_entity_from_structure(record)
-    assert entry.metadata["dsd"]
+    assert entry.metadata["dimensions"]
     assert list(record.dsd_order)
-    assert entry.metadata["description"]

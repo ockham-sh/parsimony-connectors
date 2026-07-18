@@ -114,7 +114,7 @@ Structure fetches are bounded (~2–15 s per flow) and fully parallelizable. Ser
 
 Agents usually navigate in three steps:
 
-1. **`sdmx_datasets_search(query=..., agency=...)`** — find the right dataflow. *Agency is optional*; omit it to search across all agency dataset catalogs. Read the returned **`dsd`** summary (dimension order + codelist refs).
+1. **`sdmx_datasets_search(query=..., agency=...)`** — find the right dataflow. *Agency is optional*; omit it to search across all agency dataset catalogs. Read the returned **`dimensions`** list (the axes the flow breaks down by, in key order).
 2. **`sdmx_series_search(agency=..., dataset_id=..., query=...)`** — search populated series keys. Use `{dimension}_label` for semantic resolution, `{dimension}_code` for exact filters, and `&&` to combine clauses. Need a dimension's valid codes? **`sdmx_dimension_search(agency=..., dataset_id=..., dimension=...)`** searches or enumerates them.
 3. **`sdmx_fetch(dataset_ref=..., series_ref=...)`** — live observation fetch. On empty/too-broad results, loop back to step 2 with more filters.
 
@@ -132,7 +132,7 @@ ds = c["sdmx_datasets_search"](query="unemployment rate monthly", agency="ESTAT"
 print(ds.raw[["dataset_id", "title", "score"]])
 row = ds.raw.iloc[0]
 dataset_id = row["dataset_id"]      # thread this into steps 2 and 3
-dsd = row["dsd"]                    # dimension order + codelist refs
+dimensions = row["dimensions"]      # axes this flow breaks down by, in key order
 
 # 2. Search populated combinations using DSD field names
 series = c["sdmx_series_search"](

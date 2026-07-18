@@ -2,8 +2,7 @@
 
 **Usual path:**
 
-1. ``sdmx_datasets_search`` — find the flow; its ``dsd`` summary is the flow's shape
-   (dimension order + codelist refs).
+1. ``sdmx_datasets_search`` — find the flow; its ``dimensions`` are the axes it breaks down by.
 2. ``sdmx_series_search`` — find and filter that flow's series;
    ``sdmx_dimension_search`` — resolve a dimension's valid codes.
 3. ``sdmx_fetch`` — pull observations for the chosen key(s).
@@ -98,7 +97,7 @@ def _agencies_for_search(agency: str | None) -> list[AgencyId]:
 
 DATASETS_SEARCH_OUTPUT = OutputSpec(
     columns=[
-        Column(name="flow_id", role=ColumnRole.KEY),
+        Column(name="dataset_ref", role=ColumnRole.KEY),
         Column(name="title", role=ColumnRole.TITLE),
         Column(
             name="coverage",
@@ -110,11 +109,7 @@ DATASETS_SEARCH_OUTPUT = OutputSpec(
         Column(name="score", role=ColumnRole.DATA),
         Column(name="agency", role=ColumnRole.METADATA),
         Column(name="dataset_id", role=ColumnRole.METADATA),
-        Column(
-            name="dsd",
-            role=ColumnRole.METADATA,
-            description="Summarized DSD (dimension order, codelist refs, samples).",
-        ),
+        Column(name="dimensions", role=ColumnRole.METADATA),
     ]
 )
 
@@ -135,15 +130,19 @@ def sdmx_datasets_search(
 ) -> pd.DataFrame:
     """Discover SDMX flows within one or all agency dataset catalogs.
 
-    Prefer scoping with ``agency=`` (e.g. "ECB", "ESTAT") whenever you know the source: a
-    single-agency search is markedly more relevant. Unscoped (``agency`` omitted) searches and
-    merges every ``sdmx_datasets_<agency>`` catalog, and on broad/compound queries its top hits
-    often miss the obvious flow ("euro area GDP growth" surfacing trade tables, not GDP) — so
-    make agency-scoping the default first move, not a fallback after a weak result.
+    Scope with ``agency=`` whenever you know the source. Unscoped searches merge every agency
+    catalog and on broad queries often miss the obvious flow ("euro area GDP growth" surfacing
+    trade tables).
 
-    Step 1 of the usual path: pass a hit's flow to ``sdmx_series_search`` (find/filter series)
-    or ``sdmx_dimension_search`` (a dimension's codes). Each hit's ``dsd`` is the flow's shape
-    (dimension order + codelist refs). Relevance-ranked top-N (``limit`` <= 50).
+    Next: pass a hit's ``agency`` + ``dataset_id`` to ``sdmx_series_search`` or
+    ``sdmx_dimension_search``, or its ``dataset_ref`` to ``sdmx_fetch``.
+
+    ``dimensions`` are the axes a flow breaks down by, in key order — the names to filter on.
+    It says nothing about their granularity: ``geo`` may hold 38 countries or 1,247 regions,
+    and only ``sdmx_dimension_search`` tells you which. Empty means the structure was not
+    captured, not that the flow has none.
+
+    Relevance-ranked top-N (``limit`` <= 50).
     """
     params = DatasetsSearchParams(query=query, agency=agency, limit=limit, catalog_root=catalog_root)
     agencies = _agencies_for_search(params.agency)
@@ -176,21 +175,17 @@ def sdmx_datasets_search(
 
     rows: list[dict[str, object]] = []
     for _, m in top:
-        row_agency = str(m.metadata.get("agency", "") if m.metadata else "")
-        dataset_id = str(m.metadata.get("dataset_id", "") if m.metadata else "")
-        flow_id = f"{row_agency}/{dataset_id}" if row_agency and dataset_id else m.code
-        dsd = m.metadata.get("dsd", []) if m.metadata else []
-        if not isinstance(dsd, list):
-            dsd = []
+        # The catalog key is '{agency}|{dataset_id}'; sdmx_fetch wants 'AGENCY-DATASET_ID'.
+        row_agency, sep, dataset_id = m.code.partition("|")
         rows.append(
             {
-                "flow_id": flow_id,
+                "dataset_ref": f"{row_agency}-{dataset_id}" if sep else m.code,
                 "title": m.title,
                 "coverage": round(m.coverage, 6),
                 "score": round(m.score, 6),
-                "agency": row_agency,
+                "agency": row_agency if sep else "",
                 "dataset_id": dataset_id,
-                "dsd": dsd,
+                "dimensions": m.metadata.get("dimensions", []) if m.metadata else [],
             }
         )
     return pd.DataFrame(rows)

@@ -9,10 +9,7 @@ from pathlib import Path
 from parsimony.catalog import Catalog, Entity
 
 from parsimony_sdmx._isolation import FetchStructureError, ListDatasetsError, fetch_structure, list_datasets
-from parsimony_sdmx.catalog_policy import (
-    dsd_summary_from_structure,
-    sdmx_datasets_indexes,
-)
+from parsimony_sdmx.catalog_policy import sdmx_datasets_indexes
 from parsimony_sdmx.core.agencies import AgencyId
 from parsimony_sdmx.core.models import DatasetRecord, StructureRecord
 from parsimony_sdmx.core.namespaces import datasets_namespace
@@ -30,33 +27,28 @@ def dataset_code(agency: str, dataset_id: str) -> str:
     return f"{agency}|{dataset_id}"
 
 
-def _agency_from_entries(entries: Sequence[Entity]) -> str:
-    agencies = {str(entry.metadata.get("agency", "")).strip() for entry in entries}
-    agencies.discard("")
-    if len(agencies) != 1:
-        raise ValueError(
-            f"Dataset catalog entries must belong to exactly one agency; found {sorted(agencies) or 'none'}"
-        )
-    return agencies.pop()
-
-
-def datasets_catalog(entries: Sequence[Entity], *, agency: AgencyId | str | None = None) -> Catalog:
-    agency_id = agency if agency is not None else _agency_from_entries(entries)
-    namespace = datasets_namespace(agency_id)
+def datasets_catalog(*, agency: AgencyId | str) -> Catalog:
+    """Return the empty per-agency dataset catalog, indexes configured."""
     return Catalog(
-        namespace,
+        datasets_namespace(agency),
         indexes=sdmx_datasets_indexes(),
         default_field="title",
     )
 
 
 def dataset_entities_from_records(records: Sequence[DatasetRecord]) -> list[Entity]:
+    """Build entries from an agency listing, before any structure is fetched.
+
+    ``dimensions`` is empty because the listing does not carry a DSD; the
+    structure pass fills it in. Every entry declares the key so the column
+    exists whether or not a flow's structure was reachable.
+    """
     return [
         Entity(
             namespace=datasets_namespace(record.agency_id),
             code=dataset_code(record.agency_id, record.dataset_id),
             title=record.title,
-            metadata={"agency": record.agency_id, "dataset_id": record.dataset_id},
+            metadata={"dimensions": []},
         )
         for record in records
         if "$" not in record.dataset_id
@@ -64,25 +56,24 @@ def dataset_entities_from_records(records: Sequence[DatasetRecord]) -> list[Enti
 
 
 def dataset_entity_from_structure(record: StructureRecord, *, title: str | None = None) -> Entity:
-    dsd = dsd_summary_from_structure(record)
+    """Build an entry carrying the flow's breakdown axes, in DSD order.
+
+    Agency and dataset id are not stored: ``code`` already is
+    ``'{agency}|{dataset_id}'`` and both are recovered by splitting it.
+    """
     return Entity(
         namespace=datasets_namespace(record.agency_id),
         code=dataset_code(record.agency_id, record.dataset_id),
         title=title or record.title,
-        metadata={
-            "agency": record.agency_id,
-            "dataset_id": record.dataset_id,
-            "dsd": dsd,
-            "dsd_order": list(record.dsd_order),
-        },
+        metadata={"dimensions": list(record.dsd_order)},
     )
 
 
-def enrich_dataset_entities_with_dsd(
+def enrich_dataset_entities_with_dimensions(
     entries: Sequence[Entity],
     structures: dict[str, StructureRecord],
 ) -> list[Entity]:
-    """Add DSD metadata to listed entries; never replace their identity.
+    """Add each flow's dimensions to listed entries; never replace their identity.
 
     The listing title is authoritative — it went through the provider's title
     resolution (e.g. ECB's portal fallback for flows the registry leaves
@@ -111,7 +102,7 @@ def merge_dataset_entry_lists(
 def build_datasets_catalog(
     entries: Sequence[Entity],
     *,
-    agency: AgencyId | str | None = None,
+    agency: AgencyId | str,
     existing_path: str | Path | None = None,
 ) -> Catalog:
     merged_entries = list(entries)
@@ -122,7 +113,7 @@ def build_datasets_catalog(
         except Exception:
             logger.warning("Existing datasets snapshot at %s unreadable; rebuilding fresh", existing_path)
 
-    catalog = datasets_catalog(merged_entries, agency=agency)
+    catalog = datasets_catalog(agency=agency)
     catalog.set_entities(merged_entries)
     catalog.build()
     return catalog
@@ -162,6 +153,6 @@ __all__ = [
     "dataset_entities_from_records",
     "dataset_entity_from_structure",
     "datasets_catalog",
-    "enrich_dataset_entities_with_dsd",
+    "enrich_dataset_entities_with_dimensions",
     "merge_dataset_entry_lists",
 ]
