@@ -25,7 +25,7 @@ class EcbProvider:
     def list_datasets(self) -> Iterator[DatasetRecord]:
         session = build_session(self.http_config)
         try:
-            descriptions = scrape_ecb_portal(
+            portal_names = scrape_ecb_portal(
                 session,
                 cache_dir=self.cache_dir,
                 http_config=self.http_config,
@@ -34,10 +34,11 @@ class EcbProvider:
             session.close()
 
         def decorate(flow_id: str, base_title: str) -> str:
-            extra = descriptions.get(flow_id)
-            if extra:
-                return f"{base_title}. {extra}" if base_title else extra
-            return base_title
+            # The SDMX registry Name is authoritative, but ECB leaves some
+            # flows unnamed (Name == id, e.g. "PAY"); the portal names those.
+            if base_title and base_title != flow_id:
+                return base_title
+            return portal_names.get(flow_id) or base_title
 
         with sdmx_client(self.agency_id, self.http_config) as client:
             yield from list_datasets_flow(client, self.agency_id, decorate_title=decorate)

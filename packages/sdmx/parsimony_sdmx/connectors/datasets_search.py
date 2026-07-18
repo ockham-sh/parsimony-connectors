@@ -96,23 +96,17 @@ def _agencies_for_search(agency: str | None) -> list[AgencyId]:
     return [_parse_agency(agency)]
 
 
-def _datasets_surface(catalog: Catalog) -> list[str]:
-    """Title plus description (when indexed): flow descriptions carry the concept
-    words ("harmonised index of consumer prices") that terse flow titles omit."""
-    surface = ["title"]
-    try:
-        catalog.index_for("description")
-    except KeyError:
-        return surface
-    surface.append("description")
-    return surface
-
-
 DATASETS_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="flow_id", role=ColumnRole.KEY),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="coverage", role=ColumnRole.DATA),
+        Column(
+            name="coverage",
+            role=ColumnRole.DATA,
+            description="Fraction of the query's words consumed by fully-matched field values "
+            "(1.0 = exact hit). 0.0 only means no complete value appears in the query — "
+            "the row still matched and ranked by fuzzy score.",
+        ),
         Column(name="score", role=ColumnRole.DATA),
         Column(name="agency", role=ColumnRole.METADATA),
         Column(name="dataset_id", role=ColumnRole.METADATA),
@@ -162,7 +156,9 @@ def sdmx_datasets_search(
             return build_agency_datasets_catalog(agency)
 
         catalog = _get_or_load_catalog(namespace, catalog_root=params.catalog_root, build=_build)
-        matches = catalog.search(params.query, limit=params.limit, fields=_datasets_surface(catalog))
+        # Titles only: a flow's identity is its title. DSD-vocabulary text
+        # ranks flows that break down BY a subject above flows ABOUT it.
+        matches = catalog.search(params.query, limit=params.limit, fields=["title"])
         all_matches.extend(((m.coverage, m.score), m) for m in matches)
 
     if not all_matches:

@@ -79,6 +79,39 @@ def test_sdmx_datasets_search_single_agency(monkeypatch: pytest.MonkeyPatch) -> 
     assert df.iloc[0]["flow_id"] == "ECB/YC"
 
 
+def test_search_matches_titles_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A flow whose non-title metadata matches the query must not surface:
+    the search surface is the title — a flow's identity — nothing else."""
+
+    def fake_get_or_load(namespace: str, **kwargs: Any) -> Catalog:
+        return _catalog_with_entities(
+            namespace,
+            [
+                Entity(
+                    namespace=namespace,
+                    code="ECB|UNE",
+                    title="Unemployment rate",
+                    metadata={"agency": "ECB", "dataset_id": "UNE", "dsd": []},
+                ),
+                Entity(
+                    namespace=namespace,
+                    code="ECB|ILC",
+                    title="Benefit entitlement",
+                    metadata={
+                        "agency": "ECB",
+                        "dataset_id": "ILC",
+                        "dsd": [],
+                        "description": "risk; examples: Sickness, Unemployment, Work-related accident",
+                    },
+                ),
+            ],
+        )
+
+    monkeypatch.setattr(search_module, "_get_or_load_catalog", fake_get_or_load)
+    df = sdmx_datasets_search(query="unemployment", agency="ECB", limit=5).raw
+    assert list(df["dataset_id"]) == ["UNE"]
+
+
 def test_sdmx_datasets_search_empty_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         search_module,

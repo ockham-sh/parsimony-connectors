@@ -34,12 +34,12 @@ SAMPLE_HTML = b"""
 
 
 class TestParsePortalListing:
-    def test_extracts_valid_datasets(self) -> None:
+    def test_extracts_names_only(self) -> None:
         out = _parse_portal_listing(SAMPLE_HTML)
-        assert "YC" in out
-        assert "MIR" in out
-        assert "Yield curve" in out["YC"]
-        assert "parameters" in out["YC"]
+        assert out["YC"] == "Yield curve"
+        assert out["MIR"] == "Interest rates"
+        # The prose description is not consumed anywhere — never glued in.
+        assert "parameters" not in out["YC"]
 
     def test_skips_invalid_dataset_ids(self) -> None:
         out = _parse_portal_listing(SAMPLE_HTML)
@@ -158,6 +158,38 @@ class TestCacheHardening:
         assert "\r" not in out["MIR"]
         assert "\n" not in out["MIR"]
         assert len(out["BIG"]) <= 2048  # length cap
+
+
+class TestEcbTitleRepair:
+    def test_portal_names_fill_only_unnamed_flows(self) -> None:
+        from collections.abc import Callable
+
+        from parsimony_sdmx.providers.ecb import EcbProvider
+
+        captured: dict[str, Callable[[str, str], str]] = {}
+
+        def fake_list_flow(client: object, agency_id: str, decorate_title: Callable[[str, str], str]) -> tuple:
+            captured["decorate"] = decorate_title
+            return ()
+
+        with (
+            patch(
+                "parsimony_sdmx.providers.ecb.scrape_ecb_portal",
+                return_value={"PAY": "Payments transactions (Key indicators)"},
+            ),
+            patch("parsimony_sdmx.providers.ecb.sdmx_client"),
+            patch("parsimony_sdmx.providers.ecb.list_datasets_flow", side_effect=fake_list_flow),
+        ):
+            list(EcbProvider().list_datasets())
+
+        decorate = captured["decorate"]
+        # Registry left the flow unnamed (Name falls back to the id): repair it.
+        assert decorate("PAY", "PAY") == "Payments transactions (Key indicators)"
+        assert decorate("PAY", "") == "Payments transactions (Key indicators)"
+        # A real SDMX name is authoritative — never decorated.
+        assert decorate("EXR", "Exchange Rates") == "Exchange Rates"
+        # Unnamed and unknown to the portal: keep what we had.
+        assert decorate("XXX", "XXX") == "XXX"
 
 
 class TestSanitiseValue:

@@ -331,7 +331,13 @@ SERIES_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="key", role=ColumnRole.KEY),
         Column(name=TITLE_FIELD, role=ColumnRole.TITLE),
-        Column(name="coverage", role=ColumnRole.DATA),
+        Column(
+            name="coverage",
+            role=ColumnRole.DATA,
+            description="Fraction of the query's words consumed by fully-matched field values "
+            "(1.0 = exact hit). 0.0 only means no complete value appears in the query — "
+            "the row still matched and ranked by fuzzy score.",
+        ),
         Column(name="score", role=ColumnRole.DATA),
     ]
 )

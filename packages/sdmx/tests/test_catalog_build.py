@@ -48,7 +48,7 @@ def test_dataset_entity_from_structure_includes_dsd() -> None:
     assert entry.namespace == "sdmx_datasets_ecb"
     assert entry.metadata["dsd"][0]["dimension_id"] == "FREQ"
     assert entry.metadata["dsd"][0]["codelist_id"] == "CL_FREQ"
-    assert "Monthly" in entry.metadata["description"]
+    assert "description" not in entry.metadata
 
 
 def test_enrich_dataset_entities_with_dsd() -> None:
@@ -60,6 +60,19 @@ def test_enrich_dataset_entities_with_dsd() -> None:
     )
     enriched = enrich_dataset_entities_with_dsd([base], {dataset_code("ECB", "YC"): _structure()})
     assert enriched[0].metadata["dsd"][0]["codelist_id"] == "CL_FREQ"
+
+
+def test_enrich_preserves_listing_title() -> None:
+    """The listing title is authoritative (provider fallback for unnamed flows);
+    DSD enrichment must never replace it with the structure fetch's name."""
+    base = Entity(
+        namespace="sdmx_datasets_ecb",
+        code=dataset_code("ECB", "YC"),
+        title="Yield curve (portal name)",
+        metadata={"agency": "ECB", "dataset_id": "YC"},
+    )
+    enriched = enrich_dataset_entities_with_dsd([base], {dataset_code("ECB", "YC"): _structure()})
+    assert enriched[0].title == "Yield curve (portal name)"
 
 
 def test_merge_dataset_entry_lists_upserts_by_code() -> None:
