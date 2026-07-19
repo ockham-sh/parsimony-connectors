@@ -402,7 +402,6 @@ def build_series_catalog(
         namespace=namespace,
         code_column="key",
         title_column="title",
-        field_links=field_links,
     )
     catalog.attach_parquet_rows(series_parquet, config=backend)
     return catalog
