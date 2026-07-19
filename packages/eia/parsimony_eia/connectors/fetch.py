@@ -114,11 +114,7 @@ def _natural_key_columns(df: pd.DataFrame) -> list[str]:
     """
     if "series" in df.columns and "period" in df.columns:
         return ["period", "series"]
-    keys = [
-        c
-        for c in df.columns
-        if isinstance(c, str) and c not in ("value", "units") and not _DUP_LABEL_RE.search(c)
-    ]
+    keys = [c for c in df.columns if isinstance(c, str) and c not in ("value", "units") and not _DUP_LABEL_RE.search(c)]
     return keys or list(df.columns)
 
 
@@ -172,9 +168,7 @@ def _paginate(
     response envelope (for its ``description``). Raises ``InvalidParameterError``
     before paging if the match exceeds ``MAX_FETCH_ROWS``.
     """
-    first = eia_get(
-        http, path, params={**base_params, "offset": 0, "length": PAGE_SIZE}, op_name=op_name
-    )
+    first = eia_get(http, path, params={**base_params, "offset": 0, "length": PAGE_SIZE}, op_name=op_name)
     total = _to_int(first.get("total"))
     rows: list[dict[str, Any]] = list(first.get("data") or [])
 
@@ -188,9 +182,7 @@ def _paginate(
 
     offset = len(rows)
     while offset < total:
-        page = eia_get(
-            http, path, params={**base_params, "offset": offset, "length": PAGE_SIZE}, op_name=op_name
-        )
+        page = eia_get(http, path, params={**base_params, "offset": offset, "length": PAGE_SIZE}, op_name=op_name)
         chunk = list(page.get("data") or [])
         if not chunk:
             break

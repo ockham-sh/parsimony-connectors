@@ -6,7 +6,7 @@ import logging
 import os
 
 import pandas as pd
-from parsimony.catalog.search import CatalogLRU, resolved_catalog_url
+from parsimony.catalog.search import RANKING_COLUMNS, CatalogLRU, resolved_catalog_url
 from parsimony.catalog.source import lazy_catalog_dir
 from parsimony.connector import connector
 from parsimony.errors import EmptyDataError
@@ -64,13 +64,13 @@ DATABASES_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="db", role=ColumnRole.KEY),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="score", role=ColumnRole.DATA),
         Column(name="category", role=ColumnRole.METADATA),
         Column(
             name="series_namespace",
             role=ColumnRole.METADATA,
             description="Namespace for boj_series_search, e.g. boj_series_fm08.",
         ),
+        *RANKING_COLUMNS,
     ]
 )
 
@@ -112,9 +112,11 @@ def boj_databases_search(
             {
                 "db": db_code,
                 "title": m.title,
-                "score": round(m.score, 6),
                 "category": category,
                 "series_namespace": series_namespace(db_code),
+                "coverage": round(m.coverage, 6),
+                "score": round(m.score, 6),
+                "matched": m.matched,
             }
         )
     return pd.DataFrame(rows)
@@ -124,8 +126,8 @@ SERIES_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="boj"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="score", role=ColumnRole.DATA),
         Column(name="db", role=ColumnRole.METADATA),
+        *RANKING_COLUMNS,
     ]
 )
 
@@ -171,8 +173,10 @@ def boj_series_search(
             {
                 "code": m.code,
                 "title": m.title,
-                "score": round(m.score, 6),
                 "db": db_code,
+                "coverage": round(m.coverage, 6),
+                "score": round(m.score, 6),
+                "matched": m.matched,
             }
             for m in matches
         ]

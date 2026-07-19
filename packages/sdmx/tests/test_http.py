@@ -111,9 +111,7 @@ class TestKeepaliveSocketOptions:
         assert socket.TCP_KEEPINTVL in codes
         assert socket.TCP_KEEPCNT in codes
 
-    def test_macos_falls_back_to_tcp_keepalive(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_macos_falls_back_to_tcp_keepalive(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # macOS has no TCP_KEEPIDLE but exposes TCP_KEEPALIVE for the idle timer.
         monkeypatch.delattr(socket, "TCP_KEEPIDLE", raising=False)
         monkeypatch.setattr(socket, "TCP_KEEPALIVE", 0x10, raising=False)
@@ -122,9 +120,7 @@ class TestKeepaliveSocketOptions:
         assert 0x10 in codes  # the fake TCP_KEEPALIVE idle knob was used
         assert opts[0] == (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 
-    def test_windows_degrades_to_plain_keepalive(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_windows_degrades_to_plain_keepalive(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # Windows exposes none of the per-probe setsockopt knobs; only
         # SO_KEEPALIVE should remain and import must not raise.
         for name in ("TCP_KEEPIDLE", "TCP_KEEPALIVE", "TCP_KEEPINTVL", "TCP_KEEPCNT"):

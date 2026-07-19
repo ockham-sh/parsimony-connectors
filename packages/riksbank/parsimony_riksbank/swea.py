@@ -224,9 +224,7 @@ def series_description(series: dict[str, Any], sid: str, *, group_name: str = ""
         if ccy:
             ccy_label = _counter_currency_label(ccy, series)
             freq_hint = f"{frequency} " if frequency and frequency != "Unknown" else ""
-            parts.append(
-                f"{freq_hint}{ccy}/SEK exchange rate fixing — {ccy_label} against Swedish krona.".strip()
-            )
+            parts.append(f"{freq_hint}{ccy}/SEK exchange rate fixing — {ccy_label} against Swedish krona.".strip())
         elif upstream:
             parts.append(upstream[-1])
         if group_leaf:

@@ -418,6 +418,27 @@ def test_series_search_code_filter_matches(tmp_path: Path, monkeypatch: pytest.M
     assert "A.DE" not in keys
 
 
+def test_series_search_query_ranks_within_filter_slice(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """query= alongside filter_json= (no fields=) ranks inside the filtered slice.
+
+    Regression: the query used to be dropped when filter_json= was supplied
+    without fields=, so the call returned the whole slice unranked. It must
+    instead rank the slice by the query — here the filter admits both monthly
+    series (M.DE, M.FR) and the query "France" keeps only the French one.
+    """
+    catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
+
+    df = sdmx_series_search(
+        agency="ECB",
+        dataset_id="TEST",
+        query="France",
+        filter_json='{"FREQ_code": ["M"]}',
+        catalog_root=str(catalogs_dir),
+    ).raw
+
+    assert set(df["key"]) == {"M.FR"}
+
+
 def test_series_search_strips_flow_prefixed_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Keys from an old catalog carrying the flow prefix ("TEST.M.DE") emit bare.
 

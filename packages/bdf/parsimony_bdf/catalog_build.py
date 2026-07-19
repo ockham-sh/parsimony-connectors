@@ -26,7 +26,7 @@ def build_bdf_catalog(*, api_key: str | None = None) -> Catalog:
     """
     result = enumerate_bdf(api_key=(api_key or "").strip())
     entries = list(result.entities.values())
-    catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
+    catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries))
     catalog.set_entities(entries)
     catalog.build()
     return catalog

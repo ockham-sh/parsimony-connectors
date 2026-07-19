@@ -260,7 +260,7 @@ def test_riksbank_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     ]
     df = pd.DataFrame(rows, columns=cols)
     entries = list(Result(raw=df, output_spec=RIKSBANK_ENUMERATE_OUTPUT).entities.values())
-    catalog = Catalog("riksbank", indexes=discovery_indexes(entries), default_field="title")
+    catalog = Catalog("riksbank", indexes=discovery_indexes(entries))
     catalog.set_entities(entries)
     catalog.build()
     out_dir = tmp_path / "riksbank_catalog"
@@ -268,7 +268,7 @@ def test_riksbank_search_over_bounded_catalog_live(tmp_path: Path) -> None:
 
     fx = riksbank_search(query="euro Swedish krona exchange rate", limit=5, catalog_url=str(out_dir))
     assert_provenance_shape(fx, expected_source="riksbank_search", required_param_keys=["query"])
-    assert list(fx.raw.columns) == ["code", "title", "source", "score"]
+    assert list(fx.raw.columns) == ["code", "title", "source", "coverage", "score", "matched"]
     assert fx.raw.iloc[0]["code"] == "SEKEURPMI"
 
     # Ranking discriminates: each family's flagship query surfaces its own code.

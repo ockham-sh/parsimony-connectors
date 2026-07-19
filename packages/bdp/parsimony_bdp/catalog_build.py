@@ -41,7 +41,7 @@ async def build_bdp_catalog(*, enrich: bool = True) -> Catalog:
         df = apply_enrichment(df, enrich_en=enrich_en, enrich_pt=enrich_pt)
 
     entries = list(Result(raw=df, output_spec=BDP_ENUMERATE_OUTPUT).entities.values())
-    catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
+    catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries))
     catalog.set_entities(entries)
     catalog.build()
     return catalog

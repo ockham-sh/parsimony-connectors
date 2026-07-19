@@ -19,7 +19,7 @@ from typing import Annotated
 
 import pandas as pd
 from parsimony.catalog import Catalog, CatalogMatch
-from parsimony.catalog.search import CatalogLRU, resolved_catalog_url
+from parsimony.catalog.search import RANKING_COLUMNS, CatalogLRU, resolved_catalog_url
 from parsimony.catalog.source import lazy_catalog_dir
 from parsimony.connector import connector
 from parsimony.errors import ConnectorError, EmptyDataError, InvalidParameterError
@@ -99,17 +99,10 @@ DATASETS_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="dataset_ref", role=ColumnRole.KEY),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(
-            name="coverage",
-            role=ColumnRole.DATA,
-            description="Fraction of the query's words consumed by fully-matched field values "
-            "(1.0 = exact hit). 0.0 only means no complete value appears in the query — "
-            "the row still matched and ranked by fuzzy score.",
-        ),
-        Column(name="score", role=ColumnRole.DATA),
         Column(name="agency", role=ColumnRole.METADATA),
         Column(name="dataset_id", role=ColumnRole.METADATA),
         Column(name="dimensions", role=ColumnRole.METADATA),
+        *RANKING_COLUMNS,
     ]
 )
 
@@ -130,24 +123,29 @@ def sdmx_datasets_search(
 ) -> pd.DataFrame:
     """Discover SDMX flows within one or all agency dataset catalogs.
 
-    Scope with ``agency=`` whenever you know the source. Unscoped searches merge every agency
-    catalog and on broad queries often miss the obvious flow ("euro area GDP growth" surfacing
-    trade tables).
+    Scope with ``agency=`` when known; unscoped merges every agency, risking a miss.
+    Rows rank facts first: an exact ``title`` hit is ``coverage`` 1.0 and pins above
+    any fuzzy ``score``. An all-'semantic' ``matched`` page matched nothing lexically
+    real — rephrase.
 
-    Next: pass a hit's ``agency`` + ``dataset_id`` to ``sdmx_series_search`` or
-    ``sdmx_dimension_search``, or its ``dataset_ref`` to ``sdmx_fetch``.
+    Next: a hit's ``agency``+``dataset_id`` feed ``sdmx_series_search``/
+    ``sdmx_dimension_search``; ``dataset_ref`` feeds ``sdmx_fetch``.
 
-    ``dimensions`` are the axes a flow breaks down by, in key order — the names to filter on.
-    It says nothing about their granularity: ``geo`` may hold 38 countries or 1,247 regions,
-    and only ``sdmx_dimension_search`` tells you which. Empty means the structure was not
-    captured, not that the flow has none.
+    ``dimensions`` are the axes a flow breaks down by, in key order; granularity
+    (e.g. ``geo``: 38 vs 1,247 values) only ``sdmx_dimension_search`` shows. Empty
+    means uncaptured, not none.
 
     Relevance-ranked top-N (``limit`` <= 50).
     """
     params = DatasetsSearchParams(query=query, agency=agency, limit=limit, catalog_root=catalog_root)
     agencies = _agencies_for_search(params.agency)
 
-    all_matches: list[tuple[tuple[float, float], CatalogMatch]] = []
+    # Sort key per row: (not exact-pin, per-agency rank, -score). Exact-pin
+    # (coverage 1.0) rows lead; the rest interleave by each row's position in
+    # its own agency's ranked list (RRF over disjoint per-agency rankings),
+    # with score as the tiebreak; coverage below 1.0 does not otherwise order
+    # this single-field surface.
+    all_matches: list[tuple[tuple[bool, int, float], CatalogMatch]] = []
     for parsed_agency in agencies:
         namespace = datasets_namespace(parsed_agency)
 
@@ -158,19 +156,17 @@ def sdmx_datasets_search(
         # Titles only: a flow's identity is its title. DSD-vocabulary text
         # ranks flows that break down BY a subject above flows ABOUT it.
         matches = catalog.search(params.query, limit=params.limit, fields=["title"])
-        all_matches.extend(((m.coverage, m.score), m) for m in matches)
+        for rank, m in enumerate(matches):
+            all_matches.append(((m.coverage != 1.0, rank, -m.score), m))
 
     if not all_matches:
         scope = params.agency or "all agencies"
         raise EmptyDataError(
             provider="sdmx",
-            message=(
-                f"No flow matches for query={params.query!r} in {scope!r}. "
-                "Try a broader title query or code: AGENCY|FLOW."
-            ),
+            message=(f"No flow matches for query={params.query!r} in {scope!r}. Try a broader title query."),
         )
 
-    all_matches.sort(key=lambda item: item[0], reverse=True)
+    all_matches.sort(key=lambda item: item[0])
     top = all_matches[: params.limit]
 
     rows: list[dict[str, object]] = []
@@ -181,11 +177,12 @@ def sdmx_datasets_search(
             {
                 "dataset_ref": f"{row_agency}-{dataset_id}" if sep else m.code,
                 "title": m.title,
-                "coverage": round(m.coverage, 6),
-                "score": round(m.score, 6),
                 "agency": row_agency if sep else "",
                 "dataset_id": dataset_id,
                 "dimensions": m.metadata.get("dimensions", []) if m.metadata else [],
+                "coverage": round(m.coverage, 6),
+                "score": round(m.score, 6),
+                "matched": m.matched,
             }
         )
     return pd.DataFrame(rows)

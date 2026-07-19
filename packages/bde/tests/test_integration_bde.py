@@ -221,7 +221,7 @@ def test_bde_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     ]
     df = pd.DataFrame(rows, columns=[c.name for c in BDE_ENUMERATE_OUTPUT.columns])
     entries = list(Result(raw=df, output_spec=BDE_ENUMERATE_OUTPUT).entities.values())
-    catalog = Catalog("bde", indexes=discovery_indexes(entries), default_field="title")
+    catalog = Catalog("bde", indexes=discovery_indexes(entries))
     catalog.set_entities(entries)
     catalog.build()
     out_dir = tmp_path / "bde_catalog"
@@ -231,7 +231,7 @@ def test_bde_search_over_bounded_catalog_live(tmp_path: Path) -> None:
 
     assert_provenance_shape(result, expected_source="bde_search", required_param_keys=["query"])
     sdf = result.raw
-    assert list(sdf.columns) == ["code", "title", "score"]
+    assert list(sdf.columns) == ["code", "title", "coverage", "score", "matched"]
     assert not sdf.empty, "search over the fixture catalog returned nothing"
     # Bounded by the 3-row fixture — never the full catalog.
     assert len(sdf) <= 3

@@ -24,9 +24,7 @@ def test_polymarket_search_maps_status(status: int, exc_type: type[ConnectorErro
 
 @respx.mock
 def test_polymarket_rate_limit_carries_retry_after() -> None:
-    respx.get(_SEARCH_URL).mock(
-        return_value=httpx.Response(429, text="slow down", headers={"Retry-After": "15"})
-    )
+    respx.get(_SEARCH_URL).mock(return_value=httpx.Response(429, text="slow down", headers={"Retry-After": "15"}))
     with pytest.raises(RateLimitError) as exc_info:
         polymarket_search_events(search_text="inflation")
     assert exc_info.value.retry_after == 15.0

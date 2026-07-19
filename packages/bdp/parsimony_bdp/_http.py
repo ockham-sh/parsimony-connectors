@@ -13,8 +13,7 @@ BASE_URL = "https://bpstat.bportugal.pt/data/v1"
 # BPstat sits behind Akamai. A browser User-Agent plus Origin/Referer headers
 # keep both the per-call fetch and the bulk crawl from being challenged.
 BROWSER_USER_AGENT = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 HEADERS = {
     "User-Agent": BROWSER_USER_AGENT,

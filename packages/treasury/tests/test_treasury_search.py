@@ -72,7 +72,7 @@ def _build_fixture_catalog(tmp_path: Path) -> Path:
     ]
     df = pd.DataFrame(rows, columns=[c.name for c in TREASURY_ENUMERATE_OUTPUT.columns])
     entries = list(Result(raw=df, output_spec=TREASURY_ENUMERATE_OUTPUT).entities.values())
-    catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
+    catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries))
     catalog.set_entities(entries)
     catalog.build()
     out_dir = tmp_path / "treasury_catalog"
@@ -92,7 +92,7 @@ def test_treasury_search_title_query_ranks_yield_curve(treasury_catalog_dir: Pat
 
 def test_treasury_search_description_query_finds_par_yield(treasury_catalog_dir: Path) -> None:
     result = treasury_search(
-        query="description: constant maturity Treasury par yield",
+        query="constant maturity Treasury par yield",
         limit=5,
         catalog_url=str(treasury_catalog_dir),
     )
@@ -102,16 +102,16 @@ def test_treasury_search_description_query_finds_par_yield(treasury_catalog_dir:
 
 def test_treasury_search_description_query_finds_tips_real_yield(treasury_catalog_dir: Path) -> None:
     result = treasury_search(
-        query="description: Treasury Inflation-Protected Securities",
+        query="Treasury Inflation-Protected Securities",
         limit=5,
         catalog_url=str(treasury_catalog_dir),
     )
     assert result.raw.iloc[0]["code"] == "home/daily_treasury_real_yield_curve#TC_10YEAR"
 
 
-def test_treasury_search_code_prefix_exact_match(treasury_catalog_dir: Path) -> None:
+def test_treasury_search_code_filter_exact_match(treasury_catalog_dir: Path) -> None:
     result = treasury_search(
-        query="code: home/daily_treasury_yield_curve#BC_10YEAR",
+        filter={"code": "home/daily_treasury_yield_curve#BC_10YEAR"},
         limit=5,
         catalog_url=str(treasury_catalog_dir),
     )

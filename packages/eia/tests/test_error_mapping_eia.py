@@ -33,9 +33,7 @@ def test_eia_400_maps_to_invalid_parameter_preserving_message() -> None:
     """The non-canonical 400 → InvalidParameterError, keeping EIA's body text and
     never leaking the key."""
     respx.get(_ROUTE_URL).mock(
-        return_value=httpx.Response(
-            400, json={"error": "Invalid frequency 'millenially' provided.", "code": 400}
-        )
+        return_value=httpx.Response(400, json={"error": "Invalid frequency 'millenially' provided.", "code": 400})
     )
     with pytest.raises(InvalidParameterError) as exc_info:
         eia_fetch.bind(api_key=CANARY_KEY)(route="petroleum/pri/spt", frequency="millenially")

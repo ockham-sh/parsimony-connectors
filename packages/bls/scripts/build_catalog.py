@@ -32,9 +32,7 @@ def _save_all(catalog, *, save_root: str | None, push_root: str | None) -> None:
             catalog.save(f"{root.rstrip('/')}/{catalog.name}", builder=_BUILDER)
 
 
-def build(
-    surveys: list[str], *, save_root: str | None, push_root: str | None, max_rows: int
-) -> None:
+def build(surveys: list[str], *, save_root: str | None, push_root: str | None, max_rows: int) -> None:
     api_key = os.environ.get("BLS_API_KEY", "")
     manifests: dict[str, list[dict[str, object]]] = {}
 
@@ -71,11 +69,7 @@ def main() -> None:
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    surveys = (
-        [normalize_survey(s) for s in args.survey]
-        if args.survey
-        else sorted(HEADLINE_SURVEYS)
-    )
+    surveys = [normalize_survey(s) for s in args.survey] if args.survey else sorted(HEADLINE_SURVEYS)
     build(surveys, save_root=args.save_root, push_root=args.push_root, max_rows=args.max_rows)
 
 

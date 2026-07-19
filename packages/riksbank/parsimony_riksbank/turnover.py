@@ -61,8 +61,7 @@ def build_turnover_rows() -> list[dict[str, Any]]:
                     "code": f"{CODE_PREFIX}/{market}/{frequency}",
                     "title": f"Turnover — {label} ({frequency})",
                     "description": (
-                        f"{_MARKET_DESC[market]} {frequency.capitalize()} frequency; full history "
-                        "available since 1987."
+                        f"{_MARKET_DESC[market]} {frequency.capitalize()} frequency; full history available since 1987."
                     ),
                     "source": "turnover",
                     "frequency": frequency.capitalize(),

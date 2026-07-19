@@ -11,7 +11,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 | `treasury_fetch` | connector | Fetch any Fiscal Data API endpoint (e.g. `v2/accounting/od/debt_to_penny`) as a DataFrame, with optional `filter`, `sort`, and `page_size`. |
 | `treasury_rates_fetch` | connector | Fetch one Office of Debt Management rate feed (par yield curve, real yield curve, bill rates, long-term, real long-term) for a calendar year from the home.treasury.gov OData/Atom XML feed. |
 | `enumerate_treasury` | enumerator | Enumerate every addressable Fiscal Data time-series measure plus the ODM rate-feed benchmarks for catalog indexing (drives the `treasury` catalog). |
-| `treasury_search` | connector | Semantic-search the published `treasury` catalog and return matching `code` + `title` + `score` rows. Routing: `home/<feed>` → `treasury_rates_fetch`; `v<n>/<endpoint>#<field>` → `treasury_fetch`. |
+| `treasury_search` | connector | Keyword-search the published `treasury` catalog and return matching `code` + `title` + `score` rows. Routing: `home/<feed>` → `treasury_rates_fetch`; `v<n>/<endpoint>#<field>` → `treasury_fetch`. |
 
 ## Install
 

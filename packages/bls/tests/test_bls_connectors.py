@@ -326,6 +326,8 @@ def test_bls_series_search_shapes_rows(monkeypatch) -> None:
     class _Match:
         def __init__(self, code, title, ns):
             self.code, self.title, self.score, self.namespace, self.metadata = code, title, 0.5, ns, {}
+            self.matched = "lexical"
+            self.coverage = 0.0
 
     class _Catalog:
         def search(self, query=None, limit=10, *, filter=None, field=None):
@@ -337,7 +339,7 @@ def test_bls_series_search_shapes_rows(monkeypatch) -> None:
     monkeypatch.setattr(se, "_get_or_load_catalog", fake_get)
     result = se.bls_series_search(query="gasoline", survey="CU")
     df = result.raw
-    assert list(df.columns) == ["series_id", "title", "score", "survey", "namespace"]
+    assert list(df.columns) == ["series_id", "title", "survey", "namespace", "coverage", "score", "matched"]
     assert df.iloc[0]["series_id"] == "CUUR0000SETB01"
     assert df.iloc[0]["survey"] == "CU"
 

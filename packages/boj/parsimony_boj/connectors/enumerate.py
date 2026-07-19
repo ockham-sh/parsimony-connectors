@@ -269,8 +269,7 @@ def enumerate_boj() -> pd.DataFrame:
         # deterministic across runs and giant payloads (CO/TANKAN ~99 MB) are
         # released immediately after parsing.
         results = [
-            _enumerate_one(fetcher, db_code, db_category, db_title)
-            for db_code, db_category, db_title in databases
+            _enumerate_one(fetcher, db_code, db_category, db_title) for db_code, db_category, db_title in databases
         ]
 
     for db_code, db_rows in results:

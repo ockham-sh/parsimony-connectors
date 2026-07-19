@@ -189,9 +189,7 @@ def _first_object(data: Any) -> dict[str, Any] | None:
 
 
 @enumerator(output=_SEARCH_EVENTS_OUTPUT, tags=["polymarket"])
-def polymarket_search_events(
-    search_text: str, limit: int = 20, optimized: bool = False
-) -> pd.DataFrame:
+def polymarket_search_events(search_text: str, limit: int = 20, optimized: bool = False) -> pd.DataFrame:
     """Search Polymarket prediction market events by natural-language query.
 
     The entry point for finding the implied probability (odds) on a question —
@@ -249,9 +247,7 @@ def polymarket_event(slug: str) -> pd.DataFrame:
 
     markets = event.get("markets") or []
     if not markets:
-        raise EmptyDataError(
-            "polymarket", message=f"event {key!r} has no markets", query_params={"slug": key}
-        )
+        raise EmptyDataError("polymarket", message=f"event {key!r} has no markets", query_params={"slug": key})
 
     rows = [_market_row(m) for m in markets if isinstance(m, dict)]
     return pd.DataFrame(rows, columns=_EVENT_MARKETS_COLUMNS)
@@ -292,9 +288,7 @@ def polymarket_market(slug: str) -> pd.DataFrame:
 
 
 @connector(output=_PRICE_HISTORY_OUTPUT, tags=["polymarket", "tool"])
-def polymarket_price_history(
-    token_id: str, interval: str = "1w", fidelity: int = 60
-) -> pd.DataFrame:
+def polymarket_price_history(token_id: str, interval: str = "1w", fidelity: int = 60) -> pd.DataFrame:
     """Fetch the implied probability (odds) time series for one Polymarket token.
 
     `token_id` is a CLOB token id (`clob_token_id` from `polymarket_market`).
@@ -312,9 +306,7 @@ def polymarket_price_history(
     if not token:
         raise InvalidParameterError("polymarket", "token_id is required")
     if interval not in _INTERVALS:
-        raise InvalidParameterError(
-            "polymarket", f"interval must be one of {list(_INTERVALS)}; got {interval!r}"
-        )
+        raise InvalidParameterError("polymarket", f"interval must be one of {list(_INTERVALS)}; got {interval!r}")
     if fidelity < 1:
         raise InvalidParameterError("polymarket", "fidelity must be a positive number of minutes")
 

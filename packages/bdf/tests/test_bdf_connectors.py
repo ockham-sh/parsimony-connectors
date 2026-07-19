@@ -431,7 +431,7 @@ def _enumerate_rows() -> list[dict[str, str]]:
 def _build_fixture_catalog(out_dir: Path) -> None:
     df = pd.DataFrame(_enumerate_rows(), columns=list(ENUMERATE_COLUMNS))
     entries = list(Result(raw=df, output_spec=BDF_ENUMERATE_OUTPUT).entities.values())
-    catalog = Catalog("bdf", indexes=discovery_indexes(entries), default_field="title")
+    catalog = Catalog("bdf", indexes=discovery_indexes(entries))
     catalog.set_entities(entries)
     catalog.build()
     catalog.save(out_dir)
@@ -444,7 +444,7 @@ def test_bdf_search_ranks_over_fixture_catalog(tmp_path: Path) -> None:
     result = bdf_search(query="dollar euro exchange rate", limit=5, catalog_url=str(out_dir))
 
     sdf = result.raw
-    assert list(sdf.columns) == ["code", "title", "score"]
+    assert list(sdf.columns) == ["code", "title", "coverage", "score", "matched"]
     assert not sdf.empty
     assert len(sdf) <= 3
     assert sdf.iloc[0]["code"] == "EXR.M.USD.EUR.SP00.E"

@@ -15,7 +15,6 @@ BDF_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="bdf"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="score", role=ColumnRole.DATA),
     ]
 )
 
@@ -26,7 +25,7 @@ bdf_search = make_local_search_connector(
     build_catalog=build_bdf_catalog,
     tags=["macro", "fr", "tool"],
     description=(
-        "Semantic-search the Banque de France (BdF) Webstat catalog of French "
+        "Search the Banque de France (BdF) Webstat catalog of French "
         "macroeconomic, monetary and financial time series. Returns ranked SDMX "
         "series codes (and dataset:<id> group rows); pass a series code to "
         "bdf_fetch(key=...) to retrieve its observations."

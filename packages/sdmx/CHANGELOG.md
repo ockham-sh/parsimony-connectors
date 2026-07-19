@@ -8,6 +8,9 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `matched` output column on all three search connectors — which evidence
+  surfaced the row (`lexical` / `semantic` / `both`). An all-`semantic` result page means nothing
+  lexically real matched: rephrase the query rather than trust the order.
 - `sdmx_dimension_search(agency, dataset_id, dimension, query=None)` — search or enumerate one
   DSD dimension's `(code, label)` values from the flow's series catalog. Absorbs the roles of the
   removed `sdmx_codelist_search` and the `refine` facet column.
@@ -27,17 +30,36 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- `sdmx_series_search` bare queries now score across the title AND every indexed
-  dimension-label field (`Catalog.search(fields=...)`, parsimony-core #69), ranked by
-  (`coverage` desc, `score` desc): `coverage` is the fraction of the query's words
-  literally consumed by the row's dimension labels (1.0 = the query names the slice
-  exactly), `score` is honest fuzzy relevance. A query naming dimension values
-  ("current account", or verbose "current account balance euro area quarterly")
-  surfaces that slice at rank 1 instead of drowning in composed-title term
-  repetition, and near-miss labels stay visible below. Both columns are in the
-  output; `score` is deliberately non-monotonic down the list. Code fields stay out
-  of the surface — codes remain exact identifiers for `filter_json`. Requires the
-  parsimony-core release carrying `fields=` + coverage ranking.
+- Hybrid catalog indexes are built without a fusion config — fusion is computed natively in core
+  now. Requires the parsimony-core release carrying the single-path search; the `parsimony-core`
+  pin is floor-bumped at release.
+- `sdmx_series_search` `top_k_per_dim` default 5 → 50, matching the per-field scored-candidate
+  cap the ranking battery validated; its description now states honestly that it bounds scored
+  candidates per field, not returned results.
+- All three search connectors (`sdmx_series_search`, `sdmx_datasets_search`,
+  `sdmx_dimension_search`) now end with the same ranking trio — `coverage`, `score`,
+  `matched` — with identical meanings (core's shared column definitions). What varies per
+  surface is the distribution of values, never the schema: coverage is the ranking's first
+  key on the series facet surface, and on the datasets title surface it is mostly 0.0 with
+  an exact-title hit reading 1.0 — which now visibly explains why a pinned row outranks
+  higher scores. `sdmx_dimension_search` enumeration reads carry the trio as nulls. The
+  datasets unscoped fan-out merges exact-title pins first, then per-agency rank, then
+  score; the broken `code: AGENCY|FLOW` hint is removed.
+- `sdmx_series_search` bare queries now score across every indexed dimension-label
+  field (`Catalog.search(fields=...)`), ranked by (`coverage` desc, `score` desc):
+  `coverage` is the fraction of the query's words literally consumed by the row's
+  dimension labels (1.0 = the query names the slice exactly), `score` is honest fuzzy
+  relevance. The composed `title` is a display column, not a search surface — it
+  concatenates the very labels the label indexes already carry, so scoring it only
+  re-counted matched terms; on the 41-case ranking battery, keeping it off the surface
+  raises the leading config MRR 0.725 → 0.739 and moves both adversarial phrasing
+  cases ("monthly youth unemployment germany") to rank 1. The trade-off: a bare
+  single-concept query ("swiss franc") no longer inherits title word order to prefer
+  numerator over denominator series — both readings surface. Published catalogs are
+  unchanged (the title index is simply not queried; its removal from builds is a
+  future recipe change). Code fields stay out of the surface — codes remain exact
+  identifiers for `filter_json`. Requires the parsimony-core release carrying
+  `fields=` + coverage ranking.
 - **BREAKING — `sdmx_series_search` renames `field=` to `fields=`**, accepting one
   indexed field name (old behavior) or a list to fuse a declared subset, mirroring
   `Catalog.search`.
@@ -60,6 +82,8 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `sdmx_series_search` no longer discards `query=` when `filter_json=` is given without
+  `fields=` — the query now ranks rows within the filtered slice.
 - `sdmx_fetch` classifies a no-data empty-document response (HTTP 200, empty body) as
   `EmptyDataError` with period-widening guidance, instead of a misleading
   "transient fetch error … Retry shortly" `ProviderError`.

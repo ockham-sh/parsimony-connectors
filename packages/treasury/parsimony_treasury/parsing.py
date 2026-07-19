@@ -153,9 +153,7 @@ _ODATA_METADATA_NS = "{http://schemas.microsoft.com/ado/2007/08/dataservices/met
 #: The feed's time column, by feed: NEW_DATE (par/real curves), INDEX_DATE (bills),
 #: QUOTE_DATE (long-term). First-present-wins into a uniform ``record_date``.
 _RATES_DATE_COLUMNS: tuple[str, ...] = ("NEW_DATE", "INDEX_DATE", "QUOTE_DATE")
-_RATES_NUMERIC_TYPES: frozenset[str] = frozenset(
-    {"Edm.Double", "Edm.Decimal", "Edm.Single", "Edm.Int32", "Edm.Int64"}
-)
+_RATES_NUMERIC_TYPES: frozenset[str] = frozenset({"Edm.Double", "Edm.Decimal", "Edm.Single", "Edm.Int32", "Edm.Int64"})
 _RATES_DATETIME_TYPES: frozenset[str] = frozenset({"Edm.DateTime"})
 
 

@@ -24,9 +24,8 @@ def _sample_entries() -> list[Entity]:
 def test_macro_discovery_indexes_for_boc_sample() -> None:
     entries = _sample_entries()
     indexes = macro_discovery_indexes(entries)
-    catalog = Catalog("boc", indexes=indexes, default_field="title")
+    catalog = Catalog("boc", indexes=indexes)
     assert catalog.name == "boc"
-    assert catalog.default_field == "title"
     assert set(indexes) == {"code", "title", "description"}
     assert isinstance(indexes["code"], BM25Index)
     assert isinstance(indexes["title"], HybridIndex)

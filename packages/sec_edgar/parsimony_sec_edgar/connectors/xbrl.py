@@ -34,9 +34,7 @@ _PERIOD_RE = re.compile(r"^CY\d{4}(?:Q[1-4]I?)?$")
 
 
 @connector(output=COMPANY_CONCEPT_OUTPUT, tags=["sec_edgar", "tool"])
-def sec_edgar_company_concept(
-    cik: str, tag: str, taxonomy: str = "us-gaap", unit: str | None = None
-) -> pd.DataFrame:
+def sec_edgar_company_concept(cik: str, tag: str, taxonomy: str = "us-gaap", unit: str | None = None) -> pd.DataFrame:
     """Fetch the full reported history of one XBRL financial concept for a company.
 
     Returns a tidy long timeseries — one row per disclosed fact: period end +
@@ -120,9 +118,7 @@ def sec_edgar_company_facts(cik: str) -> dict[str, Any]:
 
 
 @connector(output=FRAMES_OUTPUT, tags=["sec_edgar", "tool"])
-def sec_edgar_frames(
-    tag: str, period: str, unit: str = "USD", taxonomy: str = "us-gaap"
-) -> pd.DataFrame:
+def sec_edgar_frames(tag: str, period: str, unit: str = "USD", taxonomy: str = "us-gaap") -> pd.DataFrame:
     """Fetch one XBRL concept for one period across every reporting company.
 
     Returns a cross-sectional snapshot — one row per company that reported `tag`

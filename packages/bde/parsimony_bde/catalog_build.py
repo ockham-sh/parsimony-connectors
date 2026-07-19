@@ -22,7 +22,7 @@ def build_bde_catalog() -> Catalog:
     """
     result = enumerate_bde()
     entries = list(result.entities.values())
-    catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
+    catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries))
     catalog.set_entities(entries)
     catalog.build()
     return catalog

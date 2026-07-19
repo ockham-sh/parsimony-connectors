@@ -15,7 +15,6 @@ BDE_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="bde"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="score", role=ColumnRole.DATA),
     ]
 )
 
@@ -26,7 +25,7 @@ bde_search = make_local_search_connector(
     build_catalog=build_bde_catalog,
     tags=["macro", "es", "tool"],
     description=(
-        "Semantic-search the Banco de España (BdE) catalog. "
+        "Search the Banco de España (BdE) catalog. "
         "Titles and descriptions are in Spanish. "
         "Pass returned serie code to bde_fetch(key=...)."
     ),

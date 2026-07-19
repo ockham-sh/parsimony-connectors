@@ -97,9 +97,7 @@ def _page_view_time() -> str:
 # ---------------------------------------------------------------------------
 
 
-def get_text(
-    http: HttpClient, path: str, *, op_name: str, params: dict[str, str] | None = None
-) -> str:
+def get_text(http: HttpClient, path: str, *, op_name: str, params: dict[str, str] | None = None) -> str:
     """GET *path* and return the raw text body (SNB cubes + the sitemap are not JSON).
 
     The raw-transport shape: ``request("GET")`` then :func:`~parsimony.transport.check_status`

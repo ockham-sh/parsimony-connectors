@@ -11,6 +11,7 @@ from typing import Annotated
 
 import pandas as pd
 import pyarrow.dataset as ds
+from parsimony.catalog.search import RANKING_COLUMNS
 from parsimony.catalog.storage import read_meta
 from parsimony.connector import connector
 from parsimony.errors import ConnectorError, EmptyDataError, InvalidParameterError
@@ -42,6 +43,7 @@ DIMENSION_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY),
         Column(name="label", role=ColumnRole.TITLE),
+        *RANKING_COLUMNS,
     ]
 )
 
@@ -156,16 +158,29 @@ def sdmx_dimension_search(
             # though populated matches exist deeper in the ranking.
             search_limit = max(params.limit, RANKED_LIMIT) if populated is not None else params.limit
             matches = catalog.search_values(q, field=dim_label_field(params.dimension), limit=search_limit)
-            rows = [{"code": m.linked_value or m.value, "label": m.value} for m in matches]
+            rows = [
+                {
+                    "code": m.linked_value or m.value,
+                    "label": m.value,
+                    "coverage": round(m.coverage, 6),
+                    "score": round(m.score, 6),
+                    "matched": m.matched,
+                }
+                for m in matches
+            ]
             if populated is not None:
                 rows = [r for r in rows if r["code"] in populated][: params.limit]
         elif populated is not None:
             rows = [
-                {"code": code, "label": value_label} for code, value_label in list(populated.items())[: params.limit]
+                {"code": code, "label": value_label, "coverage": None, "score": None, "matched": None}
+                for code, value_label in list(populated.items())[: params.limit]
             ]
         else:
             distinct = collect_distinct_from_columnar(parquet_path, (params.dimension,))[params.dimension]
-            rows = [{"code": code, "label": label} for code, label in list(distinct.items())[: params.limit]]
+            rows = [
+                {"code": code, "label": label, "coverage": None, "score": None, "matched": None}
+                for code, label in list(distinct.items())[: params.limit]
+            ]
     except (FileNotFoundError, ValueError) as exc:
         raise ConnectorError(f"Invalid series catalog for {namespace}: {exc}", provider="sdmx") from exc
 

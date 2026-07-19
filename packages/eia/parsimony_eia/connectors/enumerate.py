@@ -86,9 +86,7 @@ def _walk(
             continue
         child_routes = node.get("routes")
         if isinstance(child_routes, list) and child_routes:
-            next_level.extend(
-                f"{route}/{c['id']}" for c in child_routes if isinstance(c, dict) and c.get("id")
-            )
+            next_level.extend(f"{route}/{c['id']}" for c in child_routes if isinstance(c, dict) and c.get("id"))
         else:
             node["__route__"] = route
             leaves.append(node)

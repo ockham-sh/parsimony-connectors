@@ -32,7 +32,6 @@ def datasets_catalog(*, agency: AgencyId | str) -> Catalog:
     return Catalog(
         datasets_namespace(agency),
         indexes=sdmx_datasets_indexes(),
-        default_field="title",
     )
 
 

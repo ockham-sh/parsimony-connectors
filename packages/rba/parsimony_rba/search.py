@@ -15,7 +15,6 @@ RBA_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="rba"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="score", role=ColumnRole.DATA),
         Column(name="table_id", role=ColumnRole.METADATA),
         Column(name="series_id", role=ColumnRole.METADATA),
         Column(name="frequency", role=ColumnRole.METADATA),
@@ -31,7 +30,7 @@ rba_search = make_local_search_connector(
     build_catalog=build_rba_catalog,
     tags=["macro", "au", "tool"],
     description=(
-        "Semantic-search the Reserve Bank of Australia (RBA) statistical catalog. "
+        "Search the Reserve Bank of Australia (RBA) statistical catalog. "
         "Dispatch: rba_fetch(table_id=table_id); filter result by series_id column."
     ),
     output_columns=RBA_SEARCH_OUTPUT.columns,

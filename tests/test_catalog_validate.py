@@ -25,7 +25,6 @@ def _tiny_catalog() -> Catalog:
             "title": BM25Index(),
             "topic": BM25Index(),
         },
-        default_field="title",
     )
     catalog.set_entities(entries)
     return catalog
