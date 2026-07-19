@@ -215,7 +215,7 @@ def test_destatis_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     ]
     df = pd.DataFrame(rows, columns=[c.name for c in DESTATIS_ENUMERATE_OUTPUT.columns])
     entries = list(Result(raw=df, output_spec=DESTATIS_ENUMERATE_OUTPUT).entities.values())
-    catalog = Catalog("destatis", indexes=discovery_indexes(entries), default_field="title")
+    catalog = Catalog("destatis", indexes=discovery_indexes(entries))
     catalog.set_entities(entries)
     catalog.build()
     out_dir = tmp_path / "destatis_catalog"
@@ -225,7 +225,7 @@ def test_destatis_search_over_bounded_catalog_live(tmp_path: Path) -> None:
 
     assert_provenance_shape(result, expected_source="destatis_search", required_param_keys=["query"])
     sdf = result.raw
-    assert list(sdf.columns) == ["code", "title", "score"]
+    assert list(sdf.columns) == ["code", "title", "coverage", "score", "matched"]
     assert not sdf.empty, "search over the fixture catalog returned nothing"
     assert len(sdf) <= 3, "search returned more than the 3-row fixture catalog"
     # Real ranking: the CPI entry is the top hit and scores are populated.

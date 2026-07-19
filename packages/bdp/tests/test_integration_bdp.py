@@ -159,7 +159,7 @@ def test_bdp_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     ]
     df = pd.DataFrame(rows, columns=cols)
     entries = list(Result(raw=df, output_spec=BDP_ENUMERATE_OUTPUT).entities.values())
-    catalog = Catalog("bdp", indexes=discovery_indexes(entries), default_field="title")
+    catalog = Catalog("bdp", indexes=discovery_indexes(entries))
     catalog.set_entities(entries)
     catalog.build()
     out_dir = tmp_path / "bdp_catalog"
@@ -169,7 +169,7 @@ def test_bdp_search_over_bounded_catalog_live(tmp_path: Path) -> None:
 
     assert_provenance_shape(result, expected_source="bdp_search", required_param_keys=["query"])
     sdf = result.raw
-    assert list(sdf.columns) == ["code", "title", "score"]
+    assert list(sdf.columns) == ["code", "title", "coverage", "score", "matched"]
     assert not sdf.empty
     assert sdf.iloc[0]["code"] == "48:ds1:12099329"
     assert sdf["score"].notna().all()

@@ -78,9 +78,11 @@ def sec_edgar_submissions(
             if isinstance(page, dict):
                 frames.append(_recent_frame(page))
 
-    df = pd.concat([f for f in frames if not f.empty], ignore_index=True) if any(
-        not f.empty for f in frames
-    ) else pd.DataFrame()
+    df = (
+        pd.concat([f for f in frames if not f.empty], ignore_index=True)
+        if any(not f.empty for f in frames)
+        else pd.DataFrame()
+    )
 
     if df.empty:
         raise EmptyDataError(
@@ -130,9 +132,7 @@ def _pick_primary_document(items: list[dict[str, Any]]) -> str | None:
 
 
 @connector(tags=["sec_edgar", "tool"])
-def sec_edgar_fetch_filing(
-    cik: str, accession_number: str, document: str | None = None
-) -> dict[str, str]:
+def sec_edgar_fetch_filing(cik: str, accession_number: str, document: str | None = None) -> dict[str, str]:
     """Fetch one SEC filing document body from the EDGAR archives.
 
     When `document` is omitted, resolves the primary document for

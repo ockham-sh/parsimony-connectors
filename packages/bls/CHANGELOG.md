@@ -4,6 +4,23 @@ All notable changes to `parsimony-bls` will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- The search connectors now end with the uniform ranking trio — `coverage`,
+  `score`, `matched` (core's shared column definitions): coverage is the
+  provable fraction of the query, score the fuzzy similarity, matched the
+  evidence origin (`lexical` / `semantic` / `both`). An all-`semantic` result
+  page means nothing lexically real matched: rephrase the query.
+
+### Changed
+
+- Catalog builds use explicit role-based index choice (core removed
+  `adaptive_field_index`): survey titles and dimension-label vocabularies are
+  hybrid; series codes and row-composed series titles are BM25-only.
+  Published catalogs are unaffected until their next rebuild.
+
 ## [0.8.0] — 2026-06-09
 
 Ground-up refactor, run through the full connector guidebook process and

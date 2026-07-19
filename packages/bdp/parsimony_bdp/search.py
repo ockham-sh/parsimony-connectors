@@ -13,7 +13,6 @@ BDP_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="bdp"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="score", role=ColumnRole.DATA),
     ]
 )
 
@@ -24,7 +23,7 @@ bdp_search = make_local_search_connector(
     build_catalog=None,  # async build; use scripts/build_catalog.py instead
     tags=["macro", "pt", "tool"],
     description=(
-        "Semantic-search the Banco de Portugal (BdP) BPstat catalog of Portuguese "
+        "Search the Banco de Portugal (BdP) BPstat catalog of Portuguese "
         "macro/monetary/financial time series. Returns ranked codes. A series code "
         "splits as domain_id:dataset_id:series_id — pass those to bdp_fetch "
         "(series_id via the series_ids filter). Codes prefixed domain:/dataset: are "

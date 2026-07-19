@@ -15,7 +15,6 @@ SNB_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="snb"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="score", role=ColumnRole.DATA),
         Column(name="cube_id", role=ColumnRole.METADATA),
         Column(name="series_key", role=ColumnRole.METADATA),
         Column(name="frequency", role=ColumnRole.METADATA),
@@ -30,7 +29,7 @@ snb_search = make_local_search_connector(
     build_catalog=build_snb_catalog,
     tags=["macro", "ch", "tool"],
     description=(
-        "Semantic-search the Swiss National Bank (SNB) data portal catalog — both "
+        "Search the Swiss National Bank (SNB) data portal catalog — both "
         "publication cubes and the SDMX-style data warehouse. Dispatch: "
         "snb_fetch(cube_id=cube_id) using the returned cube_id column directly."
     ),

@@ -238,9 +238,7 @@ def enumerate_bdp() -> pd.DataFrame:
             )
 
         # Discover datasets per leaf domain (serial; fetcher throttles internally).
-        domain_datasets = [
-            (domain, _list_datasets(fetcher, domain.get("id", ""))) for domain in leaf_domains
-        ]
+        domain_datasets = [(domain, _list_datasets(fetcher, domain.get("id", ""))) for domain in leaf_domains]
 
         work: list[tuple[str, str, dict[str, Any]]] = []
         for domain, stubs in domain_datasets:

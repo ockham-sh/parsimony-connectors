@@ -138,7 +138,7 @@ def _parse_pb_member(text: str) -> list[dict[str, str]]:
         # Span/count from the date rows where this column carries a value.
         present = [label for label, cells in date_rows if j < len(cells) and cells[j] != ""]
         desc = descs[j].strip() if j < len(descs) else ""
-        freq_raw = (freqs[j].strip().upper() if j < len(freqs) else "")
+        freq_raw = freqs[j].strip().upper() if j < len(freqs) else ""
         rows.append(
             {
                 "key": key,

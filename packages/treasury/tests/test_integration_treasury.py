@@ -197,7 +197,7 @@ def test_treasury_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     ]
     df = pd.DataFrame(rows, columns=[c.name for c in TREASURY_ENUMERATE_OUTPUT.columns])
     entries = list(Result(raw=df, output_spec=TREASURY_ENUMERATE_OUTPUT).entities.values())
-    catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
+    catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries))
     catalog.set_entities(entries)
     catalog.build()
     out_dir = tmp_path / "treasury_catalog"
@@ -207,7 +207,7 @@ def test_treasury_search_over_bounded_catalog_live(tmp_path: Path) -> None:
 
     assert_provenance_shape(result, expected_source="treasury_search", required_param_keys=["query"])
     sdf = result.raw
-    assert list(sdf.columns) == ["code", "title", "score"]
+    assert list(sdf.columns) == ["code", "title", "source", "endpoint", "field", "coverage", "score", "matched"]
     assert not sdf.empty, "search over the fixture catalog returned nothing"
     assert len(sdf) <= 3, "result not bounded by the fixture catalog"
     # Real ranking: the yield-curve entry is the top hit and scores are populated.

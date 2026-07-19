@@ -93,14 +93,10 @@ def _fetch_frame(session: _http.Session, table_id: str) -> pd.DataFrame:
         if "hist" in stem:
             url = f"{_http._BASE_URL}/statistics/tables/xls-hist/{stem}.xls"
             data = _get_bytes(session, url, op_name="xls_hist_fetch")
-            return _guard_parse(
-                raw, lambda: parsing._melt_sheet_rows(parsing._xls_full_sheet_rows(data, sheet), raw)
-            )
+            return _guard_parse(raw, lambda: parsing._melt_sheet_rows(parsing._xls_full_sheet_rows(data, sheet), raw))
         url = f"{_http._BASE_URL}/statistics/tables/xls/{stem}.xlsx"
         data = _get_bytes(session, url, op_name="xlsx_fetch")
-        return _guard_parse(
-            raw, lambda: parsing._melt_sheet_rows(parsing._xlsx_full_sheet_rows(data, sheet), raw)
-        )
+        return _guard_parse(raw, lambda: parsing._melt_sheet_rows(parsing._xlsx_full_sheet_rows(data, sheet), raw))
 
     stem = raw.lower()
     if stem.endswith(".csv"):

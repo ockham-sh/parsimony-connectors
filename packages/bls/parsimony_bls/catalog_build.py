@@ -34,7 +34,7 @@ def build_series_catalog(survey: str, *, max_rows: int = 0) -> Catalog:
     raw_entries = list(Result(raw=result.raw, output_spec=series_enum_output(sv)).entities.values())
     dim_codes = discover_dim_codes(raw_entries)
     entries = series_entries(raw_entries, dim_codes)
-    catalog = Catalog(series_namespace(sv), default_field="title")
+    catalog = Catalog(series_namespace(sv))
     catalog.set_entities(entries)
     catalog.set_indexes(series_indexes(entries, dim_codes))
     catalog.build()
@@ -73,7 +73,7 @@ def build_surveys_catalog(
     entries = list(result.entities.values())
     if manifests:
         entries = attach_manifests(entries, manifests)
-    catalog = Catalog(SURVEYS_NAMESPACE, indexes=surveys_indexes(entries), default_field="title")
+    catalog = Catalog(SURVEYS_NAMESPACE, indexes=surveys_indexes(entries))
     catalog.set_entities(entries)
     catalog.build()
     return catalog

@@ -38,7 +38,7 @@ class _FakeCatalog:
         self._title = title
         self._metadata = metadata or {}
 
-    def search(self, query, limit, *, namespaces=None):  # noqa: ARG002
+    def search(self, query, limit):  # noqa: ARG002
         from parsimony.catalog import CatalogMatch
 
         return [
@@ -63,16 +63,18 @@ def test_databases_search_output_includes_dispatch_columns() -> None:
     assert [c.name for c in cfg.columns] == [
         "db",
         "title",
-        "score",
         "category",
         "series_namespace",
+        "coverage",
+        "score",
+        "matched",
     ]
 
 
 def test_series_search_output_includes_db_for_fetch() -> None:
     cfg = boj_series_search.output_spec
     assert cfg is not None
-    assert [c.name for c in cfg.columns] == ["code", "title", "score", "db"]
+    assert [c.name for c in cfg.columns] == ["code", "title", "db", "coverage", "score", "matched"]
 
 
 def test_series_search_loads_per_db_namespace(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -129,7 +131,7 @@ def test_env_overrides_catalog_root(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_empty_series_search_raises_empty_data(monkeypatch: pytest.MonkeyPatch) -> None:
     class _EmptyCatalog:
-        def search(self, query, limit, *, namespaces=None):  # noqa: ARG002
+        def search(self, query, limit):  # noqa: ARG002
             return []
 
     def _spy_load(url: str) -> Any:  # noqa: ARG001

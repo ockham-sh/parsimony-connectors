@@ -258,11 +258,10 @@ def series_from_dimensions(
     missing/empty dimensions payload, or a product over :data:`_MAX_SERIES_PER_CUBE`,
     collapses to a single cube-level row.
     """
+
     def _collapsed() -> list[dict[str, str]]:
         return [
-            cube_level_row(
-                cube_id, source=source, title=cube_title, category=category, frequency=frequency, unit=unit
-            )
+            cube_level_row(cube_id, source=source, title=cube_title, category=category, frequency=frequency, unit=unit)
         ]
 
     dims = (dimensions_payload or {}).get("dimensions") or []

@@ -15,7 +15,6 @@ DESTATIS_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="destatis"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="score", role=ColumnRole.DATA),
     ]
 )
 
@@ -26,7 +25,7 @@ destatis_search = make_local_search_connector(
     build_catalog=build_destatis_catalog,
     tags=["macro", "de", "tool"],
     description=(
-        "Semantic-search the German Federal Statistical Office (Destatis) GENESIS-Online catalog. "
+        "Search the German Federal Statistical Office (Destatis) GENESIS-Online catalog. "
         "Pass returned code to destatis_fetch(name=...)."
     ),
     output_columns=DESTATIS_SEARCH_OUTPUT.columns,

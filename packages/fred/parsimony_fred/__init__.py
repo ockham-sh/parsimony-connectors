@@ -79,9 +79,7 @@ def _client(api_key: str) -> HttpClient:
     raises :class:`UnauthorizedError` before any network call.
     """
     key = require_key(api_key, env_var=_ENV_VAR, provider="fred")
-    return make_http_client(
-        _BASE_URL, provider="fred", query_params={"api_key": key, "file_type": "json"}
-    )
+    return make_http_client(_BASE_URL, provider="fred", query_params={"api_key": key, "file_type": "json"})
 
 
 def _get_json(http: HttpClient, *, path: str, params: dict[str, Any], op_name: str) -> Any:

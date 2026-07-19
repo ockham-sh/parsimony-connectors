@@ -83,9 +83,7 @@ def _client(api_key: str, *, timeout: float = _DEFAULT_TIMEOUT_SECONDS) -> HttpC
     (which sets exactly that param) fits.
     """
     key = require_key(api_key, env_var=_ENV_VAR, provider=_PROVIDER)
-    return make_api_key_client(
-        _BASE_URL, provider=_PROVIDER, api_key=key, api_key_param="apikey", timeout=timeout
-    )
+    return make_api_key_client(_BASE_URL, provider=_PROVIDER, api_key=key, api_key_param="apikey", timeout=timeout)
 
 
 def fmp_get(

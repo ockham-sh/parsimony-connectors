@@ -35,5 +35,4 @@ def snapshot_meta_for(catalog: Catalog, catalog_url: str) -> CatalogMeta:
         namespaces=[],
         entry_count=len(catalog),
         index_fields=index_fields_from_catalog(catalog),
-        default_field=catalog.default_field,
     )

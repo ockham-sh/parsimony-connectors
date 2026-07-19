@@ -54,9 +54,7 @@ def sec_edgar_full_text_search(
     if not q:
         raise InvalidParameterError(PROVIDER, "query is required")
     if (start_date is None) != (end_date is None):
-        raise InvalidParameterError(
-            PROVIDER, "provide both start_date and end_date (or neither)"
-        )
+        raise InvalidParameterError(PROVIDER, "provide both start_date and end_date (or neither)")
 
     params: dict[str, Any] = {"q": q, "forms": forms or None, "ciks": ciks or None}
     if start_date and end_date:
@@ -74,9 +72,7 @@ def sec_edgar_full_text_search(
 
     hits = payload.get("hits", {}).get("hits", []) if isinstance(payload.get("hits"), dict) else []
     if not hits:
-        raise EmptyDataError(
-            PROVIDER, message=f"No filings matched {query!r}", query_params={"query": q}
-        )
+        raise EmptyDataError(PROVIDER, message=f"No filings matched {query!r}", query_params={"query": q})
 
     rows: list[dict[str, Any]] = []
     for hit in hits[: max(1, min(limit, _FTS_PAGE))]:

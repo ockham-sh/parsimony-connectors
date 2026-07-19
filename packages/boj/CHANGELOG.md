@@ -4,6 +4,22 @@ All notable changes to `parsimony-boj` will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- The search connectors now end with the uniform ranking trio — `coverage`,
+  `score`, `matched` (core's shared column definitions): coverage is the
+  provable fraction of the query, score the fuzzy similarity, matched the
+  evidence origin (`lexical` / `semantic` / `both`). An all-`semantic` result
+  page means nothing lexically real matched: rephrase the query.
+
+### Changed
+
+- Catalog builds use explicit role-based index choice (core removed
+  `adaptive_field_index`); database and series title/description indexes stay
+  hybrid. Published catalogs are unaffected until their next rebuild.
+
 ## [0.8.0] — 2026-06-09
 
 Re-run through the full connector guidebook process and **live-verified** against

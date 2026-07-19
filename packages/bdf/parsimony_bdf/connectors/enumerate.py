@@ -50,9 +50,7 @@ def _list_datasets(fetcher: ThrottledJsonFetcher) -> list[dict[str, Any]]:
     A crawl seam: tests monkeypatch this to a small slice to bound the fan-out.
     """
     url = f"{BASE_URL}/{DATASETS_PATH}"
-    payload = fetcher.get_json(
-        url, params={"select": DATASETS_SELECT, "order_by": "dataset_id"}, label="datasets"
-    )
+    payload = fetcher.get_json(url, params={"select": DATASETS_SELECT, "order_by": "dataset_id"}, label="datasets")
     if not isinstance(payload, list):
         return []
     return [d for d in payload if isinstance(d, dict)]

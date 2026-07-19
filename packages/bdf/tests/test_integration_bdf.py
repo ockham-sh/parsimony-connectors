@@ -159,7 +159,7 @@ def test_bdf_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     ]
     df = pd.DataFrame(rows, columns=list(ENUMERATE_COLUMNS))
     entries = list(Result(raw=df, output_spec=BDF_ENUMERATE_OUTPUT).entities.values())
-    catalog = Catalog("bdf", indexes=discovery_indexes(entries), default_field="title")
+    catalog = Catalog("bdf", indexes=discovery_indexes(entries))
     catalog.set_entities(entries)
     catalog.build()
     out_dir = tmp_path / "bdf_catalog"
@@ -169,7 +169,7 @@ def test_bdf_search_over_bounded_catalog_live(tmp_path: Path) -> None:
 
     assert_provenance_shape(result, expected_source="bdf_search", required_param_keys=["query"])
     sdf = result.raw
-    assert list(sdf.columns) == ["code", "title", "score"]
+    assert list(sdf.columns) == ["code", "title", "coverage", "score", "matched"]
     assert not sdf.empty, "search over the fixture catalog returned nothing"
     assert len(sdf) <= 3
     assert sdf.iloc[0]["code"] == "EXR.M.USD.EUR.SP00.E"

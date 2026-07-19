@@ -179,7 +179,7 @@ def test_snb_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     ]
     df = pd.DataFrame(rows, columns=cols)
     entries = list(Result(raw=df, output_spec=SNB_ENUMERATE_OUTPUT).entities.values())
-    catalog = Catalog("snb", indexes=discovery_indexes(entries), default_field="title")
+    catalog = Catalog("snb", indexes=discovery_indexes(entries))
     catalog.set_entities(entries)
     catalog.build()
     out_dir = tmp_path / "snb_catalog"
@@ -188,7 +188,17 @@ def test_snb_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     result = snb_search(query="Swiss Confederation bond yields", limit=5, catalog_url=str(out_dir))
     assert_provenance_shape(result, expected_source="snb_search", required_param_keys=["query"])
     sdf = result.raw
-    assert list(sdf.columns) == ["code", "title", "score"]
+    assert list(sdf.columns) == [
+        "code",
+        "title",
+        "cube_id",
+        "series_key",
+        "frequency",
+        "category",
+        "coverage",
+        "score",
+        "matched",
+    ]
     assert not sdf.empty
     assert sdf.iloc[0]["code"] == "rendoblim#10J"
 

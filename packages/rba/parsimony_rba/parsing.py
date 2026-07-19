@@ -48,12 +48,7 @@ def _is_nondata_sheet(name: str) -> bool:
     ``"Notes "``, ``"AGS - Notes"`` and ``"Use of Expert Judgement"`` are all caught.
     """
     low = name.lower()
-    return (
-        "note" in low
-        or "series breaks" in low
-        or "expert judgement" in low
-        or "expert judgment" in low
-    )
+    return "note" in low or "series breaks" in low or "expert judgement" in low or "expert judgment" in low
 
 
 # ---------------------------------------------------------------------------
@@ -440,9 +435,7 @@ def _parse_csv_metadata(text: str, csv_url: str) -> list[dict[str, str]]:
         return []
 
     try:
-        reader = pd.read_csv(
-            io.StringIO("\n".join(content_lines)), header=None, dtype=str, nrows=10
-        )
+        reader = pd.read_csv(io.StringIO("\n".join(content_lines)), header=None, dtype=str, nrows=10)
     except Exception:
         return []
 

@@ -11,12 +11,26 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from parsimony.catalog import BM25Index, CatalogIndex, Entity
-from parsimony.catalog.policy import adaptive_field_index
+from parsimony.catalog import BM25Index, CatalogIndex, Entity, HybridIndex, VectorIndex
+from parsimony.embedder import EmbeddingProvider, SentenceTransformerEmbedder
 
 LABEL_SUFFIX = "_label"
 CODE_SUFFIX = "_code"
 DEFAULT_MAX_VALUES_PER_DIMENSION = 12
+
+_DEFAULT_EMBEDDER: EmbeddingProvider | None = None
+
+
+def _shared_embedder() -> EmbeddingProvider:
+    global _DEFAULT_EMBEDDER
+    if _DEFAULT_EMBEDDER is None:
+        _DEFAULT_EMBEDDER = SentenceTransformerEmbedder()
+    return _DEFAULT_EMBEDDER
+
+
+def _hybrid_index() -> HybridIndex:
+    """BM25 + vector over a bounded discovery/label vocabulary."""
+    return HybridIndex(components=[BM25Index(), VectorIndex(embedder=_shared_embedder())])
 
 
 def discover_dim_codes(entries: Sequence[Entity]) -> list[str]:
@@ -54,21 +68,36 @@ def series_entries(entries: Sequence[Entity], dim_codes: list[str]) -> list[Enti
 
 
 def series_indexes(entries: Sequence[Entity], dim_codes: list[str]) -> dict[str, CatalogIndex]:
-    """Per-survey series indexes: BM25 code, adaptive title + adaptive per dimension."""
+    """Per-survey series indexes, index kind by field role.
+
+    ``code`` is a series identifier and ``title`` is row-composed text — both
+    have as many distinct values as there are series, so BM25 alone (vector
+    semantics over per-row strings buy nothing). Each ``<dim>`` field holds a
+    bounded label vocabulary (area names, item names, …), so it carries a
+    vector component for semantic label matching. *entries* is kept for
+    call-site compatibility; the role policy does not inspect it.
+    """
+    del entries
     indexes: dict[str, CatalogIndex] = {
         "code": BM25Index(),
-        "title": adaptive_field_index("title", entries),
+        "title": BM25Index(),
     }
     for dim in dim_codes:
-        indexes[dim] = adaptive_field_index(dim, entries)
+        indexes[dim] = _hybrid_index()
     return indexes
 
 
 def surveys_indexes(entries: Sequence[Entity]) -> dict[str, CatalogIndex]:
-    """Tier-1 survey catalog indexes: BM25 code (survey abbrev) + adaptive title."""
+    """Tier-1 survey catalog indexes: BM25 code (survey abbrev) + hybrid title.
+
+    The survey catalog is a small discovery catalog — one bounded title per
+    survey — so the title carries a vector component; the code (survey abbrev)
+    is an identifier, BM25 only. *entries* is kept for call-site compatibility.
+    """
+    del entries
     return {
         "code": BM25Index(),
-        "title": adaptive_field_index("title", entries),
+        "title": _hybrid_index(),
     }
 
 

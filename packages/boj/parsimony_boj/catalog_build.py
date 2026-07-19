@@ -10,7 +10,7 @@ import pandas as pd
 from parsimony.catalog import BM25Index, Catalog, CatalogIndex, Entity
 from parsimony.result import OutputSpec, Result
 
-from parsimony_boj.catalog_policy import adaptive_field_index, discovery_indexes
+from parsimony_boj.catalog_policy import discovery_indexes, hybrid_index
 
 DATABASES_NAMESPACE = "boj_databases"
 DEFAULT_CATALOG_ROOT = "hf://parsimony-dev/boj"
@@ -139,15 +139,16 @@ def databases_indexes(entries: Sequence[Entity]) -> dict[str, CatalogIndex]:
 
 
 def series_indexes(entries: Sequence[Entity]) -> dict[str, CatalogIndex]:
+    del entries
     return {
         "code": BM25Index(),
-        "title": adaptive_field_index("title", entries),
-        "description": adaptive_field_index("description", entries),
+        "title": hybrid_index(),
+        "description": hybrid_index(),
     }
 
 
 def build_databases_catalog(entries: Sequence[Entity]) -> Catalog:
-    catalog = Catalog(DATABASES_NAMESPACE, default_field="title")
+    catalog = Catalog(DATABASES_NAMESPACE)
     catalog.set_entities(list(entries))
     catalog.set_indexes(databases_indexes(entries))
     catalog.build()
@@ -156,7 +157,7 @@ def build_databases_catalog(entries: Sequence[Entity]) -> Catalog:
 
 def build_series_catalog(db_code: str, entries: Sequence[Entity]) -> Catalog:
     namespace = series_namespace(db_code)
-    catalog = Catalog(namespace, default_field="title")
+    catalog = Catalog(namespace)
     catalog.set_entities(list(entries))
     catalog.set_indexes(series_indexes(entries))
     catalog.build()

@@ -223,9 +223,7 @@ def alpha_vantage_quote(symbol: Annotated[str, Namespace("alpha_vantage")], *, a
     }
     df = pd.DataFrame([row])
     df["latest_trading_day"] = pd.to_datetime(df["latest_trading_day"]).dt.date
-    return _coerce_numeric(
-        df, ("price", "open", "high", "low", "volume", "previous_close", "change", "change_percent")
-    )
+    return _coerce_numeric(df, ("price", "open", "high", "low", "volume", "previous_close", "change", "change_percent"))
 
 
 # ---------------------------------------------------------------------------

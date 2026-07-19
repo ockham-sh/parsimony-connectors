@@ -1,7 +1,8 @@
-"""Semantic search over the published US Treasury catalog.
+"""Search the published US Treasury catalog.
 
-Row ``description`` text drives relevance via the catalog discovery indexes; the result
-carries source/endpoint/field so an agent can dispatch without string-splitting the code.
+Matches queries against the titles and descriptions of a small prebuilt discovery
+catalog. The result carries source/endpoint/field so an agent can dispatch without
+string-splitting the code.
 """
 
 from __future__ import annotations
@@ -22,7 +23,6 @@ TREASURY_SEARCH_OUTPUT = OutputSpec(
         Column(name="source", role=ColumnRole.METADATA),
         Column(name="endpoint", role=ColumnRole.METADATA),
         Column(name="field", role=ColumnRole.METADATA),
-        Column(name="score", role=ColumnRole.DATA),
     ]
 )
 
@@ -33,7 +33,7 @@ treasury_search = make_local_search_connector(
     build_catalog=build_treasury_catalog,
     tags=["macro", "us", "tool"],
     description=(
-        "Semantic-search the US Treasury catalog (Fiscal Data + ODM rate feeds). "
+        "Search the US Treasury catalog (Fiscal Data + ODM rate feeds) by keyword. "
         "Dispatch: source=treasury_rates → treasury_rates_fetch(feed=endpoint); "
         "source=fiscal_data → treasury_fetch(endpoint=endpoint)."
     ),

@@ -199,9 +199,7 @@ def fetch_series_rows(
     sv = normalize_survey(survey).lower()
     size = series_file_size(session, survey)
     if size == -1:
-        raise InvalidParameterError(
-            "bls", f"survey {survey!r} has no .series file on download.bls.gov"
-        )
+        raise InvalidParameterError("bls", f"survey {survey!r} has no .series file on download.bls.gov")
     if size > max_bytes:
         raise InvalidParameterError(
             "bls",
@@ -246,9 +244,7 @@ def fetch_dimension_tables(
             continue
         if wanted is not None and suffix not in wanted:
             continue
-        text = download_text(
-            session, f"{DOWNLOAD_BASE}/{sv}/{name}", op_name="dimension_table"
-        )
+        text = download_text(session, f"{DOWNLOAD_BASE}/{sv}/{name}", op_name="dimension_table")
         cols, rows = parse_tsv(text)
         label_map = build_label_map(cols, rows)
         if label_map:

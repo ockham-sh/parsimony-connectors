@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from parsimony.catalog.search import RANKING_COLUMNS
 from parsimony.result import Column, ColumnRole, OutputSpec
 
 from parsimony_bls.surveys import SURVEYS_NAMESPACE, series_namespace
@@ -69,13 +70,13 @@ BLS_SURVEYS_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace=SURVEYS_NAMESPACE),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="score", role=ColumnRole.DATA),
         Column(name="survey", role=ColumnRole.METADATA),
         Column(
             name="dimensions",
             role=ColumnRole.METADATA,
             description="Dimension manifest (codes + labels) for series-id construction.",
         ),
+        *RANKING_COLUMNS,
     ]
 )
 
@@ -83,9 +84,9 @@ BLS_SERIES_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="series_id", role=ColumnRole.KEY, namespace="bls"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="score", role=ColumnRole.DATA),
         Column(name="survey", role=ColumnRole.METADATA),
         Column(name="namespace", role=ColumnRole.METADATA),
+        *RANKING_COLUMNS,
     ]
 )
 

@@ -4,6 +4,13 @@ All notable changes to `parsimony-treasury` will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- `treasury_search` documentation states the discovery-catalog mechanism
+  neutrally instead of overclaiming description-driven relevance.
+
 ## [0.8.0] — 2026-06-09
 
 Re-run through the connector-guidebook process with deep, live exploration.

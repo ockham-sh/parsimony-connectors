@@ -63,7 +63,7 @@ connectors = discover.load_all()
 
 Catalog building is an operator workflow. Use `scripts/build_catalog.py` for individual dataset snapshots and `scripts/build_all_catalogs.py` for full SDMX release roots. Indexing policy lives in `parsimony_sdmx/catalog_policy.py`:
 
-- **Dataset catalogs** — hybrid BM25+vector on `title`/`description` when unique text count is below **1,000**, otherwise BM25-only.
+- **Dataset catalogs** — BM25 `code` (the composite `{agency}|{dataset_id}` key) plus a hybrid BM25+vector `title`. No description index: DSD-vocabulary text matches flows that break down *by* a subject, not flows *about* it.
 - **Series catalogs** — per-flow parquet-backed catalogs with a title index plus code/label indexes for each DSD dimension. Dimension codes/labels are indexed here, per flow — there are no standalone codelist catalogs.
 
 Namespaces:

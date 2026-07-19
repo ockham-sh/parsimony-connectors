@@ -1,9 +1,6 @@
 from parsimony.catalog import BM25Index, HybridIndex
-from parsimony.ranking import ZScoreFusion
 
 from parsimony_sdmx.catalog_policy import (
-    HYBRID_BM25_WEIGHT,
-    HYBRID_VECTOR_WEIGHT,
     sdmx_datasets_indexes,
     sdmx_title_index,
 )
@@ -11,10 +8,6 @@ from parsimony_sdmx.catalog_policy import (
 
 def _assert_hybrid_index(index: HybridIndex) -> None:
     assert set(index._components) == {"bm25", "vector"}
-    fusion = index._fusion
-    assert isinstance(fusion, ZScoreFusion)
-    assert fusion.weights["bm25"] == HYBRID_BM25_WEIGHT
-    assert fusion.weights["vector"] == HYBRID_VECTOR_WEIGHT
 
 
 def test_sdmx_title_index_is_hybrid() -> None:

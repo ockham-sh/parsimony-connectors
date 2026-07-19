@@ -58,6 +58,7 @@ class HttpConfig:
 RETRY_STATUS_FORCELIST = (429, 500, 502, 503, 504)
 RETRY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
+
 # TCP keepalive: detect CLOSE-WAIT connections (remote sent FIN mid-transfer)
 # that the read_timeout never catches, because EOF is not a timeout event.
 # After the idle timer the kernel probes; after TCP_KEEPCNT failed probes it

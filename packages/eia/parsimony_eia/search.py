@@ -15,7 +15,6 @@ EIA_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="eia"),
         Column(name="title", role=ColumnRole.TITLE),
-        Column(name="score", role=ColumnRole.DATA),
     ]
 )
 
@@ -26,12 +25,10 @@ eia_search = make_local_search_connector(
     build_catalog=build_eia_catalog,
     tags=["macro", "energy", "us", "tool"],
     description=(
-        "Semantic-search the U.S. Energy Information Administration (EIA) Open Data catalog of "
-        "energy datasets (petroleum, natural gas, electricity, coal, nuclear, renewables, "
-        "emissions, international). Each hit is a dataset route plus its measure and facet "
-        "vocabulary; pass the route to eia_fetch(route=..., measure=..., facets=...) for "
-        "observations, eia_facets(route=..., facet=...) to list a facet's values, or use "
-        "eia_fetch_series(series_id=...) for a known legacy series id like PET.RWTC.D."
+        "Search the U.S. Energy Information Administration (EIA) catalog of energy "
+        "datasets: petroleum, natural gas, electricity, coal, nuclear, renewables, emissions. "
+        "Each hit is a dataset route plus measure and facet vocabulary for eia_fetch; "
+        "eia_facets lists a facet's values; eia_fetch_series handles legacy ids like PET.RWTC.D."
     ),
     output_columns=EIA_SEARCH_OUTPUT.columns,
 )

@@ -83,9 +83,11 @@ def bls_surveys_search(query: str, limit: int = 10, catalog_root: str | None = N
             {
                 "code": m.code,
                 "title": m.title,
-                "score": round(m.score, 6),
                 "survey": str(meta.get("survey", m.code)),
                 "dimensions": dimensions if isinstance(dimensions, list) else [],
+                "coverage": round(m.coverage, 6),
+                "score": round(m.score, 6),
+                "matched": m.matched,
             }
         )
     return pd.DataFrame(rows)
@@ -116,9 +118,7 @@ def bls_series_search(
     q = query.strip() or None
     filter_spec = {col: [str(val)] for col, val in filters.items()} if filters else None
     if q is None and not filter_spec:
-        raise InvalidParameterError(
-            "bls", "bls_series_search requires query= and/or filters=."
-        )
+        raise InvalidParameterError("bls", "bls_series_search requires query= and/or filters=.")
 
     def _build() -> Catalog:
         return build_series_catalog(sv)
@@ -139,9 +139,11 @@ def bls_series_search(
             {
                 "series_id": m.code,
                 "title": m.title,
-                "score": round(m.score, 6),
                 "survey": sv,
                 "namespace": m.namespace,
+                "coverage": round(m.coverage, 6),
+                "score": round(m.score, 6),
+                "matched": m.matched,
             }
             for m in matches
         ]

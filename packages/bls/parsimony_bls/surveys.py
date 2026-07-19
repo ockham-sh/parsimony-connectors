@@ -52,9 +52,7 @@ def normalize_survey(survey: str) -> str:
     """Validate and upper-case a survey abbreviation (e.g. ``" cu "`` → ``"CU"``)."""
     raw = (survey or "").strip().upper()
     if not (2 <= len(raw) <= 4) or not raw.isalnum():
-        raise InvalidParameterError(
-            "bls", f"survey must be a 2-4 char BLS abbreviation (e.g. 'CU'); got {survey!r}"
-        )
+        raise InvalidParameterError("bls", f"survey must be a 2-4 char BLS abbreviation (e.g. 'CU'); got {survey!r}")
     return raw
 
 

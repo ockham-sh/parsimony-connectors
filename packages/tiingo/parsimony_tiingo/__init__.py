@@ -99,9 +99,7 @@ def _client(api_key: str) -> HttpClient:
     key raises :class:`UnauthorizedError` before any network call.
     """
     key = require_key(api_key, env_var=_ENV_VAR, provider=_PROVIDER)
-    return make_http_client(
-        _BASE_URL, provider=_PROVIDER, headers={"Authorization": f"Token {key}"}, timeout=_TIMEOUT
-    )
+    return make_http_client(_BASE_URL, provider=_PROVIDER, headers={"Authorization": f"Token {key}"}, timeout=_TIMEOUT)
 
 
 def _safe_ticker(ticker: str) -> str:

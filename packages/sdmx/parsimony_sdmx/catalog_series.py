@@ -17,9 +17,7 @@ from parsimony.catalog.contracts import CatalogBackendConfig
 from parsimony.catalog.indexes import CatalogIndex
 from parsimony.catalog.storage import read_meta
 from parsimony.embedder import SentenceTransformerEmbedder
-from parsimony.ranking import ZScoreFusion
 
-from parsimony_sdmx.catalog_policy import HYBRID_BM25_WEIGHT, HYBRID_VECTOR_WEIGHT
 from parsimony_sdmx.core.agencies import AgencyId, to_namespace_token
 from parsimony_sdmx.core.models import StructureRecord
 from parsimony_sdmx.core.titles import compose_series_title
@@ -297,7 +295,6 @@ def collect_distinct_from_columnar(
 def _dim_label_index(embedder: SentenceTransformerEmbedder | None) -> HybridIndex:
     return HybridIndex(
         components=[BM25Index(), VectorIndex(embedder=embedder or SentenceTransformerEmbedder())],
-        fusion=ZScoreFusion(weights={"bm25": HYBRID_BM25_WEIGHT, "vector": HYBRID_VECTOR_WEIGHT}),
     )
 
 
@@ -391,7 +388,6 @@ def build_series_catalog(
     catalog = Catalog(
         namespace,
         indexes=indexes,
-        default_field="title",
         field_links=field_links,
     )
     catalog.set_entities(entities)

@@ -20,7 +20,6 @@ RIKSBANK_SEARCH_OUTPUT = OutputSpec(
         Column(name="code", role=ColumnRole.KEY, namespace="riksbank"),
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="source", role=ColumnRole.METADATA),
-        Column(name="score", role=ColumnRole.DATA),
     ]
 )
 
@@ -37,13 +36,10 @@ riksbank_search = make_local_search_connector(
     build_catalog=build_riksbank_catalog,
     tags=["macro", "se", "tool"],
     description=(
-        "Semantic-search the Sveriges Riksbank catalog across all five products (SWEA "
-        "rates, SWESTR, Monetary Policy, Turnover, Holdings). Route the result `code`: a bare SWESTR id "
-        "(SWESTR, SWESTRAVG*) -> riksbank_swestr_fetch(series=...); a bare SWEA id -> "
-        "riksbank_fetch(series_id=...); `monetary_policy/<id>` -> "
-        "riksbank_monetary_policy_fetch(series=<id>); `turnover/<market>/<frequency>` -> "
-        "riksbank_turnover_fetch(market=, frequency=); `holdings/<dataset>` -> "
-        "riksbank_holdings_fetch(dataset=<dataset>)."
+        "Search the Sveriges Riksbank catalog across its five products (SWEA rates, "
+        "SWESTR, Monetary Policy, Turnover, Holdings). Route the result `code`: SWESTR* ids -> "
+        "riksbank_swestr_fetch; other bare ids -> riksbank_fetch; prefixed codes "
+        "(monetary_policy/, turnover/, holdings/) -> the matching riksbank_*_fetch."
     ),
     output_columns=RIKSBANK_SEARCH_OUTPUT.columns,
     metadata_columns=("source",),

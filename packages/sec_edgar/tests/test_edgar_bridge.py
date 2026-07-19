@@ -49,21 +49,23 @@ def _wide_df() -> pd.DataFrame:
     sales, dimension=True) that the melt must drop so each concept stays at the
     consolidated top line.
     """
-    return pd.DataFrame({
-        "concept": ["us-gaap_Revenues", "us-gaap_Revenues", "us-gaap_NetIncomeLoss"],
-        "label": ["Net sales", "iPhone", "Net Income"],
-        "standard_concept": ["Revenue", None, "NetIncomeLoss"],
-        "level": [4, 4, 4],
-        "abstract": [False, False, False],
-        "dimension": [False, True, False],  # row 1 is a product breakdown → must be dropped
-        "is_breakdown": [False, False, False],
-        "balance": ["credit", "credit", "credit"],
-        "weight": [1.0, 1.0, 1.0],  # float metadata: would survive dropna if it leaked into periods
-        "preferred_sign": [1.0, 1.0, 1.0],
-        "parent_concept": ["us-gaap_GrossProfit", "us-gaap_GrossProfit", None],
-        "2023-09-30 (FY)": [383285000000, 200583000000, 96995000000],
-        "2022-09-24 (FY)": [394328000000, 205489000000, 99803000000],
-    })
+    return pd.DataFrame(
+        {
+            "concept": ["us-gaap_Revenues", "us-gaap_Revenues", "us-gaap_NetIncomeLoss"],
+            "label": ["Net sales", "iPhone", "Net Income"],
+            "standard_concept": ["Revenue", None, "NetIncomeLoss"],
+            "level": [4, 4, 4],
+            "abstract": [False, False, False],
+            "dimension": [False, True, False],  # row 1 is a product breakdown → must be dropped
+            "is_breakdown": [False, False, False],
+            "balance": ["credit", "credit", "credit"],
+            "weight": [1.0, 1.0, 1.0],  # float metadata: would survive dropna if it leaked into periods
+            "preferred_sign": [1.0, 1.0, 1.0],
+            "parent_concept": ["us-gaap_GrossProfit", "us-gaap_GrossProfit", None],
+            "2023-09-30 (FY)": [383285000000, 200583000000, 96995000000],
+            "2022-09-24 (FY)": [394328000000, 205489000000, 99803000000],
+        }
+    )
 
 
 def test_melt_produces_tidy_long_format() -> None:
@@ -75,8 +77,17 @@ def test_melt_produces_tidy_long_format() -> None:
 
 def test_melt_drops_non_period_metadata_cols() -> None:
     result = bridge._melt_statement(_wide_df())
-    for leaked in ("level", "abstract", "dimension", "is_breakdown", "standard_concept",
-                   "balance", "weight", "preferred_sign", "parent_concept"):
+    for leaked in (
+        "level",
+        "abstract",
+        "dimension",
+        "is_breakdown",
+        "standard_concept",
+        "balance",
+        "weight",
+        "preferred_sign",
+        "parent_concept",
+    ):
         assert leaked not in result.columns
 
 
@@ -119,11 +130,13 @@ def test_melt_drops_nan_values() -> None:
 
 
 def test_melt_single_period() -> None:
-    df = pd.DataFrame({
-        "concept": ["Assets"],
-        "label": ["Total Assets"],
-        "2023-12-31": [500000000],
-    })
+    df = pd.DataFrame(
+        {
+            "concept": ["Assets"],
+            "label": ["Total Assets"],
+            "2023-12-31": [500000000],
+        }
+    )
     result = bridge._melt_statement(df)
     assert len(result) == 1
     assert result.iloc[0]["period"] == "2023-12-31"
@@ -224,19 +237,21 @@ def test_sync_get_insider_transactions_broken_filings_skipped() -> None:
 
 
 def test_sync_get_insider_transactions_renames_columns() -> None:
-    raw_df = pd.DataFrame({
-        "Transaction Type": ["Sale"],
-        "Code": ["S"],
-        "Shares": [100000.0],
-        "Price": [182.5],
-        "Value": [18250000.0],
-        "Date": pd.to_datetime(["2024-01-15"]),
-        "Issuer": ["Apple Inc."],
-        "Ticker": ["AAPL"],
-        "Insider": ["Cook Timothy D"],
-        "Position": ["CEO"],
-        "Remaining Shares": [3500000.0],
-    })
+    raw_df = pd.DataFrame(
+        {
+            "Transaction Type": ["Sale"],
+            "Code": ["S"],
+            "Shares": [100000.0],
+            "Price": [182.5],
+            "Value": [18250000.0],
+            "Date": pd.to_datetime(["2024-01-15"]),
+            "Issuer": ["Apple Inc."],
+            "Ticker": ["AAPL"],
+            "Insider": ["Cook Timothy D"],
+            "Position": ["CEO"],
+            "Remaining Shares": [3500000.0],
+        }
+    )
     form4 = MagicMock()
     form4.to_dataframe.return_value = raw_df
     filing = MagicMock()
@@ -291,19 +306,21 @@ def test_sync_get_holdings_13f_empty_holdings_raises_empty() -> None:
 
 
 def test_sync_get_holdings_13f_renames_columns() -> None:
-    raw_holdings = pd.DataFrame({
-        "Issuer": ["Apple Inc."],
-        "Class": ["COM"],
-        "Cusip": ["037833100"],
-        "Ticker": ["AAPL"],
-        "Type": ["SH"],
-        "PutCall": [None],
-        "SharesPrnAmount": [5000000.0],
-        "Value": [912500000.0],
-        "SoleVoting": [5000000.0],
-        "SharedVoting": [0.0],
-        "NonVoting": [0.0],
-    })
+    raw_holdings = pd.DataFrame(
+        {
+            "Issuer": ["Apple Inc."],
+            "Class": ["COM"],
+            "Cusip": ["037833100"],
+            "Ticker": ["AAPL"],
+            "Type": ["SH"],
+            "PutCall": [None],
+            "SharesPrnAmount": [5000000.0],
+            "Value": [912500000.0],
+            "SoleVoting": [5000000.0],
+            "SharedVoting": [0.0],
+            "NonVoting": [0.0],
+        }
+    )
     thirteenf = MagicMock()
     thirteenf.holdings = raw_holdings
     filing = MagicMock()

@@ -49,10 +49,9 @@ def _sample_entries() -> list:
 def test_discovery_indexes_for_rba_sample() -> None:
     entries = _sample_entries()
     indexes = discovery_indexes(entries)
-    catalog = Catalog(CATALOG_NAMESPACE, indexes=indexes, default_field="title")
+    catalog = Catalog(CATALOG_NAMESPACE, indexes=indexes)
 
     assert catalog.name == "rba"
-    assert catalog.default_field == "title"
     assert set(indexes) == {"code", "title", "description"}
     assert isinstance(indexes["code"], BM25Index)
     assert isinstance(indexes["title"], HybridIndex)

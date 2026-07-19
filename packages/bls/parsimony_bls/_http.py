@@ -44,9 +44,7 @@ DOWNLOAD_TIMEOUT = 120.0
 DEFAULT_MAX_SERIES_ROWS = 2_000_000
 
 
-def post_api_json(
-    http: HttpClient, path: str, payload: dict[str, Any], *, op_name: str
-) -> Any:
+def post_api_json(http: HttpClient, path: str, payload: dict[str, Any], *, op_name: str) -> Any:
     """POST a JSON body to the BLS API and return parsed JSON.
 
     ``fetch_json`` is GET-only, so the POST data path issues the request directly

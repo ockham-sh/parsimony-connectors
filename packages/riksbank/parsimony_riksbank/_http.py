@@ -72,9 +72,7 @@ def turnover_client(api_key: str = "") -> HttpClient:
     return _client(TURNOVER_BASE, api_key)
 
 
-def get_json_literal_query(
-    base_url: str, query: dict[str, str] | None, *, api_key: str, op_name: str
-) -> Any:
+def get_json_literal_query(base_url: str, query: dict[str, str] | None, *, api_key: str, op_name: str) -> Any:
     """Raw keyless JSON GET that preserves literal characters in the query string.
 
     The shared :class:`HttpClient` hands query values to httpx's encoder, which

@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from parsimony.catalog import BM25Index, CatalogIndex, HybridIndex, VectorIndex
-from parsimony.catalog.policy import HYBRID_BM25_WEIGHT, HYBRID_VECTOR_WEIGHT
 from parsimony.embedder import EmbeddingProvider, SentenceTransformerEmbedder
-from parsimony.ranking import ZScoreFusion
 
 
 def sdmx_title_index(embedder: EmbeddingProvider | None = None) -> HybridIndex:
@@ -19,7 +17,6 @@ def sdmx_title_index(embedder: EmbeddingProvider | None = None) -> HybridIndex:
     """
     return HybridIndex(
         components=[BM25Index(), VectorIndex(embedder=embedder or SentenceTransformerEmbedder())],
-        fusion=ZScoreFusion(weights={"bm25": HYBRID_BM25_WEIGHT, "vector": HYBRID_VECTOR_WEIGHT}),
     )
 
 
@@ -40,8 +37,6 @@ def sdmx_datasets_indexes(embedder: EmbeddingProvider | None = None) -> dict[str
 
 
 __all__ = [
-    "HYBRID_BM25_WEIGHT",
-    "HYBRID_VECTOR_WEIGHT",
     "sdmx_datasets_indexes",
     "sdmx_title_index",
 ]

@@ -228,7 +228,7 @@ def test_eia_search_over_bounded_catalog_live(tmp_path: Path) -> None:
     ]
     df = pd.DataFrame(rows, columns=[c.name for c in EIA_ENUMERATE_OUTPUT.columns])
     entries = list(Result(raw=df, output_spec=EIA_ENUMERATE_OUTPUT).entities.values())
-    catalog = Catalog("eia", indexes=discovery_indexes(entries), default_field="title")
+    catalog = Catalog("eia", indexes=discovery_indexes(entries))
     catalog.set_entities(entries)
     catalog.build()
     out_dir = tmp_path / "eia_catalog"

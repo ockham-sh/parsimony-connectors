@@ -50,9 +50,7 @@ _TIMEOUT = 60.0
 _ENUMERATE_CONCURRENCY = 8
 
 
-def _curl_get(
-    session: Session, url: str, *, op_name: str, binary: bool = False
-) -> str | bytes:
+def _curl_get(session: Session, url: str, *, op_name: str, binary: bool = False) -> str | bytes:
     """GET *url* via curl_cffi (Chrome impersonation) → text or bytes.
 
     The raw transport for an Akamai-blocked host: issue the GET, inspect

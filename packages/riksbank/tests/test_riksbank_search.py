@@ -111,7 +111,7 @@ def riksbank_catalog_dir(tmp_path: Path) -> Path:
     # Build OUTSIDE the respx mock: the hybrid index embeds via sentence-transformers,
     # which fetches its model from Hugging Face. Under respx (assert_all_mocked) that
     # request errors as "not mocked"; the mock is only needed for the enumerate HTTP.
-    catalog = Catalog("riksbank", indexes=discovery_indexes(entries), default_field="title")
+    catalog = Catalog("riksbank", indexes=discovery_indexes(entries))
     catalog.set_entities(entries)
     catalog.build()
     out_dir = tmp_path / "riksbank_catalog"
@@ -158,8 +158,8 @@ def test_riksbank_search_policy_rate(riksbank_catalog_dir: Path) -> None:
     assert result.raw.iloc[0]["code"] == "SECBREPOEFF"
 
 
-def test_riksbank_search_code_exact_match(riksbank_catalog_dir: Path) -> None:
-    result = riksbank_search(query="code: SEKEURPMI", limit=5, catalog_url=str(riksbank_catalog_dir))
+def test_riksbank_search_code_filter_exact_match(riksbank_catalog_dir: Path) -> None:
+    result = riksbank_search(filter={"code": "SEKEURPMI"}, limit=5, catalog_url=str(riksbank_catalog_dir))
     assert result.raw.iloc[0]["code"] == "SEKEURPMI"
     # exact-code hits no longer carry a sentinel score; ranking first is the guarantee.
 
@@ -171,6 +171,6 @@ def test_riksbank_search_usd_fx(riksbank_catalog_dir: Path) -> None:
 
 
 def test_riksbank_search_returns_source_column(riksbank_catalog_dir: Path) -> None:
-    result = riksbank_search(query="code: SEKEURPMI", limit=1, catalog_url=str(riksbank_catalog_dir))
+    result = riksbank_search(filter={"code": "SEKEURPMI"}, limit=1, catalog_url=str(riksbank_catalog_dir))
     assert "source" in result.raw.columns
     assert result.raw.iloc[0]["source"]

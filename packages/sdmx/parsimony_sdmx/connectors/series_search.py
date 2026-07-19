@@ -14,7 +14,7 @@ import pandas as pd
 import pyarrow.compute as pc
 import pyarrow.dataset as ds
 from parsimony.catalog import Catalog, resolve_catalog_dir
-from parsimony.catalog.search import resolved_catalog_url
+from parsimony.catalog.search import RANKING_COLUMNS, resolved_catalog_url
 from parsimony.catalog.source import lazy_catalog_dir
 from parsimony.catalog.storage import read_meta
 from parsimony.connector import connector
@@ -312,10 +312,12 @@ def _search_surface(
 ) -> str | list[str] | None:
     """Declare the scoring surface for one catalog search.
 
-    A scoped query keeps its caller-declared field(s). A bare query spans the
-    title plus every indexed dimension-label field, so a query naming dimension
-    values ("current account … quarterly") earns coverage on those slices
-    instead of drowning in composed-title term repetition. Code fields stay
+    A scoped query keeps its caller-declared field(s). A bare query spans
+    every indexed dimension-label field, so a query naming dimension values
+    ("current account … quarterly") earns coverage on those slices. The
+    composed ``title`` stays OFF the surface: it concatenates the very labels
+    the label indexes already carry, so scoring it only re-counts matched
+    terms (term repetition) — it remains the display column. Code fields stay
     out: codes are exact identifiers for filter_json, and short codes
     ("A", "M") collide with ordinary text.
     """
@@ -323,7 +325,7 @@ def _search_surface(
         return plan_fields
     if plan_query is None:
         return None
-    surface = [TITLE_FIELD, *(dim_label_field(dim) for dim in dsd_order)]
+    surface = [dim_label_field(dim) for dim in dsd_order]
     return [name for name in surface if _has_index(catalog, name)] or None
 
 
@@ -331,14 +333,7 @@ SERIES_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="key", role=ColumnRole.KEY),
         Column(name=TITLE_FIELD, role=ColumnRole.TITLE),
-        Column(
-            name="coverage",
-            role=ColumnRole.DATA,
-            description="Fraction of the query's words consumed by fully-matched field values "
-            "(1.0 = exact hit). 0.0 only means no complete value appears in the query — "
-            "the row still matched and ranked by fuzzy score.",
-        ),
-        Column(name="score", role=ColumnRole.DATA),
+        *RANKING_COLUMNS,
     ]
 )
 
@@ -350,7 +345,9 @@ class SeriesSearchParams(BaseModel):
     # ``query`` is matched against titles/labels, never against SDMX codes.
     query: str | None = Field(default=None, max_length=512)
     limit: int = Field(default=50, ge=1, le=ENUMERATION_LIMIT)
-    top_k_per_dim: int = Field(default=5, ge=1, le=50)
+    # Per-field cap on scored candidate values (the fuzzy/semantic evidence
+    # pool), not a result count. Maps to core's top_k_values (default 50).
+    top_k_per_dim: int = Field(default=50, ge=1, le=50)
     catalog_root: str | None = None
     # One field name scopes the query to that surface; a list fuses several.
     fields: str | list[str] | None = Field(default=None)
@@ -363,22 +360,21 @@ def sdmx_series_search(
     dataset_id: str,
     query: str | None = None,
     limit: int = 50,
-    top_k_per_dim: int = 5,
+    top_k_per_dim: int = 50,
     catalog_root: str | None = None,
     fields: str | list[str] | None = None,
     filter_json: str | None = None,
 ) -> pd.DataFrame:
     """Search populated series keys in a prebuilt columnar catalog for one SDMX flow.
 
-    ``query=`` is FREE TEXT over series titles/labels — NOT SDMX codes. Filter by exact
-    code with ``filter_json`` (AND on ``{dim}_code``/``{dim}_label``), or inline as
-    ``{dim}_code: SR_10Y && geo_label: Germany``. Ranked by (``coverage`` desc, ``score``
-    desc): ``coverage`` = fraction of the query's words literally consumed by the row's
-    dimension labels (1.0 = the query names this slice exactly); ``score`` = fuzzy
-    relevance. Returns ``key`` (paste into sdmx_fetch), ``title``,
-    ``coverage``, ``score``, ``{dim}_code``/``{dim}_label``. ``fields=`` scopes to one
-    field or a list. Ranked shortlist (``limit`` <= 500); omit ``query=`` for a pure
-    ``filter_json`` lookup (``limit`` <= 10000).
+    ``query=`` is FREE TEXT over dimension labels — NOT SDMX codes; filter exact codes with
+    ``filter_json`` (AND on ``{dim}_code``/``{dim}_label``). Rows rank coverage-first, then
+    score. ``coverage`` = fraction of query tokens this row's labels literally satisfy;
+    1.0 is a verified exact hit. ``matched`` names the evidence ('lexical'/'semantic'/
+    'both'); an all-'semantic' page matched nothing lexically real — rephrase. Columns
+    add ``key`` (→ sdmx_fetch) and ``{dim}_code``/``{dim}_label``. ``fields=`` scopes
+    the query; ``top_k_per_dim`` caps candidates per field, not rows. Ranked shortlist
+    (``limit`` <= 500); omit ``query=`` to enumerate via ``filter_json`` (<= 10000).
     """
     params = SeriesSearchParams(
         agency=agency,
@@ -396,7 +392,7 @@ def sdmx_series_search(
     if q is None and params.filter_json is None:
         raise InvalidParameterError(
             "sdmx",
-            "provide query= (free-text over titles/labels) and/or filter_json= (exact {dim}_code filters)",
+            "provide query= (free-text over dimension labels) and/or filter_json= (exact {dim}_code filters)",
         )
     if params.fields is not None and q is None:
         raise InvalidParameterError("sdmx", "fields= requires a non-empty query=")
@@ -431,7 +427,10 @@ def sdmx_series_search(
             filter_spec = _parse_filter_json(params.filter_json)
             _validate_filter_columns(filter_spec, dsd_order, label=f"{agency_id.value}/{flow}")
             _validate_filter_values(filter_spec, dataset, agency=agency_id.value, flow=flow)
-        plan_query = q if params.fields is not None else None
+        # Honor query= alongside filter_json=: rank the filtered slice by the
+        # query (bare-query surface when no fields= is declared) instead of
+        # dropping it and returning the slice unranked.
+        plan_query = q
         plan_fields: str | list[str] | None = params.fields
     else:
         # No fields and no filter_json: the guard above guarantees q is set here.
@@ -494,6 +493,7 @@ def sdmx_series_search(
             TITLE_FIELD: title_map.get(match.code, ""),
             "coverage": round(match.coverage, 6),
             "score": round(match.score, 6),
+            "matched": match.matched,
         }
         for dim in dsd_order:
             code_col = dim_code_field(dim)
