@@ -368,13 +368,10 @@ def sdmx_series_search(
     """Search populated series keys in a prebuilt columnar catalog for one SDMX flow.
 
     ``query=`` is FREE TEXT over dimension labels — NOT SDMX codes; filter exact codes with
-    ``filter_json`` (AND on ``{dim}_code``/``{dim}_label``). Rows rank coverage-first, then
-    score. ``coverage`` = fraction of query tokens this row's labels literally satisfy;
-    1.0 is a verified exact hit. ``matched`` names the evidence ('lexical'/'semantic'/
-    'both'); an all-'semantic' page matched nothing lexically real — rephrase. Columns
-    add ``key`` (→ sdmx_fetch) and ``{dim}_code``/``{dim}_label``. ``fields=`` scopes
-    the query; ``top_k_per_dim`` caps candidates per field, not rows. Ranked shortlist
-    (``limit`` <= 500); omit ``query=`` to enumerate via ``filter_json`` (<= 10000).
+    ``filter_json`` (AND on ``{dim}_code``/``{dim}_label``). Columns add ``key`` (→ sdmx_fetch)
+    and ``{dim}_code``/``{dim}_label``. ``fields=`` scopes the query; ``top_k_per_dim`` caps
+    candidates per field, not rows. Ranked shortlist (``limit`` <= 500); omit ``query=`` to
+    enumerate via ``filter_json`` (<= 10000).
     """
     params = SeriesSearchParams(
         agency=agency,
