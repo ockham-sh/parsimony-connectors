@@ -101,7 +101,11 @@ DATASETS_SEARCH_OUTPUT = OutputSpec(
         Column(name="title", role=ColumnRole.TITLE),
         Column(name="agency", role=ColumnRole.METADATA),
         Column(name="dataset_id", role=ColumnRole.METADATA),
-        Column(name="dimensions", role=ColumnRole.METADATA),
+        Column(
+            name="dimensions",
+            role=ColumnRole.METADATA,
+            description="The axes this flow breaks down by, in key order",
+        ),
         *RANKING_COLUMNS,
     ]
 )
@@ -124,16 +128,9 @@ def sdmx_datasets_search(
     """Discover SDMX flows within one or all agency dataset catalogs.
 
     Scope with ``agency=`` when known; unscoped merges every agency, risking a miss.
-    Rows rank facts first: an exact ``title`` hit is ``coverage`` 1.0 and pins above
-    any fuzzy ``score``. An all-'semantic' ``matched`` page matched nothing lexically
-    real — rephrase.
 
     Next: a hit's ``agency``+``dataset_id`` feed ``sdmx_series_search``/
     ``sdmx_dimension_search``; ``dataset_ref`` feeds ``sdmx_fetch``.
-
-    ``dimensions`` are the axes a flow breaks down by, in key order; granularity
-    (e.g. ``geo``: 38 vs 1,247 values) only ``sdmx_dimension_search`` shows. Empty
-    means uncaptured, not none.
 
     Relevance-ranked top-N (``limit`` <= 50).
     """
