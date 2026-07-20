@@ -138,6 +138,17 @@ Hugging Face). The catalog loads lazily on first search and caches under
 `~/.cache/parsimony/catalogs/`, so the first call may take a moment while the
 snapshot downloads.
 
+A first search pays two one-time costs: the catalog download, and — for semantic
+search — loading the embedding model, which also downloads once per machine
+(~90 MB) and is the slower of the two on a fresh install. Both are cached
+afterwards, and neither is a hang; retrying only starts them over.
+
+Each logs a start and a completion line, with size and elapsed time, on the
+`parsimony` logger — so a start with no matching finish is still running rather
+than stuck. Parsimony installs no log handler of its own, so turn them on with
+`logging.basicConfig(level=logging.INFO)`, or run the CLI with `--verbose`, if
+you would rather watch the work than wait it out.
+
 The flow is the same shape as native search, but `treasury_search` returns a
 `code` column you feed back into a fetch connector:
 
