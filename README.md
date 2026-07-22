@@ -14,7 +14,7 @@
 
 ---
 
-This repository holds connectors for 22 sources of financial and economic data: central banks, statistical offices, and market data vendors. Each source is its own pip package. Install the ones you need and parsimony picks them up automatically.
+This repository holds connectors for 22 sources of financial and economic data: central banks, statistical offices, and market data vendors. Each source is its own pip package. Install the ones you need and parsimony picks them up automatically. The [parsimony agent skill](https://github.com/ockham-sh/parsimony/tree/main/skills/parsimony) teaches coding agents to work with them.
 
 ## Quickstart
 

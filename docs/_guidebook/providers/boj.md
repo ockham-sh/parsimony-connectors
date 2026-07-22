@@ -35,7 +35,7 @@
 - Known gaps / deliberate exclusions: `getDataLayer` (tree-addressed retrieval of the *same*
   data `getDataCode` reaches by code) and CSV output are not wrapped — no unique data. The
   giant DBs (CO/TANKAN 166k, FF 34k, BIS 34k, PR01 31k, PR03 27k, BP01 18k) are catalogued
-  per-DB lazily (BM25-only above 1,000 unique titles) — discovery is bounded, access is total.
+  per-DB lazily — discovery is bounded, access is total.
 
 ---
 
@@ -165,9 +165,14 @@ Date params follow the series frequency: `YYYY` (annual/fiscal), `YYYYHH` (half)
   `boj_series_search(db=…)` (step 2: find the series, lazy-built + LRU-cached per DB) →
   `boj_fetch(db, code)`.
 - Why two-tier (the scale rationale): the universe is 326k series; CO alone is 166k. A single
-  flat catalog would be unwieldy and the embedder would choke. Per-DB bundles keep each
-  namespace tractable; above 1,000 unique titles the adaptive index is BM25-only (scales to
-  166k rows without embedding). This mirrors the **bls** survey/series two-tier.
+  flat catalog would be unwieldy, so per-DB bundles keep each namespace tractable. This mirrors
+  the **bls** survey/series two-tier. **Caveat (core index-policy change):** `series_indexes`
+  (in `catalog_build.py`) now builds a *hybrid* (BM25 + vector) index on both `title` and
+  `description`, so every per-DB bundle embeds all its rows — the old "BM25-only above 1,000
+  unique titles, no embedding" assumption this rationale rested on is gone. For CO's 166k rows
+  that is a real build-time embedding cost. Decide whether to accept it or force `title`/
+  `description` to BM25-only by role (as **bls** `series_indexes` does for its per-series row
+  text). Open item — see the publish checklist below.
 - Code scheme: a series row's KEY is its bare code (`FXERD01`); a DB row's KEY is `db:<code>`
   (`db:FM08`), rewritten to a bare `FM08` in the `boj_databases` bundle. Series→fetch routing
   needs both `code` and `db`, so `boj_series_search` returns `db` alongside `code`.
@@ -245,8 +250,10 @@ CSV) carry no unique data. Signed: connectors-sweep on 2026-06-09.
 
 - [ ] **Publish the catalog snapshots** (build → `validate_catalog` → push `hf://parsimony-dev/boj`).
       Multi-bundle: `boj_databases` + per-DB `boj_series_<db>`. The giant DBs (CO 166k, FF/BIS
-      ~34k, PR01 31k, PR03 27k, BP01 18k) are BM25-only builds (no embedding) but heavy
-      downloads (CO ≈ 99 MB). Deferred (maintainer step; needs `HF_TOKEN`) — not yet run.
+      ~34k, PR01 31k, PR03 27k, BP01 18k) now build hybrid title/description indexes, so each
+      embeds every row at build time (CO ≈ 99 MB download plus a full embedding pass) — see the
+      scale-rationale caveat above before running this. Deferred (maintainer step; needs
+      `HF_TOKEN`) — not yet run.
 - [ ] A finer `400 → InvalidParameterError` mapping (reading `MESSAGEID` `M181013E` "nonexistent
       code" / `M181005E` "invalid DB") is possible via a per-package mapper but deferred; the
       current `ProviderError(400)` is typed and agent-actionable.

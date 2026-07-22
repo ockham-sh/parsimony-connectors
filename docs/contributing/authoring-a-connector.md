@@ -15,10 +15,9 @@ you have skimmed those.
 
 > A deeper internal authoring manual exists under
 > [`docs/_guidebook/`](https://github.com/ockham-sh/parsimony-connectors/tree/main/docs/_guidebook).
-> It is useful for the long tail of enumeration tactics, but it **predates the move to
-> synchronous connectors** and still shows `async def` examples in places. When the
-> guidebook and this page disagree, this page wins: **connectors are plain `def`, never
-> `async def`.**
+> It covers the long tail of enumeration tactics, catalog completeness techniques, and
+> per-provider research dossiers. When the guidebook and this page disagree, this page
+> wins.
 
 ---
 

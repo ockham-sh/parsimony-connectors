@@ -81,7 +81,7 @@
 - Strategy: **enumerator + catalog_build**, archetype **A** (live full-index export). Two requests: `webstat-datasets` (45 stubs) + `series` (full universe).
 - Namespace: `bdf`. Code scheme: bare `series_key` for series; synthetic `dataset:{dataset_id}` for the 45 stubs (split by KEY prefix or the `entity_type` column).
 - Entity shape: KEY=`code` (ns `bdf`), TITLE=`title` (English, FR/long/key fallback), METADATA=[`description` (bilingual + breadcrumb + dataset context), `entity_type`, `dataset_id`, `frequency`, `ref_area`, `source_agency`, `path`, `first_time_period`, `last_time_period`].
-- Index policy: `discovery_indexes()` — `code`=BM25, `title`/`description`=adaptive (BM25-only above 1000 unique → no multilingual embedding bridge, hence the bilingual `description`).
+- Index policy: `discovery_indexes()` — `code`=BM25, `title`/`description`=hybrid (BM25 + vector; the default embedder is not multilingual, so no cross-language bridge — hence the bilingual `description`).
 - Multi-bundle? No — one `bdf` bundle (~41.7k rows) is tractable.
 - Catalog URL: `hf://parsimony-dev/bdf` · env override `PARSIMONY_BDF_CATALOG_URL`.
 

@@ -177,8 +177,8 @@ part of the API and not needed — the route tree is the authoritative enumerati
 
 ## 4. Catalog plan
 
-- **Strategy:** enumerator + catalog_build, single flat bundle (232 rows is well
-  under the embedder/1000-unique thresholds).
+- **Strategy:** enumerator + catalog_build, single flat bundle (232 rows — embedding
+  cost is negligible at that size).
 - **Namespace:** `eia`.
 - **Code scheme:** the route path is the KEY (`petroleum/pri/spt`), globally
   unique and hierarchical — no compound code needed.
@@ -191,7 +191,7 @@ part of the API and not needed — the route tree is the authoritative enumerati
 - **Enumeration:** `enumerate_eia` walks the tree (best-effort per node), emitting
   one row per leaf; `build_eia_catalog(*, api_key=None)` feeds it to a `Catalog`.
 - **Index policy:** `discovery_indexes()` → `code` BM25, `title`/`description`
-  hybrid (232 < 1000 unique → real vector+BM25).
+  hybrid (BM25 + vector).
 - **Multi-bundle?** No — 232 rows is tiny.
 - **Catalog URL:** `hf://parsimony-dev/eia` · env `PARSIMONY_EIA_CATALOG_URL`.
 

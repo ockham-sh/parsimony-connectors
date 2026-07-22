@@ -132,8 +132,8 @@
   `discovery_indexes` indexes it — a column named `definition` would never be searched.
 - **Enumeration code:** `enumerate_treasury` GETs `/services/dtg/metadata/`, walks
   datasets → apis → measure-fields (one row each), then appends the static ODM rows.
-- **Index policy:** `discovery_indexes()` — `code` BM25, `title`/`description` adaptive
-  (>1000 unique ⇒ BM25-only on the live catalog).
+- **Index policy:** `discovery_indexes()` — `code` BM25, `title`/`description` hybrid
+  (BM25 + vector).
 - **Catalog URL:** `hf://parsimony-dev/treasury` · env `PARSIMONY_TREASURY_CATALOG_URL`.
 
 ## 5. Connector plan
