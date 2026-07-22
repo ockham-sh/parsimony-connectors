@@ -133,7 +133,7 @@ The five products on the `api.riksbank.se` Azure APIM gateway (paths from portal
   SWEA's `SED*`/`SEM*`/`SEA*` prefix space, so bare-id routing would be ambiguous.)
 - **Entity shape:** KEY=`code` (ns `riksbank`), TITLE=`title`, METADATA=[description, source,
   frequency, unit, group, provider, observation_min, observation_max, series_closed].
-- **Index policy:** `discovery_indexes` (code BM25, title/description adaptive), default `title`.
+- **Index policy:** `discovery_indexes` (code BM25, title/description hybrid), default `title`.
 
 ## 5. Connector plan
 

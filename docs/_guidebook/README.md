@@ -253,7 +253,7 @@ agent-facing string** with the right "DO NOT retry" directive.
 | `RateLimitError(provider, retry_after, *, quota_exhausted=False)` | 429 | `retry_after` is **seconds** (>86400 raises); `quota_exhausted=True` = billing-period |
 | `ProviderError(provider, status_code)` | 5xx / 404 / timeout(408) | carries the status |
 | `EmptyDataError(provider, query_params=…)` | 200 with zero rows | recovery path is adjust-params; no "DO NOT retry" |
-| `ParseError(provider, msg=None)` | 200 but unparseable | the honest mapping for a 200-with-error-body; raise it yourself for a bad response shape — `OutputSpec` mismatches raise `ValueError` from entity projection instead, not `ParseError` |
+| `ParseError(provider, message=None)` | 200 but unparseable | the honest mapping for a 200-with-error-body; raise it yourself for a bad response shape — `OutputSpec` mismatches raise `ValueError` from entity projection instead, not `ParseError` |
 | `InvalidParameterError(provider, message)` | bad call-time arg (pre-network) | `message` required |
 | `CatalogNotFoundError(msg)` | catalog bundle missing | import from `parsimony.errors`, not top-level |
 
@@ -302,13 +302,16 @@ empty string falls through to the default).
 - The module must export a top-level `CONNECTORS = Connectors([...])` — non-empty, never a
   bare list, never renamed.
 - Conformance = the merge/release gate. `parsimony.testing.assert_plugin_valid(module)` (and
-  `parsimony list --strict`) run five fail-fast checks: connectors-exported, descriptions
-  20–800, enumerator-decorator (real role marker), enumerator-return-type, flat-public-params.
-- Only two `PARSIMONY_*` env vars exist in core: `PARSIMONY_CACHE_DIR` (relocates the whole
-  cache root) and `PARSIMONY_FAISS_IVF_THRESHOLD`. **Core never reads provider creds from
-  fixed `PARSIMONY_*` names** — your connector reads its own `<PROVIDER>_API_KEY`. A connector
-  *may* read its catalog-URL override from a per-connector var of its own choosing
-  (convention: `PARSIMONY_<PROVIDER>_CATALOG_URL`).
+  `parsimony list --strict`) run six fail-fast checks: connectors-exported, descriptions
+  20–800, enumerator-decorator (real role marker), enumerator-return-type, flat-public-params,
+  and secrets-declared (credential-like params must be listed in `secrets=`).
+- Core reads a handful of `PARSIMONY_*` env vars — `PARSIMONY_CACHE_DIR` (relocates the whole
+  cache root), `PARSIMONY_FAISS_IVF_THRESHOLD`, and a few cache/optional-package overrides
+  (`PARSIMONY_CACHE_ENV`, `PARSIMONY_CATALOG_PACKAGE`, `PARSIMONY_LITELLM_PACKAGE`,
+  `PARSIMONY_STANDARD_ONNX_PACKAGE`) — but **none of them are provider creds. Core never reads
+  provider creds from fixed `PARSIMONY_*` names** — your connector reads its own
+  `<PROVIDER>_API_KEY`. A connector *may* read its catalog-URL override from a per-connector var
+  of its own choosing (convention: `PARSIMONY_<PROVIDER>_CATALOG_URL`).
 
 ---
 
@@ -679,14 +682,19 @@ The catalog is a *designed* artifact. Techniques drawn from the existing connect
 ### 7.4 Index policy (searchability)
 
 `discovery_indexes(entries)` (from `parsimony.catalog.policy`) gives: `code` → `BM25Index`
-(exact lookup), `title` and `description` → `adaptive_field_index`. **Adaptive returns a
-Hybrid BM25+vector index only when the field has < 1000 unique values, else BM25-only**
-(weights BM25 0.5 / vector 1.0 via `ZScoreFusion`). `default_field="title"` enables broad
-(plain-text) search; structured `FIELD: value` (AND across `&&`, OR across `,`) works on any
-indexed field. **Know the 1000-unique threshold** — a high-cardinality `title` silently
-degrades to BM25-only, so a semantic-style title probe will miss. SDMX uses a custom policy
-that additionally indexes one adaptive field per observed SDMX dimension. Put **every
-searchable attribute as a METADATA column** so the policy can index it.
+(exact lookup — ID tokens are search noise, so no vector component), `title` and `description`
+→ a **Hybrid BM25 + vector index**. Index kind follows the field's **role, not its
+cardinality**: title and description always carry a vector component, so semantic recall never
+depends on how many entries a provider publishes. (The `entries` argument is kept for call-site
+compatibility but no longer inspected; the old `adaptive_field_index` and its
+`HYBRID_UNIQUE_VALUE_LIMIT` / weight constants were removed when the policy became role-based.)
+Hybrid components fuse with **tie-aware Reciprocal Rank Fusion (unweighted, k=60)** — there are
+no per-field BM25/vector weights any more. `default_field="title"` enables broad (plain-text)
+search; structured `FIELD: value` (AND across `&&`, OR across `,`) works on any indexed field.
+The default policy indexes only `code`, `title`, and `description` — nothing else — so fold any
+prose you need searched into the `description` column (a METADATA column the policy builds no
+index for is invisible to search however rich its content — see §12). SDMX supplies a custom
+policy that additionally indexes one field per observed SDMX dimension.
 
 ### 7.5 Snapshots & the cache
 
@@ -777,8 +785,9 @@ green conformance+offline gate, because only 1 of 17 verbs had a live test.
 
 **The recall gate (`catalog_tests/queries.yaml`).** Curate probes per provider:
 `required` exact-`code:` probes + short lexical `title_bm25` probes, `optional`
-`hybrid_title`/`structured_field` probes (long/semantic title probes must be `optional` because
-the index degrades to BM25-only above 1000 unique values), ending with
+`hybrid_title`/`structured_field` probes (long/semantic title probes belong in `optional`
+because embedding recall varies by phrasing, not because the index degrades — title is always
+hybrid now), ending with
 `thresholds: {min_required_recall: 1.0}`. `report.ok = schema_ok AND every required probe's
 expected_code appears in catalog.search(query) top results`. Auto-draft a starting set with
 `validate_catalog.py --write-queries` (samples real entries, emits one probe per indexed field),
@@ -924,8 +933,9 @@ The traps that bite regardless of provider:
 - **`Connectors` is name-keyed** — `bundle[0]` raises `KeyError`; merge with `+`.
 - **`CatalogNotFoundError` and all `parsimony.transport.*` are not top-level** — import from the
   submodule.
-- **Adaptive index degrades to BM25-only above 1000 unique values** — a "semantic" title probe
-  marked `required` will then MISS (§7.4, §8).
+- **Only `code`, `title`, and `description` are indexed by the default policy** — a searchable
+  attribute left in some other column name is invisible to search; fold prose into `description`
+  (§7.4, §12).
 - **Multi-bundle catalogs aren't one flat catalog** — set `catalog_root` + per-probe
   `namespace`; a required probe against an unbuilt bundle hard-fails (§8).
 - **`schema_version` mismatch is a hard gate** — rebuild+re-push on a kernel `SCHEMA_VERSION`
@@ -988,9 +998,9 @@ rule, also edit the relevant section above.
   - **Don't wrap an endpoint that adds no unique *data*.** A field-level diff showed `favoritas`
     = `listaSeries`'s latest value + a derived trend arrow. "Cover all accessible data" means
     data classes, not endpoints — documenting *why* it's skipped is the deliverable.
-  - **Spanish-only (or any single-language) catalog + a BM25 index = no cross-language recall.**
-    The adaptive index degrades to lexical BM25 above ~1000 unique values, so there is NO
-    multilingual embedding bridge. If the provider serves titles in the user's language through
+  - **Spanish-only (or any single-language) catalog = no cross-language recall.**
+    Title and description are always hybrid, but the default embedder is not multilingual, so a
+    vector match won't bridge an English query to a Spanish title on its own. If the provider serves titles in the user's language through
     a *separate* endpoint, enrich at build time. For BdE the cheap path is `favoritas(idioma=en)`
     (latest value only, no history) — NOT `listaSeries(idioma=en)` (full history per series).
     Keep the original-language text in `description` (also indexed) for bilingual recall.
@@ -1430,7 +1440,7 @@ rule, also edit the relevant section above.
   claims, and what archetype-A+D discipline looks like. Transferable lessons:
   - **Name the catalog's prose column `description`, or `discovery_indexes` never indexes it —
     a silent "the catalog only searches titles" bug.** `discovery_indexes(entries)` builds
-    indexes for exactly `code` (BM25), `title`, and `description` (adaptive). Treasury's
+    indexes for exactly `code` (BM25), `title`, and `description` (hybrid). Treasury's
     enumerator emitted the rich Fiscal Data field text under a column named **`definition`**, so
     it populated no `description` index — the ~914-entry catalog was searchable on `title` and
     `code` **only**, and every measure's descriptive text was dead weight. Renaming the column

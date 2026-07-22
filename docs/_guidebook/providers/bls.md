@@ -155,9 +155,10 @@
 - **Tier-2 entity:** KEY=`series_id`, TITLE=`series_title` (or composed from dimension
   labels for the title-less surveys SM/JT/PR), METADATA=[survey, begin_year, end_year,
   per-dimension `<dim>` label + `<dim>_code`].
-- **Index policy:** `adaptive_field_index` per field (hybrid below 1,000 unique values,
-  BM25 above) on `title` and each dimension; `BM25Index` on `code`. Headline series
-  catalogs are large → mostly BM25; structured `FIELD: value` clauses preferred.
+- **Index policy:** custom (`catalog_policy.py`), index kind by role. Series catalogs:
+  `code` and `title` BM25-only (both are per-series row text — a vector buys nothing there),
+  each `<dim>` label field hybrid (BM25 + vector) for semantic label matching. Survey catalog:
+  `code` BM25, `title` hybrid. Structured `FIELD: value` clauses are the primary retrieval path.
 - **Dimension manifest:** compact `[{id, values:[{code,label}…]}]` per survey, attached to
   the tier-1 entity (reuse the sdmx manifest shape) so an agent can navigate codes /
   construct an id even for non-published surveys.

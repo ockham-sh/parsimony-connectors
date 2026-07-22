@@ -175,8 +175,8 @@ archetype E is *structural*, not a shortcut.
 - **`source` dispatch column:** `rba_csv` | `rba_xlsx` | `rba_xlsx_hist` — tells the
   agent which fetch path a hit needs (now all three are fetchable by `rba_fetch`).
 - **Index policy:** `discovery_indexes()` — `code`=BM25; `title`/`description`
-  adaptive (BM25-only above 1000 unique values — title cardinality is high, so
-  semantic title probes stay `optional`).
+  hybrid (BM25 + vector, regardless of cardinality; semantic title probes stay
+  `optional` because embedding recall varies by phrasing, not from any cutoff).
 - **Catalog URL:** `hf://parsimony-dev/rba` · env `PARSIMONY_RBA_CATALOG_URL`.
 
 ## 5. Connector plan

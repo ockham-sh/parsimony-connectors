@@ -162,9 +162,9 @@
   `getCubeInfo` (best-effort title/publishingTitle/unit/frequency) and, for publication
   cubes, `/dimensions` (series expansion). Per-cube failures are skipped (best-effort);
   the sitemap fetch failing is fatal.
-- **Index policy:** `discovery_indexes()` — `code` BM25, `title`/`description` adaptive
-  (degrade to BM25-only above 1000 unique values; with ~1,149+ cubes that is expected, so
-  semantic title probes stay `optional` in `queries.yaml`).
+- **Index policy:** `discovery_indexes()` — `code` BM25, `title`/`description` hybrid
+  (BM25 + vector regardless of cube count; semantic title probes stay `optional` in
+  `queries.yaml` because embedding recall varies by phrasing).
 - **Catalog URL:** `hf://parsimony-dev/snb` · env override `PARSIMONY_SNB_CATALOG_URL`.
 
 ## 5. Connector plan

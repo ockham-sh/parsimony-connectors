@@ -157,8 +157,8 @@ Missing/suppressed observations come back as `{"v": ""}` (or the key absent), no
 - Enumeration code: `/lists/series/json` (series rows) + `/lists/groups/json` (group rows) +
   a concurrency-capped `/groups/{name}/json` fan-out for series→group membership **and** group
   liveness (404 ⇒ prune the group row).
-- Index policy: `discovery_indexes()` — `code`→BM25, `title`/`description`→adaptive (BM25-only
-  here: >1000 unique values). `default_field="title"`.
+- Index policy: `discovery_indexes()` — `code`→BM25, `title`/`description`→hybrid (BM25 +
+  vector). `default_field="title"`.
 - Multi-bundle? No — one flat `boc` catalog (~18k rows fits comfortably).
 - Catalog URL: `hf://parsimony-dev/boc` · env override `PARSIMONY_BOC_CATALOG_URL`.
 
