@@ -62,6 +62,15 @@ The **Discovery** column marks native-search (live) versus catalog-backed (`hf:/
 collection also includes the `enumerate_*` builders that operators run when building a
 catalog; those are not part of the everyday search→fetch loop).
 
+**Auth applies per connector, not per package** — read the two columns together. On a
+catalog-backed provider the `<provider>_search` verb reads the published snapshot, so it
+works with **no key even when the package's Auth says "required key"**; only the fetch verbs
+call the keyed API. `parsimony-eia` is the clearest case: `eia_search` needs nothing,
+`eia_fetch` needs `EIA_API_KEY`. On a native-search provider there is no snapshot — the
+search itself is the keyed call, so `eodhd_search` / `finnhub_search` / `tiingo_search` /
+`coingecko_search` all fast-fail without a key. Each search connector states which it is in
+its own `describe()`.
+
 | Package (PyPI) | Source | Auth | Env var | Discovery | Key connectors |
 | --- | --- | --- | --- | --- | --- |
 | [`parsimony-alpha-vantage`](https://pypi.org/project/parsimony-alpha-vantage/) | [Alpha Vantage](https://www.alphavantage.co) | required key | `ALPHA_VANTAGE_API_KEY` | native | `alpha_vantage_search`, `alpha_vantage_quote`, `alpha_vantage_daily`, `alpha_vantage_income_statement`, … (29 total) |
