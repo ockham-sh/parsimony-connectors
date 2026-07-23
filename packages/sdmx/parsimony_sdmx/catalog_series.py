@@ -30,7 +30,6 @@ logger = logging.getLogger(__name__)
 PARQUET_BATCH_ROWS = 10_000
 SKIP_COLUMNS = frozenset({"DATAFLOW", "LAST UPDATE", "TIME_PERIOD", "KEY"})
 CATALOG_KIND = "sdmx_series_catalog_v1"
-TITLE_INDEX_MAX_VALUES = 100_000
 
 AGENCY_CSV: dict[AgencyId, tuple[str, str]] = {
     AgencyId.ESTAT: (
@@ -298,29 +297,6 @@ def _dim_label_index(embedder: SentenceTransformerEmbedder | None) -> HybridInde
     )
 
 
-def _collect_distinct_titles(series_parquet: Path, *, limit: int = TITLE_INDEX_MAX_VALUES) -> list[str]:
-    """Collect up to *limit* distinct series titles from the parquet in one pass."""
-    seen: set[str] = set()
-    titles: list[str] = []
-    for batch in pq.ParquetFile(series_parquet).iter_batches(batch_size=PARQUET_BATCH_ROWS, columns=["title"]):
-        for title in batch.column("title").to_pylist():
-            t = str(title).strip() if title is not None else ""
-            if t and t not in seen:
-                seen.add(t)
-                titles.append(t)
-                if len(titles) >= limit:
-                    return titles
-    return titles
-
-
-def _title_entities_for_parquet(series_parquet: Path, namespace: str) -> list[Entity]:
-    """Create one index Entity per distinct series title in *series_parquet*."""
-    return [
-        Entity(namespace=namespace, code=f"__title__{i}", title=title, metadata={"title": title})
-        for i, title in enumerate(_collect_distinct_titles(series_parquet))
-    ]
-
-
 def _index_entities_for_distinct(
     namespace: str,
     dsd_order: Sequence[str],
@@ -357,7 +333,14 @@ def _series_catalog_indexes(
     *,
     embedder: SentenceTransformerEmbedder | None,
 ) -> dict[str, CatalogIndex]:
-    indexes: dict[str, CatalogIndex] = {"title": BM25Index()}
+    # No ``title`` index. The composed title concatenates the same dimension
+    # labels these per-dimension indexes already carry, so indexing it adds no
+    # information and costs one pseudo-member entity per distinct title —
+    # 59,498 of them on a 60,691-row catalog, near 1:1 with rows. Measured on the
+    # 41-case search battery, dropping it also scored better (MRR 0.725 -> 0.739)
+    # because the repeated terms were double-counting. Title stays a parquet
+    # column for display; see ``searchable_fields``.
+    indexes: dict[str, CatalogIndex] = {}
     for dim_id in dsd_order:
         indexes[dim_code_field(dim_id)] = BM25Index()
         indexes[dim_label_field(dim_id)] = _dim_label_index(embedder)
@@ -374,15 +357,15 @@ def build_series_catalog(
 ) -> Catalog:
     """Build a parquet-backed parsimony catalog for one SDMX series flow.
 
-    Index entities are the union of dimension-value entities (for per-dim soft
-    search) and title entities (one per distinct series title, for broad title
-    search via the parquet backend).
+    Index entities are the flow's dimension values, one per (dimension, code).
+    Series titles are NOT indexed — they are composed from those same dimension
+    labels, so a title index would restate what the label indexes already hold
+    while adding an entity per distinct title. Rows (and their titles) are served
+    from the attached parquet.
     """
     if distinct is None:
         distinct = collect_distinct_from_columnar(series_parquet, tuple(dsd_order))
-    dim_entities = _index_entities_for_distinct(namespace, dsd_order, distinct)
-    title_entities = _title_entities_for_parquet(series_parquet, namespace)
-    entities = dim_entities + title_entities
+    entities = _index_entities_for_distinct(namespace, dsd_order, distinct)
     field_links = {dim_label_field(dim_id): dim_code_field(dim_id) for dim_id in dsd_order}
     indexes = _series_catalog_indexes(dsd_order, embedder=embedder)
     catalog = Catalog(

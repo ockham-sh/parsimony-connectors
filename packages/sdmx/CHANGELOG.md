@@ -6,6 +6,49 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Removed
+
+- **`build_series_catalog` no longer builds a `title` index.** `compose_series_title`
+  concatenates the same dimension labels the `{dim}_label` indexes already carry, so the
+  index held no information they lacked while costing one `__title__N` pseudo-member
+  entity per distinct title (59,498 on a 60,691-row catalog, near 1:1 with rows).
+  Measured over the 41-case search battery, removing it *improved* ranking
+  (MRR 0.725 → 0.739; both adversarial "youth unemployment" cases moved to rank 1),
+  because the composed title was double-counting terms the labels already matched.
+  `TITLE_INDEX_MAX_VALUES` — a silent coverage cap on catalogs above 100k distinct
+  titles — is removed with it.
+
+  `title` remains a parquet column and the `TITLE` output column; only its index is
+  gone. Scoping a query to it is now an error rather than a silent miss:
+  `sdmx_series_search(fields="title")` raises `InvalidParameterError`, and `title:` is
+  no longer parsed as a query clause (it falls through to the bare-query surface). Use
+  a bare query to rank against every dimension label, or scope to a `{dim}_label`.
+  Filtering on `title` via `filter_json` still works — that is a parquet operation and
+  needs no index.
+
+  **No republish is required.** This is a build-side change, and already-published
+  catalogs keep serving correctly under it — a query is only ever scored against
+  dimension-label fields, so their title index goes unused and its `__title__N`
+  members never surface as results (covered by a regression test that builds a
+  catalog the old way and drives it through the connector). Each catalog sheds the
+  index whenever it is next built for any reason; measured on a 3,600-series flow
+  that is a 51% cut in published size, so the ~7.9k catalogs get smaller as they
+  turn over rather than needing a coordinated rebuild.
+
+  One behaviour does change immediately for old snapshots: `fields="title"` is
+  refused even where the index is still present, so the answer does not depend on
+  which vintage of catalog happens to be cached. (#66)
+
+### Fixed
+
+- `sdmx_fetch` folds SDMX reporting-period notation in `TIME_PERIOD` onto the ISO
+  forms the output schema already declares: `2023-M06` -> `2023-06`, `2023-A1` ->
+  `2023`. IMF_DATA sends the reporting-period spelling where ECB and Eurostat send
+  ISO, and `pd.to_datetime("2023-M06")` does not raise — it silently returns
+  `2023-01-01 00:00:06`, corrupting sort order and any date axis built from the
+  column. Notations with no ISO equivalent (`S`/`T`/`W`) pass through unchanged and
+  stay loudly unparseable. (#79)
+
 ### Added
 
 - `matched` output column on all three search connectors — which evidence
