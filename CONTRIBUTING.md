@@ -119,11 +119,23 @@ uv run pytest packages/foo
 uv run ruff check packages/foo
 uv run mypy packages/foo/parsimony_foo
 uv run parsimony list --strict   # conformance for every installed provider
+make readme-roster                # regenerate README.md, docs/index.md, connectors.json
 ```
 
-All four must pass. `parsimony list --strict` imports every plugin and
+All four checks must pass. `parsimony list --strict` imports every plugin and
 runs the kernel-side conformance check (`CONNECTORS` is well-formed,
 connector descriptions are present, etc.).
+
+**Always run `make readme-roster` after adding, removing, or changing a
+connector** (new `@connector`/`@enumerator`/`@loader`, a changed `secrets=`,
+or an edited `pyproject.toml` name/description/entry-point) and commit the
+regenerated `README.md`, `docs/index.md`, and `connectors.json` together. CI's
+`roster-check` job (`make roster-check` locally) fails the PR if any of the
+three drift from `packages/*/pyproject.toml` — `connectors.json` in
+particular is the machine-readable manifest served at
+`https://parsimony.dev/connectors.json` and consumed by the `parsimony`
+kernel, so a stale file there is a broken public contract, not just a docs
+nit.
 
 ---
 

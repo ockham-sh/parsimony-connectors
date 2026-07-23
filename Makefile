@@ -10,7 +10,7 @@
 #
 # The PKG argument must match a directory under packages/.
 
-.PHONY: help sync verify verify-all readme-roster clean
+.PHONY: help sync verify verify-all readme-roster roster-check clean
 
 PKG ?=
 
@@ -19,7 +19,8 @@ help:
 	@echo "  sync                  — uv sync --all-extras --all-packages"
 	@echo "  verify PKG=<name>     — ruff + mypy + pytest + strict plugin listing"
 	@echo "  verify-all            — verify across every package under packages/*"
-	@echo "  readme-roster         — regenerate the connector roster table in README.md"
+	@echo "  readme-roster         — regenerate the README table + docs/index.md + connectors.json"
+	@echo "  roster-check          — fail if README.md/docs/index.md/connectors.json are stale"
 	@echo "  clean                 — wipe caches (.pytest_cache, .mypy_cache, .ruff_cache)"
 
 sync:
@@ -54,6 +55,9 @@ verify-all:
 
 readme-roster:
 	uv run python scripts/gen_roster.py --update-readme
+
+roster-check:
+	uv run python scripts/gen_roster.py --check
 
 clean:
 	find . -type d \( -name .pytest_cache -o -name .mypy_cache -o -name .ruff_cache -o -name __pycache__ \) -prune -exec rm -rf {} +

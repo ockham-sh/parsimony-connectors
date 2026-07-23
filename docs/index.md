@@ -14,7 +14,7 @@
 
 ---
 
-This repository holds connectors for 22 sources of financial and economic data: central banks, statistical offices, and market data vendors. Each source is its own pip package. Install the ones you need and parsimony picks them up automatically.
+This repository holds connectors for 22 sources of financial and economic data: central banks, statistical offices, and market data vendors. Each source is its own pip package. Install the ones you need and parsimony picks them up automatically. The [parsimony agent skill](https://github.com/ockham-sh/parsimony/tree/main/skills/parsimony) teaches coding agents to work with them.
 
 ## Quickstart
 
@@ -59,7 +59,7 @@ Getting data is two steps: search for the series you want, then fetch it by the 
 | <a href="https://pypi.org/project/parsimony-fred/"><img src="https://www.google.com/s2/favicons?domain=fred.stlouisfed.org&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-fred`](https://pypi.org/project/parsimony-fred/) | [FRED (Federal Reserve Economic Data)](https://fred.stlouisfed.org) | 2 |
 | <a href="https://pypi.org/project/parsimony-polymarket/"><img src="https://www.google.com/s2/favicons?domain=polymarket.com&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-polymarket`](https://pypi.org/project/parsimony-polymarket/) | [Polymarket](https://polymarket.com) | 4 |
 | <a href="https://pypi.org/project/parsimony-rba/"><img src="https://www.google.com/s2/favicons?domain=rba.gov.au&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-rba`](https://pypi.org/project/parsimony-rba/) | [Reserve Bank of Australia](https://www.rba.gov.au) | 3 |
-| <a href="https://pypi.org/project/parsimony-riksbank/"><img src="https://www.google.com/s2/favicons?domain=riksbank.se&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-riksbank`](https://pypi.org/project/parsimony-riksbank/) | [Sveriges Riksbank for parsimony — all five public APIs (SWEA, SWESTR, Monetary Policy, Turnover, Holdings)](https://www.riksbank.se) | 7 |
+| <a href="https://pypi.org/project/parsimony-riksbank/"><img src="https://www.google.com/s2/favicons?domain=riksbank.se&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-riksbank`](https://pypi.org/project/parsimony-riksbank/) | [Sveriges Riksbank (SWEA, SWESTR, Monetary Policy, Turnover, Holdings)](https://www.riksbank.se) | 7 |
 | <a href="https://pypi.org/project/parsimony-sdmx/"><img src="https://www.google.com/s2/favicons?domain=sdmx.org&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-sdmx`](https://pypi.org/project/parsimony-sdmx/) | [SDMX protocol (ECB, Eurostat, IMF, World Bank)](https://sdmx.org) | 4 |
 | <a href="https://pypi.org/project/parsimony-sec-edgar/"><img src="https://www.google.com/s2/favicons?domain=sec.gov&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-sec-edgar`](https://pypi.org/project/parsimony-sec-edgar/) | [SEC EDGAR](https://www.sec.gov) | 12 |
 | <a href="https://pypi.org/project/parsimony-snb/"><img src="https://www.google.com/s2/favicons?domain=snb.ch&sz=64" width="16" height="16" alt="" /></a> | [`parsimony-snb`](https://pypi.org/project/parsimony-snb/) | [Swiss National Bank (SNB)](https://www.snb.ch) | 3 |
