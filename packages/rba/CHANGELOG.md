@@ -4,6 +4,15 @@ All notable changes to `parsimony-rba` will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- A connection refused by RBA's bot-mitigation edge no longer reports "upstream timed
+  out". It fails in well under a second, which read as an undocumented client-side
+  cooldown — there is none, every call goes to the network. The error now names what
+  happened, and `enumerate_rba` documents that a heavy crawl can trip the edge. (#76)
+
 ## [0.8.0] — 2026-06-09
 
 Re-run through the connector guidebook process: documentation compiled (including

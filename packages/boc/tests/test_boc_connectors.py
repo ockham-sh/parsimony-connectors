@@ -11,7 +11,7 @@ import httpx
 import pandas as pd
 import pytest
 import respx
-from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
+from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError, ProviderError
 from parsimony.result import Result
 
 from parsimony_boc import (
@@ -143,6 +143,34 @@ def test_boc_fetch_raises_empty_data_when_no_observations() -> None:
 
     with pytest.raises(EmptyDataError):
         boc_fetch(series_name="XX")
+
+
+@respx.mock
+def test_boc_fetch_maps_unknown_series_404_to_empty_data() -> None:
+    """An identifier Valet does not recognise is EmptyDataError, not ProviderError.
+
+    Valet answers with 404 + ``{"message": "Series ... not found."}``. That is the
+    same class of caller mistake BLS and SEC EDGAR report as EmptyDataError, so a
+    generic ``except EmptyDataError`` has to catch Bank of Canada too.
+    """
+    respx.get("https://www.bankofcanada.ca/valet/observations/NOT_A_REAL_SERIES_ID/json").mock(
+        return_value=httpx.Response(404, json={"message": "Series NOT_A_REAL_SERIES_ID not found."})
+    )
+
+    with pytest.raises(EmptyDataError) as exc:
+        boc_fetch(series_name="NOT_A_REAL_SERIES_ID")
+    assert "NOT_A_REAL_SERIES_ID" in str(exc.value)
+
+
+@respx.mock
+def test_boc_fetch_keeps_provider_error_for_upstream_failure() -> None:
+    """Only 404 is remapped — a real upstream failure stays a ProviderError."""
+    respx.get("https://www.bankofcanada.ca/valet/observations/FXUSDCAD/json").mock(
+        return_value=httpx.Response(503)
+    )
+
+    with pytest.raises(ProviderError):
+        boc_fetch(series_name="FXUSDCAD")
 
 
 def test_fetch_rejects_empty_series_name() -> None:
