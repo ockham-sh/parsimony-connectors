@@ -11,6 +11,11 @@ on:
       - "uv.lock"
       - ".github/workflows/ci.yml"
       - "Makefile"
+      - "scripts/gen_roster.py"
+      - "tests/**"
+      - "README.md"
+      - "docs/index.md"
+      - "connectors.json"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -93,6 +98,40 @@ jobs:
           else
             echo 'python_versions=["3.11","3.12"]' >> "$GITHUB_OUTPUT"
           fi
+
+  # Regenerates the README roster table, docs/index.md, and connectors.json
+  # from packages/*/pyproject.toml in memory and diffs against what's
+  # committed. Catches a PR that changed a package's connectors (or its
+  # entry point / description) without re-running `make readme-roster`,
+  # the same class of drift a stale generated file normally guards against.
+  #
+  # scripts/gen_roster.py is stdlib-only (no parsimony-core, no third-party
+  # deps), so both steps below deliberately avoid `uv run` — which would
+  # materialize the full workspace venv (parsimony-core[catalog] pulls
+  # torch/faiss/sentence-transformers) just to run a script that needs none
+  # of it. `--no-project` / `uvx` (isolated tool runtime) keep this job fast,
+  # the same reasoning as the `audit` job's use of `uvx pip-audit` below.
+  roster-check:
+    name: Roster manifest freshness
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: parsimony-connectors
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          path: parsimony-connectors
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.3
+        with:
+          python-version: "3.12"
+
+      - name: Unit-test the roster/manifest generator
+        run: uvx pytest tests/test_gen_roster.py
+
+      - name: Check README, docs/index.md, and connectors.json are fresh
+        run: uv run --no-project python scripts/gen_roster.py --check
 
   # Per-package test matrix. Only runs if at least one package exists.
   # matrix.package values come from `find packages/*/pyproject.toml` in
