@@ -114,7 +114,7 @@ def _get_json(http: HttpClient, *, path: str, params: dict[str, Any], op_name: s
 # ---------------------------------------------------------------------------
 
 
-@connector(output=SEARCH_OUTPUT, tags=["macro", "tool"], secrets=("api_key",))
+@connector(output=SEARCH_OUTPUT, tags=["macro", "tool"], secrets=("api_key",), requires=("FRED_API_KEY",))
 def fred_search(query: str, api_key: str = "") -> pd.DataFrame:
     """Keyword search for FRED economic time series.
 
@@ -144,7 +144,7 @@ def fred_search(query: str, api_key: str = "") -> pd.DataFrame:
     return df[cols]
 
 
-@connector(output=FETCH_OUTPUT, tags=["macro"], secrets=("api_key",))
+@connector(output=FETCH_OUTPUT, tags=["macro"], secrets=("api_key",), requires=("FRED_API_KEY",))
 def fred_fetch(
     series_id: Annotated[str, Namespace("fred")],
     observation_start: str | None = None,

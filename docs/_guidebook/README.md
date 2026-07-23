@@ -123,15 +123,15 @@ Does the provider expose a usable native SEARCH endpoint
          This is the only path where the "catalog covers ALL series" question is live.
          Exemplars: treasury, bde, bdf, bdp, boc, snb, rba, riksbank, destatis, boj, sdmx.
 
-Orthogonal axis — authentication:
-  • Required key      → §4.3 keyed triad, fast-fail UnauthorizedError before any network call.
+Orthogonal axis — authentication (the four combinations of secrets= × requires=):
+  • Required key      → §4.3 keyed triad, secrets= + requires=, fast-fail UnauthorizedError before any network call.
                         (alpha_vantage, fmp, coingecko, finnhub, eodhd, tiingo, fred, eia, bdf)
-  • Optional key      → key only raises quota (and may enrich output); never fast-fail.
+  • Optional key      → secrets= but requires=(); key only raises quota (and may enrich output); never fast-fail.
                         (bls registrationkey; riksbank Ocp-Apim key)
-  • Keyless           → no secrets=, no bind/load(api_key), no UnauthorizedError on the data path.
+  • Keyless           → no secrets=, no requires=, no bind/load(api_key), no UnauthorizedError on the data path.
                         (treasury, bde, bdp, boc, snb, rba, destatis, boj, sdmx, polymarket)
-  • Keyless + required header → a non-secret infra header with a pre-network fast-fail.
-                        (sec_edgar User-Agent)
+  • Keyless + required header → requires= with no secrets=: a non-secret infra header with a pre-network fast-fail.
+                        (sec_edgar User-Agent = SEC_EDGAR_USER_AGENT)
 ```
 
 **Do not catalog a provider that already has search** (it is wasted work and a stale duplicate
@@ -224,12 +224,19 @@ fetched_at=<utc now>, params=<call args minus declared secrets and minus bound a
 round-trips to Arrow/Parquet with the schema + provenance embedded. Oversized provenance fields
 are replaced with a structured marker (never a prefix, which could leak a secret head).
 
-### 4.4 Credentials: `secrets=` + `bind`
+### 4.4 Credentials: `secrets=` + `requires=` + `bind`
 
-Two **independent** mechanisms — combine both:
+Two independent **declarations** answer two questions, plus one **mechanism** (`bind`):
 
-- `secrets=("api_key",)` on the decorator → strips the named param from `provenance.params`.
-  (Names are validated against real parameters at decoration; an unknown name raises.)
+- `secrets=("api_key",)` — *must this value be hidden?* Strips the named param from
+  `provenance.params`. (Names are validated against real parameters at decoration; an unknown
+  name raises.)
+- `requires=("FOO_API_KEY",)` — *must this value exist?* Names the env var a call needs to
+  succeed, as a **literal** tuple (the roster AST sweep in `scripts/gen_roster.py` rejects a
+  non-literal). Core never reads it — it surfaces it in the cards (`(needs FOO_API_KEY)`) and
+  `parsimony list --strict`, and the manifest computes `keyless = not requires`. Declare it on
+  every verb that fast-fails unconfigured, including `sec_edgar`'s non-secret
+  `SEC_EDGAR_USER_AGENT` (`requires=` with no `secrets=`).
 - `Connector.bind(api_key=…)` → fixes the value and removes it from the exposed signature, the
   `describe()`/`to_llm()` cards, and binding. This is how an operator wires a key without
   exposing it to an agent.
@@ -330,16 +337,18 @@ def _client(api_key: str) -> HttpClient:
         raise UnauthorizedError("acme", env_var=_ENV_VAR)   # fast-fail BEFORE any network call
     return make_http_client(_BASE_URL, provider="acme", query_params={"apikey": key, "fmt": "json"})
 
-@connector(output=…, tags=["…", "tool"], secrets=("api_key",))
+@connector(output=…, tags=["…", "tool"], secrets=("api_key",), requires=("ACME_API_KEY",))
 def acme_search(query: str, api_key: str = "") -> pd.DataFrame: ...
 
 def load(*, api_key: str) -> Connectors:
     return CONNECTORS.bind(api_key=api_key)
 ```
 
-Rules: `secrets=("api_key",)` on **every** verb (including the enumerator); a single shared
-`_client()` so one parametrized no-key test covers all verbs symmetrically; `env_var` is
-keyword-only and conventionally `<PROVIDER>_API_KEY`.
+Rules: `secrets=("api_key",)` **and** `requires=("<PROVIDER>_API_KEY",)` on **every** verb
+(including the enumerator) — a required key must *exist*, so `requires=` names the same literal
+`env_var` the fast-fail raises; a single shared `_client()` so one parametrized no-key test
+covers all verbs symmetrically; `env_var` is keyword-only and conventionally
+`<PROVIDER>_API_KEY`.
 
 **Pick the helper by the key's param name:** `make_api_key_client` hardcodes
 `api_key_param="apikey"` and sets *only* the key, so if the param is anything else (FRED
@@ -364,17 +373,20 @@ Prefer a header or POST body so the key never enters a query string or log.
 `bls`: `registrationkey` is optional, defaults to `""`, is **never** fast-failed; the body
 sets it only `if api_key`. Note the subtlety — with a key, BLS returns real series *titles*;
 without, the title falls back to the series id. So the key changes **output shape**, not just
-rate limits. Still declare `secrets=("api_key",)`. Guard keyless leak-checks with `if _KEY:`.
+rate limits. Still declare `secrets=("api_key",)`, but keep `requires=()` — the call succeeds
+unconfigured, so it declares no required env var (that is what makes it "optional"). Guard
+keyless leak-checks with `if _KEY:`.
 
 ### 5.4 Keyless, and keyless-but-header-required
 
 - Pure keyless (`treasury`, `bde`, `bdp`, `boc`, `snb`, `rba`, `destatis`, `boj`, `sdmx`,
-  `polymarket`): no `secrets=`, no `bind`/`load(api_key=)`, no `UnauthorizedError` on the data
-  path. `load(*, catalog_url=None)` binds only the catalog URL. Integration tests skip
-  `assert_no_secret_leak` (no key to leak).
+  `polymarket`): no `secrets=`, no `requires=`, no `bind`/`load(api_key=)`, no
+  `UnauthorizedError` on the data path. `load(*, catalog_url=None)` binds only the catalog URL.
+  Integration tests skip `assert_no_secret_leak` (no key to leak).
 - **"Keyless" is not binary.** `sec_edgar` is keyless but SEC's fair-access policy *requires* a
   `User-Agent` header (name+email) or it 403/429s. Model it as a **non-secret** env-resolved
-  header (`SEC_EDGAR_USER_AGENT`) with a pre-network fast-fail (`UnauthorizedError(env_var=…)`),
+  header (`SEC_EDGAR_USER_AGENT`, declared `requires=("SEC_EDGAR_USER_AGENT",)` with no
+  `secrets=`) with a pre-network fast-fail (`UnauthorizedError(env_var=…)`),
   and deliberately **not** via `secrets=`/`bind`/`load` (a header isn't logged/redacted).
   Many providers also need a browser `User-Agent` just to avoid a 301 to their SPA shell
   (`destatis`) or to get past a WAF (`bdp`, `boj`).

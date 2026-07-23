@@ -82,7 +82,7 @@ def _parse_observations(payload: Any, series_key: str) -> pd.DataFrame:
     return df
 
 
-@connector(output=BDF_FETCH_OUTPUT, tags=["macro", "fr"], secrets=("api_key",))
+@connector(output=BDF_FETCH_OUTPUT, tags=["macro", "fr"], secrets=("api_key",), requires=("BDF_API_KEY",))
 def bdf_fetch(
     key: Annotated[str, "ns:bdf"],
     start_period: str | None = None,

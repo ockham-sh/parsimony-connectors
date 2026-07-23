@@ -17,7 +17,7 @@ from parsimony_sec_edgar._http import normalize_cik, user_agent
 from parsimony_sec_edgar.outputs import FINANCIAL_STATEMENT_COLUMNS, FINANCIAL_STATEMENT_OUTPUT
 
 
-@connector(output=FINANCIAL_STATEMENT_OUTPUT, tags=["sec_edgar"])
+@connector(output=FINANCIAL_STATEMENT_OUTPUT, tags=["sec_edgar"], requires=("SEC_EDGAR_USER_AGENT",))
 def sec_edgar_income_statement(cik: str) -> pd.DataFrame:
     """Annual income statement for a company, normalized to a tidy long table.
 
@@ -38,7 +38,7 @@ def sec_edgar_income_statement(cik: str) -> pd.DataFrame:
     return df[list(FINANCIAL_STATEMENT_COLUMNS)]
 
 
-@connector(output=FINANCIAL_STATEMENT_OUTPUT, tags=["sec_edgar"])
+@connector(output=FINANCIAL_STATEMENT_OUTPUT, tags=["sec_edgar"], requires=("SEC_EDGAR_USER_AGENT",))
 def sec_edgar_balance_sheet(cik: str) -> pd.DataFrame:
     """Annual balance sheet for a company, normalized to a tidy long table.
 
@@ -52,7 +52,7 @@ def sec_edgar_balance_sheet(cik: str) -> pd.DataFrame:
     return df[list(FINANCIAL_STATEMENT_COLUMNS)]
 
 
-@connector(output=FINANCIAL_STATEMENT_OUTPUT, tags=["sec_edgar"])
+@connector(output=FINANCIAL_STATEMENT_OUTPUT, tags=["sec_edgar"], requires=("SEC_EDGAR_USER_AGENT",))
 def sec_edgar_cash_flow(cik: str) -> pd.DataFrame:
     """Annual cash flow statement for a company, normalized to a tidy long table.
 

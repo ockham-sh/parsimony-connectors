@@ -6,6 +6,12 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Credential-declaration conformance tests (`tests/test_credential_declaration_boc.py`)
+  prove the keyless connectors declare no requirements (`requires=()`, no `secrets=`)
+  and reach the network with nothing configured.
+
 ### Fixed
 
 - `boc_fetch` raises `EmptyDataError` for a series or group name Valet does not

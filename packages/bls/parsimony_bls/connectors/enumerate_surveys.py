@@ -8,6 +8,8 @@ catalog-build time, for surveys that have a series catalog.
 
 from __future__ import annotations
 
+import os
+
 import pandas as pd
 from parsimony.connector import enumerator
 from parsimony.errors import EmptyDataError
@@ -21,6 +23,9 @@ from parsimony_bls.surveys import HEADLINE_SURVEYS
 @enumerator(output=BLS_SURVEYS_ENUM_OUTPUT, tags=["macro", "us"], secrets=("api_key",))
 def enumerate_bls_surveys(api_key: str = "") -> pd.DataFrame:
     """List every BLS survey (program) for the tier-1 discovery catalog."""
+    # Optional key: fall back to the documented ``BLS_API_KEY`` env var when the
+    # call passes none, so the enumerator honours the same promise as bls_fetch.
+    api_key = api_key or os.environ.get("BLS_API_KEY", "")
     query = {"registrationkey": api_key} if api_key else None
     http = make_http_client(API_BASE, provider="bls", query_params=query, timeout=API_TIMEOUT)
     body = fetch_json(http, path="surveys", op_name="surveys")

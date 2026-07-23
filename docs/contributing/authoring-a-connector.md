@@ -203,7 +203,7 @@ FETCH_OUTPUT = OutputSpec(
 )
 
 
-@connector(output=FETCH_OUTPUT, tags=["macro"], secrets=("api_key",))
+@connector(output=FETCH_OUTPUT, tags=["macro"], secrets=("api_key",), requires=("FRED_API_KEY",))
 def fred_fetch(
     series_id: Annotated[str, Namespace("fred")],
     observation_start: str | None = None,
@@ -254,6 +254,12 @@ The rules this demonstrates:
   `treasury_fetch` relies on this). When you want only the declared columns on
   `result.raw`, slice the frame yourself to `[c.name for c in OUTPUT.columns]` before
   returning, as `fred_fetch` does, so stray provider columns don't ride along.
+- **Declare credentials on two independent axes.** `secrets=("api_key",)` answers *must this
+  value be hidden?* (it strips the parameter from provenance). `requires=("FRED_API_KEY",)`
+  answers *must this value exist?* — it names the env var the call needs, as a **literal tuple
+  of strings**, and must be present on **every verb that cannot succeed unconfigured**. A
+  catalog-backed `*_search` verb runs against a local snapshot and is keyless by construction:
+  no `secrets=`, no `requires=`. See [§8](#8-credentials).
 - **Cast dtypes yourself.** `Column` has no `dtype=` field; `fred_fetch` parses `date` with
   `pd.to_datetime` and `value` with `pd.to_numeric` before returning, rather than declaring
   it on the schema.
@@ -477,15 +483,28 @@ Shared fan-out helpers live in **`parsimony-shared`** (`ThrottledJsonFetcher`,
 
 ## 8. Credentials
 
-A keyless connector has **none** of the machinery below — no `secrets=`, no `.bind`, no
-fast-fail. Call it directly. For keyed connectors, two **independent** mechanisms protect
-the key, and a keyed connector uses both.
+A keyless connector has **none** of the machinery below — no `secrets=`, no `requires=`, no
+`.bind`, no fast-fail. Call it directly.
 
-- **`secrets=("api_key",)`** on the decorator strips that parameter from
+Two independent decorator declarations describe a connector's credential shape, answering two
+different questions:
+
+- **`secrets=("api_key",)` — must this value be *hidden*?** It strips that parameter from
   `provenance.params`, so the key never lands in a stored receipt. It governs **provenance
   only**, not logs.
-- **`Connector.bind(api_key=...)`** fixes the value and removes the parameter from the
-  agent-facing signature, so an operator wires a key in once and the agent never sees it.
+- **`requires=("FOO_API_KEY",)` — must this value *exist*?** It names the env var a call needs
+  to succeed, as a **literal tuple of string constants**. Declare it on **every verb that
+  cannot succeed unconfigured** — including `sec_edgar`'s non-secret `SEC_EDGAR_USER_AGENT`
+  header, which is `requires=` with no `secrets=`. The roster generator (`scripts/gen_roster.py`)
+  parses these sites with `ast` and **rejects a non-literal `requires=`** (a variable or an
+  f-string) — the sweep cannot resolve names, so the tuple must be spelled out inline. The
+  manifest's `keyless` flag is computed as `not requires`, and catalog-backed `*_search` verbs
+  are keyless by construction.
+
+`.bind` is a third, separate mechanism — it does not declare anything, it *fixes* a value:
+
+- **`Connector.bind(api_key=...)`** removes the parameter from the agent-facing signature, so
+  an operator wires a key in once and the agent never sees it.
 
 The standard per-package operator helper binds across the whole collection:
 
@@ -495,7 +514,7 @@ def load(*, api_key: str) -> Connectors:
 ```
 
 Inside the connector, resolve the key from the bound value with an env fallback and
-fast-fail before any network call:
+fast-fail before any network call — using the **same literal name** you declared in `requires=`:
 
 ```python
 from parsimony.transport.helpers import require_key
@@ -578,6 +597,28 @@ def test_conforms_to_parsimony_plugin_contract() -> None:
 ```
 
 `parsimony list --strict` runs the same checks across every installed provider.
+
+### Credential-declaration tests (`tests/test_credential_declaration_foo.py`)
+
+Conformance checks that credential *parameters* are declared in `secrets=`, but it does not
+prove your `requires=` matches runtime. `CredentialDeclarationSuite` (from
+`parsimony_test_support`) closes that gap: subclass it once per verb and it asserts the bare
+call fast-fails naming the declared env var, an env-supplied credential reaches the outgoing
+request, and — with `requires=()` — the call reaches the network instead of fast-failing. Each
+check self-guards on the connector's own metadata, so the same subclass shape wires onto keyed,
+optional-key, and keyless verbs alike (inapplicable checks skip).
+
+```python
+from parsimony_test_support import CredentialDeclarationSuite
+
+from parsimony_foo import foo_fetch
+
+
+class TestFooFetchCredentialDeclaration(CredentialDeclarationSuite):
+    connector = foo_fetch
+    call_kwargs = {"series_id": "ABC"}
+    route_url = "https://api.foo.example/observations"
+```
 
 ### Offline behavioural tests (`tests/test_foo_connectors.py`)
 

@@ -6,6 +6,16 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- All connectors now declare `requires=("SEC_EDGAR_USER_AGENT",)` — the env var
+  an agent must set for a call to succeed (SEC rejects requests without an
+  identifying User-Agent), surfaced in the connector card and named by the
+  fast-fail `UnauthorizedError`. No `secrets=` is added: the User-Agent is a
+  contact identity read from a header, not a bound/redacted credential.
+  Credential-declaration conformance tests added (`CredentialDeclarationSuite`)
+  proving the declaration matches runtime.
+
 ### Changed
 
 - `sec_edgar_income_statement` and the `concept` column document that filers tag the

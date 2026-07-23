@@ -8,6 +8,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **Connectors declare their credential requirement: `requires=("<ENV_VAR>",)`.** Every verb
+  that cannot succeed unconfigured now names, at the decorator site, the env var its
+  `UnauthorizedError` raises — 8 required-key packages plus `sec_edgar` (whose
+  `SEC_EDGAR_USER_AGENT` requirement had no parameter to infer from). `secrets=` is unchanged
+  and orthogonal: `secrets=` answers "must this value be hidden", `requires=` answers "must
+  this value exist". Optional quota keys (`bls`, `riksbank`) stay undeclared — the call
+  succeeds without them. (#87, closes #75)
+- **`CredentialDeclarationSuite`** in `parsimony_test_support`: four offline checks proving
+  each declaration matches runtime behavior (declared ⇒ fast-fails naming the declared env
+  var before any network I/O; undeclared ⇒ the request is issued; declared env value and
+  bound secret params reach the outgoing request). Wired into 20 packages; `rba` and `sdmx`
+  fetch over non-httpx transports respx cannot intercept and are covered by their existing
+  transport-level tests.
+
+### Changed
+
+- **`connectors.json` schema_version 1 → 2**: rows carry `requires` (sorted env-var names)
+  and `keyless` is off the wire — `parsimony-core`'s registry (which parses both schema
+  versions) computes it on `InstallableConnector` as `not requires`. This fixes the three
+  wrong shipped values: `sec_edgar` was
+  `keyless: true` yet every call fails without `SEC_EDGAR_USER_AGENT`; `riksbank` and `bls`
+  were `keyless: false` yet work unconfigured. `gen_roster.py` extracts `requires=` from the
+  decorator literals (non-literal values fail the sweep loudly) and now also generates the
+  `docs/reference/providers.md` Auth/Env-var columns and the `docs/concepts/credentials.md`
+  provider lists, ending their hand-maintained drift.
+
+### Fixed
+
+- **`bls` reads `BLS_API_KEY` (#86) and `riksbank` reads `RIKSBANK_API_KEY`**: both env
+  fallbacks were documented for years but never read by connector code — setting them
+  silently left you on the keyless quota. `bls_fetch` / `enumerate_bls_surveys` now fall
+  back to `BLS_API_KEY` (lifting the 10→20-year window and attaching `registrationkey`);
+  all `riksbank` verbs fall back to `RIKSBANK_API_KEY` via the shared client paths.
+
 ### Removed
 
 - **SDMX series catalogs no longer build a `title` index.** The composed title is the

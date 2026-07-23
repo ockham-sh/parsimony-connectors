@@ -74,7 +74,7 @@ def _require(value: str, name: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_SEARCH_OUTPUT, tags=["equities", "tool"], secrets=("api_key",))
+@connector(output=_SEARCH_OUTPUT, tags=["equities", "tool"], secrets=("api_key",), requires=("FINNHUB_API_KEY",))
 def finnhub_search(query: str, api_key: str = "") -> pd.DataFrame:
     """Search Finnhub for stocks, ETFs, and indices by name or ticker symbol.
     Returns symbol (the stable API identifier), description (company name),
@@ -110,7 +110,7 @@ def finnhub_search(query: str, api_key: str = "") -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_QUOTE_OUTPUT, tags=["equities"], secrets=("api_key",))
+@connector(output=_QUOTE_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("FINNHUB_API_KEY",))
 def finnhub_quote(symbol: Annotated[str, Namespace("finnhub_symbol")], api_key: str = "") -> pd.DataFrame:
     """Fetch real-time quote for a stock: current price, day high/low/open,
     previous close, and absolute/percent change vs prior close. Timestamp
@@ -145,7 +145,7 @@ def finnhub_quote(symbol: Annotated[str, Namespace("finnhub_symbol")], api_key: 
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_PROFILE_OUTPUT, tags=["equities"], secrets=("api_key",))
+@connector(output=_PROFILE_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("FINNHUB_API_KEY",))
 def finnhub_profile(symbol: Annotated[str, Namespace("finnhub_symbol")], api_key: str = "") -> pd.DataFrame:
     """Fetch company profile for a stock: name, exchange, country, currency,
     IPO date, industry, market cap (in millions USD), shares outstanding
@@ -167,7 +167,7 @@ def finnhub_profile(symbol: Annotated[str, Namespace("finnhub_symbol")], api_key
     return pd.DataFrame([data]).reindex(columns=[c.name for c in _PROFILE_OUTPUT.columns])
 
 
-@connector(output=_PEERS_OUTPUT, tags=["equities"], secrets=("api_key",))
+@connector(output=_PEERS_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("FINNHUB_API_KEY",))
 def finnhub_peers(symbol: Annotated[str, Namespace("finnhub_symbol")], api_key: str = "") -> pd.DataFrame:
     """Fetch peer/comparable companies for a stock. Returns a list of ticker
     symbols in the same industry and market cap range. Use finnhub_quote or
@@ -185,7 +185,7 @@ def finnhub_peers(symbol: Annotated[str, Namespace("finnhub_symbol")], api_key: 
     return pd.DataFrame({"symbol": peers})
 
 
-@connector(output=_RECOMMENDATION_OUTPUT, tags=["equities"], secrets=("api_key",))
+@connector(output=_RECOMMENDATION_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("FINNHUB_API_KEY",))
 def finnhub_recommendation(symbol: Annotated[str, Namespace("finnhub_symbol")], api_key: str = "") -> pd.DataFrame:
     """Fetch analyst buy/hold/sell recommendation trends for a stock.
     Returns monthly aggregated counts: strong_buy, buy, hold, sell, strong_sell.
@@ -219,7 +219,7 @@ def finnhub_recommendation(symbol: Annotated[str, Namespace("finnhub_symbol")], 
     return pd.DataFrame(rows)
 
 
-@connector(output=_EARNINGS_OUTPUT, tags=["equities"], secrets=("api_key",))
+@connector(output=_EARNINGS_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("FINNHUB_API_KEY",))
 def finnhub_earnings(symbol: Annotated[str, Namespace("finnhub_symbol")], api_key: str = "") -> pd.DataFrame:
     """Fetch historical earnings per share (EPS) for a stock: actual EPS,
     consensus estimate, surprise, and surprise percent for the last ~4 quarters.
@@ -249,7 +249,7 @@ def finnhub_earnings(symbol: Annotated[str, Namespace("finnhub_symbol")], api_ke
     return pd.DataFrame(rows)
 
 
-@connector(tags=["equities"], secrets=("api_key",))
+@connector(tags=["equities"], secrets=("api_key",), requires=("FINNHUB_API_KEY",))
 def finnhub_basic_financials(symbol: Annotated[str, Namespace("finnhub_symbol")], api_key: str = "") -> dict[str, Any]:
     """Fetch ~120 fundamental metrics for a stock: PE, EPS, beta, 52-week
     high/low, gross margin, ROE, dividend yield, market cap, and more.
@@ -281,7 +281,7 @@ def finnhub_basic_financials(symbol: Annotated[str, Namespace("finnhub_symbol")]
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_NEWS_OUTPUT, tags=["equities", "news"], secrets=("api_key",))
+@connector(output=_NEWS_OUTPUT, tags=["equities", "news"], secrets=("api_key",), requires=("FINNHUB_API_KEY",))
 def finnhub_company_news(
     symbol: Annotated[str, Namespace("finnhub_symbol")],
     from_date: str,
@@ -316,7 +316,7 @@ def finnhub_company_news(
     return pd.DataFrame(rows)
 
 
-@connector(output=_NEWS_OUTPUT, tags=["news"], secrets=("api_key",))
+@connector(output=_NEWS_OUTPUT, tags=["news"], secrets=("api_key",), requires=("FINNHUB_API_KEY",))
 def finnhub_market_news(
     category: Literal["general", "forex", "crypto", "merger"] = "general",
     api_key: str = "",
@@ -361,7 +361,12 @@ def _news_rows(data: list[dict[str, Any]]) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_EARNINGS_CAL_OUTPUT, tags=["equities", "calendars"], secrets=("api_key",))
+@connector(
+    output=_EARNINGS_CAL_OUTPUT,
+    tags=["equities", "calendars"],
+    secrets=("api_key",),
+    requires=("FINNHUB_API_KEY",),
+)
 def finnhub_earnings_calendar(
     from_date: str, to_date: str, symbol: str | None = None, api_key: str = ""
 ) -> pd.DataFrame:
@@ -406,7 +411,7 @@ def finnhub_earnings_calendar(
     return pd.DataFrame(rows)
 
 
-@connector(output=_IPO_CAL_OUTPUT, tags=["equities", "calendars"], secrets=("api_key",))
+@connector(output=_IPO_CAL_OUTPUT, tags=["equities", "calendars"], secrets=("api_key",), requires=("FINNHUB_API_KEY",))
 def finnhub_ipo_calendar(from_date: str, to_date: str, api_key: str = "") -> pd.DataFrame:
     """Fetch IPO calendar for a date range: company name, ticker, exchange,
     status (expected/priced/filed/withdrawn), price_range (the raw IPO price
@@ -455,7 +460,7 @@ def finnhub_ipo_calendar(from_date: str, to_date: str, api_key: str = "") -> pd.
 # ---------------------------------------------------------------------------
 
 
-@enumerator(output=_ENUMERATE_OUTPUT, tags=["equities"], secrets=("api_key",))
+@enumerator(output=_ENUMERATE_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("FINNHUB_API_KEY",))
 def enumerate_finnhub(exchange: str = "US", api_key: str = "") -> pd.DataFrame:
     """Enumerate all symbols from Finnhub for catalog indexing.
 

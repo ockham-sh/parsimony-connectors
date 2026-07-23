@@ -103,7 +103,7 @@ def _safe_coin_id(coin_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-@connector(output=SEARCH_OUTPUT, tags=["crypto", "tool"], secrets=("api_key",))
+@connector(output=SEARCH_OUTPUT, tags=["crypto", "tool"], secrets=("api_key",), requires=("COINGECKO_API_KEY",))
 def coingecko_search(query: str, api_key: str = "") -> pd.DataFrame:
     """Search CoinGecko for coins by name or symbol. Use this first to resolve
     CoinGecko coin IDs before calling coingecko_price, coingecko_markets, or
@@ -136,7 +136,7 @@ def coingecko_search(query: str, api_key: str = "") -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-@connector(output=TRENDING_OUTPUT, tags=["crypto", "tool"], secrets=("api_key",))
+@connector(output=TRENDING_OUTPUT, tags=["crypto", "tool"], secrets=("api_key",), requires=("COINGECKO_API_KEY",))
 def coingecko_trending(api_key: str = "") -> pd.DataFrame:
     """[Demo+] Fetch trending coins on CoinGecko in the last 24 hours.
     Returns the top 7 trending coins by search volume, with name, symbol,
@@ -163,7 +163,7 @@ def coingecko_trending(api_key: str = "") -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-@connector(output=GAINERS_LOSERS_OUTPUT, tags=["crypto", "tool"], secrets=("api_key",))
+@connector(output=GAINERS_LOSERS_OUTPUT, tags=["crypto", "tool"], secrets=("api_key",), requires=("COINGECKO_API_KEY",))
 def coingecko_top_gainers_losers(
     vs_currency: str = "usd",
     duration: Literal["1h", "24h", "7d", "14d", "30d", "60d", "1y"] = "24h",
@@ -209,7 +209,7 @@ def coingecko_top_gainers_losers(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=PRICE_OUTPUT, tags=["crypto"], secrets=("api_key",))
+@connector(output=PRICE_OUTPUT, tags=["crypto"], secrets=("api_key",), requires=("COINGECKO_API_KEY",))
 def coingecko_price(
     ids: str,
     vs_currencies: str = "usd",
@@ -245,7 +245,7 @@ def coingecko_price(
     return pd.DataFrame(rows)
 
 
-@connector(output=MARKETS_OUTPUT, tags=["crypto"], secrets=("api_key",))
+@connector(output=MARKETS_OUTPUT, tags=["crypto"], secrets=("api_key",), requires=("COINGECKO_API_KEY",))
 def coingecko_markets(
     vs_currency: str = "usd",
     ids: str | None = None,
@@ -283,7 +283,7 @@ def coingecko_markets(
     return pd.DataFrame(data)
 
 
-@connector(tags=["crypto"], secrets=("api_key",))
+@connector(tags=["crypto"], secrets=("api_key",), requires=("COINGECKO_API_KEY",))
 def coingecko_coin_detail(
     coin_id: Annotated[str, Namespace("coingecko_coin")],
     localization: bool = False,
@@ -343,7 +343,7 @@ def _build_market_chart_df(data: Any, *, op_name: str) -> pd.DataFrame:
     return df
 
 
-@connector(output=MARKET_CHART_OUTPUT, tags=["crypto"], secrets=("api_key",))
+@connector(output=MARKET_CHART_OUTPUT, tags=["crypto"], secrets=("api_key",), requires=("COINGECKO_API_KEY",))
 def coingecko_market_chart(
     coin_id: Annotated[str, Namespace("coingecko_coin")],
     days: str,
@@ -370,7 +370,7 @@ def coingecko_market_chart(
     return _build_market_chart_df(data, op_name="coingecko_market_chart")
 
 
-@connector(output=MARKET_CHART_OUTPUT, tags=["crypto"], secrets=("api_key",))
+@connector(output=MARKET_CHART_OUTPUT, tags=["crypto"], secrets=("api_key",), requires=("COINGECKO_API_KEY",))
 def coingecko_market_chart_range(
     coin_id: Annotated[str, Namespace("coingecko_coin")],
     from_date: str,
@@ -400,7 +400,7 @@ def coingecko_market_chart_range(
     return _build_market_chart_df(data, op_name="coingecko_market_chart_range")
 
 
-@connector(output=OHLC_OUTPUT, tags=["crypto"], secrets=("api_key",))
+@connector(output=OHLC_OUTPUT, tags=["crypto"], secrets=("api_key",), requires=("COINGECKO_API_KEY",))
 def coingecko_ohlc(
     coin_id: Annotated[str, Namespace("coingecko_coin")],
     vs_currency: str = "usd",
@@ -430,7 +430,9 @@ def coingecko_ohlc(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=ONCHAIN_PRICE_OUTPUT, tags=["crypto", "onchain"], secrets=("api_key",))
+@connector(
+    output=ONCHAIN_PRICE_OUTPUT, tags=["crypto", "onchain"], secrets=("api_key",), requires=("COINGECKO_API_KEY",)
+)
 def coingecko_token_price_onchain(
     network: str,
     contract_addresses: str,
@@ -472,7 +474,7 @@ def coingecko_token_price_onchain(
 # ---------------------------------------------------------------------------
 
 
-@enumerator(output=ENUMERATE_OUTPUT, tags=["crypto"], secrets=("api_key",))
+@enumerator(output=ENUMERATE_OUTPUT, tags=["crypto"], secrets=("api_key",), requires=("COINGECKO_API_KEY",))
 def enumerate_coingecko(include_platform: bool = True, api_key: str = "") -> pd.DataFrame:
     """Enumerate all coins from CoinGecko for catalog indexing.
 

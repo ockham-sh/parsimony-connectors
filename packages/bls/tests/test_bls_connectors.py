@@ -14,6 +14,18 @@ from parsimony_bls.connectors.enumerate_series import enumerate_bls_series
 from parsimony_bls.connectors.enumerate_surveys import enumerate_bls_surveys
 from parsimony_bls.connectors.fetch import bls_fetch
 
+
+@pytest.fixture(autouse=True)
+def _clear_bls_api_key(monkeypatch):
+    """Neutralise any ambient ``BLS_API_KEY`` (the workspace ``.env`` exports one).
+
+    Since the connectors now honour the env var, the unkeyed-behaviour tests must
+    run with it absent to be deterministic; the env-fallback tests below re-set it
+    explicitly (their own ``monkeypatch.setenv`` runs after this fixture).
+    """
+    monkeypatch.delenv("BLS_API_KEY", raising=False)
+
+
 # ---------------------------------------------------------------------------
 # Plugin contract shape
 # ---------------------------------------------------------------------------
@@ -166,6 +178,108 @@ def test_bls_fetch_raises_empty_when_no_series() -> None:
     )
     with pytest.raises(EmptyDataError):
         bls_fetch(series_id="XYZ", start_year="2026", end_year="2026")
+
+
+# ---------------------------------------------------------------------------
+# BLS_API_KEY env fallback (#86) — the key is optional, but when no api_key is
+# passed the connector honours the documented env var for BOTH the payload
+# (registrationkey) and the per-call year cap (20 keyed vs 10 unkeyed).
+# ---------------------------------------------------------------------------
+
+_SUCCESS_BODY = {
+    "status": "REQUEST_SUCCEEDED",
+    "Results": {
+        "series": [
+            {
+                "seriesID": "LNS14000000",
+                "catalog": {"series_title": "Unemployment Rate"},
+                "data": [{"year": "2009", "period": "M01", "value": "9.0"}],
+            }
+        ]
+    },
+}
+
+
+@respx.mock
+def test_bls_fetch_env_key_lands_in_payload_and_lifts_cap(monkeypatch) -> None:
+    monkeypatch.setenv("BLS_API_KEY", "env-secret")
+    route = respx.post("https://api.bls.gov/publicAPI/v2/timeseries/data/").mock(
+        return_value=httpx.Response(200, json=_SUCCESS_BODY)
+    )
+    # 15-year span (2000..2014) exceeds the unkeyed cap of 10 but is under the
+    # keyed cap of 20 — it only goes through because the env key lifted the cap.
+    result = bls_fetch(series_id="LNS14000000", start_year="2000", end_year="2014")
+    assert len(result.raw) == 1
+
+    import json
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["registrationkey"] == "env-secret"
+
+
+def test_bls_fetch_env_key_lifts_cap_without_reaching_network(monkeypatch) -> None:
+    # A 21-year span still exceeds even the keyed cap, proving the cap tracks the
+    # (env-resolved) key: with the env key the message says "keyed" / "20 years".
+    monkeypatch.setenv("BLS_API_KEY", "env-secret")
+    with pytest.raises(InvalidParameterError) as exc:
+        bls_fetch(series_id="LNS14000000", start_year="2000", end_year="2020")
+    assert "20 calendar years" in str(exc.value)
+    assert "keyed" in str(exc.value)
+
+
+@respx.mock
+def test_bls_fetch_without_env_key_omits_registrationkey(monkeypatch) -> None:
+    monkeypatch.delenv("BLS_API_KEY", raising=False)
+    route = respx.post("https://api.bls.gov/publicAPI/v2/timeseries/data/").mock(
+        return_value=httpx.Response(200, json=_SUCCESS_BODY)
+    )
+    bls_fetch(series_id="LNS14000000", start_year="2000", end_year="2009")
+
+    import json
+
+    body = json.loads(route.calls.last.request.content)
+    assert "registrationkey" not in body
+
+
+def test_bls_fetch_without_env_key_keeps_unkeyed_cap(monkeypatch) -> None:
+    # No env key → the cap stays at 10, so an 11-year span refuses as "unkeyed".
+    monkeypatch.delenv("BLS_API_KEY", raising=False)
+    with pytest.raises(InvalidParameterError) as exc:
+        bls_fetch(series_id="LNS14000000", start_year="2000", end_year="2010")
+    assert "10 calendar years" in str(exc.value)
+    assert "unkeyed" in str(exc.value)
+
+
+@respx.mock
+def test_enumerate_surveys_env_key_lands_in_query(monkeypatch) -> None:
+    monkeypatch.setenv("BLS_API_KEY", "env-secret")
+    route = respx.get("https://api.bls.gov/publicAPI/v2/surveys").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "status": "REQUEST_SUCCEEDED",
+                "Results": {"survey": [{"survey_abbreviation": "CU", "survey_name": "CPI"}]},
+            },
+        )
+    )
+    enumerate_bls_surveys()
+    assert "registrationkey=env-secret" in str(route.calls.last.request.url)
+
+
+@respx.mock
+def test_enumerate_surveys_without_env_key_omits_registrationkey(monkeypatch) -> None:
+    monkeypatch.delenv("BLS_API_KEY", raising=False)
+    route = respx.get("https://api.bls.gov/publicAPI/v2/surveys").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "status": "REQUEST_SUCCEEDED",
+                "Results": {"survey": [{"survey_abbreviation": "CU", "survey_name": "CPI"}]},
+            },
+        )
+    )
+    enumerate_bls_surveys()
+    assert "registrationkey" not in str(route.calls.last.request.url)
 
 
 # ---------------------------------------------------------------------------

@@ -117,7 +117,7 @@ def _safe_ticker(ticker: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-@connector(output=SEARCH_OUTPUT, tags=["equities", "tool"], secrets=("api_key",))
+@connector(output=SEARCH_OUTPUT, tags=["equities", "tool"], secrets=("api_key",), requires=("TIINGO_API_KEY",))
 def tiingo_search(query: str, limit: int = 25, api_key: str = "") -> pd.DataFrame:
     """Search Tiingo for stocks, ETFs, mutual funds, and crypto by name or ticker.
 
@@ -170,7 +170,7 @@ def tiingo_search(query: str, limit: int = 25, api_key: str = "") -> pd.DataFram
 # ---------------------------------------------------------------------------
 
 
-@connector(output=EOD_OUTPUT, tags=["equities"], secrets=("api_key",))
+@connector(output=EOD_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("TIINGO_API_KEY",))
 def tiingo_eod(
     ticker: Annotated[str, Namespace("tiingo_ticker")],
     start_date: str | None = None,
@@ -227,7 +227,7 @@ def tiingo_eod(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=IEX_OUTPUT, tags=["equities"], secrets=("api_key",))
+@connector(output=IEX_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("TIINGO_API_KEY",))
 def tiingo_iex(tickers: str, api_key: str = "") -> pd.DataFrame:
     """Fetch real-time IEX quotes for one or more stocks. Returns Tiingo's
     composite last price (tngo_last), OHLV for the day, previous close,
@@ -277,7 +277,7 @@ def tiingo_iex(tickers: str, api_key: str = "") -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-@connector(output=IEX_HIST_OUTPUT, tags=["equities"], secrets=("api_key",))
+@connector(output=IEX_HIST_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("TIINGO_API_KEY",))
 def tiingo_iex_historical(
     ticker: Annotated[str, Namespace("tiingo_ticker")],
     start_date: str | None = None,
@@ -333,7 +333,7 @@ def tiingo_iex_historical(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=META_OUTPUT, tags=["equities"], secrets=("api_key",))
+@connector(output=META_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("TIINGO_API_KEY",))
 def tiingo_meta(ticker: Annotated[str, Namespace("tiingo_ticker")], api_key: str = "") -> pd.DataFrame:
     """Fetch company metadata for a stock: ticker, name, description, exchange
     code, and listing start/end dates. Returns a one-row DataFrame. Use
@@ -364,7 +364,7 @@ def tiingo_meta(ticker: Annotated[str, Namespace("tiingo_ticker")], api_key: str
 # ---------------------------------------------------------------------------
 
 
-@connector(output=FUNDAMENTALS_META_OUTPUT, tags=["equities"], secrets=("api_key",))
+@connector(output=FUNDAMENTALS_META_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("TIINGO_API_KEY",))
 def tiingo_fundamentals_meta(tickers: str, api_key: str = "") -> pd.DataFrame:
     """Fetch fundamentals metadata for one or more stocks: sector, industry,
     SIC code/sector/industry, reporting currency, location, company website,
@@ -397,7 +397,7 @@ def tiingo_fundamentals_meta(tickers: str, api_key: str = "") -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-@connector(output=DEFINITIONS_OUTPUT, tags=["equities"], secrets=("api_key",))
+@connector(output=DEFINITIONS_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("TIINGO_API_KEY",))
 def tiingo_fundamentals_definitions(api_key: str = "") -> pd.DataFrame:
     """List all available fundamental metric definitions: data_code (metric ID),
     name, description, statement_type (overview/incomeStatement/balanceSheet/
@@ -456,7 +456,7 @@ def _fetch_news(http: HttpClient, params: dict[str, Any]) -> Any:
     return response.json()
 
 
-@connector(output=NEWS_OUTPUT, tags=["equities", "news"], secrets=("api_key",))
+@connector(output=NEWS_OUTPUT, tags=["equities", "news"], secrets=("api_key",), requires=("TIINGO_API_KEY",))
 def tiingo_news(
     tickers: str | None = None,
     source: str | None = None,
@@ -509,7 +509,7 @@ def tiingo_news(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=CRYPTO_PRICES_OUTPUT, tags=["crypto"], secrets=("api_key",))
+@connector(output=CRYPTO_PRICES_OUTPUT, tags=["crypto"], secrets=("api_key",), requires=("TIINGO_API_KEY",))
 def tiingo_crypto_prices(
     tickers: str,
     start_date: str | None = None,
@@ -575,7 +575,7 @@ def tiingo_crypto_prices(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=CRYPTO_TOP_OUTPUT, tags=["crypto"], secrets=("api_key",))
+@connector(output=CRYPTO_TOP_OUTPUT, tags=["crypto"], secrets=("api_key",), requires=("TIINGO_API_KEY",))
 def tiingo_crypto_top(tickers: str, api_key: str = "") -> pd.DataFrame:
     """Fetch real-time top-of-book quotes for crypto pairs: last price, bid/ask
     prices and sizes, last trade size (notional), and exchange. Free tier
@@ -625,7 +625,7 @@ def tiingo_crypto_top(tickers: str, api_key: str = "") -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-@connector(output=FX_PRICES_OUTPUT, tags=["forex"], secrets=("api_key",))
+@connector(output=FX_PRICES_OUTPUT, tags=["forex"], secrets=("api_key",), requires=("TIINGO_API_KEY",))
 def tiingo_fx_prices(
     tickers: str,
     start_date: str | None = None,
@@ -680,7 +680,7 @@ def tiingo_fx_prices(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=FX_TOP_OUTPUT, tags=["forex"], secrets=("api_key",))
+@connector(output=FX_TOP_OUTPUT, tags=["forex"], secrets=("api_key",), requires=("TIINGO_API_KEY",))
 def tiingo_fx_top(tickers: str, api_key: str = "") -> pd.DataFrame:
     """Fetch real-time top-of-book forex quotes: mid, bid/ask prices and sizes.
     Free tier supported. Comma-separate pairs; use lowercase, e.g. 'eurusd',
@@ -774,7 +774,7 @@ def _parse_supported_tickers(content: bytes) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-@enumerator(output=ENUMERATE_OUTPUT, tags=["equities"], secrets=("api_key",))
+@enumerator(output=ENUMERATE_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("TIINGO_API_KEY",))
 def enumerate_tiingo(api_key: str = "") -> pd.DataFrame:
     """Enumerate all supported tickers from Tiingo for catalog indexing.
 

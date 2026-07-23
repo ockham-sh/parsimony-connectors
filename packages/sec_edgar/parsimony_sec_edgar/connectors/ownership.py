@@ -22,7 +22,7 @@ from parsimony_sec_edgar.outputs import (
 )
 
 
-@connector(output=INSIDER_TRANSACTIONS_OUTPUT, tags=["sec_edgar"])
+@connector(output=INSIDER_TRANSACTIONS_OUTPUT, tags=["sec_edgar"], requires=("SEC_EDGAR_USER_AGENT",))
 def sec_edgar_insider_transactions(cik: str, limit: int = 20) -> pd.DataFrame:
     """Recent Form 4 insider transactions for a company.
 
@@ -40,7 +40,7 @@ def sec_edgar_insider_transactions(cik: str, limit: int = 20) -> pd.DataFrame:
     return df.reindex(columns=list(INSIDER_TRANSACTIONS_COLUMNS))
 
 
-@connector(output=HOLDINGS_13F_OUTPUT, tags=["sec_edgar"])
+@connector(output=HOLDINGS_13F_OUTPUT, tags=["sec_edgar"], requires=("SEC_EDGAR_USER_AGENT",))
 def sec_edgar_holdings_13f(cik: str) -> pd.DataFrame:
     """Latest 13F-HR portfolio holdings for an institutional investment manager.
 

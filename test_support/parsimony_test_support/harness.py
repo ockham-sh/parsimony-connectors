@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 from parsimony.errors import (
@@ -89,10 +90,8 @@ def assert_no_secret_leak(target: Any, secret: str = CANARY_KEY) -> None:
             link = link.__cause__ or link.__context__
 
     if isinstance(target, Result):
-        try:
+        with contextlib.suppress(Exception):
             needles.append(target.to_llm())
-        except Exception:
-            pass
         if target.provenance is not None:
             needles.append(repr(target.provenance))
             needles.append(str(target.provenance.params))

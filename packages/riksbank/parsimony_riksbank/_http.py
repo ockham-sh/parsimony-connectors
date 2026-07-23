@@ -21,6 +21,7 @@ The five products and their base URLs:
 
 from __future__ import annotations
 
+import os
 from typing import Any
 from urllib.parse import urlencode
 
@@ -41,6 +42,10 @@ _TIMEOUT = 30.0
 
 
 def _client(base: str, api_key: str = "") -> HttpClient:
+    # The key is optional — no fast-fail — but when the call passes none we still
+    # honour the documented ``RIKSBANK_API_KEY`` env var. Resolving it at this one
+    # chokepoint covers all five fetch clients and the enumerator.
+    api_key = api_key or os.environ.get("RIKSBANK_API_KEY", "")
     headers: dict[str, str] = {}
     if api_key:
         headers["Ocp-Apim-Subscription-Key"] = api_key
@@ -82,6 +87,9 @@ def get_json_literal_query(base_url: str, query: dict[str, str] | None, *, api_k
     code through :func:`parsimony.transport.check_status` (the typed-error taxonomy) and
     a timeout to ``ProviderError(status_code=408)``. The optional key rides as a header.
     """
+    # This path builds its own raw httpx request rather than routing through
+    # ``_client``, so it repeats the optional-key env fallback here.
+    api_key = api_key or os.environ.get("RIKSBANK_API_KEY", "")
     url = f"{base_url}?{urlencode(query, safe=':')}" if query else base_url
     headers = {"Ocp-Apim-Subscription-Key": api_key} if api_key else {}
     try:

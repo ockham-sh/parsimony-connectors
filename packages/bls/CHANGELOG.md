@@ -8,6 +8,9 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Credential-declaration conformance tests (`CredentialDeclarationSuite`) for the
+  HTTP verbs `bls_fetch` and `enumerate_bls_surveys`, proving BLS's optional-key
+  posture: no `requires=` fast-fail, and a bound `api_key` reaches the request.
 - The search connectors now end with the uniform ranking trio — `coverage`,
   `score`, `matched` (core's shared column definitions): coverage is the
   provable fraction of the query, score the fuzzy similarity, matched the
@@ -20,6 +23,14 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   `adaptive_field_index`): survey titles and dimension-label vocabularies are
   hybrid; series codes and row-composed series titles are BM25-only.
   Published catalogs are unaffected until their next rebuild.
+
+### Fixed
+
+- `bls_fetch` and `enumerate_bls_surveys` now read the `BLS_API_KEY` environment
+  variable when no `api_key` is passed, as the docs already promised (previously
+  only the maintainer-side catalog builder honoured it). The key is still
+  optional — it only lifts the daily quota and the per-call year cap (20 keyed vs
+  10 unkeyed) — so a missing key never fast-fails.
 
 ## [0.8.0] — 2026-06-09
 

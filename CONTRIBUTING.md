@@ -93,9 +93,12 @@ Scaffold `packages/foo/` by copying an existing small plugin (e.g.
   `CONNECTORS`. Catalog build workflows belong in provider-owned scripts,
   not in the user-facing module.
   Define plain synchronous connector functions (`def`, not `async def`) and keep any auth/env fallback
-  inside the connector implementation. Use `.bind(...)` in operator code
-  when a credential or other fixed value should be hidden from the public
-  call surface. Providers may optionally expose a side-effect-light
+  inside the connector implementation. Declare credentials on two independent axes:
+  `secrets=("api_key",)` names parameters to redact from provenance (*must this value be
+  hidden?*), and `requires=("FOO_API_KEY",)` — a **literal** tuple — names the env vars a call
+  needs to succeed (*must this value exist?*), on every verb that cannot run unconfigured. Use
+  `.bind(...)` in operator code when a credential or other fixed value should be hidden from the
+  public call surface. Providers may optionally expose a side-effect-light
   `load(...)` / `configure(...)` helper that returns bound connectors or
   sets provider-local runtime defaults — this is a convention, not a kernel
   requirement. Do not download catalogs, enumerate upstream entities, or
@@ -127,8 +130,8 @@ runs the kernel-side conformance check (`CONNECTORS` is well-formed,
 connector descriptions are present, etc.).
 
 **Always run `make readme-roster` after adding, removing, or changing a
-connector** (new `@connector`/`@enumerator`/`@loader`, a changed `secrets=`,
-or an edited `pyproject.toml` name/description/entry-point) and commit the
+connector** (new `@connector`/`@enumerator`/`@loader`, a changed `secrets=`
+or `requires=`, or an edited `pyproject.toml` name/description/entry-point) and commit the
 regenerated `README.md`, `docs/index.md`, and `connectors.json` together. CI's
 `roster-check` job (`make roster-check` locally) fails the PR if any of the
 three drift from `packages/*/pyproject.toml` — `connectors.json` in
@@ -160,6 +163,13 @@ the public `Result` surface (`isinstance(result, Result)`, expected columns,
 Key-bearing connectors also need 401 → `UnauthorizedError` and 429 →
 `RateLimitError` tests; the api-key value must not appear in
 `str(raised_exception)`.
+
+Wire `CredentialDeclarationSuite` (from `parsimony_test_support`) once per verb in
+`test_credential_declaration_<name>.py` to prove `requires=`/`secrets=` match runtime — the
+bare call fast-fails naming the declared env var, an env-supplied credential reaches the
+request, and a `requires=()` verb reaches the network instead of fast-failing. The checks
+self-guard on the connector's metadata, so keyed, optional-key, and keyless verbs all use the
+same shape.
 
 Do not assert on httpx internals, full DataFrame equality, or timing. No real
 network I/O in happy-path tests. Mark live-API tests `@pytest.mark.integration`.
