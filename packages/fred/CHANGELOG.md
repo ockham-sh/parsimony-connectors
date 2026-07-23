@@ -4,6 +4,15 @@ All notable changes to `parsimony-fred` will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking**: `fred_search`'s free-text parameter is `query=` (was `search_text=`).
+  Every other `*_search` connector in the library already used `query`, so the
+  natural guess raised `TypeError` here alone. FRED's own wire parameter is
+  unchanged. (#72)
+
 ## [0.5.0] — 2026-05-06
 
 ### Changed

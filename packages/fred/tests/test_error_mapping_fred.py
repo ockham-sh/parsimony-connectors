@@ -17,7 +17,7 @@ from parsimony_fred import fred_fetch, fred_search
 
 class TestFredSearchErrorMapping(ErrorMappingSuite):
     connector = fred_search
-    call_kwargs = {"search_text": "unemployment"}
+    call_kwargs = {"query": "unemployment"}
     route_url = "https://api.stlouisfed.org/fred/series/search"
     provider = "fred"
 

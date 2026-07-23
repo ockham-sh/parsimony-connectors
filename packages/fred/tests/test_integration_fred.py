@@ -28,9 +28,9 @@ def test_fred_search_unemployment_returns_unrate() -> None:
     creds = require_env("FRED_API_KEY")
     bound = fred_search.bind(api_key=creds["FRED_API_KEY"])
 
-    result = bound(search_text="unemployment rate")
+    result = bound(query="unemployment rate")
 
-    assert_provenance_shape(result, expected_source="fred_search", required_param_keys=["search_text"])
+    assert_provenance_shape(result, expected_source="fred_search", required_param_keys=["query"])
     df = result.raw
     assert not df.empty, "FRED search returned empty DataFrame for 'unemployment rate'"
     # UNRATE is the canonical FRED series for US unemployment — if the search

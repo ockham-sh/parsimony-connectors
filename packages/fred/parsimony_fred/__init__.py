@@ -115,27 +115,29 @@ def _get_json(http: HttpClient, *, path: str, params: dict[str, Any], op_name: s
 
 
 @connector(output=SEARCH_OUTPUT, tags=["macro", "tool"], secrets=("api_key",))
-def fred_search(search_text: str, api_key: str = "") -> pd.DataFrame:
+def fred_search(query: str, api_key: str = "") -> pd.DataFrame:
     """Keyword search for FRED economic time series.
 
     Returns series metadata (id, title, units, frequency). Use short,
     specific queries like 'US unemployment rate' or 'GDPC1'.
     """
-    query = search_text.strip()
-    if not query:
-        raise InvalidParameterError("fred", "search_text must be non-empty")
+    q = query.strip()
+    if not q:
+        raise InvalidParameterError("fred", "query must be non-empty")
 
     http = _client(api_key)
     body = _get_json(
         http,
         path="series/search",
-        params={"search_text": query},
+        # FRED's own wire parameter is `search_text`; the connector exposes it as
+        # `query`, the name every other *_search connector uses.
+        params={"search_text": q},
         op_name="series/search",
     )
 
     seriess = body.get("seriess") or []
     if not seriess:
-        raise EmptyDataError("fred", query_params={"search_text": query})
+        raise EmptyDataError("fred", query_params={"query": q})
 
     df = pd.DataFrame(seriess)
     cols = [c for c in _SEARCH_COLUMNS if c in df.columns]

@@ -71,7 +71,7 @@ def test_fred_search_returns_series_metadata() -> None:
     )
 
     bound = fred_search.bind(api_key="test-key")
-    result = bound(search_text="unemployment")
+    result = bound(query="unemployment")
 
     assert result.provenance.source == "fred_search"
     df = result.raw
@@ -88,7 +88,7 @@ def test_fred_search_raises_empty_data_when_no_matches() -> None:
 
     bound = fred_search.bind(api_key="test-key")
     with pytest.raises(EmptyDataError):
-        bound(search_text="nonexistent")
+        bound(query="nonexistent")
 
 
 # ---------------------------------------------------------------------------
@@ -177,10 +177,10 @@ def test_fred_fetch_rejects_empty_series_id() -> None:
         bound(series_id="   ")
 
 
-def test_fred_search_rejects_empty_search_text() -> None:
+def test_fred_search_rejects_empty_query() -> None:
     bound = fred_search.bind(api_key="test-key")
-    with pytest.raises(InvalidParameterError, match="search_text"):
-        bound(search_text="   ")
+    with pytest.raises(InvalidParameterError, match="query"):
+        bound(query="   ")
 
 
 def test_fred_fetch_raises_unauthorized_when_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -196,6 +196,6 @@ def test_fred_search_raises_unauthorized_when_no_key(monkeypatch: pytest.MonkeyP
     # Both verbs share _client(); assert the symmetric no-key fast-fail for search too.
     monkeypatch.delenv("FRED_API_KEY", raising=False)
     with pytest.raises(UnauthorizedError) as exc_info:
-        fred_search(search_text="unemployment")
+        fred_search(query="unemployment")
     assert exc_info.value.env_var == "FRED_API_KEY"
     assert exc_info.value.provider == "fred"

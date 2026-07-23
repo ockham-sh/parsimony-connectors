@@ -95,7 +95,7 @@ from parsimony import discover
 connectors = discover.load("fred")
 
 # 1. Search for a series. Calling a connector returns a Result.
-hits = connectors["fred_search"](search_text="US unemployment rate")
+hits = connectors["fred_search"](query="US unemployment rate")
 print(hits.frame[["id", "title"]].head())
 # id      title
 # UNRATE  Unemployment Rate

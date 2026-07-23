@@ -38,9 +38,9 @@ _SEARCH_COLUMNS = {
 
 
 def test_polymarket_search_events_live() -> None:
-    result = polymarket_search_events(search_text="inflation", limit=5)
+    result = polymarket_search_events(query="inflation", limit=5)
 
-    assert_provenance_shape(result, expected_source="polymarket_search_events", required_param_keys=["search_text"])
+    assert_provenance_shape(result, expected_source="polymarket_search_events", required_param_keys=["query"])
     df = result.raw
     assert not df.empty, "Gamma /public-search returned an empty DataFrame"
     assert set(df.columns) == _SEARCH_COLUMNS
@@ -53,7 +53,7 @@ def test_polymarket_search_events_live() -> None:
 
 def test_polymarket_navigation_chain_live() -> None:
     # search -> event -> market -> price history, entirely against the live APIs.
-    events = polymarket_search_events(search_text="inflation", limit=5).raw
+    events = polymarket_search_events(query="inflation", limit=5).raw
     ev_slug = str(events.iloc[0]["slug"])
 
     markets = polymarket_event(slug=ev_slug).raw

@@ -72,7 +72,7 @@ def test_search_events_returns_declared_columns() -> None:
             },
         )
     )
-    result = polymarket_search_events(search_text="inflation", limit=5)
+    result = polymarket_search_events(query="inflation", limit=5)
     assert result.provenance.source == "polymarket_search_events"
     assert set(result.raw.columns) == {
         "slug",
@@ -94,33 +94,33 @@ def test_search_events_returns_declared_columns() -> None:
 def test_search_events_empty_raises_empty_data() -> None:
     respx.get(_SEARCH_URL).mock(return_value=httpx.Response(200, json={"events": []}))
     with pytest.raises(EmptyDataError):
-        polymarket_search_events(search_text="inflation")
+        polymarket_search_events(query="inflation")
 
 
 @respx.mock
 def test_search_events_missing_events_key_raises_parse_error() -> None:
     respx.get(_SEARCH_URL).mock(return_value=httpx.Response(200, json={"profiles": []}))
     with pytest.raises(ParseError):
-        polymarket_search_events(search_text="inflation")
+        polymarket_search_events(query="inflation")
 
 
 @respx.mock
 def test_search_events_maps_500() -> None:
     respx.get(_SEARCH_URL).mock(return_value=httpx.Response(500, text="err"))
     with pytest.raises(ProviderError):
-        polymarket_search_events(search_text="inflation")
+        polymarket_search_events(query="inflation")
 
 
 def test_search_events_rejects_blank_query() -> None:
-    with pytest.raises(InvalidParameterError, match="search_text"):
-        polymarket_search_events(search_text="   ")
+    with pytest.raises(InvalidParameterError, match="query"):
+        polymarket_search_events(query="   ")
 
 
 def test_search_events_rejects_out_of_range_limit() -> None:
     with pytest.raises(InvalidParameterError):
-        polymarket_search_events(search_text="x", limit=0)
+        polymarket_search_events(query="x", limit=0)
     with pytest.raises(InvalidParameterError):
-        polymarket_search_events(search_text="x", limit=101)
+        polymarket_search_events(query="x", limit=101)
 
 
 # ---------------------------------------------------------------------------
