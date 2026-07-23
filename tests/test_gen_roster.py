@@ -276,11 +276,11 @@ def test_render_json_shape_matches_manifest_contract() -> None:
     payload = gen_roster._render_json(rows)
 
     assert set(payload.keys()) == {"schema_version", "generated_at", "connectors"}
-    assert payload["schema_version"] == gen_roster.MANIFEST_SCHEMA_VERSION == 2
+    assert payload["schema_version"] == gen_roster.MANIFEST_SCHEMA_VERSION == 1
     assert [p["package"] for p in payload["connectors"]] == ["parsimony-alpha", "parsimony-zeta"]
     alpha, zeta = payload["connectors"]
-    # v2 rows: `requires` on the wire, `keyless` off it (consumers derive
-    # keyless = not requires).
+    # `requires` is on the wire; `keyless` is not — consumers derive
+    # keyless = not requires.
     assert set(alpha.keys()) == {"package", "provider", "entry_point", "connector_count", "requires"}
     assert alpha["provider"] == "Toy"
     assert alpha["entry_point"] == "toy"
@@ -351,18 +351,19 @@ def test_update_connectors_json_rewrites_when_connectors_changed(
 def test_update_connectors_json_rewrites_when_schema_version_is_stale(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A v1 file with (hypothetically) identical rows is still rewritten to v2 —
-    the update path repairs exactly what ``--check`` flags as stale.
+    """A file stamped with a stale schema_version and identical rows is still
+    rewritten to the current version — the update path repairs exactly what
+    ``--check`` flags as stale.
     """
     target = tmp_path / "connectors.json"
     monkeypatch.setattr(gen_roster, "CONNECTORS_JSON", target)
     payload = gen_roster._render_json([_row()])
-    stale = {"schema_version": 1, "generated_at": "2020-01-01", "connectors": payload["connectors"]}
+    stale = {"schema_version": 0, "generated_at": "2020-01-01", "connectors": payload["connectors"]}
     target.write_text(json.dumps(stale), encoding="utf-8")
 
     gen_roster._update_connectors_json(payload)
 
-    assert json.loads(target.read_text(encoding="utf-8"))["schema_version"] == 2
+    assert json.loads(target.read_text(encoding="utf-8"))["schema_version"] == 1
 
 
 def test_update_connectors_json_tolerates_corrupt_existing_file(
@@ -684,7 +685,7 @@ def test_update_readme_freshens_auth_docs(_fresh_roster_tree: dict[str, Path]) -
 
 def test_check_fails_when_connectors_json_is_stale(_fresh_roster_tree: dict[str, Path]) -> None:
     _fresh_roster_tree["connectors_json"].write_text(
-        json.dumps({"schema_version": 2, "generated_at": "2020-01-01", "connectors": []})
+        json.dumps({"schema_version": 1, "generated_at": "2020-01-01", "connectors": []})
     )
 
     assert gen_roster.main(["--check"]) == 1
@@ -692,7 +693,7 @@ def test_check_fails_when_connectors_json_is_stale(_fresh_roster_tree: dict[str,
 
 def test_check_fails_when_connectors_json_schema_version_is_stale(_fresh_roster_tree: dict[str, Path]) -> None:
     current = json.loads(_fresh_roster_tree["connectors_json"].read_text(encoding="utf-8"))
-    current["schema_version"] = 1
+    current["schema_version"] = 0
     _fresh_roster_tree["connectors_json"].write_text(json.dumps(current), encoding="utf-8")
 
     assert gen_roster.main(["--check"]) == 1

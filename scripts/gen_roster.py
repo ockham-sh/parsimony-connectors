@@ -62,14 +62,15 @@ CONNECTORS_JSON = ROOT / "connectors.json"
 ROSTER_START = "<!-- roster:start -->"
 ROSTER_END = "<!-- roster:end -->"
 
-# Schema version of the manifest envelope written to connectors.json. Bump
-# only on a breaking change to the envelope or row shape (adding an optional
-# field is not breaking and does not require a bump) — see the shared
-# contract coordinated with ockham-sh/parsimony#97 and
-# ockham-sh/landing-page#12. v2: rows carry ``requires`` (the env vars a
-# call needs to succeed) and ``keyless`` came off the wire — consumers
-# derive it as ``not requires``.
-MANIFEST_SCHEMA_VERSION = 2
+# Schema version of the manifest envelope written to connectors.json — the
+# shared contract coordinated with ockham-sh/parsimony#97 and
+# ockham-sh/landing-page#12. Rows carry ``requires`` (the env vars a call
+# needs to succeed); consumers derive ``keyless`` as ``not requires`` rather
+# than trusting a separate wire field. Bump only on an actual breaking
+# change to the envelope or row shape — this project has no external
+# consumer yet, so keep exactly one supported version rather than carrying
+# compatibility shims for versions nothing depends on.
+MANIFEST_SCHEMA_VERSION = 1
 
 # Base URL for rewriting relative links when emitting docs/index.md.
 # Points at the canonical branch on GitHub so every link in the rendered
