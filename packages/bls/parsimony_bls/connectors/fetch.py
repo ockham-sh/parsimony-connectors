@@ -9,6 +9,7 @@ stripped from provenance.
 
 from __future__ import annotations
 
+import os
 from typing import Annotated, Any
 
 import pandas as pd
@@ -94,6 +95,11 @@ def bls_fetch(
     cap is refused with ``InvalidParameterError`` — fetch in windows within the
     cap and concatenate.
     """
+    # The registrationkey is optional — no fast-fail — but when absent from the
+    # call we still honour the ``BLS_API_KEY`` env var the docs promise. Resolve
+    # it once, before the cap is derived, so both the cap and the payload see it.
+    api_key = api_key or os.environ.get("BLS_API_KEY", "")
+
     sid = (series_id or "").strip()
     if not sid:
         raise InvalidParameterError("bls", "series_id must be non-empty")

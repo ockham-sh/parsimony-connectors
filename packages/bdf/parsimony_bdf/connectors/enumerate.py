@@ -73,7 +73,7 @@ def _list_all_series(fetcher: ThrottledJsonFetcher) -> list[dict[str, Any]] | No
     return [s for s in payload if isinstance(s, dict)]
 
 
-@enumerator(output=BDF_ENUMERATE_OUTPUT, tags=["macro", "fr"], secrets=("api_key",))
+@enumerator(output=BDF_ENUMERATE_OUTPUT, tags=["macro", "fr"], secrets=("api_key",), requires=("BDF_API_KEY",))
 def enumerate_bdf(*, api_key: str = "") -> pd.DataFrame:
     """Enumerate every Banque de France series with parent-dataset context.
 

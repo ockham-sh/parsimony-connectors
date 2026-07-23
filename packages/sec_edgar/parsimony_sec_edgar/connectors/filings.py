@@ -41,7 +41,7 @@ def _recent_frame(columnar: dict[str, Any]) -> pd.DataFrame:
     return df[keep] if keep else pd.DataFrame()
 
 
-@connector(output=SUBMISSIONS_OUTPUT, tags=["sec_edgar", "tool"])
+@connector(output=SUBMISSIONS_OUTPUT, tags=["sec_edgar", "tool"], requires=("SEC_EDGAR_USER_AGENT",))
 def sec_edgar_submissions(
     cik: str,
     limit: int = 20,
@@ -131,7 +131,7 @@ def _pick_primary_document(items: list[dict[str, Any]]) -> str | None:
     return candidates[0] if candidates else None
 
 
-@connector(tags=["sec_edgar", "tool"])
+@connector(tags=["sec_edgar", "tool"], requires=("SEC_EDGAR_USER_AGENT",))
 def sec_edgar_fetch_filing(cik: str, accession_number: str, document: str | None = None) -> dict[str, str]:
     """Fetch one SEC filing document body from the EDGAR archives.
 

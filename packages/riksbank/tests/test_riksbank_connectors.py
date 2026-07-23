@@ -171,6 +171,56 @@ def test_fetch_rejects_lonely_to_date() -> None:
 
 
 # ---------------------------------------------------------------------------
+# RIKSBANK_API_KEY env fallback — the key is optional, but when no api_key is
+# passed the transport honours the documented env var, riding it as the
+# Ocp-Apim-Subscription-Key header on every product client.
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+def test_riksbank_fetch_env_key_lands_in_header(monkeypatch) -> None:
+    monkeypatch.setenv("RIKSBANK_API_KEY", "env-secret")
+    obs = respx.get(f"{_SWEA}/Observations/Latest/SEKEURPMI").mock(
+        return_value=httpx.Response(200, json={"date": "2026-06-03", "value": 10.884})
+    )
+    respx.get(f"{_SWEA}/Series").mock(
+        return_value=httpx.Response(200, json=[{"seriesId": "SEKEURPMI", "shortDescription": "EUR"}])
+    )
+    riksbank_fetch(series_id="SEKEURPMI")
+    assert obs.calls.last.request.headers.get("Ocp-Apim-Subscription-Key") == "env-secret"
+
+
+@respx.mock
+def test_riksbank_fetch_without_env_key_omits_header(monkeypatch) -> None:
+    monkeypatch.delenv("RIKSBANK_API_KEY", raising=False)
+    obs = respx.get(f"{_SWEA}/Observations/Latest/SEKEURPMI").mock(
+        return_value=httpx.Response(200, json={"date": "2026-06-03", "value": 10.884})
+    )
+    respx.get(f"{_SWEA}/Series").mock(
+        return_value=httpx.Response(200, json=[{"seriesId": "SEKEURPMI", "shortDescription": "EUR"}])
+    )
+    riksbank_fetch(series_id="SEKEURPMI")
+    assert "Ocp-Apim-Subscription-Key" not in obs.calls.last.request.headers
+
+
+@respx.mock
+def test_monetary_policy_env_key_lands_in_header(monkeypatch) -> None:
+    # The colon-safe raw path builds its own headers, so it needs the fallback too.
+    monkeypatch.setenv("RIKSBANK_API_KEY", "env-secret")
+    route = respx.get(url__regex=rf"{_MP}.*").mock(return_value=httpx.Response(200, json=_MP_ONE_ROUND))
+    riksbank_monetary_policy_fetch(series="SEQGDPNAYSA", policy_round="2026:1")
+    assert route.calls.last.request.headers.get("Ocp-Apim-Subscription-Key") == "env-secret"
+
+
+@respx.mock
+def test_monetary_policy_without_env_key_omits_header(monkeypatch) -> None:
+    monkeypatch.delenv("RIKSBANK_API_KEY", raising=False)
+    route = respx.get(url__regex=rf"{_MP}.*").mock(return_value=httpx.Response(200, json=_MP_ONE_ROUND))
+    riksbank_monetary_policy_fetch(series="SEQGDPNAYSA", policy_round="2026:1")
+    assert "Ocp-Apim-Subscription-Key" not in route.calls.last.request.headers
+
+
+# ---------------------------------------------------------------------------
 # riksbank_swestr_fetch
 # ---------------------------------------------------------------------------
 

@@ -44,16 +44,21 @@ are supplied and protected, see [../concepts/credentials.md](../concepts/credent
 
 ## Auth shapes
 
-Every provider falls into one of four auth shapes:
+Every provider falls into one of four auth shapes — the four combinations of two independent
+declarations, `secrets=` (parameters to hide) and `requires=` (env vars a call needs). The
+`Env var` column below reflects `requires=`; a provider is keyless exactly when `requires=` is
+empty. See [../concepts/credentials.md](../concepts/credentials.md) for the framing.
 
-- **Required key** — fast-fails before any network call if no key resolves, raising
-  `UnauthorizedError` that names the env var. Set `<PROVIDER>_API_KEY` or bind via `load()`.
-- **Optional key (quota)** — works keyless at a lower rate limit; a key only raises the quota
-  (and for `bls`, enriches the output). Never fast-fails.
-- **Keyless** — no key, no binding, call it directly.
+- **Required key** — declares `secrets=` and `requires=`; fast-fails before any network call if
+  no key resolves, raising `UnauthorizedError` that names the env var. Set `<PROVIDER>_API_KEY`
+  or bind via `load()`.
+- **Optional key (quota)** — declares `secrets=` but `requires=()`: works keyless at a lower
+  rate limit, a key only raises the quota (and for `bls`, enriches the output). Never fast-fails.
+- **Keyless** — no `secrets=`, no `requires=`; call it directly.
 - **UA-required** — needs no secret, but `sec_edgar` requires a `User-Agent` header
-  (`SEC_EDGAR_USER_AGENT`, name + email) under SEC's fair-access policy. Modeled as an
-  env-resolved header, not a redacted secret; a missing value fast-fails.
+  (`SEC_EDGAR_USER_AGENT`, name + email) under SEC's fair-access policy. Declared as
+  `requires=` with no `secrets=` — an env-resolved header, not a redacted secret; a missing
+  value fast-fails.
 
 ## Provider table
 
@@ -77,7 +82,7 @@ its own `describe()`.
 | [`parsimony-bde`](https://pypi.org/project/parsimony-bde/) | [Banco de España](https://www.bde.es) | keyless | — | catalog | `bde_search`, `bde_fetch` |
 | [`parsimony-bdf`](https://pypi.org/project/parsimony-bdf/) | [Banque de France](https://www.banque-france.fr) | required key | `BDF_API_KEY` | catalog | `bdf_search`, `bdf_fetch` |
 | [`parsimony-bdp`](https://pypi.org/project/parsimony-bdp/) | [Banco de Portugal](https://www.bportugal.pt) | keyless | — | catalog | `bdp_search`, `bdp_fetch` |
-| [`parsimony-bls`](https://pypi.org/project/parsimony-bls/) | [U.S. Bureau of Labor Statistics](https://www.bls.gov) | optional key (quota) | `BLS_API_KEY` | catalog (two-tier) | `bls_surveys_search`, `bls_series_search`, `bls_fetch` |
+| [`parsimony-bls`](https://pypi.org/project/parsimony-bls/) | [U.S. Bureau of Labor Statistics](https://www.bls.gov) | optional key (quota) | — | catalog (two-tier) | `bls_surveys_search`, `bls_series_search`, `bls_fetch` |
 | [`parsimony-boc`](https://pypi.org/project/parsimony-boc/) | [Bank of Canada](https://www.bankofcanada.ca) | keyless | — | catalog | `boc_search`, `boc_fetch` |
 | [`parsimony-boj`](https://pypi.org/project/parsimony-boj/) | [Bank of Japan](https://www.boj.or.jp) | keyless | — | catalog (two-tier) | `boj_databases_search`, `boj_series_search`, `boj_fetch` |
 | [`parsimony-coingecko`](https://pypi.org/project/parsimony-coingecko/) | [CoinGecko](https://www.coingecko.com) | required key | `COINGECKO_API_KEY` | native | `coingecko_search`, `coingecko_price`, `coingecko_markets`, `coingecko_coin_detail`, … (11 total) |
@@ -89,7 +94,7 @@ its own `describe()`.
 | [`parsimony-fred`](https://pypi.org/project/parsimony-fred/) | [FRED (Federal Reserve Economic Data)](https://fred.stlouisfed.org) | required key | `FRED_API_KEY` | native | `fred_search`, `fred_fetch` |
 | [`parsimony-polymarket`](https://pypi.org/project/parsimony-polymarket/) | [Polymarket](https://polymarket.com) | keyless | — | native | `polymarket_markets`, `polymarket_events`, `polymarket_market_prices` |
 | [`parsimony-rba`](https://pypi.org/project/parsimony-rba/) | [Reserve Bank of Australia](https://www.rba.gov.au) | keyless | — | catalog | `rba_search`, `rba_fetch` |
-| [`parsimony-riksbank`](https://pypi.org/project/parsimony-riksbank/) | [Swedish Riksbank](https://www.riksbank.se) | optional key (quota) | `RIKSBANK_API_KEY` | catalog | `riksbank_search`, `riksbank_fetch`, `riksbank_swestr_fetch`, `riksbank_monetary_policy_fetch`, `riksbank_turnover_fetch`, `riksbank_holdings_fetch` |
+| [`parsimony-riksbank`](https://pypi.org/project/parsimony-riksbank/) | [Swedish Riksbank](https://www.riksbank.se) | optional key (quota) | — | catalog | `riksbank_search`, `riksbank_fetch`, `riksbank_swestr_fetch`, `riksbank_monetary_policy_fetch`, `riksbank_turnover_fetch`, `riksbank_holdings_fetch` |
 | [`parsimony-sdmx`](https://pypi.org/project/parsimony-sdmx/) | [SDMX protocol](https://sdmx.org) | keyless | — | catalog | `sdmx_datasets_search`, `sdmx_series_search`, `sdmx_dimension_search`, `sdmx_fetch` |
 | [`parsimony-sec-edgar`](https://pypi.org/project/parsimony-sec-edgar/) | [SEC EDGAR](https://www.sec.gov) | UA-required | `SEC_EDGAR_USER_AGENT` | native | `sec_edgar_full_text_search`, `sec_edgar_find_company`, `sec_edgar_submissions`, `sec_edgar_fetch_filing`, `sec_edgar_company_facts`, … (12 total) |
 | [`parsimony-snb`](https://pypi.org/project/parsimony-snb/) | [Swiss National Bank](https://www.snb.ch) | keyless | — | catalog | `snb_search`, `snb_fetch` |

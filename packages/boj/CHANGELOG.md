@@ -8,6 +8,9 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Credential-declaration conformance tests (`tests/test_credential_declaration_boj.py`)
+  prove the keyless connectors declare no requirements (`requires=()`, no `secrets=`)
+  and reach the network with nothing configured.
 - The search connectors now end with the uniform ranking trio — `coverage`,
   `score`, `matched` (core's shared column definitions): coverage is the
   provable fraction of the query, score the fuzzy similarity, matched the

@@ -192,7 +192,7 @@ def _paginate(
     return rows, first
 
 
-@connector(output=EIA_FETCH_OUTPUT, tags=["macro", "energy", "us"], secrets=("api_key",))
+@connector(output=EIA_FETCH_OUTPUT, tags=["macro", "energy", "us"], secrets=("api_key",), requires=("EIA_API_KEY",))
 def eia_fetch(
     route: Annotated[str, "ns:eia"],
     measure: str = "value",
@@ -236,7 +236,7 @@ def eia_fetch(
     return _shape_observations(rows, key_column="route", key_value=r, title=title, measure=m)
 
 
-@connector(output=EIA_SERIES_OUTPUT, tags=["macro", "energy", "us"], secrets=("api_key",))
+@connector(output=EIA_SERIES_OUTPUT, tags=["macro", "energy", "us"], secrets=("api_key",), requires=("EIA_API_KEY",))
 def eia_fetch_series(
     series_id: Annotated[str, "ns:eia"],
     start: str | None = None,
@@ -273,7 +273,7 @@ def eia_fetch_series(
     return _shape_observations(rows, key_column="series_id", key_value=sid, title=title)
 
 
-@connector(output=EIA_FACETS_OUTPUT, tags=["macro", "energy", "us"], secrets=("api_key",))
+@connector(output=EIA_FACETS_OUTPUT, tags=["macro", "energy", "us"], secrets=("api_key",), requires=("EIA_API_KEY",))
 def eia_facets(
     route: Annotated[str, "ns:eia"],
     facet: str,

@@ -33,7 +33,7 @@ from parsimony_sec_edgar.outputs import (
 _PERIOD_RE = re.compile(r"^CY\d{4}(?:Q[1-4]I?)?$")
 
 
-@connector(output=COMPANY_CONCEPT_OUTPUT, tags=["sec_edgar", "tool"])
+@connector(output=COMPANY_CONCEPT_OUTPUT, tags=["sec_edgar", "tool"], requires=("SEC_EDGAR_USER_AGENT",))
 def sec_edgar_company_concept(cik: str, tag: str, taxonomy: str = "us-gaap", unit: str | None = None) -> pd.DataFrame:
     """Fetch the full reported history of one XBRL financial concept for a company.
 
@@ -90,7 +90,7 @@ def sec_edgar_company_concept(cik: str, tag: str, taxonomy: str = "us-gaap", uni
     return pd.DataFrame(rows)[list(COMPANY_CONCEPT_COLUMNS)]
 
 
-@connector(tags=["sec_edgar", "tool"])
+@connector(tags=["sec_edgar", "tool"], requires=("SEC_EDGAR_USER_AGENT",))
 def sec_edgar_company_facts(cik: str) -> dict[str, Any]:
     """Return the raw XBRL company-facts blob for a CIK.
 
@@ -117,7 +117,7 @@ def sec_edgar_company_facts(cik: str) -> dict[str, Any]:
     return cast(dict[str, Any], payload)
 
 
-@connector(output=FRAMES_OUTPUT, tags=["sec_edgar", "tool"])
+@connector(output=FRAMES_OUTPUT, tags=["sec_edgar", "tool"], requires=("SEC_EDGAR_USER_AGENT",))
 def sec_edgar_frames(tag: str, period: str, unit: str = "USD", taxonomy: str = "us-gaap") -> pd.DataFrame:
     """Fetch one XBRL concept for one period across every reporting company.
 

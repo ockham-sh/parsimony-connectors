@@ -1,9 +1,11 @@
 """Reusable pytest suite classes — subclass per connector.
 
-These mixins encode the two most-repeated test patterns in the monorepo:
+These mixins encode the most-repeated test patterns in the monorepo:
 
 * :class:`ErrorMappingSuite` — canonical HTTP-status → ConnectorError
   mapping plus the Retry-After header contract plus secret-leak defense.
+* :class:`CredentialDeclarationSuite` — proves a connector's ``requires=``
+  and ``secrets=`` declarations match its runtime behavior.
 * :class:`IntegrationSuite` — live-API smoke test wired to
   ``require_env``, skipped when credentials are missing.
 
@@ -35,6 +37,7 @@ Usage (public connectors, no key)::
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any, ClassVar
 
 import httpx
@@ -44,6 +47,7 @@ from parsimony.errors import (
     ConnectorError,
     ProviderError,
     RateLimitError,
+    UnauthorizedError,
 )
 
 from parsimony_test_support.harness import (
@@ -142,3 +146,116 @@ class ErrorMappingSuite:
         with pytest.raises(ProviderError) as exc_info:
             self._call(bound)
         assert exc_info.value.status_code == 503
+
+
+class CredentialDeclarationSuite:
+    """Base class proving ``requires=``/``secrets=`` declarations match runtime.
+
+    Contract: a name in ``requires`` is the env var that
+    :class:`UnauthorizedError` would name if the connector were called with
+    nothing configured. ``secrets`` is the orthogonal list of parameter names
+    redacted from provenance. Each test self-guards on the connector's own
+    metadata, so the same subclass shape wires onto keyed, optional-key, and
+    keyless connectors alike — inapplicable checks skip.
+
+    Override :attr:`connector`, :attr:`call_kwargs`, :attr:`route_url`,
+    :attr:`method`.
+    """
+
+    # --- Required overrides ---------------------------------------------
+    connector: ClassVar[Any] = None
+    call_kwargs: ClassVar[dict[str, Any]] = {}
+    route_url: ClassVar[str] = ""
+    method: ClassVar[str] = "GET"
+
+    def _call(self, connector: Any) -> Any:
+        return connector(**self.call_kwargs)
+
+    def _mock_route(self) -> respx.Route:
+        route = respx.route(method=self.method, url=self.route_url)
+        route.mock(return_value=httpx.Response(200, json={}))
+        return route
+
+    @staticmethod
+    def _assert_canary_in_request(request: httpx.Request, canary: str) -> None:
+        """Assert *canary* appears in the request URL, headers, or body."""
+        surfaces = [str(request.url)]
+        surfaces.extend(str(value) for value in request.headers.values())
+        surfaces.append(request.content.decode("utf-8", errors="replace"))
+        assert any(canary in surface for surface in surfaces), (
+            f"credential never reached the outgoing request "
+            f"(checked URL, headers, and body of {request.method} {request.url})"
+        )
+
+    # --- Tests ----------------------------------------------------------
+
+    @respx.mock
+    def test_declared_requirement_fast_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """With every declared env var absent, the bare call fast-fails pre-network."""
+        declared = tuple(self.connector.requires)
+        if not declared:
+            pytest.skip("connector declares no required env vars")
+        for name in declared:
+            monkeypatch.delenv(name, raising=False)
+        route = self._mock_route()
+
+        with pytest.raises(UnauthorizedError) as exc_info:
+            self._call(self.connector)
+
+        named = exc_info.value.env_var
+        if len(declared) == 1:
+            assert named == declared[0], f"declared requires={declared} but UnauthorizedError names {named!r}"
+        else:
+            assert named in declared, f"declared requires={declared} but UnauthorizedError names {named!r}"
+        assert not route.called, "fast-fail must precede the network call"
+
+    @respx.mock
+    def test_undeclared_does_not_fast_fail(self) -> None:
+        """With ``requires=()``, the bare call reaches the network — no fast-fail."""
+        if self.connector.requires:
+            pytest.skip("connector declares required env vars")
+        route = self._mock_route()
+        try:
+            self._call(self.connector)
+        except UnauthorizedError:
+            pytest.fail(
+                f"{self.connector.name}: raised UnauthorizedError while declaring "
+                "requires=() — declare the env var in requires="
+            )
+        except Exception:
+            # The minimal mock body may not satisfy the parser; only the
+            # request having been issued matters here.
+            pass
+        assert route.called, "connector never issued the mocked request"
+
+    @respx.mock
+    def test_declared_credential_reaches_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Env-supplied credentials land in the outgoing request (URL, header, or body)."""
+        declared = tuple(self.connector.requires)
+        if not declared:
+            pytest.skip("connector declares no required env vars")
+        for name in declared:
+            monkeypatch.setenv(name, CANARY_KEY)
+        route = self._mock_route()
+
+        with contextlib.suppress(Exception):
+            self._call(self.connector)
+
+        assert route.called, "connector never issued the mocked request"
+        self._assert_canary_in_request(route.calls.last.request, CANARY_KEY)
+
+    @respx.mock
+    def test_secret_params_reach_request(self) -> None:
+        """Each secret-marked parameter, when bound, lands in the outgoing request."""
+        secret_params = tuple(self.connector.secrets)
+        if not secret_params:
+            pytest.skip("connector declares no secret parameters")
+        route = self._mock_route()
+        calls_seen = 0
+        for param in secret_params:
+            bound = self.connector.bind(**{param: CANARY_KEY})
+            with contextlib.suppress(Exception):
+                self._call(bound)
+            assert len(route.calls) > calls_seen, f"binding secret {param!r} produced no request"
+            calls_seen = len(route.calls)
+            self._assert_canary_in_request(route.calls.last.request, CANARY_KEY)

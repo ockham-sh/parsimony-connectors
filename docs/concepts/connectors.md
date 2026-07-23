@@ -3,8 +3,10 @@
 A connector is a small **synchronous** Python function plus metadata. The
 function does the work — call an HTTP API, parse the body, return raw data — and
 a decorator from `parsimony` attaches the agent-facing contract: a description,
-an output schema, tags, and declared secrets. The framework wraps every return
-value into a [`Result`](#result-and-provenance) with provenance attached.
+an output schema, tags, declared secrets (`secrets=`, redacted from provenance),
+and declared required env vars (`requires=`, the env vars a call needs to succeed).
+The framework wraps every return value into a [`Result`](#result-and-provenance)
+with provenance attached.
 
 Connectors are plain `def` functions. The three decorators reject `async def`
 with a `TypeError` at import time: there is no `async`/`await` anywhere in a
@@ -32,7 +34,7 @@ FETCH_OUTPUT = OutputSpec(
 )
 
 
-@connector(output=FETCH_OUTPUT, tags=["macro"], secrets=("api_key",))
+@connector(output=FETCH_OUTPUT, tags=["macro"], secrets=("api_key",), requires=("FRED_API_KEY",))
 def fred_fetch(
     series_id: Annotated[str, Namespace("fred")],
     observation_start: str | None = None,
@@ -75,9 +77,13 @@ fetches, native-search wrappers, dict/scalar lookups, anything that does not fit
 the stricter loader or enumerator shapes.
 
 ```python
-@connector(output=..., tags=[...], secrets=(...))
+@connector(output=..., tags=[...], secrets=(...), requires=(...))
 def provider_fetch(...) -> pd.DataFrame: ...
 ```
+
+`secrets=` and `requires=` are the two independent credential declarations —
+parameters to redact vs env vars the call needs; see
+[credentials](credentials.md#two-questions).
 
 `output=` is optional. When present, it is attached to the result as
 `result.output_spec` **unchanged** — the framework never inspects, reorders, or

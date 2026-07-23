@@ -209,7 +209,17 @@ result = connectors["fred_fetch"](series_id="UNRATE")
 
 `bind` returns a new collection and only touches connectors that actually accept
 the named parameter, so binding `api_key` across a mixed collection leaves
-keyless connectors untouched. Each keyed provider package also exports a
+keyless connectors untouched. To see which environment variables a bundle needs
+before you run it, call `connectors.env_vars()` — it returns the union of every
+connector's declared `requires=` (the env vars a call needs to succeed), without
+reading `os.environ`:
+
+```python
+connectors = discover.load_all()
+print(connectors.env_vars())   # e.g. frozenset({"FRED_API_KEY", "SEC_EDGAR_USER_AGENT"})
+```
+
+Each keyed provider package also exports a
 `load(*, api_key=...)` helper that does the bind for you:
 
 ```python

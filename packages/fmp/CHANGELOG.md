@@ -6,6 +6,16 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Every connector now declares `requires=("FMP_API_KEY",)` alongside its existing
+  `secrets=("api_key",)` — the env var the fast-fail `UnauthorizedError` names when
+  a verb is called with nothing configured.
+- Credential-declaration conformance tests (`tests/test_credential_declaration_fmp.py`):
+  one `CredentialDeclarationSuite` subclass per HTTP-calling verb, proving the
+  `requires` declaration matches runtime (fast-fail names the env var; an env- or
+  bind-supplied key reaches the outgoing request).
+
 ### Changed
 
 - `fmp_prices`, `fmp_income_statements`, `fmp_balance_sheet_statements` and

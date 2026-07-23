@@ -4,6 +4,14 @@ All notable changes to `parsimony-bdp` will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Credential-declaration conformance tests (`tests/test_credential_declaration_bdp.py`)
+  prove the keyless connectors declare no requirements (`requires=()`, no `secrets=`)
+  and reach the network with nothing configured.
+
 ## [0.8.0] — 2026-06-09
 
 Ground-up refactor, run through the full connector guidebook process and

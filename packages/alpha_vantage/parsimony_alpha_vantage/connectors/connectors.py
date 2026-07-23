@@ -138,7 +138,7 @@ def _coerce_numeric(df: pd.DataFrame, columns: tuple[str, ...]) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_SEARCH_OUTPUT, tags=["equities", "tool"], secrets=("api_key",))
+@connector(output=_SEARCH_OUTPUT, tags=["equities", "tool"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def alpha_vantage_search(query: str, *, api_key: str = "") -> Any:
     """Search Alpha Vantage for stocks, ETFs, and mutual funds by name or ticker.
 
@@ -187,7 +187,7 @@ def alpha_vantage_search(query: str, *, api_key: str = "") -> Any:
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_QUOTE_OUTPUT, tags=["equities"], secrets=("api_key",))
+@connector(output=_QUOTE_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def alpha_vantage_quote(symbol: Annotated[str, Namespace("alpha_vantage")], *, api_key: str = "") -> Any:
     """Fetch real-time quote for a stock: current price, day high/low/open,
     volume, previous close, and change/change percent.
@@ -251,7 +251,7 @@ def _ohlcv_rows(time_series: dict[str, Any], *, date_field: str = "date") -> lis
     return rows
 
 
-@connector(output=_DAILY_OUTPUT, tags=["equities"], secrets=("api_key",))
+@connector(output=_DAILY_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def alpha_vantage_daily(
     symbol: Annotated[str, Namespace("alpha_vantage")],
     outputsize: Literal["compact", "full"] = "compact",
@@ -284,7 +284,7 @@ def alpha_vantage_daily(
     return df[[c.name for c in _DAILY_OUTPUT.columns]]
 
 
-@connector(output=_DAILY_OUTPUT, tags=["equities"], secrets=("api_key",))
+@connector(output=_DAILY_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def alpha_vantage_weekly(symbol: Annotated[str, Namespace("alpha_vantage")], *, api_key: str = "") -> Any:
     """Fetch weekly OHLCV (open, high, low, close, volume) time series for a stock.
 
@@ -310,7 +310,7 @@ def alpha_vantage_weekly(symbol: Annotated[str, Namespace("alpha_vantage")], *, 
     return df[[c.name for c in _DAILY_OUTPUT.columns]]
 
 
-@connector(output=_DAILY_OUTPUT, tags=["equities"], secrets=("api_key",))
+@connector(output=_DAILY_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def alpha_vantage_monthly(symbol: Annotated[str, Namespace("alpha_vantage")], *, api_key: str = "") -> Any:
     """Fetch monthly OHLCV (open, high, low, close, volume) time series for a stock.
 
@@ -336,7 +336,7 @@ def alpha_vantage_monthly(symbol: Annotated[str, Namespace("alpha_vantage")], *,
     return df[[c.name for c in _DAILY_OUTPUT.columns]]
 
 
-@connector(output=_INTRADAY_OUTPUT, tags=["equities"], secrets=("api_key",))
+@connector(output=_INTRADAY_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def alpha_vantage_intraday(
     symbol: Annotated[str, Namespace("alpha_vantage")],
     interval: Literal["1min", "5min", "15min", "30min", "60min"] = "60min",
@@ -374,7 +374,7 @@ def alpha_vantage_intraday(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_OVERVIEW_OUTPUT, tags=["equities"], secrets=("api_key",))
+@connector(output=_OVERVIEW_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def alpha_vantage_overview(symbol: Annotated[str, Namespace("alpha_vantage")], *, api_key: str = "") -> Any:
     """Fetch company fundamentals for a stock: name, exchange, sector, industry,
     market cap, PE ratio, EPS, dividend yield, 52-week high/low, beta, and ~50
@@ -437,7 +437,7 @@ def _statement(
     return df
 
 
-@connector(output=_STATEMENT_OUTPUT, tags=["equities"], secrets=("api_key",))
+@connector(output=_STATEMENT_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def alpha_vantage_income_statement(
     symbol: Annotated[str, Namespace("alpha_vantage")],
     period: Literal["annual", "quarterly"] = "annual",
@@ -455,7 +455,7 @@ def alpha_vantage_income_statement(
     )
 
 
-@connector(output=_STATEMENT_OUTPUT, tags=["equities"], secrets=("api_key",))
+@connector(output=_STATEMENT_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def alpha_vantage_balance_sheet(
     symbol: Annotated[str, Namespace("alpha_vantage")],
     period: Literal["annual", "quarterly"] = "annual",
@@ -471,7 +471,7 @@ def alpha_vantage_balance_sheet(
     return _statement("BALANCE_SHEET", "alpha_vantage_balance_sheet", symbol=symbol, period=period, api_key=api_key)
 
 
-@connector(output=_STATEMENT_OUTPUT, tags=["equities"], secrets=("api_key",))
+@connector(output=_STATEMENT_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def alpha_vantage_cash_flow(
     symbol: Annotated[str, Namespace("alpha_vantage")],
     period: Literal["annual", "quarterly"] = "annual",
@@ -492,7 +492,7 @@ def alpha_vantage_cash_flow(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_EARNINGS_OUTPUT, tags=["equities"], secrets=("api_key",))
+@connector(output=_EARNINGS_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def alpha_vantage_earnings(symbol: Annotated[str, Namespace("alpha_vantage")], *, api_key: str = "") -> Any:
     """Fetch quarterly earnings for a stock: reported EPS, estimated EPS,
     surprise, surprise percentage, and report timing (pre/post market).
@@ -526,7 +526,9 @@ def alpha_vantage_earnings(symbol: Annotated[str, Namespace("alpha_vantage")], *
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_ETF_PROFILE_OUTPUT, tags=["equities", "etf"], secrets=("api_key",))
+@connector(
+    output=_ETF_PROFILE_OUTPUT, tags=["equities", "etf"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",)
+)
 def alpha_vantage_etf_profile(symbol: Annotated[str, Namespace("alpha_vantage")], *, api_key: str = "") -> Any:
     """Fetch ETF holdings: each row is a held security with its symbol,
     description, and portfolio weight. Note: aggressive rate limiting on free tier.
@@ -563,7 +565,9 @@ def alpha_vantage_etf_profile(symbol: Annotated[str, Namespace("alpha_vantage")]
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_FX_RATE_OUTPUT, tags=["forex", "crypto", "tool"], secrets=("api_key",))
+@connector(
+    output=_FX_RATE_OUTPUT, tags=["forex", "crypto", "tool"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",)
+)
 def alpha_vantage_fx_rate(from_currency: str, to_currency: str, *, api_key: str = "") -> Any:
     """Fetch real-time exchange rate between two currencies. Works for both
     forex (EUR/USD) and crypto (BTC/USD). Returns bid/ask prices.
@@ -647,7 +651,7 @@ def _fx_series(
     return df[[c.name for c in _FX_DAILY_OUTPUT.columns]]
 
 
-@connector(output=_FX_DAILY_OUTPUT, tags=["forex"], secrets=("api_key",))
+@connector(output=_FX_DAILY_OUTPUT, tags=["forex"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def alpha_vantage_fx_daily(
     from_symbol: str,
     to_symbol: str,
@@ -672,7 +676,7 @@ def alpha_vantage_fx_daily(
     )
 
 
-@connector(output=_FX_DAILY_OUTPUT, tags=["forex"], secrets=("api_key",))
+@connector(output=_FX_DAILY_OUTPUT, tags=["forex"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def alpha_vantage_fx_weekly(from_symbol: str, to_symbol: str, *, api_key: str = "") -> Any:
     """Fetch weekly forex OHLC time series for a currency pair.
 
@@ -690,7 +694,7 @@ def alpha_vantage_fx_weekly(from_symbol: str, to_symbol: str, *, api_key: str = 
     )
 
 
-@connector(output=_FX_DAILY_OUTPUT, tags=["forex"], secrets=("api_key",))
+@connector(output=_FX_DAILY_OUTPUT, tags=["forex"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def alpha_vantage_fx_monthly(from_symbol: str, to_symbol: str, *, api_key: str = "") -> Any:
     """Fetch monthly forex OHLC time series for a currency pair.
 
@@ -737,7 +741,7 @@ def _crypto_series(
     return df[[c.name for c in _CRYPTO_DAILY_OUTPUT.columns]]
 
 
-@connector(output=_CRYPTO_DAILY_OUTPUT, tags=["crypto"], secrets=("api_key",))
+@connector(output=_CRYPTO_DAILY_OUTPUT, tags=["crypto"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def alpha_vantage_crypto_daily(symbol: str, market: str = "USD", *, api_key: str = "") -> Any:
     """Fetch daily OHLCV time series for a cryptocurrency priced in a market
     currency (default USD). Returns full history.
@@ -753,7 +757,7 @@ def alpha_vantage_crypto_daily(symbol: str, market: str = "USD", *, api_key: str
     )
 
 
-@connector(output=_CRYPTO_DAILY_OUTPUT, tags=["crypto"], secrets=("api_key",))
+@connector(output=_CRYPTO_DAILY_OUTPUT, tags=["crypto"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def alpha_vantage_crypto_weekly(symbol: str, market: str = "USD", *, api_key: str = "") -> Any:
     """Fetch weekly OHLCV time series for a cryptocurrency. Returns full history.
     Free tier: 25 requests/day total across all endpoints.
@@ -768,7 +772,7 @@ def alpha_vantage_crypto_weekly(symbol: str, market: str = "USD", *, api_key: st
     )
 
 
-@connector(output=_CRYPTO_DAILY_OUTPUT, tags=["crypto"], secrets=("api_key",))
+@connector(output=_CRYPTO_DAILY_OUTPUT, tags=["crypto"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def alpha_vantage_crypto_monthly(symbol: str, market: str = "USD", *, api_key: str = "") -> Any:
     """Fetch monthly OHLCV time series for a cryptocurrency. Returns full history.
     Free tier: 25 requests/day total across all endpoints.
@@ -788,7 +792,7 @@ def alpha_vantage_crypto_monthly(symbol: str, market: str = "USD", *, api_key: s
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_ECON_OUTPUT, tags=["macro"], secrets=("api_key",))
+@connector(output=_ECON_OUTPUT, tags=["macro"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def alpha_vantage_econ(
     function: str,
     interval: Literal["daily", "weekly", "monthly", "quarterly", "annual"] | None = None,
@@ -852,7 +856,7 @@ def alpha_vantage_econ(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_METAL_SPOT_OUTPUT, tags=["commodities"], secrets=("api_key",))
+@connector(output=_METAL_SPOT_OUTPUT, tags=["commodities"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def alpha_vantage_metal_spot(symbol: Literal["GOLD", "XAU", "SILVER", "XAG"], *, api_key: str = "") -> Any:
     """Fetch real-time spot price for gold or silver. Returns current price and
     timestamp. Use GOLD/XAU for gold, SILVER/XAG for silver.
@@ -878,7 +882,9 @@ def alpha_vantage_metal_spot(symbol: Literal["GOLD", "XAU", "SILVER", "XAG"], *,
     return pd.DataFrame([row])
 
 
-@connector(output=_METAL_HISTORY_OUTPUT, tags=["commodities"], secrets=("api_key",))
+@connector(
+    output=_METAL_HISTORY_OUTPUT, tags=["commodities"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",)
+)
 def alpha_vantage_metal_history(
     symbol: Literal["GOLD", "XAU", "SILVER", "XAG"],
     interval: Literal["daily", "weekly", "monthly"] = "monthly",
@@ -915,7 +921,7 @@ def alpha_vantage_metal_history(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_NEWS_OUTPUT, tags=["news", "tool"], secrets=("api_key",))
+@connector(output=_NEWS_OUTPUT, tags=["news", "tool"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def alpha_vantage_news(
     tickers: str | None = None,
     topics: str | None = None,
@@ -971,7 +977,7 @@ def alpha_vantage_news(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_MOVERS_OUTPUT, tags=["equities", "tool"], secrets=("api_key",))
+@connector(output=_MOVERS_OUTPUT, tags=["equities", "tool"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def alpha_vantage_top_movers(*, api_key: str = "") -> Any:
     """Fetch today's top 20 gainers, top 20 losers, and top 20 most actively
     traded US equities. Each entry includes ticker, price, change amount,
@@ -1011,7 +1017,9 @@ def alpha_vantage_top_movers(*, api_key: str = "") -> Any:
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_OPTIONS_OUTPUT, tags=["equities", "options"], secrets=("api_key",))
+@connector(
+    output=_OPTIONS_OUTPUT, tags=["equities", "options"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",)
+)
 def alpha_vantage_options(
     symbol: Annotated[str, Namespace("alpha_vantage")],
     date: str | None = None,
@@ -1047,7 +1055,12 @@ def alpha_vantage_options(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_EARNINGS_CAL_OUTPUT, tags=["equities", "calendars"], secrets=("api_key",))
+@connector(
+    output=_EARNINGS_CAL_OUTPUT,
+    tags=["equities", "calendars"],
+    secrets=("api_key",),
+    requires=("ALPHA_VANTAGE_API_KEY",),
+)
 def alpha_vantage_earnings_calendar(
     horizon: Literal["3month", "6month", "12month"] = "3month",
     symbol: str | None = None,
@@ -1076,7 +1089,9 @@ def alpha_vantage_earnings_calendar(
     return df
 
 
-@connector(output=_IPO_CAL_OUTPUT, tags=["equities", "calendars"], secrets=("api_key",))
+@connector(
+    output=_IPO_CAL_OUTPUT, tags=["equities", "calendars"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",)
+)
 def alpha_vantage_ipo_calendar(*, api_key: str = "") -> Any:
     """Fetch upcoming and recent IPOs: company name, expected IPO date,
     price range (low/high), currency, and exchange.
@@ -1099,7 +1114,9 @@ def alpha_vantage_ipo_calendar(*, api_key: str = "") -> Any:
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_TECHNICAL_OUTPUT, tags=["equities", "technical"], secrets=("api_key",))
+@connector(
+    output=_TECHNICAL_OUTPUT, tags=["equities", "technical"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",)
+)
 def alpha_vantage_technical(
     symbol: Annotated[str, Namespace("alpha_vantage")],
     function: str,
@@ -1165,7 +1182,7 @@ def alpha_vantage_technical(
 _LISTING_MAX_ROWS = 5000
 
 
-@enumerator(output=_LISTING_OUTPUT, tags=["equities"], secrets=("api_key",))
+@enumerator(output=_LISTING_OUTPUT, tags=["equities"], secrets=("api_key",), requires=("ALPHA_VANTAGE_API_KEY",))
 def enumerate_alpha_vantage(
     state: Literal["active", "delisted"] = "active",
     *,

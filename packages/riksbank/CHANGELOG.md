@@ -4,6 +4,23 @@ All notable changes to `parsimony-riksbank` will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Credential-declaration conformance tests (`CredentialDeclarationSuite`) for the
+  five fetch verbs and the enumerator, proving Riksbank's keyless posture: no
+  `requires=` fast-fail, and a bound `api_key` reaches the request header.
+
+### Fixed
+
+- The transport now reads the `RIKSBANK_API_KEY` environment variable when no
+  `api_key` is passed, as the docs already promised (previously only the
+  maintainer-side catalog builder honoured it). Resolved at the single `_client`
+  chokepoint (plus the colon-safe raw-httpx path used by monetary policy), so all
+  five products pick it up. The key is optional — it only raises the keyless
+  quota — so a missing key never fast-fails.
+
 ## [0.8.0] — 2026-06-10
 
 A deep-exploration pass against the Riksbank developer portal found that the connector

@@ -4,6 +4,18 @@ All notable changes to `parsimony-coingecko` will be documented in this file. Th
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Every connector now declares `requires=("COINGECKO_API_KEY",)` — the env var
+  that `UnauthorizedError` names when the connector is called with no key
+  configured, exposed in the connector's capability metadata.
+- Credential-declaration conformance tests (`tests/test_credential_declaration_coingecko.py`,
+  one `CredentialDeclarationSuite` subclass per HTTP-calling verb) proving the
+  `requires=` declaration matches runtime: bare calls fast-fail naming the env var
+  before any network call, and a configured key reaches the outgoing request.
+
 ## [0.5.0] — 2026-05-06
 
 ### Changed

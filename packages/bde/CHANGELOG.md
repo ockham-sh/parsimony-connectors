@@ -4,6 +4,14 @@ All notable changes to `parsimony-bde` will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Credential-declaration conformance tests (`tests/test_credential_declaration_bde.py`)
+  prove the keyless connectors declare no requirements (`requires=()`, no `secrets=`)
+  and reach the network with nothing configured.
+
 ## [0.8.0] — 2026-06-08
 
 A full-process completeness pass over the connector (documentation re-compiled

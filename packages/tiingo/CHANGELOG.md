@@ -4,6 +4,22 @@ All notable changes to `parsimony-tiingo` will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Every connector now declares `requires=("TIINGO_API_KEY",)` alongside its
+  existing `secrets=("api_key",)` — the env var the fast-fail `UnauthorizedError`
+  names when a verb is called with nothing configured.
+- Credential-declaration conformance tests
+  (`tests/test_credential_declaration_tiingo.py`): one
+  `CredentialDeclarationSuite` subclass per key-carrying verb, proving the
+  `requires` declaration matches runtime (fast-fail names the env var; an env- or
+  bind-supplied key reaches the outgoing request via the `Authorization: Token`
+  header). `enumerate_tiingo` is covered by a dedicated fast-fail test instead:
+  it uses the key only as a gate and then downloads a public, unauthenticated CDN
+  snapshot, so the request-canary checks do not apply to it.
+
 ## [0.5.0] — 2026-05-06
 
 ### Changed

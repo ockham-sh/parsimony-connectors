@@ -4,6 +4,17 @@ All notable changes to `parsimony-bdf` will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- The keyed verbs (`bdf_fetch`, `enumerate_bdf`) now declare
+  `requires=("BDF_API_KEY",)` — the env var an agent must set for a call to
+  succeed, surfaced in the connector card and named by the fast-fail
+  `UnauthorizedError`. `bdf_search` is catalog-backed and keyless, so it declares
+  nothing. Credential-declaration conformance tests added
+  (`CredentialDeclarationSuite`) proving the declaration matches runtime.
+
 ## [0.8.0] — 2026-06-08
 
 Ground-up refactor, run through the full connector guidebook process and

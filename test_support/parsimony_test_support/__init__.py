@@ -22,10 +22,11 @@ from parsimony_test_support.harness import (
     entries_result_to_dataframe,
 )
 from parsimony_test_support.integration import require_env
-from parsimony_test_support.suites import ErrorMappingSuite
+from parsimony_test_support.suites import CredentialDeclarationSuite, ErrorMappingSuite
 
 __all__ = [
     "CANARY_KEY",
+    "CredentialDeclarationSuite",
     "ErrorMappingSuite",
     "STATUS_TO_EXC",
     "assert_no_secret_leak",

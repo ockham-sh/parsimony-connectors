@@ -4,6 +4,14 @@ All notable changes to `parsimony-snb` will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Credential-declaration conformance tests (`tests/test_credential_declaration_snb.py`)
+  prove the keyless connectors declare no requirements (`requires=()`, no `secrets=`)
+  and reach the network with nothing configured.
+
 ## [0.8.0] — 2026-06-09
 
 Re-run through the connector guidebook process: the frozen cube registry was

@@ -28,7 +28,7 @@ _FTS_PATH = "/LATEST/search-index"
 _FTS_PAGE = 100  # efts returns up to 100 hits per page; `offset` pages beyond.
 
 
-@connector(output=FULL_TEXT_SEARCH_OUTPUT, tags=["sec_edgar", "tool"])
+@connector(output=FULL_TEXT_SEARCH_OUTPUT, tags=["sec_edgar", "tool"], requires=("SEC_EDGAR_USER_AGENT",))
 def sec_edgar_full_text_search(
     query: str,
     forms: str | None = None,
@@ -105,7 +105,7 @@ def _load_company_tickers() -> list[dict[str, Any]]:
     raise ParseError(PROVIDER, "company_tickers.json did not return the expected object shape")
 
 
-@connector(output=FIND_COMPANY_OUTPUT, tags=["sec_edgar", "tool"])
+@connector(output=FIND_COMPANY_OUTPUT, tags=["sec_edgar", "tool"], requires=("SEC_EDGAR_USER_AGENT",))
 def sec_edgar_find_company(identifier: str) -> pd.DataFrame:
     """Find an SEC registrant by ticker symbol or CIK using the published ticker map.
 

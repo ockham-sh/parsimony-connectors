@@ -4,6 +4,19 @@ All notable changes to `parsimony-finnhub` will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Every connector now declares `requires=("FINNHUB_API_KEY",)` alongside its
+  existing `secrets=("api_key",)` — the env var the fast-fail `UnauthorizedError`
+  names when a verb is called with nothing configured.
+- Credential-declaration conformance tests
+  (`tests/test_credential_declaration_finnhub.py`): one
+  `CredentialDeclarationSuite` subclass per HTTP-calling verb, proving the
+  `requires` declaration matches runtime (fast-fail names the env var; an env- or
+  bind-supplied key reaches the outgoing request as the `token` query param).
+
 ## [0.5.0] — 2026-05-06
 
 ### Changed

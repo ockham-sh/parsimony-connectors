@@ -6,6 +6,13 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Connectors now declare `requires=("FRED_API_KEY",)` — the env var an agent must
+  set for a call to succeed, surfaced in the connector card and named by the
+  fast-fail `UnauthorizedError`. Credential-declaration conformance tests added
+  (`CredentialDeclarationSuite`) proving the declaration matches runtime.
+
 ### Changed
 
 - **Breaking**: `fred_search`'s free-text parameter is `query=` (was `search_text=`).

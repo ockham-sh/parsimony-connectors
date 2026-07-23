@@ -184,7 +184,12 @@ def _dataset_row(node: dict[str, Any]) -> dict[str, str]:
     }
 
 
-@enumerator(output=EIA_ENUMERATE_OUTPUT, tags=["macro", "energy", "us"], secrets=("api_key",))
+@enumerator(
+    output=EIA_ENUMERATE_OUTPUT,
+    tags=["macro", "energy", "us"],
+    secrets=("api_key",),
+    requires=("EIA_API_KEY",),
+)
 def enumerate_eia(api_key: str = "") -> pd.DataFrame:
     """Enumerate every EIA v2 leaf dataset by walking the route tree.
 

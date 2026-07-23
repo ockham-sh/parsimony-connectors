@@ -211,7 +211,7 @@ _DIVIDEND_ADJUSTED_RENAME: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 
-@connector(output=SEARCH_OUTPUT, tags=["equity", "utility", "tool"], secrets=("api_key",))
+@connector(output=SEARCH_OUTPUT, tags=["equity", "utility", "tool"], secrets=("api_key",), requires=("FMP_API_KEY",))
 def fmp_search(
     query: str,
     limit: int = 20,
@@ -237,7 +237,7 @@ def fmp_search(
     return _select_declared(df, SEARCH_OUTPUT)
 
 
-@connector(tags=["equity", "utility", "tool"], secrets=("api_key",))
+@connector(tags=["equity", "utility", "tool"], secrets=("api_key",), requires=("FMP_API_KEY",))
 def fmp_taxonomy(
     type: Literal["sectors", "industries", "exchanges", "symbols_with_financials"],
     api_key: str = "",
@@ -257,7 +257,7 @@ def fmp_taxonomy(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=STOCK_QUOTE_OUTPUT, tags=["equity"], secrets=("api_key",))
+@connector(output=STOCK_QUOTE_OUTPUT, tags=["equity"], secrets=("api_key",), requires=("FMP_API_KEY",))
 def fmp_quotes(symbols: str, api_key: str = "") -> pd.DataFrame:
     """[Premium+] Fetch real-time quotes for one or more symbols in a single
     request.
@@ -274,7 +274,7 @@ def fmp_quotes(symbols: str, api_key: str = "") -> pd.DataFrame:
     return _select_declared(df, STOCK_QUOTE_OUTPUT)
 
 
-@connector(output=HISTORICAL_PRICES_OUTPUT, tags=["equity"], secrets=("api_key",))
+@connector(output=HISTORICAL_PRICES_OUTPUT, tags=["equity"], secrets=("api_key",), requires=("FMP_API_KEY",))
 def fmp_prices(
     symbol: Annotated[str, Namespace("fmp_symbols")],
     frequency: str = "daily",
@@ -323,7 +323,7 @@ def fmp_prices(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=COMPANY_PROFILE_OUTPUT, tags=["equity", "tool"], secrets=("api_key",))
+@connector(output=COMPANY_PROFILE_OUTPUT, tags=["equity", "tool"], secrets=("api_key",), requires=("FMP_API_KEY",))
 def fmp_company_profile(symbol: Annotated[str, Namespace("fmp_symbols")], api_key: str = "") -> pd.DataFrame:
     """[Basic+] Fetch company profile: name, sector, industry, market cap, CEO,
     employees, website, and ETF/ADR/fund flags.
@@ -337,7 +337,7 @@ def fmp_company_profile(symbol: Annotated[str, Namespace("fmp_symbols")], api_ke
     return _select_declared(df, COMPANY_PROFILE_OUTPUT)
 
 
-@connector(output=PEERS_OUTPUT, tags=["equity", "tool"], secrets=("api_key",))
+@connector(output=PEERS_OUTPUT, tags=["equity", "tool"], secrets=("api_key",), requires=("FMP_API_KEY",))
 def fmp_peers(symbol: Annotated[str, Namespace("fmp_symbols")], api_key: str = "") -> pd.DataFrame:
     """[Basic+] Return the peer group for a company: stocks in the same sector
     with comparable market cap on the same exchange.
@@ -351,7 +351,7 @@ def fmp_peers(symbol: Annotated[str, Namespace("fmp_symbols")], api_key: str = "
     return _select_declared(df, PEERS_OUTPUT)
 
 
-@connector(output=INCOME_STATEMENT_OUTPUT, tags=["equity"], secrets=("api_key",))
+@connector(output=INCOME_STATEMENT_OUTPUT, tags=["equity"], secrets=("api_key",), requires=("FMP_API_KEY",))
 def fmp_income_statements(
     symbol: Annotated[str, Namespace("fmp_symbols")],
     period: str = "annual",
@@ -377,7 +377,7 @@ def fmp_income_statements(
     return _sorted_by_date(_select_declared(df, INCOME_STATEMENT_OUTPUT))
 
 
-@connector(output=BALANCE_SHEET_OUTPUT, tags=["equity"], secrets=("api_key",))
+@connector(output=BALANCE_SHEET_OUTPUT, tags=["equity"], secrets=("api_key",), requires=("FMP_API_KEY",))
 def fmp_balance_sheet_statements(
     symbol: Annotated[str, Namespace("fmp_symbols")],
     period: str = "annual",
@@ -403,7 +403,7 @@ def fmp_balance_sheet_statements(
     return _sorted_by_date(_select_declared(df, BALANCE_SHEET_OUTPUT))
 
 
-@connector(output=CASH_FLOW_OUTPUT, tags=["equity"], secrets=("api_key",))
+@connector(output=CASH_FLOW_OUTPUT, tags=["equity"], secrets=("api_key",), requires=("FMP_API_KEY",))
 def fmp_cash_flow_statements(
     symbol: Annotated[str, Namespace("fmp_symbols")],
     period: str = "annual",
@@ -434,7 +434,7 @@ def fmp_cash_flow_statements(
 # ---------------------------------------------------------------------------
 
 
-@connector(tags=["equity"], secrets=("api_key",))
+@connector(tags=["equity"], secrets=("api_key",), requires=("FMP_API_KEY",))
 def fmp_corporate_history(
     symbol: Annotated[str, Namespace("fmp_symbols")],
     event_type: Literal["earnings", "dividends", "splits"],
@@ -459,7 +459,7 @@ def fmp_corporate_history(
     return _to_frame(data, "fmp_corporate_history", {"symbol": sym, "event_type": event_type})
 
 
-@connector(tags=["equity"], secrets=("api_key",))
+@connector(tags=["equity"], secrets=("api_key",), requires=("FMP_API_KEY",))
 def fmp_event_calendar(
     event_type: Literal["earnings", "dividends", "splits"],
     from_date: str | None = None,
@@ -482,7 +482,7 @@ def fmp_event_calendar(
     return _to_frame(data, "fmp_event_calendar", {"event_type": event_type})
 
 
-@connector(output=ANALYST_ESTIMATES_OUTPUT, tags=["equity"], secrets=("api_key",))
+@connector(output=ANALYST_ESTIMATES_OUTPUT, tags=["equity"], secrets=("api_key",), requires=("FMP_API_KEY",))
 def fmp_analyst_estimates(
     symbol: Annotated[str, Namespace("fmp_symbols")],
     period: str = "annual",
@@ -513,7 +513,7 @@ def fmp_analyst_estimates(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=NEWS_OUTPUT, tags=["equity"], secrets=("api_key",))
+@connector(output=NEWS_OUTPUT, tags=["equity"], secrets=("api_key",), requires=("FMP_API_KEY",))
 def fmp_news(
     type: Literal["news", "press_releases"],
     symbols: str,
@@ -543,7 +543,7 @@ def fmp_news(
     return _select_declared(df, NEWS_OUTPUT)
 
 
-@connector(output=INSIDER_TRADES_OUTPUT, tags=["equity"], secrets=("api_key",))
+@connector(output=INSIDER_TRADES_OUTPUT, tags=["equity"], secrets=("api_key",), requires=("FMP_API_KEY",))
 def fmp_insider_trades(
     symbol: Annotated[str, Namespace("fmp_symbols")],
     limit: int = 20,
@@ -567,7 +567,7 @@ def fmp_insider_trades(
     return _select_declared(df, INSIDER_TRADES_OUTPUT)
 
 
-@connector(output=INSTITUTIONAL_POSITIONS_OUTPUT, tags=["equity"], secrets=("api_key",))
+@connector(output=INSTITUTIONAL_POSITIONS_OUTPUT, tags=["equity"], secrets=("api_key",), requires=("FMP_API_KEY",))
 def fmp_institutional_positions(
     symbol: Annotated[str, Namespace("fmp_symbols")],
     year: str,
@@ -595,7 +595,7 @@ def fmp_institutional_positions(
     return _select_declared(df, INSTITUTIONAL_POSITIONS_OUTPUT)
 
 
-@connector(output=EARNINGS_TRANSCRIPT_OUTPUT, tags=["equity"], secrets=("api_key",))
+@connector(output=EARNINGS_TRANSCRIPT_OUTPUT, tags=["equity"], secrets=("api_key",), requires=("FMP_API_KEY",))
 def fmp_earnings_transcript(
     symbol: Annotated[str, Namespace("fmp_symbols")],
     year: str,
@@ -628,7 +628,7 @@ def fmp_earnings_transcript(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=INDEX_CONSTITUENTS_OUTPUT, tags=["equity", "tool"], secrets=("api_key",))
+@connector(output=INDEX_CONSTITUENTS_OUTPUT, tags=["equity", "tool"], secrets=("api_key",), requires=("FMP_API_KEY",))
 def fmp_index_constituents(
     index: Literal["SP500", "NASDAQ", "DOW_JONES"],
     api_key: str = "",
@@ -642,7 +642,7 @@ def fmp_index_constituents(
     return _select_declared(df, INDEX_CONSTITUENTS_OUTPUT)
 
 
-@connector(output=MARKET_MOVERS_OUTPUT, tags=["equity", "tool"], secrets=("api_key",))
+@connector(output=MARKET_MOVERS_OUTPUT, tags=["equity", "tool"], secrets=("api_key",), requires=("FMP_API_KEY",))
 def fmp_market_movers(
     type: Literal["gainers", "losers", "most_actives"],
     api_key: str = "",
@@ -662,7 +662,7 @@ def fmp_market_movers(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=SCREENER_OUTPUT, tags=["equity", "tool"], secrets=("api_key",))
+@connector(output=SCREENER_OUTPUT, tags=["equity", "tool"], secrets=("api_key",), requires=("FMP_API_KEY",))
 def fmp_screener(
     sector: str | None = None,
     industry: str | None = None,

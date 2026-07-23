@@ -147,7 +147,7 @@ def _rows_to_frame(data: Any, op_name: str, query_params: dict[str, Any]) -> pd.
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_SEARCH_OUTPUT, tags=["eodhd", "tool"], secrets=("api_key",))
+@connector(output=_SEARCH_OUTPUT, tags=["eodhd", "tool"], secrets=("api_key",), requires=("EODHD_API_KEY",))
 def eodhd_search(
     query: str,
     limit: int = 50,
@@ -176,7 +176,7 @@ def eodhd_search(
     return _select_declared(df, _SEARCH_OUTPUT)
 
 
-@connector(output=_EXCHANGES_OUTPUT, tags=["eodhd", "tool"], secrets=("api_key",))
+@connector(output=_EXCHANGES_OUTPUT, tags=["eodhd", "tool"], secrets=("api_key",), requires=("EODHD_API_KEY",))
 def eodhd_exchanges(api_key: str = "") -> pd.DataFrame:
     """[Free+] List all exchanges supported by EODHD. Returns Code, Name, country,
     currency and operating MIC. Use the Code with eodhd_bulk_eod and
@@ -188,7 +188,7 @@ def eodhd_exchanges(api_key: str = "") -> pd.DataFrame:
     return _select_declared(df, _EXCHANGES_OUTPUT)
 
 
-@connector(output=_EXCHANGE_SYMBOLS_OUTPUT, tags=["eodhd"], secrets=("api_key",))
+@connector(output=_EXCHANGE_SYMBOLS_OUTPUT, tags=["eodhd"], secrets=("api_key",), requires=("EODHD_API_KEY",))
 def eodhd_exchange_symbols(
     exchange: str,
     type: Literal["common_stock", "preferred_stock", "stock", "etf", "fund"] | None = None,
@@ -216,7 +216,7 @@ def eodhd_exchange_symbols(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_EOD_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",))
+@connector(output=_EOD_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",), requires=("EODHD_API_KEY",))
 def eodhd_eod(
     ticker: Annotated[str, Namespace("eodhd_symbols")],
     from_date: str | None = None,
@@ -241,7 +241,7 @@ def eodhd_eod(
     return _select_declared(df, _EOD_OUTPUT)
 
 
-@connector(output=_LIVE_OUTPUT, tags=["eodhd", "equity", "tool"], secrets=("api_key",))
+@connector(output=_LIVE_OUTPUT, tags=["eodhd", "equity", "tool"], secrets=("api_key",), requires=("EODHD_API_KEY",))
 def eodhd_live(ticker: Annotated[str, Namespace("eodhd_symbols")], api_key: str = "") -> pd.DataFrame:
     """[Free+] Fetch the live (real-time or 15-min delayed) quote for a ticker:
     code, timestamp, OHLC, volume, previous close, and change. Use eodhd_search
@@ -256,7 +256,7 @@ def eodhd_live(ticker: Annotated[str, Namespace("eodhd_symbols")], api_key: str 
     return _select_declared(df, _LIVE_OUTPUT)
 
 
-@connector(output=_INTRADAY_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",))
+@connector(output=_INTRADAY_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",), requires=("EODHD_API_KEY",))
 def eodhd_intraday(
     ticker: Annotated[str, Namespace("eodhd_symbols")],
     interval: Literal["1m", "5m", "1h"],
@@ -281,7 +281,7 @@ def eodhd_intraday(
     return _select_declared(df, _INTRADAY_OUTPUT)
 
 
-@connector(output=_BULK_EOD_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",))
+@connector(output=_BULK_EOD_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",), requires=("EODHD_API_KEY",))
 def eodhd_bulk_eod(exchange: str, date: str | None = None, api_key: str = "") -> pd.DataFrame:
     """[EOD Historical+] Fetch end-of-day prices for every symbol on an exchange
     in one request (returns code, name, date, OHLCV). Defaults to the last
@@ -306,7 +306,7 @@ def eodhd_bulk_eod(exchange: str, date: str | None = None, api_key: str = "") ->
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_DIVIDENDS_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",))
+@connector(output=_DIVIDENDS_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",), requires=("EODHD_API_KEY",))
 def eodhd_dividends(
     ticker: Annotated[str, Namespace("eodhd_symbols")],
     from_date: str | None = None,
@@ -329,7 +329,7 @@ def eodhd_dividends(
     return _select_declared(df, _DIVIDENDS_OUTPUT)
 
 
-@connector(output=_SPLITS_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",))
+@connector(output=_SPLITS_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",), requires=("EODHD_API_KEY",))
 def eodhd_splits(
     ticker: Annotated[str, Namespace("eodhd_symbols")],
     from_date: str | None = None,
@@ -357,7 +357,7 @@ def eodhd_splits(
 # ---------------------------------------------------------------------------
 
 
-@connector(tags=["eodhd", "equity"], secrets=("api_key",))
+@connector(tags=["eodhd", "equity"], secrets=("api_key",), requires=("EODHD_API_KEY",))
 def eodhd_fundamentals(ticker: Annotated[str, Namespace("eodhd_symbols")], api_key: str = "") -> dict[str, Any]:
     """[Fundamentals+] Fetch full fundamentals for a stock or ETF as a large nested
     dict (not a DataFrame). Typical equity top-level keys: General, Highlights,
@@ -380,7 +380,7 @@ def eodhd_fundamentals(ticker: Annotated[str, Namespace("eodhd_symbols")], api_k
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_CALENDAR_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",))
+@connector(output=_CALENDAR_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",), requires=("EODHD_API_KEY",))
 def eodhd_calendar(
     type: Literal["earnings", "ipos", "trends", "splits"],
     from_date: str | None = None,
@@ -417,7 +417,7 @@ def eodhd_calendar(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_NEWS_OUTPUT, tags=["eodhd", "tool"], secrets=("api_key",))
+@connector(output=_NEWS_OUTPUT, tags=["eodhd", "tool"], secrets=("api_key",), requires=("EODHD_API_KEY",))
 def eodhd_news(
     ticker: str | None = None,
     from_date: str | None = None,
@@ -458,7 +458,7 @@ def eodhd_news(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_MACRO_OUTPUT, tags=["eodhd", "macro"], secrets=("api_key",))
+@connector(output=_MACRO_OUTPUT, tags=["eodhd", "macro"], secrets=("api_key",), requires=("EODHD_API_KEY",))
 def eodhd_macro(country: str, indicator: str, api_key: str = "") -> pd.DataFrame:
     """[Fundamentals+] Fetch a macro indicator time series for a country (returns
     Date, Value, Period). Country must be an ISO 3-letter code (e.g. USA, DEU).
@@ -481,7 +481,7 @@ def eodhd_macro(country: str, indicator: str, api_key: str = "") -> pd.DataFrame
     return _select_declared(df, _MACRO_OUTPUT)
 
 
-@connector(output=_MACRO_OUTPUT, tags=["eodhd", "macro"], secrets=("api_key",))
+@connector(output=_MACRO_OUTPUT, tags=["eodhd", "macro"], secrets=("api_key",), requires=("EODHD_API_KEY",))
 def eodhd_macro_bulk(country: str, indicator: str | None = None, api_key: str = "") -> pd.DataFrame:
     """[Fundamentals+] Fetch macro indicator data for a country. The EODHD
     macro-indicator endpoint requires an indicator; pass one explicitly or rely
@@ -506,7 +506,7 @@ def eodhd_macro_bulk(country: str, indicator: str | None = None, api_key: str = 
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_TECHNICAL_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",))
+@connector(output=_TECHNICAL_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",), requires=("EODHD_API_KEY",))
 def eodhd_technical(
     ticker: Annotated[str, Namespace("eodhd_symbols")],
     function: _TechnicalFunction,
@@ -547,7 +547,7 @@ def eodhd_technical(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_INSIDER_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",))
+@connector(output=_INSIDER_OUTPUT, tags=["eodhd", "equity"], secrets=("api_key",), requires=("EODHD_API_KEY",))
 def eodhd_insider(
     ticker: Annotated[str, Namespace("eodhd_symbols")] | None = None,
     limit: int = 100,
@@ -580,7 +580,7 @@ def eodhd_insider(
 # ---------------------------------------------------------------------------
 
 
-@connector(output=_SCREENER_OUTPUT, tags=["eodhd", "equity", "tool"], secrets=("api_key",))
+@connector(output=_SCREENER_OUTPUT, tags=["eodhd", "equity", "tool"], secrets=("api_key",), requires=("EODHD_API_KEY",))
 def eodhd_screener(
     filters: list[tuple[str, str, str]] | None = None,
     signals: str | None = None,
