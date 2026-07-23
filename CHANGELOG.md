@@ -26,15 +26,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
-- **`connectors.json` schema_version 1 → 2**: rows carry `requires` (sorted env-var names)
-  and `keyless` is off the wire — `parsimony-core`'s registry (which parses both schema
-  versions) computes it on `InstallableConnector` as `not requires`. This fixes the three
-  wrong shipped values: `sec_edgar` was
-  `keyless: true` yet every call fails without `SEC_EDGAR_USER_AGENT`; `riksbank` and `bls`
-  were `keyless: false` yet work unconfigured. `gen_roster.py` extracts `requires=` from the
-  decorator literals (non-literal values fail the sweep loudly) and now also generates the
-  `docs/reference/providers.md` Auth/Env-var columns and the `docs/concepts/credentials.md`
-  provider lists, ending their hand-maintained drift.
+- **`connectors.json` rows carry `requires`** (sorted env-var names) instead of `keyless`;
+  `keyless` is off the wire entirely — `parsimony-core`'s registry computes it on
+  `InstallableConnector` as `not requires`. `schema_version` stays pinned at `1`: this
+  project has no external consumer of the manifest yet, so the shape change lands as a
+  same-version edit coordinated across all three repos rather than a version bump with a
+  dual-version parsing shim for a version nothing depends on. This fixes the three wrong
+  shipped values: `sec_edgar` was `keyless: true` yet every call fails without
+  `SEC_EDGAR_USER_AGENT`; `riksbank` and `bls` were `keyless: false` yet work unconfigured.
+  `gen_roster.py` extracts `requires=` from the decorator literals (non-literal values fail
+  the sweep loudly) and now also generates the `docs/reference/providers.md` Auth/Env-var
+  columns and the `docs/concepts/credentials.md` provider lists, ending their
+  hand-maintained drift.
 
 ### Fixed
 
