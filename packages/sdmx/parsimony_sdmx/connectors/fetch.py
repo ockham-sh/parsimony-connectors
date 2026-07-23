@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -128,11 +129,14 @@ class _ResolvedStructure:
 # rather than enumerated — which also lets a flow without a URL omit that column
 # without tripping the strict presence check. series_key carries no namespace,
 # matching sdmx_series_search's key column (the join target).
-# TIME_PERIOD stays the raw SDMX period label (``2020`` / ``2020-Q1`` / ``2020-01``
+# TIME_PERIOD stays a period *label* (``2020`` / ``2020-Q1`` / ``2020-01``
 # / ``2020-01-01``), NOT coerced to datetime: granularity rides on the flow's FREQ
 # dimension and a key list can mix frequencies, so there is no honest single-instant
 # form — coercing would fabricate precision and outright fails on quarterly/weekly
 # labels. Consumers parse to a datetime axis on demand (``pd.PeriodIndex``).
+# Agencies that emit the equivalent SDMX reporting-period notation instead
+# (``2020-A1`` / ``2020-M06``, e.g. IMF_DATA) are folded onto those four forms by
+# ``_normalize_reporting_period`` — see there for why.
 SDMX_FETCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="series_key", role=ColumnRole.KEY),
@@ -142,6 +146,35 @@ SDMX_FETCH_OUTPUT = OutputSpec(
         Column(name="*", role=ColumnRole.METADATA),
     ]
 )
+
+
+# SDMX defines two interchangeable spellings for the same period, and agencies
+# disagree on which to send in TIME_PERIOD: ECB and Eurostat send ``2023-06`` for
+# June 2023, IMF_DATA sends the reporting-period form ``2023-M06``. The two are
+# the same instant, but only the first survives ``pd.to_datetime`` — the second
+# parses without error into a wrong-but-plausible Timestamp ("M06" read as a time
+# component), silently corrupting sort order and any date axis built from it.
+# Folding the reporting-period spellings onto the ISO ones the schema already
+# declares removes the trap and makes the column mean one thing across agencies.
+# Only the forms with an ISO equivalent are rewritten; ``S``/``T``/``W``
+# (semester / trimester / week) have none, so they pass through untouched and
+# stay loudly unparseable rather than quietly wrong.
+_REPORTING_PERIOD_RE = re.compile(r"^(\d{4})-([ASTQMWD])(\d{1,3})$")
+
+
+def _normalize_reporting_period(label: str) -> str:
+    """Fold SDMX reporting-period notation onto the ISO-ish forms the schema declares."""
+    match = _REPORTING_PERIOD_RE.match(label)
+    if match is None:
+        return label
+    year, kind, ordinal = match.group(1), match.group(2), int(match.group(3))
+    if kind == "A" and ordinal == 1:
+        return year
+    if kind == "M" and 1 <= ordinal <= 12:
+        return f"{year}-{ordinal:02d}"
+    if kind == "Q" and 1 <= ordinal <= 4:
+        return f"{year}-Q{ordinal}"
+    return label
 
 
 def _is_retryable(exc: BaseException) -> bool:
@@ -553,6 +586,8 @@ def _do_sdmx_fetch(params: SdmxFetchParams, structure: _ResolvedStructure) -> An
     # output dtype is numeric, so coerce (unparseable observations become NaN, the same
     # as a missing observation).
     df["value"] = pd.to_numeric(df["value"], errors="coerce")
+    if "TIME_PERIOD" in df.columns:
+        df["TIME_PERIOD"] = df["TIME_PERIOD"].astype(str).map(_normalize_reporting_period)
 
     dsd_dim_ids = structure.dsd_dim_ids
     missing = [dim_id for dim_id in dsd_dim_ids if dim_id not in df.columns]
