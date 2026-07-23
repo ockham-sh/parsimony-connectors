@@ -9,7 +9,7 @@ from types import ModuleType
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from parsimony.catalog import BM25Index, Catalog
+from parsimony.catalog import BM25Index, Catalog, CatalogIndex
 from parsimony.errors import ConnectorError, EmptyDataError, InvalidParameterError
 
 from parsimony_sdmx.catalog_manifest import BuildRoot
@@ -149,8 +149,17 @@ def test_build_and_search_tiny_catalog(tmp_path: Path, monkeypatch: pytest.Monke
     assert matches[0].code == "M.DE"
 
 
-def test_broad_title_search_via_parquet(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Broad search on the title field must find series via the parquet backend."""
+def test_broad_query_finds_series_without_a_title_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bare query still reaches every series — via dimension labels, not a title index.
+
+    The composed title used to be indexed as one pseudo-member entity per distinct
+    title (near 1:1 with rows). It carried nothing the ``{dim}_label`` indexes did
+    not already hold, since it is those labels concatenated, so it was dropped.
+    The recall it appeared to provide has to survive that, and it does: the query
+    words ARE dimension labels.
+    """
     namespace = "sdmx_series_ecb_test"
     parquet = tmp_path / SERIES_PARQUET
     pq.write_table(_sample_table(), parquet)
@@ -167,11 +176,24 @@ def test_broad_title_search_via_parquet(tmp_path: Path, monkeypatch: pytest.Monk
     )
     catalog = Catalog.load(f"file://{(catalogs_dir / namespace).resolve()}")
 
-    matches = catalog.search("Monthly", limit=10)
+    # No title index is built, so no `__title__N` pseudo-member can exist in one.
+    # (`catalog.entities` is empty by design here — attach_parquet_rows() discards
+    # the member list into the indexes — so assert on the indexes themselves.)
+    assert "title" not in catalog.indexes
+    assert set(catalog.indexes) == {"FREQ_code", "FREQ_label", "REF_AREA_code", "REF_AREA_label"}
+
+    surface = ["FREQ_label", "REF_AREA_label"]
+    matches = catalog.search("Monthly", limit=10, fields=surface)
     assert {m.code for m in matches} >= {"M.DE", "M.FR"}, f"Expected M.DE and M.FR in {[m.code for m in matches]}"
 
-    matches_de = catalog.search("Germany", limit=10)
+    matches_de = catalog.search("Germany", limit=10, fields=surface)
     assert {m.code for m in matches_de} >= {"M.DE", "A.DE"}, f"Expected M.DE and A.DE in {[m.code for m in matches_de]}"
+
+    # Every hit is a real series key served off the parquet, never a pseudo-member,
+    # and each still carries its display title.
+    for match in catalog.search("Germany", limit=10, fields=surface):
+        assert not match.code.startswith("__title__")
+        assert match.title
 
 
 def test_search_values_linked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -392,7 +414,7 @@ def test_series_search_query_elimination_blames_query(tmp_path: Path, monkeypatc
             agency="ECB",
             dataset_id="TEST",
             query="Quarterly",
-            fields="title",
+            fields="FREQ_label",
             filter_json='{"FREQ_code": ["M"]}',
             catalog_root=str(catalogs_dir),
         )
@@ -797,3 +819,131 @@ def test_series_search_bare_query_spans_dimension_labels(tmp_path: Path, monkeyp
     assert df["coverage"].iloc[0] == 1.0
     assert all(df["coverage"].iloc[1:] < 1.0)
     assert all(df["score"] < 1_000.0)
+
+
+# ---------------------------------------------------------------------------
+# title is a display column, never a search surface (#66)
+# ---------------------------------------------------------------------------
+
+
+def _title_error_message(exc: pytest.ExceptionInfo[InvalidParameterError]) -> str:
+    return str(exc.value)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "route"),
+    [
+        ({"query": "Monthly", "fields": "title"}, "fields="),
+        ({"query": "title: Monthly"}, "single title: clause"),
+        ({"query": "title: Monthly && FREQ_code: M"}, "title: clause among others"),
+    ],
+)
+def test_every_route_to_searching_title_gets_the_same_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kwargs: dict[str, str], route: str
+) -> None:
+    """Asking to search ``title`` fails with an explanation, not a silent miss.
+
+    Three routes reach it — ``fields=``, a lone ``title:`` clause, and a ``title:``
+    clause beside others — and they are the same mistake, so they get the same
+    answer. Without the interception the clause routes surface the kernel's generic
+    "field is not indexed", which is true but says neither that title is
+    deliberately unindexed nor what to do instead.
+    """
+    catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
+
+    with pytest.raises(InvalidParameterError) as exc:
+        sdmx_series_search(agency="ECB", dataset_id="TEST", catalog_root=str(catalogs_dir), **kwargs)
+
+    message = _title_error_message(exc)
+    assert "display column" in message, f"{route}: {message}"
+    assert "{dim}_label" in message, f"{route}: {message}"
+
+
+def test_title_is_still_filterable_without_an_index(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``filter_json`` on title keeps working — it is a parquet read, not a scored search."""
+    catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
+
+    df = sdmx_series_search(
+        agency="ECB",
+        dataset_id="TEST",
+        filter_json='{"title": ["Monthly, Germany"]}',
+        catalog_root=str(catalogs_dir),
+    ).raw
+
+    assert set(df["key"]) == {"M.DE"}
+
+
+def _build_legacy_titled_catalog(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Build the catalog the OLD way: a ``title`` BM25 index + ``__title__N`` members.
+
+    This is the shape of every catalog published before the index was dropped, and
+    they stay on the hub until republished — so the new code has to keep serving them.
+    """
+    from parsimony.catalog.contracts import CatalogBackendConfig
+    from parsimony.entity import Entity
+
+    import parsimony_sdmx.catalog_series as cs
+
+    namespace = "sdmx_series_ecb_test"
+    parquet = tmp_path / SERIES_PARQUET
+    table = _sample_table()
+    pq.write_table(table, parquet)
+    monkeypatch.setattr("parsimony_sdmx.catalog_series._dim_label_index", lambda embedder: BM25Index())
+
+    dsd_order = ["FREQ", "REF_AREA"]
+    distinct = cs.collect_distinct_from_columnar(parquet, tuple(dsd_order))
+    entities = cs._index_entities_for_distinct(namespace, dsd_order, distinct)
+    titles = sorted({str(t) for t in table.column("title").to_pylist()})
+    entities += [
+        Entity(namespace=namespace, code=f"__title__{i}", title=t, metadata={"title": t})
+        for i, t in enumerate(titles)
+    ]
+
+    indexes: dict[str, CatalogIndex] = {"title": BM25Index()}
+    for dim in dsd_order:
+        indexes[dim_code_field(dim)] = BM25Index()
+        indexes[dim_label_field(dim)] = BM25Index()
+
+    catalog = Catalog(
+        namespace,
+        indexes=indexes,
+        field_links={dim_label_field(d): dim_code_field(d) for d in dsd_order},
+    )
+    catalog.set_entities(entities)
+    catalog.build()
+    catalog.attach_parquet_rows(
+        parquet,
+        config=CatalogBackendConfig(
+            kind="parquet",
+            rows_path=SERIES_PARQUET,
+            namespace=namespace,
+            code_column="key",
+            title_column="title",
+        ),
+    )
+    catalogs_dir = tmp_path / "catalogs"
+    (catalogs_dir / namespace).mkdir(parents=True)
+    catalog.save(str(catalogs_dir / namespace))
+    _clear_series_catalog_lru()
+    return catalogs_dir
+
+
+def test_already_published_catalogs_still_serve(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A snapshot built the old way must keep working until it is republished.
+
+    Dropping the index is a build-side change; ~7.9k catalogs on the hub still carry
+    a ``title`` index and one ``__title__N`` pseudo-member per distinct title. Those
+    members must never surface as results — they are not series.
+    """
+    catalogs_dir = _build_legacy_titled_catalog(tmp_path, monkeypatch)
+
+    df = sdmx_series_search(
+        agency="ECB",
+        dataset_id="TEST",
+        query="Monthly Germany",
+        catalog_root=str(catalogs_dir),
+    ).raw
+
+    assert df.iloc[0]["key"] == "M.DE"
+    assert not any(str(k).startswith("__title__") for k in df["key"]), df["key"].tolist()
+    assert df["title"].map(bool).all()

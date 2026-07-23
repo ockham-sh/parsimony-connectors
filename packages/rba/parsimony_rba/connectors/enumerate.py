@@ -80,6 +80,12 @@ def enumerate_rba() -> pd.DataFrame:
     tables remain addressable. One curl_cffi session is reused (Akamai-impersonated
     pooling) across all ~250 requests, run serially; per-fetch failures are skipped,
     not fatal.
+
+    This is a ~250-request crawl of a bot-mitigated site and takes minutes. The RBA
+    edge may start refusing connections during or shortly after it, which surfaces on
+    the *next* call — including a cheap ``rba_fetch`` — as a sub-second connection
+    failure. Nothing here caches that state; give the site a pause rather than
+    retrying immediately. Prefer ``rba_search`` over re-enumerating.
     """
     all_rows: list[dict[str, str]] = []
     seen: set[str] = set()

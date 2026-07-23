@@ -68,8 +68,15 @@ INCOME_STATEMENT_OUTPUT = OutputSpec(
         Column(name="operatingIncome"),
         Column(name="ebitda"),
         Column(name="netIncome"),
-        Column(name="eps"),
-        Column(name="epsDiluted"),
+        # Period convention is the statement's own period (the `date` row), NOT
+        # trailing-twelve-months. Another vendor's "EPS" for the same company may
+        # be TTM (Alpha Vantage's OVERVIEW is) and will not match this figure —
+        # never mix the two in one derived multiple.
+        Column(
+            name="eps",
+            description="Basic EPS for this statement period (annual = latest completed fiscal year; not TTM).",
+        ),
+        Column(name="epsDiluted", description="Diluted EPS for this statement period (not TTM)."),
     ]
 )
 

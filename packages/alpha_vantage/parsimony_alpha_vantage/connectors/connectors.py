@@ -139,7 +139,7 @@ def _coerce_numeric(df: pd.DataFrame, columns: tuple[str, ...]) -> pd.DataFrame:
 
 
 @connector(output=_SEARCH_OUTPUT, tags=["equities", "tool"], secrets=("api_key",))
-def alpha_vantage_search(keywords: str, *, api_key: str = "") -> Any:
+def alpha_vantage_search(query: str, *, api_key: str = "") -> Any:
     """Search Alpha Vantage for stocks, ETFs, and mutual funds by name or ticker.
 
     Returns symbol (the ticker), name, type (Equity/ETF), region, and currency.
@@ -147,18 +147,20 @@ def alpha_vantage_search(keywords: str, *, api_key: str = "") -> Any:
     alpha_vantage_overview for further data.
     Free tier: 25 requests/day total across all endpoints.
     """
-    keywords = _require_nonempty(keywords, "keywords")
+    query = _require_nonempty(query, "query")
     http = _client(api_key)
     data = _av_fetch(
         http,
         function="SYMBOL_SEARCH",
-        params={"keywords": keywords},
+        # Alpha Vantage's wire parameter is `keywords`; the connector exposes it
+        # as `query`, the name every other *_search connector uses.
+        params={"keywords": query},
         op_name="alpha_vantage_search",
     )
 
     matches = data.get("bestMatches", [])
     if not matches:
-        raise EmptyDataError(_PROVIDER, query_params={"keywords": keywords})
+        raise EmptyDataError(_PROVIDER, query_params={"query": query})
 
     rows = []
     for m in matches:
@@ -176,7 +178,7 @@ def alpha_vantage_search(keywords: str, *, api_key: str = "") -> Any:
             }
         )
     if not rows:
-        raise EmptyDataError(_PROVIDER, query_params={"keywords": keywords})
+        raise EmptyDataError(_PROVIDER, query_params={"query": query})
     return pd.DataFrame(rows)
 
 
@@ -378,6 +380,14 @@ def alpha_vantage_overview(symbol: Annotated[str, Namespace("alpha_vantage")], *
     market cap, PE ratio, EPS, dividend yield, 52-week high/low, beta, and ~50
     more financial metrics. Returns a single keyed row.
     Use alpha_vantage_search to resolve ticker symbols first.
+
+    Period convention: the earnings/margin fields here (EPS, PERatio,
+    RevenueTTM, ProfitMargin, ...) are **trailing twelve months**, not a fiscal
+    year. A statement-based "eps" from another vendor (or from
+    alpha_vantage_income_statement) is that statement's own period and will not
+    match — do not mix the two in one derived multiple. Use
+    alpha_vantage_income_statement for per-fiscal-year figures.
+
     Free tier: 25 requests/day total across all endpoints.
     """
     symbol = _require_nonempty(symbol, "symbol")

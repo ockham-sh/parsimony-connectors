@@ -14,7 +14,7 @@ from typing import Annotated, Any
 import pandas as pd
 from parsimony import Namespace
 from parsimony.connector import connector
-from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError
+from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError, ProviderError
 from parsimony.transport.helpers import fetch_json
 
 from parsimony_boc._http import PROVIDER, guard_observations_path, make_valet_client
@@ -95,12 +95,28 @@ def boc_fetch(
     # failure. Only the multi-series path realistically trips this.
     guard_observations_path(path, series_name=series_name)
 
-    json_data = fetch_json(
-        make_valet_client(),
-        path=path,
-        params={"start_date": start_date, "end_date": end_date},
-        op_name="observations",
-    )
+    try:
+        json_data = fetch_json(
+            make_valet_client(),
+            path=path,
+            params={"start_date": start_date, "end_date": end_date},
+            op_name="observations",
+        )
+    except ProviderError as exc:
+        # Valet answers an unrecognised series/group name with 404 + a "not found"
+        # body. That is a caller mistake with no data behind it, not an outage —
+        # the same class BLS and SEC EDGAR report as EmptyDataError, so a generic
+        # `except EmptyDataError` catches Bank of Canada too.
+        if exc.status_code != 404:
+            raise
+        raise EmptyDataError(
+            PROVIDER,
+            message=(
+                f"Bank of Canada does not recognise: {series_name}. "
+                "Discover valid names with boc_search or enumerate_boc."
+            ),
+            query_params={"series_name": series_name, "start_date": start_date, "end_date": end_date},
+        ) from exc
     if not isinstance(json_data, dict):
         raise ParseError(PROVIDER, f"unexpected observations response shape for: {series_name}")
 

@@ -33,6 +33,8 @@ from parsimony_sdmx.series_fields import (
     dim_label_field,
     known_search_fields,
     parse_dim_from_field,
+    searchable_fields,
+    title_not_searchable_error,
 )
 from parsimony_sdmx.series_query import plan_series_search
 
@@ -174,6 +176,24 @@ def _validate_filter_columns(filter_spec: dict[str, list[str]], dsd_order: tuple
         else:
             hint = f"; valid columns: {sorted(valid)}"
         raise InvalidParameterError("sdmx", f"unknown filter column {col!r} for {label}{hint}")
+
+
+def _validate_search_fields(fields: str | list[str], dsd_order: tuple[str, ...]) -> None:
+    """Reject a ``fields=`` scope that names something the catalog cannot score.
+
+    ``title`` is the one that catches people out: it is a real column and a real
+    output, so asking to search it looks reasonable — but it is composed from the
+    dimension labels at build time and carries no index. Say so, rather than
+    silently returning nothing.
+    """
+    requested = [fields] if isinstance(fields, str) else list(fields)
+    valid = searchable_fields(dsd_order)
+    for name in requested:
+        if name in valid:
+            continue
+        if name == TITLE_FIELD:
+            raise title_not_searchable_error()
+        raise InvalidParameterError("sdmx", f"unknown search field {name!r}; valid fields: {sorted(valid)}")
 
 
 def _dimension_search_hint(col: str, *, agency: str, flow: str) -> str:
@@ -418,6 +438,8 @@ def sdmx_series_search(
     parquet_path = catalog_path / (meta.backend.rows_filename or SERIES_PARQUET)
     dataset = ds.dataset(str(parquet_path), format="parquet")
     dsd_order = _dims_from_schema(dataset.schema.names)
+    if params.fields is not None:
+        _validate_search_fields(params.fields, dsd_order)
     if params.fields is not None or params.filter_json is not None:
         filter_spec: dict[str, list[str]] = {}
         if params.filter_json:

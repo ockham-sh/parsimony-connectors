@@ -4,6 +4,15 @@ All notable changes to `parsimony-boc` will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- `boc_fetch` raises `EmptyDataError` for a series or group name Valet does not
+  recognise (upstream 404), matching BLS and SEC EDGAR. It previously surfaced a raw
+  `ProviderError`, which a generic `except EmptyDataError` did not catch. Real
+  upstream failures still raise `ProviderError`. (#77)
+
 ## [0.8.0] — 2026-06-09
 
 Re-run through the full connector guidebook process and **live-verified** against

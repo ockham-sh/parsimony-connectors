@@ -101,6 +101,41 @@ def _looks_like_period(key: str) -> bool:
     return any(p.match(key) for p in _PERIOD_RES)
 
 
+# GENESIS "Wertekennzeichen": a per-observation status symbol carried in the
+# JSON-stat ``status`` array. These four mark a cell that has NO value — the
+# number in ``value`` beside them is a literal ``0.0`` placeholder, not an
+# observation. Left in the frame, they turn a routine
+# ``(latest / year_ago - 1) * 100`` into a fabricated -100% collapse, which is
+# indistinguishable from a real print. Dropped here, exactly like a JSON-stat
+# ``null``.
+#
+#   ``.``    Zahlenwert unbekannt oder geheim zu halten (unknown / confidential)
+#   ``...``  Angabe fällt später an (not yet published — the future-month case)
+#   ``/``    keine Angaben, da Zahlenwert nicht sicher genug
+#   ``x``    Tabellenfach gesperrt, weil Aussage nicht sinnvoll
+#
+# ``-`` (nichts vorhanden) is deliberately NOT here: it means an exact zero, so
+# its ``0.0`` is real. ``p``/``e``/``r`` (provisional/estimated/revised) qualify
+# a real number and are likewise kept.
+_PLACEHOLDER_STATUS = frozenset({".", "...", "/", "x"})
+
+
+def _status_at(status: Any, flat_idx: int) -> str:
+    """Read the JSON-stat ``status`` entry for observation *flat_idx*, or ``""``.
+
+    JSON-stat 2.0 allows ``status`` as a list parallel to ``value``, a sparse
+    dict keyed by the flat index, or a single string applying to every cell.
+    """
+    if isinstance(status, str):
+        return status
+    if isinstance(status, list):
+        return str(status[flat_idx]) if 0 <= flat_idx < len(status) else ""
+    if isinstance(status, dict):
+        entry = status.get(str(flat_idx), status.get(flat_idx))
+        return str(entry) if entry is not None else ""
+    return ""
+
+
 def _normalize_period(token: str) -> str:
     """Coerce a GENESIS time-dimension key/label to the ISO ``YYYY-MM-DD`` period start."""
     s = token.strip()
@@ -127,6 +162,7 @@ def _parse_jsonstat(payload: dict[str, Any], table_code: str) -> pd.DataFrame:
     sizes = payload.get("size") or []
     dimensions = payload.get("dimension") or {}
     raw_values = payload.get("value")
+    raw_status = payload.get("status")
 
     if not isinstance(dim_ids, list) or not isinstance(sizes, list):
         raise ParseError("destatis", f"JSON-stat payload for {table_code} missing id/size arrays")
@@ -206,6 +242,9 @@ def _parse_jsonstat(payload: dict[str, Any], table_code: str) -> pd.DataFrame:
             rem //= max(size_i, 1)
         coord.reverse()
 
+        if _status_at(raw_status, flat_idx).strip() in _PLACEHOLDER_STATUS:
+            continue
+
         raw_val = values_flat[flat_idx]
         try:
             value = float(raw_val) if raw_val is not None else None
@@ -278,16 +317,17 @@ def destatis_fetch(
 ) -> pd.DataFrame:
     """Fetch a Destatis GENESIS table by table code (e.g. ``61111-0001``).
 
-    Hits the public ``genesis.destatis.de/genesis/api/rest/tables/{code}/data``
-    endpoint (anonymous, keyless) and parses the JSON-stat 2.0 response into a
-    long-format DataFrame with one row per observation (series_id, title, date,
-    value). ``start_year`` / ``end_year`` (4-digit years) bound the ``date``
-    axis: they are forwarded to GENESIS *and* re-applied client-side, because
-    GENESIS ignores the bound on some tables and returns the full span.
+    Hits the public, keyless ``/tables/{code}/data`` endpoint and parses the
+    JSON-stat 2.0 response into a long-format DataFrame, one row per observation
+    (series_id, title, date, value). ``start_year`` / ``end_year`` (4-digit
+    years) bound ``date``; they are re-applied client-side because GENESIS
+    ignores the bound on some tables and returns the full span.
 
-    Note: on ``JAHR`` (annual) tables the sub-annual axis (month/quarter) lives
-    in a *classification* column (e.g. ``MONAT``/``QUARTG``), not in ``date`` —
-    ``date`` carries the year; read the classification column for the finer grain.
+    On ``JAHR`` (annual) tables the sub-annual axis lives in a *classification*
+    column (``MONAT``/``QUARTG``), not in ``date``, which carries the year.
+
+    Cells GENESIS flags as having no value (not yet published, confidential) are
+    dropped, not returned as the literal ``0.0`` it pads them with.
     """
     table_code = name.strip()
     if not table_code:

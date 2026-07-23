@@ -4,6 +4,17 @@ All notable changes to `parsimony-alpha-vantage` will be documented in this file
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking**: `alpha_vantage_search`'s free-text parameter is `query=` (was
+  `keywords=`), matching every other `*_search` connector. Alpha Vantage's own wire
+  parameter is unchanged. (#72)
+- `alpha_vantage_overview` documents that its `EPS` and the other ratio fields are
+  **trailing twelve months**, not a fiscal year — mixing them with a statement-based
+  `eps` from another vendor silently compares different periods. (#78)
+
 ## [0.5.0] — 2026-05-06
 
 ### Changed

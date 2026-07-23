@@ -8,7 +8,12 @@ from parsimony.catalog import Catalog
 from parsimony.catalog.query import StructuredQuery, parse_query
 from parsimony.errors import InvalidParameterError
 
-from parsimony_sdmx.series_fields import TITLE_FIELD, known_search_fields, parse_dim_from_field
+from parsimony_sdmx.series_fields import (
+    TITLE_FIELD,
+    parse_dim_from_field,
+    searchable_fields,
+    title_not_searchable_error,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,7 +34,10 @@ def plan_series_search(
     top_k_per_dim: int,
 ) -> SeriesSearchPlan:
     """Translate SDMX ``field: value && …`` syntax into catalog search parameters."""
-    known = known_search_fields(dsd_order)
+    # Only dimension fields can scope a query. `title` is admitted here purely so
+    # a `title:` clause parses and can be answered with a reason — leaving it out
+    # would surface the kernel's generic "field is not indexed" error instead.
+    known = searchable_fields(dsd_order) | {TITLE_FIELD}
     parsed = parse_query(query, known_fields=known)
     if parsed is None:
         return SeriesSearchPlan(query=query.strip(), field=None, filter={}, pinned_dims=frozenset())
@@ -50,18 +58,15 @@ def _plan_single_clause(parsed: StructuredQuery) -> SeriesSearchPlan:
             filter={field: list(values)},
             pinned_dims=frozenset({dim[0]}),
         )
-    if dim is not None and dim[1] == "label":
-        return SeriesSearchPlan(
-            query=_join_values(values),
-            field=field,
-            filter={},
-            pinned_dims=frozenset({dim[0]}),
-        )
+    if field == TITLE_FIELD:
+        raise title_not_searchable_error()
+    # Every remaining admitted field is a dimension field.
+    assert dim is not None, f"unreachable: unparseable clause field {field!r}"
     return SeriesSearchPlan(
         query=_join_values(values),
-        field=TITLE_FIELD,
+        field=field,
         filter={},
-        pinned_dims=frozenset(),
+        pinned_dims=frozenset({dim[0]}),
     )
 
 
@@ -77,11 +82,11 @@ def _plan_multi_clause(
     score_query: str | None = None
 
     for clause_field, values in parsed.clauses:
+        if clause_field == TITLE_FIELD:
+            raise title_not_searchable_error()
         dim = parse_dim_from_field(clause_field)
-        if dim is None:
-            score_field = TITLE_FIELD
-            score_query = _join_values(values)
-            continue
+        # Same invariant as the single-clause path.
+        assert dim is not None, f"unreachable: unparseable clause field {clause_field!r}"
         dim_id, kind = dim
         pinned.add(dim_id)
         if kind == "code":

@@ -189,11 +189,11 @@ def _first_object(data: Any) -> dict[str, Any] | None:
 
 
 @enumerator(output=_SEARCH_EVENTS_OUTPUT, tags=["polymarket"])
-def polymarket_search_events(search_text: str, limit: int = 20, optimized: bool = False) -> pd.DataFrame:
+def polymarket_search_events(query: str, limit: int = 20, optimized: bool = False) -> pd.DataFrame:
     """Search Polymarket prediction market events by natural-language query.
 
     The entry point for finding the implied probability (odds) on a question —
-    elections, politics, macro, crypto, sports. `search_text` is matched
+    elections, politics, macro, crypto, sports. `query` is matched
     server-side against event titles/descriptions via Gamma ``/public-search``
     (the only Polymarket text-search endpoint; single concept words match better
     than long phrases).
@@ -203,9 +203,9 @@ def polymarket_search_events(search_text: str, limit: int = 20, optimized: bool 
     event to drill into with `polymarket_event`. `volume`/`liquidity` populate
     only when ``optimized=False`` (the default); ``optimized=True`` returns null.
     """
-    query = search_text.strip()
+    query = query.strip()
     if not query:
-        raise InvalidParameterError("polymarket", "search_text is required")
+        raise InvalidParameterError("polymarket", "query is required")
     if limit < 1 or limit > 100:
         raise InvalidParameterError("polymarket", "limit must be between 1 and 100")
 

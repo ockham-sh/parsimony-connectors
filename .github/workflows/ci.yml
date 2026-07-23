@@ -27,7 +27,10 @@ permissions:
 # Kernel source pin. Both CI jobs check out `ockham-sh/parsimony` alongside
 # the connectors repo so the workspace-level `[tool.uv.sources]` override
 # (which points at `../parsimony`) resolves to a real path on the runner.
-# Bump KERNEL_REF when the kernel lands a new contract-v1 alpha.
+# That override is scoped to the `workbench` dependency group, which the plain
+# `uv sync` below enables by default — a `--no-dev` sync would silently resolve
+# the kernel from PyPI instead. Bump KERNEL_REF when the kernel lands a new
+# contract-v1 alpha.
 env:
   KERNEL_REPO: ockham-sh/parsimony
   KERNEL_REF: main

@@ -86,7 +86,7 @@ def _content_or_rate_limited(connector_fn, kwargs, source: str, key: str):
 
 def test_search_apple_real_content() -> None:
     key = _key()
-    result = _content_or_rate_limited(alpha_vantage_search, {"keywords": "apple"}, "alpha_vantage_search", key)
+    result = _content_or_rate_limited(alpha_vantage_search, {"query": "apple"}, "alpha_vantage_search", key)
     if result is None:
         pytest.skip("rate-limited (free 25/day cap) — documented outcome")
     df = result.raw

@@ -4,6 +4,16 @@ All notable changes to `parsimony-destatis` will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- `destatis_fetch` drops observations GENESIS flags as having no value. Upstream
+  pads a not-yet-published or withheld cell with a literal `0.0` and marks it in the
+  JSON-stat `status` array; passed through, a routine year-over-year calculation read
+  that placeholder as a real -100% collapse. An exact zero (status `-`) is still
+  returned, as are provisional/estimated/revised values. (#80)
+
 ## [0.8.0] — 2026-06-09
 
 Full guidebook live-verification pass (catalog completeness + fetch coverage

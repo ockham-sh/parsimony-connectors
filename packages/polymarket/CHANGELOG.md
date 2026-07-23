@@ -4,6 +4,13 @@ All notable changes to `parsimony-polymarket` will be documented in this file. T
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking**: `polymarket_search_events`'s free-text parameter is `query=` (was
+  `search_text=`), matching every other search connector. (#72)
+
 ## [0.5.0] — 2026-05-06
 
 ### Changed

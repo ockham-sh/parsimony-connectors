@@ -64,10 +64,24 @@ def _curl_get(session: Session, url: str, *, op_name: str, binary: bool = False)
     except curl_exc.Timeout as exc:
         raise ProviderError("rba", status_code=408) from exc
     except curl_exc.RequestException as exc:
-        # ConnectionError / DNSError / SSLError / ImpersonateError / etc. — treat any
-        # transport-level failure as a transient provider error so the agent can pick
-        # another connector (timeout bucket, 408).
-        raise ProviderError("rba", status_code=408) from exc
+        # ConnectionError / DNSError / SSLError / ImpersonateError / etc. — still the
+        # transient bucket (408) so the agent moves on rather than looping, but NOT
+        # the default 408 wording: these fail in well under a second, and calling a
+        # dropped connection an "upstream timeout" sends the reader hunting for a
+        # slow server or an undocumented client-side cooldown. There is no cooldown
+        # or circuit breaker in this connector — every call goes to the network. The
+        # realistic cause is the Akamai edge in front of rba.gov.au refusing the
+        # connection, which it starts doing after a burst such as ``enumerate_rba``.
+        raise ProviderError(
+            "rba",
+            status_code=408,
+            message=(
+                "rba: could not reach rba.gov.au (connection failed before any response: "
+                f"{type(exc).__name__}). The site is behind bot mitigation that starts refusing "
+                "connections after a burst of requests — a heavy call such as enumerate_rba can "
+                "trigger it. Wait before retrying, or pick a different connector. DO NOT loop."
+            ),
+        ) from exc
 
     if response.status_code >= 400:
         check_status(response, provider="rba", op_name=op_name)

@@ -95,7 +95,16 @@ FRAMES_COLUMNS: tuple[str, ...] = tuple(c.name for c in FRAMES_OUTPUT.columns)
 # label = human-readable line item; period = reporting date string.
 FINANCIAL_STATEMENT_OUTPUT = OutputSpec(
     columns=[
-        Column(name="concept", role=ColumnRole.KEY),
+        Column(
+            name="concept",
+            role=ColumnRole.KEY,
+            description=(
+                "XBRL tag as the filer chose it. Filers use different tags for the same line "
+                "item, so filter on a set, not one name — total revenue is us-gaap_Revenues for "
+                "some filers and us-gaap_RevenueFromContractWithCustomerExcludingAssessedTax for "
+                "others."
+            ),
+        ),
         Column(name="label", role=ColumnRole.TITLE),
         Column(name="period", role=ColumnRole.DATA),
         Column(name="value", role=ColumnRole.DATA),

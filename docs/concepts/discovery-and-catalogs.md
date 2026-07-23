@@ -16,7 +16,7 @@ from parsimony import discover
 connectors = discover.load("fred")
 
 # 1. discover: find the code
-hits = connectors["fred_search"](search_text="US unemployment rate")
+hits = connectors["fred_search"](query="US unemployment rate")
 code = hits.frame.iloc[0]["id"]          # e.g. "UNRATE"
 
 # 2. fetch: pull the values for that code
@@ -117,8 +117,10 @@ The index layout comes from `discovery_indexes` in the kernel's
 - a **`description`** index — adaptive (when a description field is present).
 
 "Adaptive" means: if the field has **fewer than 1000 unique values**, the index is a
-**Hybrid BM25 + vector** index (lexical match fused with semantic similarity). At or above
-1000 unique values, it falls back to **BM25-only**.
+**Hybrid BM25 + vector** index (lexical match fused with semantic similarity). The choice is
+made by **field role**, not by cardinality: identifiers are BM25-only, and `title` /
+`description` are always hybrid however many distinct values they hold. (Earlier releases
+degraded a high-cardinality title to BM25-only; that adaptive fallback is gone.)
 
 The consequence is the single most important thing to understand about catalog recall:
 
@@ -126,10 +128,14 @@ The consequence is the single most important thing to understand about catalog r
 > metadata columns you attach.**
 
 Adding more metadata columns does not improve search; only the indexed `code`, `title`, and
-`description` text is matched against a query. Above 1000 unique titles the title index loses
-its semantic component, so natural-language title queries degrade to lexical matching: exact
-`code:` lookups stay reliable, but fuzzy title matches may miss. Catalogs whose universe is
-large get the most recall benefit from rich, descriptive `title`/`description` text.
+`description` text is matched against a query. Catalogs whose universe is large get the most
+recall benefit from rich, descriptive `title`/`description` text.
+
+A text field earns an index only when it is **curated** — when it carries meaning beyond the
+values already indexed beside it. SDMX series catalogs are the counter-example: their `title`
+is composed at build time by concatenating the flow's dimension labels, so it restates the
+`{dim}_label` indexes exactly. It is a display column there, not a search surface, and
+`fields="title"` / `title:` are rejected for those catalogs.
 
 ### Structured queries
 
@@ -138,7 +144,7 @@ does broad title search. You can also issue **structured `FIELD: value` queries*
 indexed field:
 
 ```python
-connectors["fred_search"](search_text="UNRATE")            # broad title search
+connectors["fred_search"](query="UNRATE")            # broad title search
 connectors["treasury_search"](query="code: AVMAT")          # exact code lookup
 connectors["treasury_search"](query="description: par yield")  # description field search
 ```

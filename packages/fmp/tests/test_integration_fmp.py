@@ -171,7 +171,7 @@ def test_fmp_prices_dividend_adjusted_window() -> None:
 
 
 def test_fmp_prices_intraday_plan_gated() -> None:
-    # Intraday is [Professional+]; accept content OR PaymentRequiredError.
+    # Intraday needs Starter (5min-4hour) or Premium (1min); accept content OR PaymentRequiredError.
     _content_or_payment_required(fmp_prices, {"symbol": "AAPL", "frequency": "1min"}, "fmp_prices", _key())
 
 

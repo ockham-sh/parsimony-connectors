@@ -126,17 +126,16 @@ The catalog snapshot loads lazily on first search and is cached under
 
 Native-search providers (such as `fred`, `finnhub`, `fmp`, `sec_edgar`) wrap the
 provider's own search endpoint instead of shipping a catalog. There is no
-snapshot to download; each search is a live call. The search connector is still
-named `<provider>_search`, but its parameter is provider-specific (for FRED it
-is `search_text`), and the identifier column it returns is provider-specific
-too (for FRED it is `id`).
+snapshot to download; each search is a live call. Every search connector takes its
+free text as `query=`; the identifier column it returns is provider-specific (for
+FRED it is `id`).
 
 ```python
 from parsimony import discover
 
 connectors = discover.load("fred")
 
-hits = connectors["fred_search"](search_text="US unemployment rate")
+hits = connectors["fred_search"](query="US unemployment rate")
 series_id = hits.frame.iloc[0]["id"]
 result = connectors["fred_fetch"](series_id=series_id)
 ```

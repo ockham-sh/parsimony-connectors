@@ -4,6 +4,16 @@ All notable changes to `parsimony-sec-edgar` will be documented in this file. Th
 format is based on [Keep a Changelog](https://keepachangelog.com/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- `sec_edgar_income_statement` and the `concept` column document that filers tag the
+  same line item differently — total revenue is `us-gaap_Revenues` for some filers and
+  `us-gaap_RevenueFromContractWithCustomerExcludingAssessedTax` for others — so
+  matching one concept name across a peer set silently returns nothing for the peers
+  that chose the other. (#82)
+
 ## [0.8.0] — 2026-06-09
 
 Re-run through the connector guidebook process: all of EDGAR's API surfaces

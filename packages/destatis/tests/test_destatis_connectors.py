@@ -121,6 +121,46 @@ def test_destatis_fetch_parses_jsonstat_response() -> None:
     assert sorted(df["value"].tolist()) == [108.4, 108.7]
 
 
+#: Same shape as ``_JSONSTAT_FIXTURE`` plus GENESIS's per-observation status
+#: symbols. ``2026-02`` is not yet published: upstream sends value ``0.0`` with
+#: status ``.`` (unknown / withheld). ``2026-03`` carries ``-`` — "nichts
+#: vorhanden", an exact zero, which is a real observation.
+_JSONSTAT_WITH_STATUS = {
+    "data": [
+        {
+            "code": "DS_001",
+            "id": ["Zeit"],
+            "size": [3],
+            "value": [108.4, 0.0, 0.0],
+            "status": ["e", ".", "-"],
+            "dimension": {
+                "Zeit": {"category": {"index": {"2026-01": 0, "2026-02": 1, "2026-03": 2}}},
+            },
+        }
+    ]
+}
+
+
+@respx.mock
+def test_destatis_fetch_drops_not_yet_published_placeholder() -> None:
+    """A status-flagged cell must not surface as a literal 0.0 observation.
+
+    GENESIS pads not-yet-published periods with ``0.0`` and marks them in the
+    JSON-stat ``status`` array. Passed through, a routine
+    ``(latest / year_ago - 1) * 100`` reads that placeholder as a real -100%
+    collapse. An exact zero (status ``-``) is a genuine observation and stays.
+    """
+    respx.get(f"{_BASE}/tables/61111-0001/data").mock(
+        return_value=httpx.Response(200, json=_JSONSTAT_WITH_STATUS)
+    )
+
+    df = destatis_fetch(name="61111-0001").raw
+
+    periods = pd.to_datetime(df["date"]).dt.strftime("%Y-%m").tolist()
+    assert periods == ["2026-01", "2026-03"]
+    assert df["value"].tolist() == [108.4, 0.0]
+
+
 @respx.mock
 def test_destatis_fetch_forwards_year_range_params() -> None:
     """``start_year`` / ``end_year`` are forwarded as ``startyear`` / ``endyear``

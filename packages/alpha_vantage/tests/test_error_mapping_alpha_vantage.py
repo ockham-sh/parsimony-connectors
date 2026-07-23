@@ -9,6 +9,6 @@ from parsimony_alpha_vantage.connectors.connectors import alpha_vantage_search
 
 class TestAlphaVantageSearchErrorMapping(ErrorMappingSuite):
     connector = alpha_vantage_search
-    call_kwargs = {"keywords": "apple"}
+    call_kwargs = {"query": "apple"}
     route_url = "https://www.alphavantage.co/query"
     provider = "alpha_vantage"

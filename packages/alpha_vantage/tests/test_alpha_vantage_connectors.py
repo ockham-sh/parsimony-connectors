@@ -107,7 +107,7 @@ def test_load_binds_key_across_collection() -> None:
 # ---------------------------------------------------------------------------
 
 _NO_KEY_CASES = [
-    (alpha_vantage_search, {"keywords": "apple"}),
+    (alpha_vantage_search, {"query": "apple"}),
     (alpha_vantage_quote, {"symbol": "IBM"}),
     (alpha_vantage_daily, {"symbol": "IBM"}),
     (alpha_vantage_weekly, {"symbol": "IBM"}),
@@ -174,7 +174,7 @@ _INFO_RATE_LIMIT = (
 def test_in_body_note_maps_rate_limit() -> None:
     _mock({"Note": "Thank you for using Alpha Vantage! Our standard API rate limit is 25/day..."})
     with pytest.raises(RateLimitError) as exc_info:
-        alpha_vantage_search.bind(api_key=_KEY)(keywords="x")
+        alpha_vantage_search.bind(api_key=_KEY)(query="x")
     assert exc_info.value.quota_exhausted is True
     assert _KEY not in str(exc_info.value)
 
@@ -184,7 +184,7 @@ def test_in_body_information_rate_limit_maps_rate_limit() -> None:
     # The real free-tier notice (rate-limit language) → RateLimitError.
     _mock({"Information": _INFO_RATE_LIMIT})
     with pytest.raises(RateLimitError) as exc_info:
-        alpha_vantage_search.bind(api_key=_KEY)(keywords="x")
+        alpha_vantage_search.bind(api_key=_KEY)(query="x")
     assert exc_info.value.quota_exhausted is True
     assert _KEY not in str(exc_info.value)
 
@@ -203,7 +203,7 @@ def test_in_body_information_premium_only_maps_payment_required() -> None:
 def test_in_body_error_message_maps_parse_error() -> None:
     _mock({"Error Message": "Invalid API call. Please retry or visit the documentation."})
     with pytest.raises(ParseError) as exc_info:
-        alpha_vantage_search.bind(api_key=_KEY)(keywords="x")
+        alpha_vantage_search.bind(api_key=_KEY)(query="x")
     assert exc_info.value.provider == "alpha_vantage"
 
 
@@ -238,7 +238,7 @@ def test_search_returns_rows_and_strips_key() -> None:
             ]
         }
     )
-    result = alpha_vantage_search.bind(api_key=_KEY)(keywords="apple")
+    result = alpha_vantage_search.bind(api_key=_KEY)(query="apple")
 
     assert result.provenance.source == "alpha_vantage_search"
     assert "api_key" not in result.provenance.params, "Theme-B: key leaked to provenance"
@@ -252,12 +252,12 @@ def test_search_returns_rows_and_strips_key() -> None:
 def test_search_empty_matches_raises_empty_data() -> None:
     _mock({"bestMatches": []})
     with pytest.raises(EmptyDataError):
-        alpha_vantage_search.bind(api_key=_KEY)(keywords="zzz")
+        alpha_vantage_search.bind(api_key=_KEY)(query="zzz")
 
 
-def test_search_blank_keywords_raises_invalid_parameter() -> None:
+def test_search_blank_query_raises_invalid_parameter() -> None:
     with pytest.raises(InvalidParameterError):
-        alpha_vantage_search.bind(api_key=_KEY)(keywords="   ")
+        alpha_vantage_search.bind(api_key=_KEY)(query="   ")
 
 
 @respx.mock

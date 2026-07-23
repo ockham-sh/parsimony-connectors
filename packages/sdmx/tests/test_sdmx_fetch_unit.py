@@ -268,3 +268,52 @@ class TestUnitAttributePassthrough:
         assert df["UNIT_label"].iloc[0] == "Percent"  # labeled via the codelist map
         assert df["value"].dtype.kind == "f"  # object "3.2" coerced to numeric
         assert df["value"].iloc[0] == pytest.approx(3.2)
+
+
+class TestReportingPeriodNormalization:
+    """Some agencies (IMF_DATA) send SDMX reporting-period notation in TIME_PERIOD.
+
+    ``2023-M06`` and ``2023-06`` are the same instant, but only the second survives
+    ``pd.to_datetime``: the first parses without error into ``2023-01-01 00:00:06``
+    ("M06" read as a time component), silently corrupting sort order and any date
+    axis built from the column. Fold the reporting-period spellings onto the ISO
+    forms the schema already declares.
+    """
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("2023-M06", "2023-06"),
+            ("2023-M12", "2023-12"),
+            ("2023-A1", "2023"),
+            ("2023-Q2", "2023-Q2"),  # already canonical
+            ("2023-06", "2023-06"),  # ISO passes through
+            ("2023-01-01", "2023-01-01"),
+            ("2023", "2023"),
+            ("2023-S1", "2023-S1"),  # no ISO equivalent — left loudly unparseable
+            ("2023-W03", "2023-W03"),
+            ("2023-M13", "2023-M13"),  # out of range, not a month
+            ("", ""),
+        ],
+    )
+    def test_normalizes_only_forms_with_an_iso_equivalent(self, raw: str, expected: str) -> None:
+        from parsimony_sdmx.connectors.fetch import _normalize_reporting_period
+
+        assert _normalize_reporting_period(raw) == expected
+
+    def test_fetch_emits_parseable_time_period(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import pandas as pd
+
+        fake = pd.DataFrame(
+            {
+                "FREQ": ["M", "M"],
+                "geo": ["EL", "EL"],
+                "TIME_PERIOD": ["2023-M06", "2023-M07"],
+                "value": [1.0, 2.0],
+            }
+        )
+        df = TestOrGroupCoverage._run_fetch(monkeypatch, fake, series_ref="M.EL").raw
+
+        assert df["TIME_PERIOD"].tolist() == ["2023-06", "2023-07"]
+        # The whole point: naive parsing is now correct rather than quietly wrong.
+        assert pd.to_datetime(df["TIME_PERIOD"]).dt.month.tolist() == [6, 7]

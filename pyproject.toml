@@ -6,36 +6,16 @@ requires-python = ">=3.11"
 dependencies = [
     "pyyaml>=6.0",
     "rank-bm25>=0.2",
-    # Pull parsimony-core's `catalog` extra (faiss-cpu + sentence-transformers
-    # + huggingface_hub) into the workspace so catalog tests can build, save,
-    # and search real Catalog instances. End-to-end catalog tests (e.g.
-    # sdmx/test_search_structured) exercise the full hybrid-index stack and
-    # cannot be served by stubs.
-    "parsimony-core[catalog]",
-    # Anchor for the CPU-only torch source pin below. sentence-transformers
-    # (transitive via `parsimony-core[catalog]`) declares plain `torch`,
-    # which otherwise resolves to the +cu* wheel (~2 GB + triton). We never
-    # train/run torch directly — it's just the embedding backend — so CPU
-    # torch is plenty. Direct dep here exists only so `[tool.uv.sources]`
-    # has something to bind against.
-    "torch>=2.0",
 ]
 
 [tool.uv.workspace]
 members = ["packages/*", "test_support"]
 
 [tool.uv.sources]
-# The kernel pin is `parsimony-core[catalog]>=0.0.1` on PyPI. The editable
-# override below keeps local dev + CI wired against the sibling
-# `ockham-sh/parsimony` checkout at `../parsimony`, so the monorepo
-# can test against unreleased kernel changes. CI achieves this by
-# checking out both repos side-by-side (see ci.yml). The override is
-# load-bearing — removing it would pin CI to whatever kernel is on
-# PyPI, breaking the ability to verify a kernel+connectors change in
-# a single PR.
-parsimony-core = { path = "../parsimony", editable = true }
+# `parsimony-core` and `torch` are deliberately NOT here — see the `workbench`
+# group below for why. `parsimony-shared` is a workspace member, so its source
+# resolves inside the checkout and is safe to inherit.
 parsimony-shared = { workspace = true }
-torch = { index = "pytorch-cpu" }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
@@ -79,4 +59,49 @@ markers = [
 dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.4.0",
+    { include-group = "workbench" },
 ]
+
+# Everything whose `[tool.uv.sources]` entry points OUTSIDE this checkout lives in
+# this group, and each source below is scoped to it with `group = "workbench"`.
+#
+# Why: a workspace-root source is inherited by every member, and uv applies that
+# inheritance even when an *external* consumer installs a single member straight
+# from git — `uv add "parsimony-fred @ git+…#subdirectory=packages/fred"`. With the
+# `parsimony-core = { path = "../parsimony" }` override ungated, uv reinterpreted
+# `../parsimony` against the cloned repo root and failed with
+# "has no subdirectory `../parsimony`", naming neither parsimony-core nor this file
+# (reported as #71). Scoping the source to a group the external consumer never
+# enables makes it invisible to that resolution — it falls through to the PyPI pin
+# in each package's own `[project] dependencies`, which is the correct external
+# behaviour — while `uv sync` here still gets the editable checkout, because the
+# default sync enables `dev`.
+#
+# Consequence to know about: `uv sync --no-dev` resolves parsimony-core from PyPI,
+# not from `../parsimony`.
+workbench = [
+    # Pulls parsimony-core's `catalog` extra (faiss-cpu + sentence-transformers +
+    # huggingface_hub) into the workspace so catalog tests can build, save, and
+    # search real Catalog instances. End-to-end catalog tests (e.g.
+    # sdmx/test_search_structured) exercise the full hybrid-index stack and cannot
+    # be served by stubs. The editable override keeps local dev + CI wired against
+    # the sibling `ockham-sh/parsimony` checkout at `../parsimony`, so a
+    # kernel+connectors change can be verified in a single PR (CI checks both repos
+    # out side by side — see ci.yml).
+    "parsimony-core[catalog]",
+    # Anchor for the CPU-only torch pin. sentence-transformers (transitive via
+    # `parsimony-core[catalog]`) declares plain `torch`, which otherwise resolves to
+    # the +cu* wheel (~2 GB + triton). We never train/run torch directly — it is
+    # just the embedding backend — so CPU torch is plenty. This dep exists only so
+    # the source below has something to bind against.
+    "torch>=2.0",
+]
+
+[tool.uv.sources.parsimony-core]
+path = "../parsimony"
+editable = true
+group = "workbench"
+
+[tool.uv.sources.torch]
+index = "pytorch-cpu"
+group = "workbench"
