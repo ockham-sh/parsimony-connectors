@@ -16,10 +16,26 @@ fast with :class:`UnauthorizedError` naming the env var.
 
 Status semantics (verified live 2026-06-04): an invalid key returns **401**
 (→ :class:`UnauthorizedError`); a plan / legacy restriction returns **403** (and
-FMP also uses **402**) → :class:`PaymentRequiredError`. Several verbs are
-plan-gated — their docstrings tag the minimum plan (``[All plans]``,
-``[Starter+]``, ``[Professional+]``); on a too-low plan they return
-:class:`PaymentRequiredError`.
+FMP also uses **402**) → :class:`PaymentRequiredError`.
+
+Plan tags
+---------
+FMP's ladder is **Basic** (free) → **Starter** → **Premium** → **Ultimate**. Each
+verb's docstring opens with the lowest plan that can call it — ``[Basic+]``,
+``[Starter+]``, ``[Premium+]``, ``[Ultimate]``. The tag is the whole signal; the
+verbs deliberately do not restate plan mechanics in prose.
+
+Two gates are not endpoint-level, so a reachable endpoint can still refuse one
+call with :class:`PaymentRequiredError`: on lower plans a **symbol** may be
+outside the plan's set (Basic serves an 87-ticker sample, Starter US, Premium
+US/UK/Canada, Ultimate global), and a **date range** may exceed the plan's span,
+which is rejected rather than truncated. Catch the error per call.
+
+The tag table, how it was derived, and what was actually measured live in
+``tests/test_fmp_connectors.py::_EXPECTED_PLAN_TAGS``, which fails if a docstring
+drifts from it. In short: the Basic column was probed against a live key, the paid
+boundaries come from FMP's published matrix — so re-check a paid tag against a real
+key before relying on it.
 
 Internal layout (not part of the public contract):
 
@@ -114,6 +130,22 @@ def _select_declared(df: pd.DataFrame, output: Any) -> pd.DataFrame:
     return out[fixed]
 
 
+def _sorted_by_date(df: pd.DataFrame) -> pd.DataFrame:
+    """Return *df* oldest-period-first on its ``date`` column.
+
+    FMP serves every dated endpoint newest-first; every other time-series
+    connector in the library returns oldest-first, so generic code that reads
+    ``.iloc[-1]`` as "the latest period" silently picks the oldest one here.
+    Normalising at the connector boundary is cheaper than making each caller
+    remember the exception. Rows are already limited upstream by ``limit=``, so
+    sorting never changes *which* periods come back — only their order.
+    """
+    if "date" not in df.columns:
+        return df
+    order = pd.to_datetime(df["date"], errors="coerce")
+    return df.assign(_sort_key=order).sort_values("_sort_key").drop(columns="_sort_key").reset_index(drop=True)
+
+
 # ---------------------------------------------------------------------------
 # Dispatch maps (enum → upstream path).
 # ---------------------------------------------------------------------------
@@ -186,7 +218,7 @@ def fmp_search(
     exchange: str | None = None,
     api_key: str = "",
 ) -> pd.DataFrame:
-    """[All plans] Search for companies by name fragment or partial ticker.
+    """[Basic+] Search for companies by name fragment or partial ticker.
 
     Returns matches ranked by relevance (symbol, name, currency, exchange). Use
     to resolve a company name to its ticker symbol.
@@ -210,14 +242,10 @@ def fmp_taxonomy(
     type: Literal["sectors", "industries", "exchanges", "symbols_with_financials"],
     api_key: str = "",
 ) -> pd.DataFrame:
-    """[Paid] Return valid values for a taxonomy type: sectors, industries,
+    """[Starter+] Return valid values for a taxonomy type: sectors, industries,
     exchanges, or symbols_with_financials.
 
     Use before building screener filters to ensure field values are valid.
-
-    Tier: despite FMP's docs implying these list endpoints are free, a live
-    free-tier key gets HTTP 402 (paid-only, verified 2026-07-08) — hence
-    [Paid], not [All plans]. Re-verify if FMP tiering changes.
     """
     http = _client(api_key, timeout=_BULK_TIMEOUT_SECONDS)
     data = fmp_get(http, path=_TAXONOMY_DISPATCH[type], op_name="fmp_taxonomy")
@@ -231,11 +259,11 @@ def fmp_taxonomy(
 
 @connector(output=STOCK_QUOTE_OUTPUT, tags=["equity"], secrets=("api_key",))
 def fmp_quotes(symbols: str, api_key: str = "") -> pd.DataFrame:
-    """[Starter+] Fetch real-time quotes for one or more symbols in a single
+    """[Premium+] Fetch real-time quotes for one or more symbols in a single
     request.
 
     Returns price, change, day/52-week ranges, market cap, volume, and 50/200-day
-    moving averages. Demo: 3 symbols (AAPL, TSLA, MSFT). Starter+: all symbols.
+    moving averages.
     """
     s = symbols.strip()
     if not s:
@@ -254,11 +282,10 @@ def fmp_prices(
     to_date: str | None = None,
     api_key: str = "",
 ) -> pd.DataFrame:
-    """[Starter+] Fetch price history for a symbol.
+    """[Basic+ daily / Starter+ intraday] Fetch price history, oldest row first.
 
-    Supports daily, dividend_adjusted, and intraday frequencies (1min, 5min,
-    15min, 30min, 1hour, 4hour). Daily returns full OHLCV; intraday returns the
-    last ~5 days. Intraday (1min-4hour) requires Professional tier.
+    Daily returns full OHLCV; intraday returns the last ~5 days. Intraday needs
+    Starter (5min-4hour) or Premium (1min).
     """
     sym = symbol.strip()
     if not sym:
@@ -285,7 +312,10 @@ def fmp_prices(
     # `date` may carry a time component for intraday frequencies — parse with
     # to_datetime (not `.dt.normalize()`, which would zero it out).
     df["date"] = pd.to_datetime(df["date"])
-    return df
+    # FMP serves price history newest-first; every other time-series connector in
+    # the library returns oldest-first, so `.iloc[-1]` is the latest observation
+    # everywhere. Sort here rather than leave the one exception to trip callers.
+    return df.sort_values("date").reset_index(drop=True)
 
 
 # ---------------------------------------------------------------------------
@@ -295,10 +325,8 @@ def fmp_prices(
 
 @connector(output=COMPANY_PROFILE_OUTPUT, tags=["equity", "tool"], secrets=("api_key",))
 def fmp_company_profile(symbol: Annotated[str, Namespace("fmp_symbols")], api_key: str = "") -> pd.DataFrame:
-    """[Starter+] Fetch company profile: name, sector, industry, market cap, CEO,
+    """[Basic+] Fetch company profile: name, sector, industry, market cap, CEO,
     employees, website, and ETF/ADR/fund flags.
-
-    Demo: 3 symbols (AAPL, TSLA, MSFT). Starter+: all symbols.
     """
     sym = symbol.strip()
     if not sym:
@@ -311,10 +339,8 @@ def fmp_company_profile(symbol: Annotated[str, Namespace("fmp_symbols")], api_ke
 
 @connector(output=PEERS_OUTPUT, tags=["equity", "tool"], secrets=("api_key",))
 def fmp_peers(symbol: Annotated[str, Namespace("fmp_symbols")], api_key: str = "") -> pd.DataFrame:
-    """[Starter+] Return the peer group for a company: stocks in the same sector
+    """[Basic+] Return the peer group for a company: stocks in the same sector
     with comparable market cap on the same exchange.
-
-    Demo: 3 symbols (AAPL, TSLA, MSFT). Starter+: all symbols.
     """
     sym = symbol.strip()
     if not sym:
@@ -332,11 +358,10 @@ def fmp_income_statements(
     limit: int = 5,
     api_key: str = "",
 ) -> pd.DataFrame:
-    """[Starter+] Fetch income statements: revenue, gross profit, operating income,
-    EBITDA, net income, and EPS over multiple periods.
+    """[Basic+] Fetch income statements: revenue, gross profit, operating income,
+    EBITDA, net income, and EPS over multiple periods, oldest first.
 
-    period is 'annual' or 'quarter'. Demo: 3 symbols (AAPL, TSLA, MSFT).
-    Starter+: all symbols with multi-year history.
+    period is 'annual' or 'quarter'.
     """
     sym = symbol.strip()
     if not sym:
@@ -349,7 +374,7 @@ def fmp_income_statements(
         op_name="fmp_income_statements",
     )
     df = _to_frame(data, "fmp_income_statements", {"symbol": sym})
-    return _select_declared(df, INCOME_STATEMENT_OUTPUT)
+    return _sorted_by_date(_select_declared(df, INCOME_STATEMENT_OUTPUT))
 
 
 @connector(output=BALANCE_SHEET_OUTPUT, tags=["equity"], secrets=("api_key",))
@@ -359,11 +384,10 @@ def fmp_balance_sheet_statements(
     limit: int = 5,
     api_key: str = "",
 ) -> pd.DataFrame:
-    """[Starter+] Fetch balance sheets: assets, liabilities, equity, debt, and cash
-    over multiple periods.
+    """[Basic+] Fetch balance sheets: assets, liabilities, equity, debt, and cash
+    over multiple periods, oldest first.
 
-    period is 'annual' or 'quarter'. Demo: 3 symbols (AAPL, TSLA, MSFT).
-    Starter+: all symbols with multi-year history.
+    period is 'annual' or 'quarter'.
     """
     sym = symbol.strip()
     if not sym:
@@ -376,7 +400,7 @@ def fmp_balance_sheet_statements(
         op_name="fmp_balance_sheet_statements",
     )
     df = _to_frame(data, "fmp_balance_sheet_statements", {"symbol": sym})
-    return _select_declared(df, BALANCE_SHEET_OUTPUT)
+    return _sorted_by_date(_select_declared(df, BALANCE_SHEET_OUTPUT))
 
 
 @connector(output=CASH_FLOW_OUTPUT, tags=["equity"], secrets=("api_key",))
@@ -386,11 +410,10 @@ def fmp_cash_flow_statements(
     limit: int = 5,
     api_key: str = "",
 ) -> pd.DataFrame:
-    """[Starter+] Fetch cash flow statements: operating, investing, and financing
-    activities plus free cash flow over multiple periods.
+    """[Basic+] Fetch cash flow statements: operating, investing, and financing
+    activities plus free cash flow over multiple periods, oldest first.
 
-    period is 'annual' or 'quarter'. Demo: 3 symbols (AAPL, TSLA, MSFT).
-    Starter+: all symbols with multi-year history.
+    period is 'annual' or 'quarter'.
     """
     sym = symbol.strip()
     if not sym:
@@ -403,7 +426,7 @@ def fmp_cash_flow_statements(
         op_name="fmp_cash_flow_statements",
     )
     df = _to_frame(data, "fmp_cash_flow_statements", {"symbol": sym})
-    return _select_declared(df, CASH_FLOW_OUTPUT)
+    return _sorted_by_date(_select_declared(df, CASH_FLOW_OUTPUT))
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +444,7 @@ def fmp_corporate_history(
     """[Starter+] Fetch historical corporate events for a symbol: earnings (EPS and
     revenue actual vs estimated), dividends, or splits.
 
-    Demo: 3 symbols (AAPL, TSLA, MSFT). Starter+: all symbols.
+    For the market-wide view rather than one symbol, use fmp_event_calendar.
     """
     sym = symbol.strip()
     if not sym:
@@ -443,8 +466,11 @@ def fmp_event_calendar(
     to_date: str | None = None,
     api_key: str = "",
 ) -> pd.DataFrame:
-    """[All plans] Return the market-wide calendar for earnings, dividends, or
+    """[Basic+] Return the market-wide calendar for earnings, dividends, or
     splits within a date window (max 90 days).
+
+    The window your plan allows is narrower than 90 days below Ultimate, and an
+    over-long one is rejected, not truncated: narrow it before assuming no access.
     """
     http = _client(api_key, timeout=_BULK_TIMEOUT_SECONDS)
     data = fmp_get(
@@ -463,10 +489,10 @@ def fmp_analyst_estimates(
     limit: int = 4,
     api_key: str = "",
 ) -> pd.DataFrame:
-    """[Professional+] Fetch forward analyst consensus estimates: revenue, EBITDA,
+    """[Basic+] Fetch forward analyst consensus estimates: revenue, EBITDA,
     net income, and EPS low/avg/high plus analyst coverage counts.
 
-    Requires Professional tier or above.
+    Quarterly periods need Premium; below that the result is annual only.
     """
     sym = symbol.strip()
     if not sym:
@@ -497,11 +523,11 @@ def fmp_news(
     page: int = 0,
     api_key: str = "",
 ) -> pd.DataFrame:
-    """[Starter+] Fetch stock news articles or official press releases for one or
-    more symbols.
+    """[Starter+ news / Premium+ press_releases] Fetch stock news articles or
+    official press releases for one or more symbols.
 
     Pass type='news' for third-party articles or 'press_releases' for company IR
-    communications. Demo: 3 symbols (AAPL, TSLA, MSFT). Starter+: all symbols.
+    communications; the two are gated at different plans.
     """
     s = symbols.strip()
     if not s:
@@ -524,10 +550,8 @@ def fmp_insider_trades(
     page: int = 0,
     api_key: str = "",
 ) -> pd.DataFrame:
-    """[Professional+] Fetch insider trading activity (executive and director
+    """[Starter+] Fetch insider trading activity (executive and director
     trades): transaction type, shares, price, and insider name.
-
-    Requires Professional tier or above.
     """
     sym = symbol.strip()
     if not sym:
@@ -550,10 +574,10 @@ def fmp_institutional_positions(
     quarter: str,
     api_key: str = "",
 ) -> pd.DataFrame:
-    """[Professional+] Fetch a quarterly institutional (13F) ownership snapshot:
+    """[Ultimate] Fetch a quarterly institutional (13F) ownership snapshot:
     investor count, share changes, invested value, and ownership %.
 
-    quarter is 1, 2, 3, or 4. Requires Professional tier or above.
+    quarter is 1, 2, 3, or 4.
     """
     sym = symbol.strip()
     if not sym:
@@ -578,10 +602,10 @@ def fmp_earnings_transcript(
     quarter: str,
     api_key: str = "",
 ) -> pd.DataFrame:
-    """[Professional+] Fetch the full text transcript of an earnings call for a
+    """[Ultimate] Fetch the full text transcript of an earnings call for a
     symbol, year, and quarter.
 
-    quarter is 1, 2, 3, or 4. Requires Professional tier or above.
+    quarter is 1, 2, 3, or 4.
     """
     sym = symbol.strip()
     if not sym:
@@ -609,7 +633,7 @@ def fmp_index_constituents(
     index: Literal["SP500", "NASDAQ", "DOW_JONES"],
     api_key: str = "",
 ) -> pd.DataFrame:
-    """[All plans] Return current constituents of SP500, NASDAQ, or DOW_JONES:
+    """[Premium+] Return current constituents of SP500, NASDAQ, or DOW_JONES:
     symbol, name, sector, sub-sector, and headquarters.
     """
     http = _client(api_key)
@@ -623,7 +647,7 @@ def fmp_market_movers(
     type: Literal["gainers", "losers", "most_actives"],
     api_key: str = "",
 ) -> pd.DataFrame:
-    """[All plans] Return today's biggest market movers: gainers (highest % up),
+    """[Basic+] Return today's biggest market movers: gainers (highest % up),
     losers (biggest % down), or most_actives (highest volume).
     """
     http = _client(api_key)
@@ -665,7 +689,8 @@ def fmp_screener(
     fields: list[str] | None = None,
     api_key: str = "",
 ) -> pd.DataFrame:
-    """[Starter+] Screen the global equity universe by financial metrics.
+    """[Starter+] Screen the equity universe by financial metrics (global on
+    Ultimate; US on Starter, US/UK/Canada on Premium).
 
     Use pushdown params (sector, country, market_cap_min, etc.) to narrow the
     universe, then where_clause for residual conditions on enriched TTM metrics

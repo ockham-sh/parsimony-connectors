@@ -12,6 +12,8 @@ stripped from provenance (the Theme-B secrets fix).
 
 from __future__ import annotations
 
+import re
+
 import httpx
 import pytest
 import respx
@@ -270,7 +272,49 @@ def test_fmp_prices_intraday_preserves_time_component() -> None:
     result = fmp_prices.bind(api_key=_KEY)(symbol="AAPL", frequency="1min")
     times = result.raw["date"].dt.time.astype(str).tolist()
     assert "00:00:00" not in times
-    assert times[0] == "14:30:00"
+    # Rows come back oldest-first regardless of the order FMP served them, so the
+    # minute-level time survives on both ends of the frame.
+    assert times == ["14:29:00", "14:30:00"]
+
+
+@respx.mock
+def test_fmp_prices_returns_oldest_row_first() -> None:
+    """FMP serves price history newest-first; the connector normalises to ascending.
+
+    Every other time-series connector in the library returns oldest-first, so
+    ``.iloc[-1]`` must be the latest observation here too.
+    """
+    respx.get(f"{_BASE}/historical-price-eod/full").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {"date": "2026-05-08", "open": 3.0, "high": 3.0, "low": 3.0, "close": 3.0},
+                {"date": "2026-05-06", "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0},
+                {"date": "2026-05-07", "open": 2.0, "high": 2.0, "low": 2.0, "close": 2.0},
+            ],
+        )
+    )
+    df = fmp_prices.bind(api_key=_KEY)(symbol="AAPL").raw
+    assert df["date"].is_monotonic_increasing
+    assert df["close"].tolist() == [1.0, 2.0, 3.0]
+    assert list(df.index) == [0, 1, 2]
+
+
+@respx.mock
+def test_fmp_income_statements_returns_oldest_period_first() -> None:
+    respx.get(f"{_BASE}/income-statement").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {"symbol": "AAPL", "date": "2025-09-27", "revenue": 3.0, "eps": 3.0},
+                {"symbol": "AAPL", "date": "2023-09-30", "revenue": 1.0, "eps": 1.0},
+                {"symbol": "AAPL", "date": "2024-09-28", "revenue": 2.0, "eps": 2.0},
+            ],
+        )
+    )
+    df = fmp_income_statements.bind(api_key=_KEY)(symbol="AAPL").raw
+    assert df["date"].tolist() == ["2023-09-30", "2024-09-28", "2025-09-27"]
+    assert df["eps"].iloc[-1] == 3.0
 
 
 def test_fmp_prices_rejects_bad_frequency() -> None:
@@ -789,3 +833,74 @@ def test_no_key_raises_unauthorized(connector_fn, kwargs, monkeypatch: pytest.Mo
 def test_no_key_case_covers_all_nineteen_verbs() -> None:
     # Guard against silently dropping a verb from the parametrize list above.
     assert len(CONNECTORS) == 19
+
+
+# ---------------------------------------------------------------------------
+# Plan tags
+# ---------------------------------------------------------------------------
+
+#: Lowest FMP plan that can call each verb, derived from FMP's plan-comparison
+#: matrix (site.financialmodelingprep.com/developer/docs/pricing).
+#:
+#: Verification scope — read this before trusting a row:
+#:
+#: * Only the **Basic** column was measured. Every tag was probed against a live
+#:   Basic key on 2026-07-23, so "reachable on Basic" and "402 on Basic" are facts.
+#:   The Starter / Premium / Ultimate boundaries are FMP's published matrix alone,
+#:   and inherit any staleness in it. A key on a paid plan would settle them.
+#: * The matrix names *features* ("Earnings Report", "Stock Batch Quote"), not URL
+#:   paths, so mapping each row to one of this package's 17 endpoints was a
+#:   judgement call. Every path is real and documented, but a mis-mapped row would
+#:   give that verb a wrong non-Basic tag that nothing here would catch.
+#: * fmp_corporate_history is the one tag that contradicts the matrix: it is listed
+#:   as Basic-available, yet all three event types 402 on Basic even for FMP's
+#:   sample tickers. A 402 is a plan gate rather than a bad request, so the tag
+#:   follows the live result — but it rests on a single key.
+#:
+#: Two verbs are gated per-argument rather than per-endpoint, so they carry a
+#: compound tag.
+_EXPECTED_PLAN_TAGS = {
+    "fmp_analyst_estimates": "Basic+",
+    "fmp_balance_sheet_statements": "Basic+",
+    "fmp_cash_flow_statements": "Basic+",
+    "fmp_company_profile": "Basic+",
+    "fmp_corporate_history": "Starter+",
+    "fmp_earnings_transcript": "Ultimate",
+    "fmp_event_calendar": "Basic+",
+    "fmp_income_statements": "Basic+",
+    "fmp_index_constituents": "Premium+",
+    "fmp_insider_trades": "Starter+",
+    "fmp_institutional_positions": "Ultimate",
+    "fmp_market_movers": "Basic+",
+    "fmp_news": "Starter+ news / Premium+ press_releases",
+    "fmp_peers": "Basic+",
+    "fmp_prices": "Basic+ daily / Starter+ intraday",
+    "fmp_quotes": "Premium+",
+    "fmp_screener": "Starter+",
+    "fmp_search": "Basic+",
+    "fmp_taxonomy": "Starter+",
+}
+
+
+def test_every_connector_declares_the_expected_plan_tag() -> None:
+    """Each docstring opens with the lowest plan that can call it.
+
+    An agent reads this tag to decide whether an endpoint is worth attempting, so
+    a wrong tag is worse than none: the package previously tagged verbs against a
+    ``[Professional+]`` plan FMP does not sell, which made the tags look like they
+    could not predict access at all.
+    """
+    actual = {}
+    for c in CONNECTORS:
+        match = re.match(r"\[(.+?)\]", c.description.strip())
+        assert match is not None, f"{c.name} has no leading plan tag"
+        actual[c.name] = match.group(1)
+    assert actual == _EXPECTED_PLAN_TAGS
+
+
+def test_plan_tags_use_only_fmp_plan_names() -> None:
+    """The ladder is Basic → Starter → Premium → Ultimate. Nothing else is a plan."""
+    allowed = {"Basic+", "Starter+", "Premium+", "Ultimate"}
+    for tag in _EXPECTED_PLAN_TAGS.values():
+        for token in re.findall(r"[A-Z][a-z]+\+?", tag):
+            assert token in allowed, f"{token!r} is not an FMP plan name (in {tag!r})"

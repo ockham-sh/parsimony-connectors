@@ -24,6 +24,13 @@ def sec_edgar_income_statement(cik: str) -> pd.DataFrame:
     Returns one row per (XBRL concept × reporting period). ``cik`` is the
     SEC CIK (numeric string, zero-padded or bare); use ``sec_edgar_find_company``
     to resolve a ticker. Sourced from the company's XBRL filings via edgartools.
+
+    Filers disagree on the tag for the same line item, so matching one concept
+    name across a peer set silently returns nothing for the peers that chose
+    another. Total revenue is the common case: ``us-gaap_Revenues`` (NVDA) vs
+    ``us-gaap_RevenueFromContractWithCustomerExcludingAssessedTax`` (AMD, INTC,
+    AVGO, TXN). Match a set of aliases, or read the ``concept`` column first —
+    an empty selection means "not tagged that way", never "not reported".
     """
     ua = user_agent()
     cik_padded = normalize_cik(cik)

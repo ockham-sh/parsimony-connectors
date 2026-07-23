@@ -16,7 +16,20 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 | Market context | `fmp_index_constituents`, `fmp_market_movers` |
 | Screener | `fmp_screener` |
 
-19 connectors total. Tier coverage is annotated per-connector in the docstrings (`[All plans]`, `[Starter+]`, `[Professional+]`); the demo plan returns AAPL/TSLA/MSFT only for symbol-bound endpoints.
+19 connectors total. Each docstring opens with the lowest FMP plan that can call it —
+`[Basic+]`, `[Starter+]`, `[Premium+]`, `[Ultimate]`, matching FMP's own ladder of Basic
+(free) → Starter → Premium → Ultimate. Tags were derived from FMP's plan-comparison matrix
+and checked against a live Basic key on 2026-07-23.
+
+Two gates are not endpoint-level, so a reachable endpoint can still refuse a specific call
+with `PaymentRequiredError`:
+
+- **Symbol.** On Basic, symbol-scoped endpoints serve only FMP's fixed 87-ticker sample
+  ("AAPL, TSLA, AMZN and 84 more"; the list is not published). Starter widens to US
+  exchanges, Premium to US/UK/Canada, Ultimate to global. This is why one basket of
+  large caps can half-succeed on a single key.
+- **Range.** Date-windowed verbs cap the span per plan and reject a wider window rather
+  than truncating it.
 
 **Status semantics:** an invalid key returns 401 → `UnauthorizedError`; a plan or legacy restriction returns 403 (FMP also uses 402) → `PaymentRequiredError`. An unknown symbol returns HTTP 200 with `[]` → `EmptyDataError`.
 
