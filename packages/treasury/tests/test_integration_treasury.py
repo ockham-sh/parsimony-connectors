@@ -207,7 +207,8 @@ def test_treasury_search_over_bounded_catalog_live(tmp_path: Path) -> None:
 
     assert_provenance_shape(result, expected_source="treasury_search", required_param_keys=["query"])
     sdf = result.raw
-    assert list(sdf.columns) == ["code", "title", "source", "endpoint", "field", "coverage", "score", "matched"]
+    assert treasury_search.output_spec is not None
+    assert list(sdf.columns) == [c.name for c in treasury_search.output_spec.columns]
     assert not sdf.empty, "search over the fixture catalog returned nothing"
     assert len(sdf) <= 3, "result not bounded by the fixture catalog"
     # Real ranking: the yield-curve entry is the top hit and scores are populated.

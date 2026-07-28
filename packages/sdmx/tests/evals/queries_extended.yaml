@@ -9,7 +9,8 @@ dataset_title_nl:
 
 dataset_structured:
   - id: dataset_code_ecb_yc
-    query: "code: ECB|YC"
+    query: "ECB|YC"
+    field: code
     namespace: sdmx_datasets_ecb
     expected: "ECB|YC"
 

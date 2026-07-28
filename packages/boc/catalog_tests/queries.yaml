@@ -2,10 +2,10 @@
 #
 # Single-bundle catalog (namespace ``boc``): ~15.6k series rows + ~2.4k live
 # ``group:<NAME>`` rows, built from the live ``/lists/series`` + ``/lists/groups``
-# endpoints (archetype A). With >1000 unique titles the adaptive index degrades
-# to BM25-only (the guidebook rule), so exact ``code:`` probes and short
-# distinctive lexical title probes are ``required``, while longer semantic-style
-# probes stay ``optional``.
+# endpoints (archetype A). Title/description are always hybrid (role-based
+# policy); exact code probes (literal query + field: code) and short distinctive
+# lexical title probes are ``required``, while longer semantic-style probes stay
+# ``optional`` because embedding recall varies by phrasing.
 #
 # A ``group:``-prefixed code routes to ``boc_fetch(series_name="group:...")``; a
 # bare code routes to ``boc_fetch(series_name="...")``.
@@ -19,21 +19,24 @@ catalog_url: hf://parsimony-dev/boc
 
 queries:
   - id: code_usd_cad_fx
-    query: "code: FXUSDCAD"
+    query: "FXUSDCAD"
+    field: code
     expected_code: FXUSDCAD
     mode: code
     required: true
     why: "Direct lookup on the indexed code field (USD/CAD daily exchange rate)"
 
   - id: code_total_cpi
-    query: "code: V41690973"
+    query: "V41690973"
+    field: code
     expected_code: V41690973
     mode: code
     required: true
     why: "Direct lookup on a headline macro series (Total CPI)"
 
   - id: code_fx_group_panel
-    query: "code: group:FX_RATES_DAILY"
+    query: "group:FX_RATES_DAILY"
+    field: code
     expected_code: group:FX_RATES_DAILY
     mode: code
     required: true
@@ -58,7 +61,7 @@ queries:
     expected_code: group:FX_RATES_DAILY
     mode: hybrid_title
     optional: true
-    why: "Group-level title probe; ranking may vary on the BM25-only title index"
+    why: "Group-level title probe; hybrid ranking may vary by phrasing"
 
 thresholds:
   min_required_recall: 1.0

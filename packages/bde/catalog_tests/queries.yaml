@@ -3,8 +3,9 @@
 # Single-bundle catalog (namespace ``bde``): ~15,635 series from 6 CSV chapters
 # (be, cf, ie, si, tc, ti) + Bank Lending Survey recovered from pb.zip.
 # Titles and descriptions are in Spanish — no English CSV variant exists.
-# With >1000 entries the adaptive index uses BM25-only, so code probes are
-# ``required`` and semantic-style title probes are ``optional``.
+# Title/description are always hybrid (role-based policy); exact code probes are
+# ``required`` and longer semantic-style title probes stay ``optional`` because
+# embedding recall varies by phrasing.
 #
 # Pass returned codes directly to bde_fetch(key=...).
 #
@@ -17,21 +18,24 @@ catalog_url: hf://parsimony-dev/bde
 
 queries:
   - id: code_euribor_1y
-    query: "code: D_1NBAF472"
+    query: "D_1NBAF472"
+    field: code
     expected_code: D_1NBAF472
     mode: code
     required: true
     why: "Direct lookup on indexed code field (one-year Euribor, a high-traffic monthly series)"
 
   - id: code_usdeur_fx
-    query: "code: DTCCBCEUSDEUR.B"
+    query: "DTCCBCEUSDEUR.B"
+    field: code
     expected_code: DTCCBCEUSDEUR.B
     mode: code
     required: true
     why: "Direct lookup on a dotted daily FX code (USD/EUR ECB spot rate)"
 
   - id: code_bls_dpb
-    query: "code: DPBCOCCNFNOAPTOPN.T.ES"
+    query: "DPBCOCCNFNOAPTOPN.T.ES"
+    field: code
     expected_code: DPBCOCCNFNOAPTOPN.T.ES
     mode: code
     required: true
@@ -42,7 +46,7 @@ queries:
     expected_code: D_1NBAF472
     mode: title_bm25
     optional: true
-    why: "Spanish lexical title probe; ranking may vary on the BM25-only title index"
+    why: "Spanish lexical title probe; hybrid ranking may vary by phrasing"
 
   - id: title_fx_dollar_euro
     query: "tipo de cambio dólar euro"

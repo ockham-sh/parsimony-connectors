@@ -6,7 +6,10 @@ title/description relevance, so no provider-specific search routing is needed he
 
 from __future__ import annotations
 
-from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
+from parsimony.catalog.search import (
+    CatalogSearchParams,
+    make_local_search_connector,
+)
 from parsimony.result import Column, ColumnRole, OutputSpec
 
 from parsimony_riksbank.catalog_build import build_riksbank_catalog
@@ -19,7 +22,11 @@ RIKSBANK_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="riksbank"),
         Column(name="title", role=ColumnRole.TITLE),
+        Column(name="description", role=ColumnRole.METADATA),
         Column(name="source", role=ColumnRole.METADATA),
+        Column(name="frequency", role=ColumnRole.METADATA),
+        Column(name="unit", role=ColumnRole.METADATA),
+        Column(name="group", role=ColumnRole.METADATA),
     ]
 )
 
@@ -41,8 +48,7 @@ riksbank_search = make_local_search_connector(
         "riksbank_swestr_fetch; other bare ids -> riksbank_fetch; prefixed codes "
         "(monetary_policy/, turnover/, holdings/) -> the matching riksbank_*_fetch."
     ),
-    output_columns=RIKSBANK_SEARCH_OUTPUT.columns,
-    metadata_columns=("source",),
+    output=RIKSBANK_SEARCH_OUTPUT,
 )
 
 __all__ = [

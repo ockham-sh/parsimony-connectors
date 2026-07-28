@@ -118,8 +118,9 @@ def _get_json(http: HttpClient, *, path: str, params: dict[str, Any], op_name: s
 def fred_search(query: str, api_key: str = "") -> pd.DataFrame:
     """Keyword search for FRED economic time series.
 
-    Returns series metadata (id, title, units, frequency). Use short,
-    specific queries like 'US unemployment rate' or 'GDPC1'.
+    Returns series metadata (id, title, units, frequency). Paste the returned
+    ``id`` into ``fred_fetch(series_id=...)``. Use short, specific queries like
+    'US unemployment rate' or 'GDPC1'.
     """
     q = query.strip()
     if not q:

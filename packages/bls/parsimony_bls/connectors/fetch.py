@@ -10,12 +10,14 @@ stripped from provenance.
 from __future__ import annotations
 
 import os
+from datetime import date
 from typing import Annotated, Any
 
 import pandas as pd
 from parsimony.connector import connector
 from parsimony.errors import EmptyDataError, InvalidParameterError, ParseError, RateLimitError
 from parsimony.transport.helpers import make_http_client
+from pydantic import Field
 
 from parsimony_bls._http import API_BASE, API_TIMEOUT, post_api_json
 from parsimony_bls.outputs import BLS_FETCH_OUTPUT
@@ -67,6 +69,45 @@ def _validate_year(value: str, label: str) -> str:
     return v
 
 
+def _year_omitted(value: str | None) -> bool:
+    return value is None or not str(value).strip()
+
+
+def _current_year() -> int:
+    return date.today().year
+
+
+def _resolve_year_window(
+    start_year: str | None,
+    end_year: str | None,
+    *,
+    cap: int,
+) -> tuple[str, str]:
+    """Fill omitted years with a recent window that fits inside ``cap`` calendar years.
+
+    - both omitted → ``[today-(cap-1), today]``
+    - only ``end_year`` → ``[end-(cap-1), end]``
+    - only ``start_year`` → ``[start, start+(cap-1)]``
+    - both set → validate as YYYY and require ``start <= end``
+    """
+    start_omitted = _year_omitted(start_year)
+    end_omitted = _year_omitted(end_year)
+    if start_omitted and end_omitted:
+        end_y = _current_year()
+        return str(end_y - (cap - 1)), str(end_y)
+    if start_omitted:
+        end = _validate_year(str(end_year), "end_year")
+        return str(int(end) - (cap - 1)), end
+    if end_omitted:
+        start = _validate_year(str(start_year), "start_year")
+        return start, str(int(start) + (cap - 1))
+    start = _validate_year(str(start_year), "start_year")
+    end = _validate_year(str(end_year), "end_year")
+    if int(start) > int(end):
+        raise InvalidParameterError("bls", "start_year must be <= end_year")
+    return start, end
+
+
 def _coerce_value(raw: Any) -> float | None:
     if raw in ("-", "", None):
         return None
@@ -79,8 +120,24 @@ def _coerce_value(raw: Any) -> float | None:
 @connector(output=BLS_FETCH_OUTPUT, tags=["macro", "us"], secrets=("api_key",))
 def bls_fetch(
     series_id: Annotated[str, "ns:bls"],
-    start_year: str,
-    end_year: str,
+    start_year: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Inclusive start year (YYYY). Omit (with end_year) to fetch the most "
+                "recent window that fits the BLS per-call cap."
+            ),
+        ),
+    ] = None,
+    end_year: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Inclusive end year (YYYY). Omit (with start_year) to fetch the most "
+                "recent window that fits the BLS per-call cap (~10y unkeyed / ~20y keyed)."
+            ),
+        ),
+    ] = None,
     api_key: str = "",
 ) -> pd.DataFrame:
     """Fetch a single BLS time series by ``series_id``.
@@ -90,10 +147,10 @@ def bls_fetch(
     present) enriches the title from the API catalog. Reaches **any** series in
     the BLS universe by id.
 
-    BLS serves at most ~10 calendar years per call unkeyed (~20 keyed) and
-    silently truncates a wider request, so ``end_year - start_year`` above that
-    cap is refused with ``InvalidParameterError`` — fetch in windows within the
-    cap and concatenate.
+    ``start_year`` / ``end_year`` default to the most recent window that fits the
+    BLS per-call cap (~10 calendar years unkeyed, ~20 keyed). A wider explicit
+    span is refused with ``InvalidParameterError`` — BLS would otherwise silently
+    truncate — so fetch in windows within the cap and concatenate.
     """
     # The registrationkey is optional — no fast-fail — but when absent from the
     # call we still honour the ``BLS_API_KEY`` env var the docs promise. Resolve
@@ -103,8 +160,6 @@ def bls_fetch(
     sid = (series_id or "").strip()
     if not sid:
         raise InvalidParameterError("bls", "series_id must be non-empty")
-    start = _validate_year(start_year, "start_year")
-    end = _validate_year(end_year, "end_year")
 
     # BLS caps the served window per call (~10 unkeyed / ~20 keyed years) and
     # silently anchors it at start_year, dropping the recent tail — a 2000–2026
@@ -112,6 +167,7 @@ def bls_fetch(
     # can't tell a truncated series from a genuinely short one. The cap is derived
     # from state we already hold (api_key presence), so this never false-positives.
     cap = 20 if api_key else 10
+    start, end = _resolve_year_window(start_year, end_year, cap=cap)
     requested = int(end) - int(start) + 1
     if requested > cap:
         raise InvalidParameterError(

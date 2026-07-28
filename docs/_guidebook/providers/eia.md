@@ -216,7 +216,7 @@ part of the API and not needed — the route tree is the authoritative enumerati
   above; title prefers the per-row `series-description`.
 - **Facets (`EIA_FACETS_OUTPUT`):** KEY=`facet_value`, TITLE=`name`,
   METADATA=`facet`/`route`.
-- **Search (`EIA_SEARCH_OUTPUT`):** `code`(KEY)/`title`/`score`. The `code` is the
+- **Search (`EIA_SEARCH_OUTPUT`):** `code`(KEY)/`title`/`score`/`search_detail`. The `code` is the
   route; the agent passes it to `eia_fetch(route=...)`.
 
 ## 7. Tests
@@ -231,7 +231,7 @@ part of the API and not needed — the route tree is the authoritative enumerati
   live**, non-value measure, facet-filter narrowing, facet discovery, bounded
   single-category enumerate (monkeypatched top-route seam), fixture-catalog search
   with ranking discrimination + `assert_no_secret_leak`.
-- Recall (`catalog_tests/queries.yaml`): 4 required (3 slash-route `code:` + 1
+- Recall (`catalog_tests/queries.yaml`): 4 required (3 slash-route code + 1
   lexical title) + 2 optional semantic; `min_required_recall: 1.0`.
 
 ## 8. Live verification log
@@ -249,7 +249,7 @@ part of the API and not needed — the route tree is the authoritative enumerati
 | 2026-06-09 | seriesid measure col | — | `value`+`units` (petroleum) vs `sales`+`sales-units` (electricity) | ✅ | detect by `-units` sibling |
 | 2026-06-09 | fetch pagination live | — | `petroleum/pri/spt` daily → **91,285 rows** (was 5,000); WTI seriesid → 10,176 | ✅ | bug fixed, verified |
 | 2026-06-09 | enumerate vs independent walk | match | **232 == 232, 0 in-walk-not-enum, 0 in-enum-not-walk** | ✅ | Q1 proven |
-| 2026-06-09 | catalog build + recall | required_recall 1.0 | schema_ok, 232 entries, **required_recall 1.00** (slash-route `code:` works) | ✅ | Q1 recall proven |
+| 2026-06-09 | catalog build + recall | required_recall 1.0 | schema_ok, 232 entries, **required_recall 1.00** (slash-route code works) | ✅ | Q1 recall proven |
 | 2026-06-09 | row ceiling | — | electricity hourly `total=18,675,533` → InvalidParameterError | ✅ | narrow-guidance, no runaway |
 | 2026-06-09 | redistribution | public domain | reuse policy permits redistributing data products + attribution | ✅ | publish OK |
 

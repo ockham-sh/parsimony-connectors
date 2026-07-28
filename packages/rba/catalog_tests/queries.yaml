@@ -3,12 +3,14 @@
 # Single-bundle catalog (namespace ``rba``): ~4,165 series rows built from the
 # 3-pass HTML scrape (archetype E) — CSV index (~3,958) + one XLSX-exclusive sheet
 # (Bond Purchase Program, ``source=rba_xlsx``) + ~200 discontinued xls-hist series
-# (``source=rba_xlsx_hist``). With >1000 unique titles the adaptive index degrades
-# to BM25-only (the guidebook rule), so exact ``code:`` probes are ``required`` and
-# semantic-style title probes stay ``optional``.
+# (``source=rba_xlsx_hist``). Title/description are always hybrid (role-based
+# policy); exact code probes (literal ``query`` + ``field: code``) are ``required``
+# and longer semantic-style title probes stay ``optional`` because embedding
+# recall varies by phrasing.
 #
-# The compound code is ``{table_id}#{series_id}``; the agent passes the part before
-# ``#`` to ``rba_fetch`` (which resolves CSV / XLSX-exclusive / xls-hist).
+# The compound code is ``{table_id}#{series_id}``. Fetch args come from METADATA
+# columns — pass ``table_id`` to ``rba_fetch(table_id=...)`` (and filter the result
+# by ``series_id`` if you need one series). Do not parse the KEY.
 #
 # Regenerate drafts after a local build:
 #   uv run python tooling/validate_catalog.py --provider rba \
@@ -19,14 +21,16 @@ catalog_url: hf://parsimony-dev/rba
 
 queries:
   - id: code_cash_rate_target
-    query: "code: f1-data#FIRMMCRTD"
+    query: "f1-data#FIRMMCRTD"
+    field: code
     expected_code: f1-data#FIRMMCRTD
     mode: code
     required: true
     why: "Direct lookup on the indexed code field (the canonical RBA cash-rate target)"
 
   - id: code_xls_hist_repo
-    query: "code: b03hist#BOSRRSB"
+    query: "b03hist#BOSRRSB"
+    field: code
     expected_code: b03hist#BOSRRSB
     mode: code
     required: true
@@ -37,7 +41,7 @@ queries:
     expected_code: f1-data#FIRMMCRTD
     mode: title_bm25
     optional: true
-    why: "Distinctive lexical title probe; ranking may vary on the BM25-only title index"
+    why: "Distinctive lexical title probe; hybrid ranking may vary by phrasing"
 
   - id: title_bond_purchase_program
     query: "Bond Purchase Program face value"

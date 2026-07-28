@@ -102,8 +102,12 @@ fetch by it — but they differ in where the search runs.
 
 Catalog-backed providers (such as `treasury`, `riksbank`, `sdmx`, `bls`) ship a
 prebuilt searchable catalog. The search connector is named `<provider>_search`
-and takes `query`, an optional `limit`, and an optional `catalog_url`. It
-returns a `code` (KEY) column you pass to the fetch connector.
+(SDMX splits into `sdmx_datasets_search` / `sdmx_series_search`). `query=` is
+**literal text** that ranks hits — a colon or `&&` inside it is punctuation, not
+syntax. Exact constraints go in `filter=` (e.g. `filter={"code": "FXUSDCAD"}` or
+SDMX `filter={"FREQ_code": "M"}`). Optional `limit` and `catalog_url` are also
+accepted. Read the returned KEY column (often `code`; SDMX series uses `key`) and
+pass it to the fetch parameter named in the connector's description.
 
 ```python
 from parsimony import discover
@@ -127,8 +131,9 @@ The catalog snapshot loads lazily on first search and is cached under
 Native-search providers (such as `fred`, `finnhub`, `fmp`, `sec_edgar`) wrap the
 provider's own search endpoint instead of shipping a catalog. There is no
 snapshot to download; each search is a live call. Every search connector takes its
-free text as `query=`; the identifier column it returns is provider-specific (for
-FRED it is `id`).
+free text as `query=` (literal text — same rule as catalog-backed). The identifier
+column it returns is provider-specific; for FRED the KEY is `id`, pasted into
+`fred_fetch(series_id=...)`.
 
 ```python
 from parsimony import discover

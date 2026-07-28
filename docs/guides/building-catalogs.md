@@ -69,14 +69,15 @@ enumerate  →  build  →  validate  →  publish to HF  →  lazy load at runt
    ```python
    result  = enumerate_<p>()
    entries = list(result.entities.values())
-   catalog = Catalog(namespace, indexes=discovery_indexes(entries), default_field="title")
+   catalog = Catalog(namespace, indexes=discovery_indexes(entries))
    catalog.set_entities(entries)
    catalog.build()
    ```
 
    `discovery_indexes` indexes `code` as BM25 (exact lookup) and `title` +
-   `description` adaptively — Hybrid BM25 + vector when a field has fewer than
-   1,000 unique values, BM25-only otherwise.
+   `description` as Hybrid BM25 + vector — always, by field role, not by how
+   many unique values the catalog holds. Broad search targets `title` by
+   convention when that index exists.
 3. **Validate.** Run the curated recall probes against the local snapshot
    (see below). Required probes must all pass before publishing.
 4. **Publish to HF.** `catalog.save("hf://parsimony-dev/<p>")` writes the
@@ -129,8 +130,9 @@ Every catalog-backed package carries a curated probe file at
 `packages/<p>/catalog_tests/queries.yaml`. Probes assert that known series stay
 findable through the snapshot's indexes. There are three kinds:
 
-- **Required `code:` probes** — exact lookups on the BM25 `code` index. These are
-  the contract: a catalogued unit must be retrievable by its code.
+- **Required code probes** — literal `query` with `field: code` (exact id lookup on
+  the BM25 `code` index). These are the contract: a catalogued unit must be
+  retrievable by its code.
 - **Lexical `title_bm25` probes** — a short slice of a distinctive title.
 - **Optional semantic `hybrid_title` probes** — longer phrases, only meaningful
   when the title field built a hybrid index. Marked `optional: true` because

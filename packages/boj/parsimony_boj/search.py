@@ -6,7 +6,12 @@ import logging
 import os
 
 import pandas as pd
-from parsimony.catalog.search import RANKING_COLUMNS, CatalogLRU, resolved_catalog_url
+from parsimony.catalog.search import (
+    RANKING_COLUMNS,
+    CatalogLRU,
+    resolved_catalog_url,
+    search_hits_dataframe,
+)
 from parsimony.catalog.source import lazy_catalog_dir
 from parsimony.connector import connector
 from parsimony.errors import EmptyDataError
@@ -22,6 +27,11 @@ from parsimony_boj.catalog_build import (
 )
 
 logger = logging.getLogger(__name__)
+
+#: The declared search surface for both BoJ catalogs: curated title text. The
+#: ``description`` and ``code`` indexes exist for future use and exact lookups; ranking
+#: against them has never been measured, so it is not declared here.
+SEARCH_FIELD = "title"
 
 PARSIMONY_BOJ_CATALOG_URL_ENV = "PARSIMONY_BOJ_CATALOG_URL"
 DEFAULT_LRU_SIZE = 4
@@ -60,19 +70,19 @@ def _normalize_db(db: str) -> str:
     return db.strip().upper()
 
 
-DATABASES_SEARCH_OUTPUT = OutputSpec(
-    columns=[
-        Column(name="db", role=ColumnRole.KEY),
-        Column(name="title", role=ColumnRole.TITLE),
-        Column(name="category", role=ColumnRole.METADATA),
-        Column(
-            name="series_namespace",
-            role=ColumnRole.METADATA,
-            description="Namespace for boj_series_search, e.g. boj_series_fm08.",
-        ),
-        *RANKING_COLUMNS,
-    ]
+# Provider columns only — RANKING_COLUMNS appended below so the OutputSpec matches
+# the factory convention (provider declaration + shared ranking pair).
+_DATABASES_COLUMNS = (
+    Column(name="db", role=ColumnRole.KEY),
+    Column(name="title", role=ColumnRole.TITLE),
+    Column(name="category", role=ColumnRole.METADATA),
+    Column(
+        name="series_namespace",
+        role=ColumnRole.METADATA,
+        description="Namespace for boj_series_search, e.g. boj_series_fm08.",
+    ),
 )
+DATABASES_SEARCH_OUTPUT = OutputSpec(columns=[*_DATABASES_COLUMNS, *RANKING_COLUMNS])
 
 
 class DatabasesSearchParams(BaseModel):
@@ -98,38 +108,29 @@ def boj_databases_search(
         catalog_root=params.catalog_root,
         build=build_boj_databases_catalog_from_enumeration,
     )
-    matches = catalog.search(params.query, limit=params.limit)
+    matches = catalog.search(params.query, limit=params.limit, field=SEARCH_FIELD)
     if not matches:
         raise EmptyDataError(
             provider="boj",
             message=f"No database matches for query={params.query!r}.",
         )
-    rows = []
-    for m in matches:
-        db_code = m.code
-        category = str(m.metadata.get("category") or "") if m.metadata else ""
-        rows.append(
-            {
-                "db": db_code,
-                "title": m.title,
-                "category": category,
-                "series_namespace": series_namespace(db_code),
-                "coverage": round(m.coverage, 6),
-                "score": round(m.score, 6),
-                "matched": m.matched,
-            }
-        )
-    return pd.DataFrame(rows)
+    return search_hits_dataframe(
+        matches,
+        code_column="db",
+        columns=_DATABASES_COLUMNS,
+        extra_for=lambda m: {"series_namespace": series_namespace(m.code)},
+    )
 
 
-SERIES_SEARCH_OUTPUT = OutputSpec(
-    columns=[
-        Column(name="code", role=ColumnRole.KEY, namespace="boj"),
-        Column(name="title", role=ColumnRole.TITLE),
-        Column(name="db", role=ColumnRole.METADATA),
-        *RANKING_COLUMNS,
-    ]
+_SERIES_COLUMNS = (
+    Column(name="code", role=ColumnRole.KEY, namespace="boj"),
+    Column(name="title", role=ColumnRole.TITLE),
+    Column(name="description", role=ColumnRole.METADATA),
+    Column(name="db", role=ColumnRole.METADATA),
+    Column(name="frequency", role=ColumnRole.METADATA),
+    Column(name="unit", role=ColumnRole.METADATA),
 )
+SERIES_SEARCH_OUTPUT = OutputSpec(columns=[*_SERIES_COLUMNS, *RANKING_COLUMNS])
 
 
 class SeriesSearchParams(BaseModel):
@@ -159,7 +160,7 @@ def boj_series_search(
         return build_boj_series_catalog_for_db(db_code)
 
     catalog = _get_or_load_catalog(namespace, catalog_root=params.catalog_root, build=_build)
-    matches = catalog.search(params.query, limit=params.limit)
+    matches = catalog.search(params.query, limit=params.limit, field=SEARCH_FIELD)
     if not matches:
         raise EmptyDataError(
             provider="boj",
@@ -168,18 +169,11 @@ def boj_series_search(
                 "Try a broader query or pick another database from boj_databases_search."
             ),
         )
-    return pd.DataFrame(
-        [
-            {
-                "code": m.code,
-                "title": m.title,
-                "db": db_code,
-                "coverage": round(m.coverage, 6),
-                "score": round(m.score, 6),
-                "matched": m.matched,
-            }
-            for m in matches
-        ]
+    return search_hits_dataframe(
+        matches,
+        code_column="code",
+        columns=_SERIES_COLUMNS,
+        extras={"db": db_code},
     )
 
 
@@ -187,6 +181,7 @@ __all__ = [
     "DATABASES_SEARCH_OUTPUT",
     "DEFAULT_CATALOG_ROOT",
     "PARSIMONY_BOJ_CATALOG_URL_ENV",
+    "SEARCH_FIELD",
     "SERIES_SEARCH_OUTPUT",
     "DatabasesSearchParams",
     "SeriesSearchParams",

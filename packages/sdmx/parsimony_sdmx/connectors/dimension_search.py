@@ -7,11 +7,12 @@ dimension take?" is a read over the same cached catalog — no provider call.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 import pandas as pd
 import pyarrow.dataset as ds
-from parsimony.catalog.search import RANKING_COLUMNS
+from parsimony.catalog.filters import Filter, FilterLike, as_filter
+from parsimony.catalog.search import RANKING_COLUMNS, wire_search_detail
 from parsimony.catalog.storage import read_meta
 from parsimony.connector import connector
 from parsimony.errors import ConnectorError, EmptyDataError, InvalidParameterError
@@ -21,15 +22,15 @@ from pydantic import BaseModel, Field
 from parsimony_sdmx.catalog_series import collect_distinct_from_columnar
 from parsimony_sdmx.connectors.series_search import (
     ENUMERATION_LIMIT,
+    _arrow_filter,
     _dims_from_schema,
+    _equality_members,
     _filter_autopsy,
     _load_series_catalog,
     _not_published,
     _parse_agency,
-    _parse_filter_json,
     _resolve_catalog_path,
     _validate_filter_columns,
-    _validate_filter_values,
 )
 from parsimony_sdmx.core.namespaces import series_namespace
 from parsimony_sdmx.series_fields import SERIES_PARQUET, dim_code_field, dim_label_field
@@ -55,23 +56,18 @@ class DimensionSearchParams(BaseModel):
     query: str | None = Field(default=None, max_length=512)
     limit: int = Field(default=50, ge=1, le=ENUMERATION_LIMIT)
     catalog_root: str | None = None
-    filter_json: str | None = Field(default=None, max_length=4096)
+    filter: Any = Field(default=None)
 
 
-def _distinct_within_slice(dataset: ds.Dataset, dimension: str, filter_spec: dict[str, list[str]]) -> dict[str, str]:
-    """Distinct ``code -> label`` values of *dimension* among rows matching *filter_spec*.
+def _distinct_within_slice(dataset: ds.Dataset, dimension: str, predicate: Filter) -> dict[str, str]:
+    """Distinct ``code -> label`` values of *dimension* among rows matching *predicate*.
 
     This is the "populated within this slice" read: a codelist can offer a value (ECB
     ICP's ``ANR``) that no series carries for the caller's combination (``REF_AREA=GR``,
     overall index) — enumerating the slice instead of the codelist avoids steering a
-    caller toward a plausible-but-empty ``filter_json``.
+    caller toward a plausible-but-empty ``filter``.
     """
-    expr = None
-    for col, vals in filter_spec.items():
-        if not vals:
-            continue
-        item = ds.field(col).isin(vals)
-        expr = item if expr is None else expr & item
+    expr = _arrow_filter(predicate)
     code_col, label_col = dim_code_field(dimension), dim_label_field(dimension)
     table = dataset.to_table(columns=[code_col, label_col], filter=expr)
     populated: dict[str, str] = {}
@@ -82,7 +78,23 @@ def _distinct_within_slice(dataset: ds.Dataset, dimension: str, filter_spec: dic
     return populated
 
 
-@connector(output=DIMENSION_SEARCH_OUTPUT, tags=["sdmx", "tool"])
+_DIMENSION_SEARCH_DOC = """Search or enumerate one dimension's values in a published SDMX flow.
+
+Pass ``agency`` + ``dataset_id`` + ``dimension`` (from the flow's DSD). With ``query``,
+rank codes/labels as a shortlist (``limit`` <= 50); omit ``query`` to enumerate populated
+values (``limit`` <= 10000). ``filter`` (same syntax as series search) keeps only values
+populated in that series slice, not merely in the codelist.
+
+Use for contested dimensions only. After picking a code, pin it with
+``sdmx_series_search(..., filter=...)``.
+"""
+
+
+@connector(
+    output=DIMENSION_SEARCH_OUTPUT,
+    tags=["sdmx", "tool"],
+    description=_DIMENSION_SEARCH_DOC,
+)
 def sdmx_dimension_search(
     agency: str,
     dataset_id: str,
@@ -90,19 +102,8 @@ def sdmx_dimension_search(
     query: str | None = None,
     limit: int = 50,
     catalog_root: str | None = None,
-    filter_json: str | None = None,
+    filter: FilterLike | None = None,
 ) -> pd.DataFrame:
-    """Search or enumerate one dimension's values within a published SDMX flow.
-
-    Given a flow (``agency`` + ``dataset_id``) and a ``dimension`` id (from the flow's
-    ``dsd``), returns that dimension's ``(code, label)`` values. Pass ``query`` to rank the
-    values by concept (e.g. "business" -> FREQ ``B`` "Business daily") as a shortlist
-    (``limit`` <= 50); omit ``query`` to enumerate every value the flow populates (``limit``
-    up to 10000). ``filter_json`` (sdmx_series_search syntax) keeps only values populated
-    WITHIN that slice (e.g. ICP_SUFFIX values that exist for ``REF_AREA_code=GR``), not
-    merely present in the codelist. Use it to pick codes for a ``sdmx_series_search``
-    ``filter_json``, or to check whether a flow offers a value at all.
-    """
     params = DimensionSearchParams(
         agency=agency,
         dataset_id=dataset_id,
@@ -110,7 +111,7 @@ def sdmx_dimension_search(
         query=query,
         limit=limit,
         catalog_root=catalog_root,
-        filter_json=filter_json,
+        filter=filter,
     )
     q = (params.query or "").strip() or None
     if q is not None and params.limit > RANKED_LIMIT:
@@ -138,19 +139,17 @@ def sdmx_dimension_search(
             f"unknown dimension {params.dimension!r} for {agency_id.value}/{flow}; valid dimensions: {list(dsd_order)}",
         )
 
-    filter_spec: dict[str, list[str]] = {}
-    if params.filter_json:
-        filter_spec = _parse_filter_json(params.filter_json)
-        _validate_filter_columns(filter_spec, dsd_order, label=label)
+    predicate = as_filter(params.filter)
+    if predicate is not None:
+        _validate_filter_columns(predicate, dsd_order, label=label)
 
     # Load the catalog defensively, mirroring sdmx_series_search: a corrupt snapshot raises a
     # bare ValueError (the framework's sha256 integrity check) that must surface as a typed
     # ConnectorError, not leak raw — both sibling connectors present the same failure identically.
     try:
         populated: dict[str, str] | None = None
-        if filter_spec:
-            _validate_filter_values(filter_spec, dataset, agency=agency_id.value, flow=flow)
-            populated = _distinct_within_slice(dataset, params.dimension, filter_spec)
+        if predicate is not None:
+            populated = _distinct_within_slice(dataset, params.dimension, predicate)
         if q is not None:
             catalog = _load_series_catalog(namespace, str(catalog_path.resolve()))
             # With a filter active, over-fetch the ranked shortlist to the ranked cap before
@@ -162,9 +161,8 @@ def sdmx_dimension_search(
                 {
                     "code": m.linked_value or m.value,
                     "label": m.value,
-                    "coverage": round(m.coverage, 6),
                     "score": round(m.score, 6),
-                    "matched": m.matched,
+                    "search_detail": wire_search_detail(m.search_detail),
                 }
                 for m in matches
             ]
@@ -172,22 +170,23 @@ def sdmx_dimension_search(
                 rows = [r for r in rows if r["code"] in populated][: params.limit]
         elif populated is not None:
             rows = [
-                {"code": code, "label": value_label, "coverage": None, "score": None, "matched": None}
+                {"code": code, "label": value_label, "score": None, "search_detail": None}
                 for code, value_label in list(populated.items())[: params.limit]
             ]
         else:
             distinct = collect_distinct_from_columnar(parquet_path, (params.dimension,))[params.dimension]
             rows = [
-                {"code": code, "label": label, "coverage": None, "score": None, "matched": None}
+                {"code": code, "label": label, "score": None, "search_detail": None}
                 for code, label in list(distinct.items())[: params.limit]
             ]
     except (FileNotFoundError, ValueError) as exc:
         raise ConnectorError(f"Invalid series catalog for {namespace}: {exc}", provider="sdmx") from exc
 
     if not rows:
+        display = _equality_members(predicate) if predicate is not None else None
         criteria = f"query={params.query!r}"
-        if filter_spec:
-            criteria += f", filter={filter_spec}"
+        if predicate is not None:
+            criteria += f", filter={display or predicate}"
         message = f"No values for dimension {params.dimension!r} in {agency_id.value}/{flow} ({criteria})."
         if populated:
             # The slice DOES populate values — the ranked query just matched none of them.
@@ -196,9 +195,9 @@ def sdmx_dimension_search(
                 f" The slice populates {len(populated)} value(s) for {params.dimension!r} "
                 f"(e.g. {sample}); the query matched none of them — omit query= to enumerate them."
             )
-        elif filter_spec:
+        elif predicate is not None:
             # The slice itself is empty: same per-column autopsy as sdmx_series_search.
-            message += " " + _filter_autopsy(filter_spec, dataset, agency=agency_id.value, flow=flow)
+            message += " " + _filter_autopsy(predicate, dataset, agency=agency_id.value, flow=flow)
         elif q is not None:
             message += " Omit query= to enumerate every populated value."
         raise EmptyDataError("sdmx", message)

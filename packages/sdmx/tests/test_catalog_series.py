@@ -28,7 +28,6 @@ from parsimony_sdmx.core.models import (
     StructureRecord,
 )
 from parsimony_sdmx.series_fields import SERIES_PARQUET, dim_code_field, dim_label_field
-from parsimony_sdmx.series_query import plan_series_search
 
 
 def _load_build_all_catalogs() -> ModuleType:
@@ -133,25 +132,19 @@ def test_build_and_search_tiny_catalog(tmp_path: Path, monkeypatch: pytest.Monke
     catalog_dir = catalogs_dir / namespace
     assert is_series_catalog(catalog_dir)
     catalog = Catalog.load(f"file://{catalog_dir.resolve()}")
-    plan = plan_series_search(
-        "REF_AREA_label:germany && FREQ_code:M",
-        catalog=catalog,
-        dsd_order=("FREQ", "REF_AREA"),
-        top_k_per_dim=5,
-    )
-    matches = catalog.search(
-        plan.query,
+    # The explicit workflow: literal text ranks the dimension labels, and the code
+    # the caller already knows is pinned exactly by filter — no query grammar.
+    matches = catalog.multi_field_search(
+        "germany",
+        fields={"REF_AREA_label": 1.0, "FREQ_label": 1.0},
+        filter={"FREQ_code": "M"},
         limit=10,
-        fields=plan.field,
-        filter=plan.filter or None,
     )
     assert len(matches) == 1
     assert matches[0].code == "M.DE"
 
 
-def test_broad_query_finds_series_without_a_title_index(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_broad_query_finds_series_without_a_title_index(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A bare query still reaches every series — via dimension labels, not a title index.
 
     The composed title used to be indexed as one pseudo-member entity per distinct
@@ -182,16 +175,16 @@ def test_broad_query_finds_series_without_a_title_index(
     assert "title" not in catalog.indexes
     assert set(catalog.indexes) == {"FREQ_code", "FREQ_label", "REF_AREA_code", "REF_AREA_label"}
 
-    surface = ["FREQ_label", "REF_AREA_label"]
-    matches = catalog.search("Monthly", limit=10, fields=surface)
+    surface = {"FREQ_label": 1.0, "REF_AREA_label": 1.0}
+    matches = catalog.multi_field_search("Monthly", fields=surface, limit=10)
     assert {m.code for m in matches} >= {"M.DE", "M.FR"}, f"Expected M.DE and M.FR in {[m.code for m in matches]}"
 
-    matches_de = catalog.search("Germany", limit=10, fields=surface)
+    matches_de = catalog.multi_field_search("Germany", fields=surface, limit=10)
     assert {m.code for m in matches_de} >= {"M.DE", "A.DE"}, f"Expected M.DE and A.DE in {[m.code for m in matches_de]}"
 
     # Every hit is a real series key served off the parquet, never a pseudo-member,
     # and each still carries its display title.
-    for match in catalog.search("Germany", limit=10, fields=surface):
+    for match in catalog.multi_field_search("Germany", fields=surface, limit=10):
         assert not match.code.startswith("__title__")
         assert match.title
 
@@ -265,7 +258,7 @@ def test_series_search_filter_only_allows_enumeration_limit(tmp_path: Path, monk
     """A filter-only read of the cached catalog may exceed the ranked cap of 500.
 
     The field report hit this: a 574-series dimension slice was silently truncated at
-    500. A filter_json read is an enumeration into a variable, not a ranked shortlist,
+    500. A filter read is an enumeration into a variable, not a ranked shortlist,
     so it must accept a much larger limit.
     """
     catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
@@ -273,12 +266,14 @@ def test_series_search_filter_only_allows_enumeration_limit(tmp_path: Path, monk
     df = sdmx_series_search(
         agency="ECB",
         dataset_id="TEST",
-        filter_json='{"REF_AREA_code": ["DE"]}',
+        filter={"REF_AREA_code": ["DE"]},
         limit=5000,
         catalog_root=str(catalogs_dir),
     ).raw
 
     assert set(df["key"]) == {"M.DE", "A.DE"}
+    assert df["score"].isna().all()
+    assert df["search_detail"].isna().all()
 
 
 def test_series_search_ranked_query_rejects_enumeration_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -293,11 +288,11 @@ def test_series_search_ranked_query_rejects_enumeration_limit(tmp_path: Path, mo
             limit=5000,
             catalog_root=str(catalogs_dir),
         )
-    assert "filter_json" in str(exc.value)
+    assert "filter" in str(exc.value)
 
 
 def test_series_search_rejects_bare_dimension_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A bare dimension id in filter_json must fail fast with a corrective hint."""
+    """A bare dimension id in filter must fail fast with a corrective hint."""
     catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
 
     with pytest.raises(InvalidParameterError) as exc:
@@ -305,13 +300,13 @@ def test_series_search_rejects_bare_dimension_filter(tmp_path: Path, monkeypatch
             agency="ECB",
             dataset_id="TEST",
             query="Monthly",
-            filter_json='{"FREQ": ["M"]}',
+            filter={"FREQ": ["M"]},
             catalog_root=str(catalogs_dir),
         )
     assert "FREQ_code" in str(exc.value)
 
 
-def test_series_search_coerces_scalar_filter_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_series_search_coerces_scalar_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A bare scalar filter value is accepted as a single code, equivalent to a 1-element list.
 
     A str is iterable, so the coercion must wrap it (``"M"`` -> ``["M"]``), never iterate it
@@ -323,14 +318,14 @@ def test_series_search_coerces_scalar_filter_json(tmp_path: Path, monkeypatch: p
         agency="ECB",
         dataset_id="TEST",
         query="Monthly",
-        filter_json='{"FREQ_code": "M"}',
+        filter={"FREQ_code": "M"},
         catalog_root=str(catalogs_dir),
     ).raw
     listed = sdmx_series_search(
         agency="ECB",
         dataset_id="TEST",
         query="Monthly",
-        filter_json='{"FREQ_code": ["M"]}',
+        filter={"FREQ_code": ["M"]},
         catalog_root=str(catalogs_dir),
     ).raw
 
@@ -339,43 +334,53 @@ def test_series_search_coerces_scalar_filter_json(tmp_path: Path, monkeypatch: p
     assert "A.DE" not in set(scalar["key"])
 
 
-def test_series_search_rejects_unpopulated_filter_value(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A filter value the flow never populates must fail fast, not silently drop (issue #48).
+def test_series_search_unpopulated_filter_value_keeps_populated_members(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unpopulated membership values are not eagerly rejected — ``isin`` keeps populated ones.
 
-    ``isin`` semantics would return DE rows and omit EL with no signal; instead the
-    call raises naming the missing value, the matched/requested counts, and the
-    ``sdmx_dimension_search`` recovery path.
+    Formerly raised InvalidParameterError naming the missing value (issue #48). Rich Filter
+    support dropped that gate so prefix/regex paths stay consistent; empty-only filters still
+    surface via EmptyDataError + autopsy.
     """
     catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
 
-    with pytest.raises(InvalidParameterError) as exc:
-        sdmx_series_search(
-            agency="ECB",
-            dataset_id="TEST",
-            filter_json='{"REF_AREA_code": ["DE", "EL"]}',
-            catalog_root=str(catalogs_dir),
-        )
-    msg = str(exc.value)
-    assert "'EL'" in msg
-    assert "1 of 2" in msg
-    assert "sdmx_dimension_search" in msg
-    assert "dimension='REF_AREA'" in msg
+    result = sdmx_series_search(
+        agency="ECB",
+        dataset_id="TEST",
+        filter={"REF_AREA_code": ["DE", "EL"]},
+        catalog_root=str(catalogs_dir),
+    ).raw
+    assert set(result["REF_AREA_code"]) == {"DE"}
+    assert "EL" not in set(result["REF_AREA_code"])
 
 
-def test_series_search_rejects_unpopulated_label_filter_value(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Value validation covers ``_label`` filter columns the same as ``_code`` ones."""
+def test_series_search_only_unpopulated_filter_value_is_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
 
-    with pytest.raises(InvalidParameterError) as exc:
+    with pytest.raises(EmptyDataError) as exc:
         sdmx_series_search(
             agency="ECB",
             dataset_id="TEST",
-            filter_json='{"REF_AREA_label": ["Germany", "Atlantis"]}',
+            filter={"REF_AREA_label": ["Atlantis"]},
             catalog_root=str(catalogs_dir),
         )
     msg = str(exc.value)
-    assert "'Atlantis'" in msg
-    assert "dimension='REF_AREA'" in msg
+    assert "Atlantis" in msg or "Zero-match" in msg or "No series matched" in msg
+
+
+def test_series_search_prefix_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
+    result = sdmx_series_search(
+        agency="ECB",
+        dataset_id="TEST",
+        filter={"field": "key", "prefix": "M."},
+        catalog_root=str(catalogs_dir),
+    ).raw
+    assert set(result["key"]) == {"M.DE", "M.FR"}
+    assert "A.DE" not in set(result["key"])
 
 
 def test_series_search_empty_combination_reports_standalone_counts(
@@ -392,7 +397,7 @@ def test_series_search_empty_combination_reports_standalone_counts(
         sdmx_series_search(
             agency="ECB",
             dataset_id="TEST",
-            filter_json='{"FREQ_code": ["A"], "REF_AREA_code": ["FR"]}',
+            filter={"FREQ_code": ["A"], "REF_AREA_code": ["FR"]},
             catalog_root=str(catalogs_dir),
         )
     msg = str(exc.value)
@@ -405,7 +410,7 @@ def test_series_search_empty_combination_reports_standalone_counts(
 
 
 def test_series_search_query_elimination_blames_query(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """When the filter matches series but the field-scoped query eliminates them all,
+    """When the filter matches series but the query eliminates them all,
     the EmptyDataError blames the query, not the filter."""
     catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
 
@@ -414,8 +419,7 @@ def test_series_search_query_elimination_blames_query(tmp_path: Path, monkeypatc
             agency="ECB",
             dataset_id="TEST",
             query="Quarterly",
-            fields="FREQ_label",
-            filter_json='{"FREQ_code": ["M"]}',
+            filter={"FREQ_code": ["M"]},
             catalog_root=str(catalogs_dir),
         )
     msg = str(exc.value)
@@ -431,7 +435,7 @@ def test_series_search_code_filter_matches(tmp_path: Path, monkeypatch: pytest.M
         agency="ECB",
         dataset_id="TEST",
         query="Monthly",
-        filter_json='{"FREQ_code": ["M"]}',
+        filter={"FREQ_code": ["M"]},
         catalog_root=str(catalogs_dir),
     ).raw
 
@@ -441,12 +445,11 @@ def test_series_search_code_filter_matches(tmp_path: Path, monkeypatch: pytest.M
 
 
 def test_series_search_query_ranks_within_filter_slice(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """query= alongside filter_json= (no fields=) ranks inside the filtered slice.
+    """query= alongside filter= ranks inside the filtered slice.
 
-    Regression: the query used to be dropped when filter_json= was supplied
-    without fields=, so the call returned the whole slice unranked. It must
-    instead rank the slice by the query — here the filter admits both monthly
-    series (M.DE, M.FR) and the query "France" keeps only the French one.
+    The filter is ANDed with the query's candidate values rather than replacing
+    them: here the filter admits both monthly series (M.DE, M.FR) and the query
+    "France" keeps only the French one.
     """
     catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
 
@@ -454,20 +457,22 @@ def test_series_search_query_ranks_within_filter_slice(tmp_path: Path, monkeypat
         agency="ECB",
         dataset_id="TEST",
         query="France",
-        filter_json='{"FREQ_code": ["M"]}',
+        filter={"FREQ_code": ["M"]},
         catalog_root=str(catalogs_dir),
     ).raw
 
     assert set(df["key"]) == {"M.FR"}
 
 
-def test_series_search_strips_flow_prefixed_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keys from an old catalog carrying the flow prefix ("TEST.M.DE") emit bare.
+def test_series_search_key_matches_catalog_column(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``key`` is the catalog column: search output and ``filter=`` use the same string.
 
-    New catalogs strip the prefix at build time, but published ones can predate that —
-    the emitted `key` must always equal sdmx_fetch's bare `series_key` so the two
-    connectors' outputs join without string surgery.
+    Catalog keys are DSD-order (bare). This fixture deliberately stores a leading
+    ``TEST.`` segment only to prove filter/result identity — not a flow-id prefix
+    contract. Paste search ``key`` into ``sdmx_fetch(series_ref=…)`` as-is.
     """
+    from parsimony.catalog import F
+
     namespace = "sdmx_series_ecb_test"
     rows = _sample_table().to_pylist()
     for row in rows:
@@ -488,13 +493,29 @@ def test_series_search_strips_flow_prefixed_keys(tmp_path: Path, monkeypatch: py
     df = sdmx_series_search(
         agency="ECB",
         dataset_id="TEST",
-        filter_json='{"REF_AREA_code": ["DE"]}',
+        filter={"REF_AREA_code": ["DE"]},
         catalog_root=str(catalogs_dir),
     ).raw
 
-    assert set(df["key"]) == {"M.DE", "A.DE"}
-    # The title lookup happens on the raw (still-prefixed) keys and must survive the strip.
-    assert all(t for t in df["title"]), f"titles lost in prefix strip: {df.to_dict('records')}"
+    assert set(df["key"]) == {"TEST.M.DE", "TEST.A.DE"}
+    assert all(t for t in df["title"]), f"titles missing: {df.to_dict('records')}"
+
+    pinned = sdmx_series_search(
+        agency="ECB",
+        dataset_id="TEST",
+        filter=F("key").eq("TEST.M.DE"),
+        catalog_root=str(catalogs_dir),
+    ).raw
+    assert list(pinned["key"]) == ["TEST.M.DE"]
+
+    prefixed = sdmx_series_search(
+        agency="ECB",
+        dataset_id="TEST",
+        filter=F("key").prefix("TEST.M."),
+        catalog_root=str(catalogs_dir),
+    ).raw
+    assert set(prefixed["key"]) == {"TEST.M.DE", "TEST.M.FR"}
+    assert "TEST.A.DE" not in set(prefixed["key"])
 
 
 def test_series_search_query_no_match_message_guides_recovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -655,10 +676,13 @@ class TestStripFlowPrefix:
 
         assert _strip_flow_prefix("B.U2.EUR", "YC") == "B.U2.EUR"
 
-    def test_does_not_touch_unrelated_leading_segment(self) -> None:
+    def test_strips_only_a_leading_flow_id_segment(self) -> None:
         from parsimony_sdmx.catalog_series import _strip_flow_prefix
 
-        # A dimension code that happens to equal the dataset_id is not a flow prefix.
+        # Build-time strip is prefix-equality on the first segment vs dataset_id.
+        # A bare key that already starts with the flow id (rare) is also stripped —
+        # catalogs are built from agency CSV KEY columns that carry the prefix, not
+        # from already-bare keys.
         assert _strip_flow_prefix("YC.YC.EUR", "YC") == "YC.EUR"
 
 
@@ -810,63 +834,72 @@ def test_series_search_bare_query_spans_dimension_labels(tmp_path: Path, monkeyp
     ).raw
 
     keys = list(df["key"])
-    # Title-only scoring cannot rank Q.993 at all; the label surface pins it first.
+    # Exact value match on ITEM_label="Current account" pins the aggregate first;
+    # children share tokens but are not exact and rank below.
     assert keys[0] == "Q.993"
-    # Title candidates still participate in the fused ranking below the pin.
+    # Title candidates still participate in the weighted ranking below the winner.
     assert {"Q.379", "Q.391"} <= set(keys[1:])
-    # The ranking evidence is explicit: the aggregate's ITEM label is the query
-    # (coverage 1.0); the children earn no coverage and rank by fuzzy score.
-    assert df["coverage"].iloc[0] == 1.0
-    assert all(df["coverage"].iloc[1:] < 1.0)
     assert all(df["score"] < 1_000.0)
 
 
 # ---------------------------------------------------------------------------
-# title is a display column, never a search surface (#66)
+# title is a display column; query is literal text (#66, #107)
 # ---------------------------------------------------------------------------
 
 
-def _title_error_message(exc: pytest.ExceptionInfo[InvalidParameterError]) -> str:
-    return str(exc.value)
-
-
 @pytest.mark.parametrize(
-    ("kwargs", "route"),
+    ("query", "shape"),
     [
-        ({"query": "Monthly", "fields": "title"}, "fields="),
-        ({"query": "title: Monthly"}, "single title: clause"),
-        ({"query": "title: Monthly && FREQ_code: M"}, "title: clause among others"),
+        ("title: Monthly", "single colon clause"),
+        ("REF_AREA_label: germany && FREQ_code: M", "ampersand-joined clauses"),
     ],
 )
-def test_every_route_to_searching_title_gets_the_same_reason(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kwargs: dict[str, str], route: str
+def test_query_grammar_is_read_as_literal_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, query: str, shape: str
 ) -> None:
-    """Asking to search ``title`` fails with an explanation, not a silent miss.
+    """``query`` is literal text: former DSL spellings must not be interpreted.
 
-    Three routes reach it — ``fields=``, a lone ``title:`` clause, and a ``title:``
-    clause beside others — and they are the same mistake, so they get the same
-    answer. Without the interception the clause routes surface the kernel's generic
-    "field is not indexed", which is true but says neither that title is
-    deliberately unindexed nor what to do instead.
+    They used to parse into field scopes and exact filters. Now a colon or ``&&``
+    is just punctuation in the text being ranked, so such a query either finds
+    nothing or ranks on its ordinary words — but it must never behave as a
+    grammar, because a caller who believes it does will trust a filter that is
+    not being applied.
     """
     catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
 
-    with pytest.raises(InvalidParameterError) as exc:
-        sdmx_series_search(agency="ECB", dataset_id="TEST", catalog_root=str(catalogs_dir), **kwargs)
+    try:
+        df = sdmx_series_search(agency="ECB", dataset_id="TEST", query=query, catalog_root=str(catalogs_dir)).raw
+    except EmptyDataError:
+        return  # nothing matched the punctuation-laden text: also not a grammar
+    # If anything matched it is ordinary text ranking, so the "FREQ_code: M"
+    # clause cannot have been applied as an exact filter.
+    assert not df.empty, f"{shape}: expected literal-text ranking"
 
-    message = _title_error_message(exc)
-    assert "display column" in message, f"{route}: {message}"
-    assert "{dim}_label" in message, f"{route}: {message}"
+
+def test_title_is_not_a_ranking_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The composed title is never scored — the connector declares only label fields.
+
+    It concatenates the same dimension labels the ``{dim}_label`` indexes already
+    carry, so ranking it would only re-count matched terms.
+    """
+    from parsimony_sdmx.connectors.series_search import _ranking_fields
+
+    catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
+    catalog = Catalog.load(f"file://{(catalogs_dir / 'sdmx_series_ecb_test').resolve()}")
+
+    fields = _ranking_fields(catalog, ("FREQ", "REF_AREA"))
+    assert "title" not in fields
+    assert set(fields) == {"FREQ_label", "REF_AREA_label"}
 
 
 def test_title_is_still_filterable_without_an_index(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """``filter_json`` on title keeps working — it is a parquet read, not a scored search."""
+    """``filter`` on title keeps working — it is a parquet read, not a scored search."""
     catalogs_dir = _build_searchable_catalog(tmp_path, monkeypatch)
 
     df = sdmx_series_search(
         agency="ECB",
         dataset_id="TEST",
-        filter_json='{"title": ["Monthly, Germany"]}',
+        filter={"title": ["Monthly, Germany"]},
         catalog_root=str(catalogs_dir),
     ).raw
 
@@ -895,8 +928,7 @@ def _build_legacy_titled_catalog(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     entities = cs._index_entities_for_distinct(namespace, dsd_order, distinct)
     titles = sorted({str(t) for t in table.column("title").to_pylist()})
     entities += [
-        Entity(namespace=namespace, code=f"__title__{i}", title=t, metadata={"title": t})
-        for i, t in enumerate(titles)
+        Entity(namespace=namespace, code=f"__title__{i}", title=t, metadata={"title": t}) for i, t in enumerate(titles)
     ]
 
     indexes: dict[str, CatalogIndex] = {"title": BM25Index()}

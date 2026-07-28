@@ -77,6 +77,7 @@ def generate_probes(
         expected_code: str,
         mode: str,
         why: str,
+        field: str | None = None,
         required: bool = True,
         optional: bool = False,
     ) -> None:
@@ -89,6 +90,7 @@ def generate_probes(
                 "query": query,
                 "expected_code": expected_code,
                 "mode": mode,
+                "field": field,
                 "required": required,
                 "optional": optional,
                 "why": why,
@@ -100,9 +102,10 @@ def generate_probes(
         if "code" in fields:
             add_probe(
                 f"code_{code[:32]}",
-                query=f"code: {code}",
+                query=code,
                 expected_code=code,
                 mode="code",
+                field="code",
                 why=f"code field indexed as {fields['code']}",
             )
 
@@ -114,6 +117,7 @@ def generate_probes(
                     query=_title_lexical_query(entry.title),
                     expected_code=code,
                     mode="title_bm25",
+                    field="title",
                     why="title field uses hybrid index; lexical slice exercises BM25 path",
                 )
                 add_probe(
@@ -121,6 +125,7 @@ def generate_probes(
                     query=_title_semantic_query(entry.title),
                     expected_code=code,
                     mode="hybrid_title",
+                    field="title",
                     optional=True,
                     why="title field uses hybrid index; longer phrase may rank variably",
                 )
@@ -130,6 +135,7 @@ def generate_probes(
                     query=_title_lexical_query(entry.title),
                     expected_code=code,
                     mode="title_bm25",
+                    field="title",
                     why=f"title field indexed as {kind}; plain/BM25 query only",
                 )
 
@@ -141,9 +147,10 @@ def generate_probes(
                 continue
             add_probe(
                 f"{field}_{code[:16]}",
-                query=f"{field}: {value}",
+                query=str(value),
                 expected_code=code,
-                mode="structured_field",
+                mode="metadata_field",
+                field=field,
                 why=f"metadata field {field!r} indexed as {kind}",
             )
 

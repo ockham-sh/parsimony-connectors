@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 import respx
@@ -81,6 +83,70 @@ def test_bls_fetch_returns_series_observations() -> None:
     assert list(df["date"].dt.strftime("%Y-%m-%d")) == ["2026-02-01", "2026-03-01"]
     assert df.iloc[0]["value"] != df.iloc[0]["value"]  # NaN
     assert df.iloc[1]["value"] == 4.1
+
+
+@respx.mock
+def test_bls_fetch_defaults_year_window_when_omitted(monkeypatch) -> None:
+    # Agents often call fetch with only series_id; default to the most recent
+    # unkeyed-cap window ending at today's calendar year.
+    monkeypatch.setattr("parsimony_bls.connectors.fetch._current_year", lambda: 2026)
+    route = respx.post("https://api.bls.gov/publicAPI/v2/timeseries/data/").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "status": "REQUEST_SUCCEEDED",
+                "Results": {
+                    "series": [
+                        {
+                            "seriesID": "LNS14000000",
+                            "catalog": {"series_title": "Unemployment Rate"},
+                            "data": [{"year": "2026", "period": "M01", "value": "4.0"}],
+                        }
+                    ]
+                },
+            },
+        )
+    )
+    result = bls_fetch(series_id="LNS14000000")
+    assert len(result.raw) == 1
+    payload = json.loads(route.calls.last.request.content.decode())
+    assert payload["startyear"] == "2017"  # 2026 - 9 → 10 calendar years
+    assert payload["endyear"] == "2026"
+
+
+@respx.mock
+def test_bls_fetch_defaults_start_from_end_only(monkeypatch) -> None:
+    monkeypatch.delenv("BLS_API_KEY", raising=False)
+    route = respx.post("https://api.bls.gov/publicAPI/v2/timeseries/data/").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "status": "REQUEST_SUCCEEDED",
+                "Results": {
+                    "series": [
+                        {
+                            "seriesID": "LNS14000000",
+                            "catalog": {"series_title": "Unemployment Rate"},
+                            "data": [{"year": "2015", "period": "M01", "value": "5.0"}],
+                        }
+                    ]
+                },
+            },
+        )
+    )
+    bls_fetch(series_id="LNS14000000", end_year="2015")
+    payload = json.loads(route.calls.last.request.content.decode())
+    assert payload["startyear"] == "2006"
+    assert payload["endyear"] == "2015"
+
+
+def test_bls_fetch_describe_marks_years_optional_with_hints() -> None:
+    text = bls_fetch.describe()
+    assert "start_year: str | None (optional)" in text
+    assert "end_year: str | None (optional)" in text
+    assert "Inclusive start year" in text
+    assert "Inclusive end year" in text
+    assert "per-call cap" in text
 
 
 def test_bls_fetch_refuses_span_over_unkeyed_cap() -> None:
@@ -302,6 +368,11 @@ def test_bls_fetch_rejects_empty_series_id() -> None:
         bls_fetch(series_id="   ", start_year="2026", end_year="2026")
 
 
+def test_bls_fetch_rejects_start_after_end() -> None:
+    with pytest.raises(InvalidParameterError, match="start_year must be <= end_year"):
+        bls_fetch(series_id="LNS14000000", start_year="2026", end_year="2020")
+
+
 # ---------------------------------------------------------------------------
 # enumerate_bls_surveys (tier-1, API)
 # ---------------------------------------------------------------------------
@@ -403,8 +474,8 @@ def test_build_series_catalog_search_offline(_patch_flatfiles) -> None:
     assert len(catalog.entities) == 2
     hits = catalog.search("gasoline", limit=5)
     assert hits[0].code == "CUUR0000SETB01"
-    # exact code probe
-    code_hits = catalog.search("code: CUUR0000SA0", limit=3)
+    # exact code probe: the code index is named explicitly, not spelled into the query
+    code_hits = catalog.search("CUUR0000SA0", field="code", limit=3)
     assert code_hits[0].code == "CUUR0000SA0"
 
 
@@ -440,8 +511,7 @@ def test_bls_series_search_shapes_rows(monkeypatch) -> None:
     class _Match:
         def __init__(self, code, title, ns):
             self.code, self.title, self.score, self.namespace, self.metadata = code, title, 0.5, ns, {}
-            self.matched = "lexical"
-            self.coverage = 0.0
+            self.search_detail = None  # stub; production rows carry JSON
 
     class _Catalog:
         def search(self, query=None, limit=10, *, filter=None, field=None):
@@ -453,7 +523,7 @@ def test_bls_series_search_shapes_rows(monkeypatch) -> None:
     monkeypatch.setattr(se, "_get_or_load_catalog", fake_get)
     result = se.bls_series_search(query="gasoline", survey="CU")
     df = result.raw
-    assert list(df.columns) == ["series_id", "title", "survey", "namespace", "coverage", "score", "matched"]
+    assert list(df.columns) == ["series_id", "title", "survey", "namespace", "score", "search_detail"]
     assert df.iloc[0]["series_id"] == "CUUR0000SETB01"
     assert df.iloc[0]["survey"] == "CU"
 
@@ -476,7 +546,7 @@ def test_bls_series_search_empty_raises(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 # F4 #3: dimension filters EXCLUDE (exact AND), they do not merely re-rank.
 # Built against a real per-survey catalog (stub flat files) so the filter runs
-# through the catalog's own entity_matches_filter, not a stub.
+# through the catalog's own filter predicate, not a stub.
 # ---------------------------------------------------------------------------
 
 
@@ -497,7 +567,7 @@ def test_bls_series_search_filter_excludes_nonmatching(_patch_flatfiles, monkeyp
     # Same query, but an exact item_code filter must DROP the non-matching variant,
     # not merely down-rank it (the F4 hazard).
     filtered = (
-        se.bls_series_search(query="city average", survey="CU", filters={"item_code": "SETB01"})
+        se.bls_series_search(query="city average", survey="CU", filter={"item_code": "SETB01"})
         .raw["series_id"]
         .tolist()
     )
@@ -507,8 +577,27 @@ def test_bls_series_search_filter_excludes_nonmatching(_patch_flatfiles, monkeyp
 def test_bls_series_search_filter_only_no_query(_patch_flatfiles, monkeypatch) -> None:
     se = _real_series_catalog(monkeypatch)
     # No text query: a pure dimension filter enumerates the exact-matching series.
-    rows = se.bls_series_search(query="", survey="CU", filters={"item_code": "SA0"}).raw
+    rows = se.bls_series_search(query="", survey="CU", filter={"item_code": "SA0"}).raw
     assert rows["series_id"].tolist() == ["CUUR0000SA0"]
+    assert rows["score"].isna().all()
+    assert rows["search_detail"].isna().all()
+
+
+def test_bls_series_search_rejects_unknown_filter_key(_patch_flatfiles, monkeypatch) -> None:
+    from parsimony.errors import InvalidParameterError
+
+    se = _real_series_catalog(monkeypatch)
+    with pytest.raises(InvalidParameterError, match="unknown filter column"):
+        se.bls_series_search(query="city", survey="CU", filter={"not_a_column": "X"})
+
+
+def test_bls_series_search_rejects_code_shaped_values_on_bare_dim(_patch_flatfiles, monkeypatch) -> None:
+    """Bare dim names filter labels; S/U belong on seasonal_code."""
+    from parsimony.errors import InvalidParameterError
+
+    se = _real_series_catalog(monkeypatch)
+    with pytest.raises(InvalidParameterError, match="seasonal_code"):
+        se.bls_series_search(query="", survey="CU", filter={"seasonal": "S"})
 
 
 def test_bls_series_search_requires_query_or_filters(_patch_flatfiles, monkeypatch) -> None:

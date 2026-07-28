@@ -14,7 +14,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 | `enumerate_bls_surveys` | enumerator | Tier-1 feed: one row per BLS survey (program). |
 | `enumerate_bls_series` | connector | Tier-2 feed: one row per series in one survey, from its authoritative `.series` flat file. |
 | `bls_surveys_search` | connector | Discover surveys and read their dimension manifests. |
-| `bls_series_search` | connector | Search one survey's series (lexical title or structured dimension clauses). |
+| `bls_series_search` | connector | Search one survey's series (literal title `query=` and/or exact `filter=`). |
 
 ## Why two tiers
 
@@ -29,18 +29,17 @@ DSD's codelists; a BLS `series_id` ≈ a composed series key):
   surveys that have a series catalog.
 - **Tier 2 — `bls_series_<survey>`** (built for the headline surveys, lazy-buildable
   for any indexable survey): one entity per series with a resolved title and
-  per-dimension metadata for structured search.
+  per-dimension columns for exact `filter=` (and label fields for discovery).
 
 Every series stays **fetchable by id** via `bls_fetch` regardless of catalog
 coverage — the boundary is discovery, not access. The GB-scale microdata tail is
 reachable by constructing an id from the tier-1 manifest and fetching it.
 
-> **Note on structured search.** Each series carries its dimension codes plus a
+> **Note on dimension labels.** Each series carries its dimension codes plus a
 > resolved label. For most surveys every label resolves (CU/CE/JT/SM = 100%), but a
 > few have irregular code-table naming where some codes fall back to the raw code
-> (e.g. LA ≈ 60%, WP ≈ 70%). Lexical `series_title` search and `bls_fetch` are
-> unaffected; only structured `FIELD: value` clauses on those specific dimensions
-> degrade to code-equality.
+> (e.g. LA ≈ 60%, WP ≈ 70%). Literal title `query=` and `bls_fetch` are unaffected;
+> exact `filter=` on those dimensions still matches the stored code.
 
 ## Install
 
@@ -71,20 +70,24 @@ from parsimony_bls import CONNECTORS
 
 # 1. find the survey + read its dimension manifest
 surveys = CONNECTORS["bls_surveys_search"](query="consumer price index")
-# 2. search that survey's series (lexical or structured FIELD: value)
-hits = CONNECTORS["bls_series_search"](survey="CU", query="gasoline all types")
-series_id = hits.raw.iloc[0]["series_id"]   # e.g. "CUUR0000SETB01"
-# 3. fetch observations
-result = CONNECTORS["bls_fetch"](
-    series_id=series_id, start_year="2020", end_year="2026"
+# 2. search that survey's series — query ranks titles; filter= pins exact codes
+hits = CONNECTORS["bls_series_search"](
+    survey="CU",
+    query="gasoline all types",
+    filter={"item_code": "SETB01"},  # from the surveys_search dimensions manifest
 )
+series_id = hits.raw.iloc[0]["series_id"]  # e.g. "CUUR0000SETB01"
+# 3. fetch observations (years optional — defaults to recent window within BLS cap)
+result = CONNECTORS["bls_fetch"](series_id=series_id)
 print(result.raw.head())
 ```
+
 
 For multi-plugin composition (autoloads everything installed):
 
 ```python
 from parsimony import discover
+
 connectors = discover.load_all()
 ```
 

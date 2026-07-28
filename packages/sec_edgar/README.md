@@ -62,6 +62,7 @@ For multi-plugin composition:
 
 ```python
 from parsimony import discover
+
 connectors = discover.load_all()
 ```
 

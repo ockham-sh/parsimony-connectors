@@ -96,8 +96,9 @@ what search reads at runtime. Conceptually the build pipeline is:
    its namespace), a `TITLE`, and any `METADATA` columns.
 2. `result.entities` converts that frame into entities, reading roles off
    `result.output_spec`.
-3. `Catalog(namespace, indexes=discovery_indexes(entries), default_field="title")` wraps the
-   entities with the index policy.
+3. `Catalog(namespace, indexes=discovery_indexes(entries))` wraps the
+   entities with the index policy. Broad (no-`field=`) search targets the
+   `title` index by convention when it exists.
 4. `catalog.build()` constructs the indexes; `catalog.save(url)` writes the snapshot.
 
 The snapshot on disk (or on the Hub) is three things:
@@ -113,14 +114,13 @@ The index layout comes from `discovery_indexes` in the kernel's
 `parsimony.catalog.policy`. It builds:
 
 - a **`code`** index — BM25, for exact code lookup;
-- a **`title`** index — adaptive;
-- a **`description`** index — adaptive (when a description field is present).
+- a **`title`** index — Hybrid BM25 + vector;
+- a **`description`** index — Hybrid BM25 + vector (when a description field is present).
 
-"Adaptive" means: if the field has **fewer than 1000 unique values**, the index is a
-**Hybrid BM25 + vector** index (lexical match fused with semantic similarity). The choice is
-made by **field role**, not by cardinality: identifiers are BM25-only, and `title` /
-`description` are always hybrid however many distinct values they hold. (Earlier releases
-degraded a high-cardinality title to BM25-only; that adaptive fallback is gone.)
+Index kind follows **field role**, not cardinality: identifiers are BM25-only (ID tokens are
+search noise), and `title` / `description` are always hybrid however many distinct values they
+hold. (Earlier releases degraded a high-cardinality title to BM25-only; that adaptive fallback
+is gone. The `entries` argument is kept for call-site compatibility but is not inspected.)
 
 The consequence is the single most important thing to understand about catalog recall:
 
@@ -134,27 +134,30 @@ recall benefit from rich, descriptive `title`/`description` text.
 A text field earns an index only when it is **curated** — when it carries meaning beyond the
 values already indexed beside it. SDMX series catalogs are the counter-example: their `title`
 is composed at build time by concatenating the flow's dimension labels, so it restates the
-`{dim}_label` indexes exactly. It is a display column there, not a search surface, and
-`fields="title"` / `title:` are rejected for those catalogs.
+`{dim}_label` indexes exactly. It is a display column there, not a search surface, and the
+SDMX series connector never declares it as a ranking field.
 
-### Structured queries
+### Queries are literal; constraints are filters
 
-`default_field="title"` means a bare query string searches titles, so `query="par yield"`
-does broad title search. You can also issue **structured `FIELD: value` queries** against any
-indexed field:
+`query` is always **literal text**. There is no query grammar: a colon or `&&` inside a
+query is punctuation in the text being ranked, not a field scope or a boolean operator.
+Anything you want enforced exactly goes in `filter`, an AND over columns where a list value
+means "any of these":
 
 ```python
-connectors["fred_search"](query="UNRATE")            # broad title search
-connectors["treasury_search"](query="code: AVMAT")          # exact code lookup
-connectors["treasury_search"](query="description: par yield")  # description field search
+connectors["fred_search"](query="unemployment rate")          # literal text ranking
+connectors["treasury_search"](query="par yield", filter={"source": "treasury_rates"})
+connectors["bls_series_search"](query="", survey="CU", filter={"item_code": "SA0"})
 ```
 
-Combine clauses with `&&` (AND) and `,` (OR):
+The two do different jobs, and mixing them up is the common mistake: `query` only
+*re-ranks* — every row stays eligible — whereas `filter` *excludes* every non-matching row.
+Pass `query=""` (or omit it) to enumerate a filtered slice with no ranking at all.
 
-```text
-code: UNRATE, code: GDPC1          # OR — either code
-description: yield && title: par   # AND — both must match
-```
+When you know a value's meaning but not its exact code, resolve it before filtering:
+`sdmx_dimension_search` (backed by `Catalog.search_values`) ranks the distinct values of one
+field, and you filter on the code it returns. That resolve → inspect → filter → rank
+sequence is explicit on purpose: an exact filter you chose beats a fuzzy match you didn't.
 
 ## The search connector and catalog resolution
 
@@ -170,8 +173,7 @@ treasury_search = make_local_search_connector(
     build_catalog=build_treasury_catalog,
     tags=["macro", "us", "tool"],
     description="Semantic-search the US Treasury catalog ...",
-    output_columns=TREASURY_SEARCH_OUTPUT.columns,
-    metadata_columns=("source", "endpoint", "field"),
+    output=TREASURY_SEARCH_OUTPUT,
 )
 ```
 
@@ -183,18 +185,19 @@ Key arguments:
   `PARSIMONY_<PROVIDER>_CATALOG_URL`.
 - **`build_catalog`** — the build function used for a cold rebuild when no snapshot is found.
 - **`tags`** — free-form labels for organizing and filtering connectors.
-- **`output_columns`** — the result schema (a `KEY` `code`, a `TITLE` `title`, a `DATA`
-  `score`, plus the metadata columns).
-- **`metadata_columns`** — the **dispatch payload** returned with each hit.
+- **`output`** — an `OutputSpec` of provider columns (KEY / TITLE / METADATA). The factory
+  appends the shared ranking pair (`score`, `search_detail`). `ColumnRole.METADATA` entries are
+  projected from each match's metadata bag onto the hit table — same list `describe()` shows.
 
-### `metadata_columns` is the dispatch payload
+### METADATA columns are the dispatch payload
 
-`metadata_columns` are the extra columns echoed onto each search hit so the agent knows
-*which fetch verb to call and with what arguments* — without parsing the code string.
-Treasury returns `source`, `endpoint`, and `field`; its description tells the agent how to
-route them (`source=fiscal_data → treasury_fetch(endpoint=endpoint)`,
-`source=treasury_rates → treasury_rates_fetch(feed=endpoint)`). Riksbank returns only
-`source` and routes by the shape of the `code` itself (see
+`ColumnRole.METADATA` columns on the search `OutputSpec` are the extra fields echoed onto
+each search hit so the agent knows *which fetch verb to call and with what arguments* —
+without parsing the code string. Treasury returns `source`, `endpoint`, and `field`; its
+description tells the agent how to route them (`source=fiscal_data →
+treasury_fetch(endpoint=endpoint)`, `source=treasury_rates →
+treasury_rates_fetch(feed=endpoint)`). Riksbank returns only `source` and routes by the
+shape of the `code` itself (see
 [riksbank/parsimony_riksbank/search.py](https://github.com/ockham-sh/parsimony-connectors/blob/main/packages/riksbank/parsimony_riksbank/search.py)).
 
 These columns are **dispatch metadata, not recall** — they are not indexed and do not affect

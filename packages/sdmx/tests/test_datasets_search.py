@@ -7,7 +7,8 @@ from typing import Any
 
 import pytest
 from parsimony.catalog import Catalog, Entity
-from parsimony.errors import EmptyDataError, InvalidParameterError
+from parsimony.errors import ConnectorError, EmptyDataError, InvalidParameterError
+from pydantic import ValidationError
 
 from parsimony_sdmx.connectors import datasets_search as search_module
 from parsimony_sdmx.connectors.datasets_search import (
@@ -32,32 +33,21 @@ def _catalog_with_entities(namespace: str, entities: list[Entity]) -> Catalog:
     return catalog
 
 
-def test_sdmx_datasets_search_agency_optional_fanout(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sdmx_datasets_search_requires_agency() -> None:
+    with pytest.raises((TypeError, ValidationError)):
+        sdmx_datasets_search(query="Title")  # type: ignore[call-arg]
+
+
+def test_sdmx_datasets_search_rejects_unknown_agency() -> None:
+    with pytest.raises(ConnectorError, match="Unknown agency"):
+        sdmx_datasets_search(query="Title", agency="NOPE")
+
+
+def test_sdmx_datasets_search_single_agency(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
 
     def fake_get_or_load(namespace: str, **kwargs: Any) -> Catalog:
         calls.append(namespace)
-        return _catalog_with_entities(
-            namespace,
-            [
-                Entity(
-                    namespace=namespace,
-                    code=f"{namespace}|FLOW",
-                    title=f"Title for {namespace}",
-                    metadata={"dimensions": ["FREQ"]},
-                )
-            ],
-        )
-
-    monkeypatch.setattr(search_module, "_get_or_load_catalog", fake_get_or_load)
-    df = sdmx_datasets_search(query="Title", limit=2).raw
-    assert len(df) == 2
-    assert "dimensions" in df.columns
-    assert len(calls) == 4
-
-
-def test_sdmx_datasets_search_single_agency(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_get_or_load(namespace: str, **kwargs: Any) -> Catalog:
         return _catalog_with_entities(
             namespace,
             [
@@ -72,7 +62,9 @@ def test_sdmx_datasets_search_single_agency(monkeypatch: pytest.MonkeyPatch) -> 
 
     monkeypatch.setattr(search_module, "_get_or_load_catalog", fake_get_or_load)
     df = sdmx_datasets_search(query="yield", agency="ECB", limit=5).raw
-    assert df.iloc[0]["dataset_ref"] == "ECB-YC"
+    assert df.iloc[0]["dataset_id"] == "YC"
+    assert df.iloc[0]["agency"] == "ECB"
+    assert calls == ["sdmx_datasets_ecb"]
 
 
 def test_search_matches_titles_only(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -112,7 +104,7 @@ def test_sdmx_datasets_search_empty_raises(monkeypatch: pytest.MonkeyPatch) -> N
         "_get_or_load_catalog",
         lambda namespace, **kwargs: _catalog_with_entities(namespace, []),
     )
-    with pytest.raises(EmptyDataError):
+    with pytest.raises(EmptyDataError, match="agency='ECB'"):
         sdmx_datasets_search(query="nonsense", agency="ECB")
 
 
@@ -129,12 +121,8 @@ def test_catalog_url_env_constant() -> None:
     assert PARSIMONY_SDMX_CATALOG_URL_ENV == "PARSIMONY_SDMX_CATALOG_URL"
 
 
-def test_dataset_ref_is_accepted_by_sdmx_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The emitted ref must validate as sdmx_fetch's dataset_key, unparsed.
-
-    These two connectors used to disagree about the separator, so a hit pasted
-    straight into sdmx_fetch was rejected.
-    """
+def test_agency_and_dataset_id_feed_sdmx_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Emitted agency + dataset_id must validate as sdmx_fetch params without joining."""
     from parsimony_sdmx.connectors.fetch import SdmxFetchParams
 
     def fake_get_or_load(namespace: str, **kwargs: Any) -> Catalog:
@@ -151,5 +139,11 @@ def test_dataset_ref_is_accepted_by_sdmx_fetch(monkeypatch: pytest.MonkeyPatch) 
         )
 
     monkeypatch.setattr(search_module, "_get_or_load_catalog", fake_get_or_load)
-    ref = sdmx_datasets_search(query="yield", agency="ECB", limit=1).raw.iloc[0]["dataset_ref"]
-    assert SdmxFetchParams(dataset_key=ref, series_key="M.EUR").dataset_key == "ECB-YC"
+    row = sdmx_datasets_search(query="yield", agency="ECB", limit=1).raw.iloc[0]
+    params = SdmxFetchParams(
+        agency=str(row["agency"]),
+        dataset_id=str(row["dataset_id"]),
+        series_key="M.EUR",
+    )
+    assert params.agency == "ECB"
+    assert params.dataset_id == "YC"

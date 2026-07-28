@@ -113,7 +113,7 @@
 ## 6. Output schemas
 
 - `bde_fetch` → KEY `key`(ns bde) + TITLE `title` + DATA `date`(datetime), `value`(numeric). (Drops the rich `informacion[]` metadata — units/source/notes. Possible enrichment.)
-- `bde_search` → KEY `code`(ns bde) + TITLE `title` + DATA `score`.
+- `bde_search` → KEY `code`(ns bde) + TITLE `title` + factory-appended `score`/`search_detail`.
 - `enumerate_bde` → KEY `key`(ns bde) + TITLE `title` + 12 METADATA (description, source, alias, dataset, category, frequency, unit, decimals, start_date, end_date, n_obs, source_org).
 
 ## 7. Tests

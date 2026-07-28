@@ -3,10 +3,11 @@
 # Single-bundle catalog (namespace ``destatis``): ~331 statistic rows + ~3,009
 # table rows, built from the live ``/statistics`` index + the per-statistic
 # ``/information`` + ``/tables`` fan-out. Titles are bilingual DE/EN with the
-# long German description folded into the indexed text; with >1000 unique titles
-# the adaptive index degrades to BM25-only, so semantic-style title probes stay
-# ``optional`` (the guidebook rule) and only exact ``code:`` and short
-# distinctive lexical probes are ``required``.
+# long German description folded into the indexed text. Title/description are
+# always hybrid (role-based policy); exact code probes (literal ``query`` +
+# ``field: code``) and short distinctive lexical probes are ``required``, while
+# longer semantic-style title probes stay ``optional`` because embedding recall
+# varies by phrasing.
 #
 # Regenerate drafts after a local build:
 #   uv run python scripts/validate_catalog.py --provider destatis \
@@ -17,21 +18,24 @@ catalog_url: hf://parsimony-dev/destatis
 
 queries:
   - id: code_cpi_table
-    query: "code: 61111-0001"
+    query: "61111-0001"
+    field: code
     expected_code: 61111-0001
     mode: code
     required: true
     why: "Direct lookup on the indexed code field (Consumer Price Index table)"
 
   - id: code_cpi_statistic
-    query: "code: 61111"
+    query: "61111"
+    field: code
     expected_code: 61111
     mode: code
     required: true
     why: "The parent statistic row is present and findable by its 5-char code"
 
   - id: code_population_table
-    query: "code: 12411-0001"
+    query: "12411-0001"
+    field: code
     expected_code: 12411-0001
     mode: code
     required: true
@@ -49,7 +53,7 @@ queries:
     expected_code: 51000-0001
     mode: hybrid_title
     optional: true
-    why: "Semantic-style title probe; ranking may vary on the BM25-only title index"
+    why: "Semantic-style title probe; hybrid ranking may vary by phrasing"
 
   - id: title_unemployment
     query: "unemployment labour market"

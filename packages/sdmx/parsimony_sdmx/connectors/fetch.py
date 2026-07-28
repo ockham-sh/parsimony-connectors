@@ -47,7 +47,7 @@ _FETCH_TIMEOUT_SEC = 45.0
 #: from sum-of-latencies down to slowest-single-latency.
 _MAX_BATCH_SERIES = 24
 _MAX_FETCH_WORKERS = 6
-#: Hard cap on the length of a single ``series_ref`` string (one key, which may carry ``+``
+#: Hard cap on the length of a single ``series_key`` string (one key, which may carry ``+``
 #: OR-lists within a dimension). SDMX's REST path has a practical URL-length limit; past this
 #: a caller splits the pull into several ``<=256``-char OR-strings and passes them as a list.
 _SERIES_KEY_MAX_CHARS = 256
@@ -56,25 +56,25 @@ _T = TypeVar("_T")
 
 #: Regex-style key validators — reject characters that could escape the SDMX
 #: URL path. SDMX uses ``.`` as the dimension separator and ``+`` as OR.
-_DATASET_KEY_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._\-]{0,127}$"
+_DATASET_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._\-]{0,127}$"
 _SERIES_KEY_PATTERN = r"^[A-Za-z0-9._+\-]*(?:\.[A-Za-z0-9._+\-]*){0,31}$"
 
 
 class SdmxFetchParams(BaseModel):
     """Parameters for :func:`sdmx_fetch`.
 
-    ``dataset_key`` is the SDMX ``agency-dataset_id`` form expected by the
-    live fetcher (e.g. ``"ECB-YC"``). Agency prefix is independently
+    ``agency`` + ``dataset_id`` identify the flow the same way as
+    :func:`sdmx_series_search` / :func:`sdmx_dimension_search`. Agency is
     validated against :data:`ALL_AGENCIES`.
     """
 
-    dataset_key: Annotated[
+    agency: Annotated[
         str,
-        Field(
-            min_length=3,
-            max_length=192,
-            description="SDMX dataset identifier prefixed by agency (e.g. 'ECB-YC').",
-        ),
+        Field(min_length=1, max_length=32, description="SDMX agency id (e.g. 'ECB')."),
+    ]
+    dataset_id: Annotated[
+        str,
+        Field(min_length=1, max_length=128, description="SDMX dataflow id (e.g. 'YC')."),
     ]
     series_key: Annotated[
         str,
@@ -88,21 +88,22 @@ class SdmxFetchParams(BaseModel):
     start_period: str | None = Field(default=None, max_length=32, description="Start period filter (e.g. 2020-01).")
     end_period: str | None = Field(default=None, max_length=32, description="End period filter (e.g. 2024-12).")
 
-    @field_validator("dataset_key")
+    @field_validator("agency")
     @classmethod
-    def _validate_dataset_key(cls, v: str) -> str:
-        stripped = v.strip()
-        if "-" not in stripped:
-            raise InvalidParameterError("sdmx", "dataset_ref must include agency prefix (e.g. 'ECB-YC')")
-        agency, dataset_id = stripped.split("-", 1)
+    def _validate_agency(cls, v: str) -> str:
+        stripped = v.strip().upper()
         allowed = {a.value for a in ALL_AGENCIES}
-        if agency.upper() not in allowed:
-            raise InvalidParameterError("sdmx", f"Unknown agency {agency!r}; allowed: {sorted(allowed)}")
-        import re
+        if stripped not in allowed:
+            raise InvalidParameterError("sdmx", f"Unknown agency {v!r}; allowed: {sorted(allowed)}")
+        return stripped
 
-        if not re.match(_DATASET_KEY_PATTERN, dataset_id):
-            raise InvalidParameterError("sdmx", f"dataset_id {dataset_id!r} contains disallowed characters")
-        return f"{agency.upper()}-{dataset_id}"
+    @field_validator("dataset_id")
+    @classmethod
+    def _validate_dataset_id(cls, v: str) -> str:
+        stripped = v.strip()
+        if not re.match(_DATASET_ID_PATTERN, stripped):
+            raise InvalidParameterError("sdmx", f"dataset_id {stripped!r} contains disallowed characters")
+        return stripped
 
 
 @dataclass(frozen=True)
@@ -187,18 +188,6 @@ def _is_retryable(exc: BaseException) -> bool:
     return False
 
 
-def _dataset_id_from_ref(dataset_ref: str) -> str | None:
-    """Best-effort ``dataset_id`` half of ``AGENCY-DATASET_ID``; ``None`` if malformed.
-
-    Used only for the defensive flow-prefix strip below — real validation of the whole
-    ``dataset_ref`` happens in :class:`SdmxFetchParams`, so a malformed ref just falls through
-    to that validator's proper error instead of failing here.
-    """
-    if "-" not in dataset_ref:
-        return None
-    return dataset_ref.split("-", 1)[1] or None
-
-
 def _is_empty_document_error(exc: BaseException) -> bool:
     """A no-data 200 response: the provider sent an empty body, so XML parsing dies.
 
@@ -210,21 +199,6 @@ def _is_empty_document_error(exc: BaseException) -> bool:
     type name so lxml stays a transitive dependency.
     """
     return type(exc).__name__ == "XMLSyntaxError" and "no element found" in str(exc)
-
-
-def _strip_flow_prefix(key: str, dataset_id: str) -> str:
-    """Strip a redundant leading ``<dataset_id>.`` flow prefix from a caller-supplied key.
-
-    ``sdmx_series_search``'s ``key`` column is documented to paste directly into ``series_ref``
-    (discover → search → fetch); older catalogs (or a key copy-pasted from a provider's raw
-    SDMX-CSV ``KEY`` column, which some agencies — observed on ECB — prefix with the flow id)
-    can still carry that prefix. ``sdmx_fetch`` wants the bare, unprefixed key: passing the
-    prefixed form straight through 400s at the provider (duplicated flow id in the URL path).
-    Case-insensitive since ECB/IMF request the flow uppercased but don't guarantee the export
-    echoes that same case back.
-    """
-    prefix, sep, rest = key.partition(".")
-    return rest if sep and prefix.upper() == dataset_id.upper() else key
 
 
 def _check_or_group_coverage(params: SdmxFetchParams, dsd_dim_ids: list[str], df: Any) -> None:
@@ -258,7 +232,8 @@ def _check_or_group_coverage(params: SdmxFetchParams, dsd_dim_ids: list[str], df
         raise EmptyDataError(
             provider="sdmx",
             message=(
-                f"'+'-OR values returned no observations in {params.dataset_key} over {period}: "
+                f"'+'-OR values returned no observations in {params.agency}/{params.dataset_id} "
+                f"over {period}: "
                 + "; ".join(problems)
                 + ". The other requested codes have data — drop the missing codes from the "
                 "OR-string or widen start_period/end_period, then re-fetch."
@@ -268,22 +243,21 @@ def _check_or_group_coverage(params: SdmxFetchParams, dsd_dim_ids: list[str], df
 
 @connector(output=SDMX_FETCH_OUTPUT, tags=["sdmx"])
 def sdmx_fetch(
-    dataset_ref: str,
+    agency: str,
+    dataset_id: str,
     series_ref: str | list[str],
     start_period: str | None = None,
     end_period: str | None = None,
 ) -> Any:
     """Fetch observations for SDMX series of ONE flow.
 
-    dataset_ref is the flow as AGENCY-DATASET_ID (e.g. ECB-YC), from sdmx_datasets_search.
-    series_ref is one or more keys; dimensions are positional in DSD order (paste
-    sdmx_series_search's `key` straight in).
+    ``agency`` + ``dataset_id`` identify the flow (same pair as series/datasets search).
+    ``series_ref`` is one or more keys in DSD order — paste ``sdmx_series_search``'s ``key``.
 
-    FAST wide pull: one '+'-joined OR-string. SDMX reads '+' as OR *within a dimension*, so
-    "M.CP01+CP02.DE+FR" fetches the cross-product in ONE round trip — cheaper than a key list.
-    A string is capped at 256 chars; past that, pass several <=256-char
-    OR-strings as a LIST (capped at 24, fetched concurrently). An empty dimension wildcards it
-    (slow); prefer sdmx_series_search then fetch by key. start/end_period filter each range.
+    FAST wide pull: one '+'-joined OR-string (OR within a dimension), e.g.
+    ``M.CP01+CP02.DE+FR``, cheaper than a key list. Cap 256 chars per string; past that,
+    pass up to 24 shorter OR-strings as a list (fetched concurrently). Empty dimension
+    wildcards (slow) — prefer series search then fetch by key. Period filters optional.
 
     Raises ProviderError/EmptyDataError/ParseError if any key fails (none dropped).
     """
@@ -301,9 +275,9 @@ def sdmx_fetch(
             f"pass up to {_MAX_BATCH_SERIES} of them as a list.",
         )
 
-    dataset_id = _dataset_id_from_ref(dataset_ref)
-    if dataset_id:
-        keys = [_strip_flow_prefix(key, dataset_id) for key in keys]
+    # Normalize agency/dataset_id once for the batch.
+    flow = SdmxFetchParams(agency=agency, dataset_id=dataset_id, series_key="X")
+    keys = list(keys)
 
     over = next((key for key in keys if len(key) > _SERIES_KEY_MAX_CHARS), None)
     if over is not None:
@@ -317,7 +291,8 @@ def sdmx_fetch(
 
     param_list = [
         SdmxFetchParams(
-            dataset_key=dataset_ref,
+            agency=flow.agency,
+            dataset_id=flow.dataset_id,
             series_key=key,
             start_period=start_period,
             end_period=end_period,
@@ -325,7 +300,7 @@ def sdmx_fetch(
         for key in keys
     ]
 
-    structure = _resolve_structure(param_list[0].dataset_key)
+    structure = _resolve_structure(flow.agency, flow.dataset_id)
 
     if len(param_list) == 1:
         return _fetch_one_series(param_list[0], structure)
@@ -429,25 +404,26 @@ def _fetch_one_series(params: SdmxFetchParams, structure: _ResolvedStructure) ->
 
     return _run_budgeted(
         lambda: _do_sdmx_fetch(params, structure),
-        op_label=f"{params.dataset_key}/{params.series_key}",
+        op_label=f"{params.agency}/{params.dataset_id}/{params.series_key}",
         hint_fn=_hint,
     )
 
 
-def _resolve_structure(dataset_key: str) -> _ResolvedStructure:
-    """Resolve the DSD + codelists for *dataset_key*, with the same retry/timeout budget as a series fetch.
+def _resolve_structure(agency: str, dataset_id: str) -> _ResolvedStructure:
+    """Resolve the DSD + codelists for one flow, with the same retry/timeout budget as a series fetch.
 
     Hoisted out of the per-series worker: every key in one ``sdmx_fetch(series_ref=[...])`` call
-    depends on the exact same structure (it's a function of ``dataset_key`` alone), so having each
-    key independently re-fetch and re-parse the whole DSD + every codelist was pure waste — and
-    pathological on flows with large codelists (e.g. ECB's ``YC``, 1000+ codes in one dimension).
+    depends on the exact same structure (it's a function of agency + dataset_id alone), so having
+    each key independently re-fetch and re-parse the whole DSD + every codelist was pure waste —
+    and pathological on flows with large codelists (e.g. ECB's ``YC``, 1000+ codes in one dimension).
     """
+    flow = f"{agency}/{dataset_id}"
 
     def _hint(status: int, detail: str) -> str:
         if 400 <= status < 500 and status != 429:
             return (
-                f"HTTP {status}: the provider rejected dataset {dataset_key!r}'s structure request — "
-                "re-check dataset_ref against the agency's dataflow list."
+                f"HTTP {status}: the provider rejected dataset {flow!r}'s structure request — "
+                "re-check agency and dataset_id against the agency's dataflow list."
             )
         return (
             f"HTTP {status or 'n/a'}: transient structure-fetch error after {_MAX_RETRIES + 1} attempts "
@@ -455,13 +431,13 @@ def _resolve_structure(dataset_key: str) -> _ResolvedStructure:
         )
 
     return _run_budgeted(
-        lambda: _fetch_structure(dataset_key),
-        op_label=f"structure/{dataset_key}",
+        lambda: _fetch_structure(agency, dataset_id),
+        op_label=f"structure/{flow}",
         hint_fn=_hint,
     )
 
 
-def _fetch_structure(dataset_key: str) -> _ResolvedStructure:
+def _fetch_structure(agency: str, dataset_id: str) -> _ResolvedStructure:
     """Single-attempt structure fetch — see :func:`_resolve_structure` for the retry wrapper.
 
     Imports ``sdmx`` and the provider helpers function-locally to keep the parent
@@ -479,9 +455,7 @@ def _fetch_structure(dataset_key: str) -> _ResolvedStructure:
         resolve_dsd,
     )
 
-    agency_id, dataset_id = dataset_key.split("-", 1)
-
-    with sdmx_client(agency_id, wb_url_rewrite=True) as client:
+    with sdmx_client(agency, wb_url_rewrite=True) as client:
         try:
             structure_msg = fetch_dataflow_with_structure(client, dataset_id)
             try:
@@ -537,13 +511,11 @@ def _do_sdmx_fetch(params: SdmxFetchParams, structure: _ResolvedStructure) -> An
 
     from parsimony_sdmx.providers.sdmx_client import sdmx_client
 
-    agency_id, dataset_id = params.dataset_key.split("-", 1)
-
-    with sdmx_client(agency_id, wb_url_rewrite=True) as client:
+    with sdmx_client(params.agency, wb_url_rewrite=True) as client:
         try:
             data_msg = client.get(
                 resource_type="data",
-                resource_id=dataset_id,
+                resource_id=params.dataset_id,
                 key=params.series_key,
                 params={
                     "startPeriod": params.start_period,
@@ -556,7 +528,8 @@ def _do_sdmx_fetch(params: SdmxFetchParams, structure: _ResolvedStructure) -> An
                 raise EmptyDataError(
                     provider="sdmx",
                     message=(
-                        f"No observations for {params.series_key!r} in {params.dataset_key} over "
+                        f"No observations for {params.series_key!r} in "
+                        f"{params.agency}/{params.dataset_id} over "
                         f"{period}: the provider returned an empty document. This is deterministic, "
                         "not transient — widen or drop start_period/end_period; if it persists with "
                         "no period filter, the series is likely discontinued at the source."
@@ -644,7 +617,7 @@ def _do_sdmx_fetch(params: SdmxFetchParams, structure: _ResolvedStructure) -> An
     # the per-flow dimension/unit columns + series_url trail as the "*" wildcard METADATA.
     long_df = df[["series_key", "title", "TIME_PERIOD", "value", *dim_out, *unit_out]].copy()
 
-    series_url = build_sdmx_dataset_url(agency_id, dataset_id)
+    series_url = build_sdmx_dataset_url(params.agency, params.dataset_id)
     if series_url:
         long_df["series_url"] = series_url
     return long_df

@@ -154,7 +154,7 @@
   (datetime); endpoint-specific columns fold in as DATA.
 - **`treasury_rates_fetch`:** KEY=`feed` (ns `treasury`), TITLE=`title`, DATA=`record_date`;
   native rate columns fold in as DATA.
-- **`treasury_search`:** code/title/score (+ `source` dispatch in the catalog metadata).
+- **`treasury_search`:** code/title/score/search_detail (+ `source` dispatch in the catalog metadata).
 
 ## 7. Tests
 
@@ -163,8 +163,8 @@
   ODM-rows-land + **registry-shape (35 rows, 1.5-month + 6-week present)**).
 - `test_error_mapping_treasury.py` — `ErrorMappingSuite` (keyless, `env_key=None`).
 - `test_public_surface.py` — `__all__`, count 4, internals not re-exported.
-- `test_build_catalog.py` — index types + default_field + dispatch metadata.
-- `catalog_tests/queries.yaml` — `code:` probes (debt_to_penny measure + ODM 10y) + lexical.
+- `test_build_catalog.py` — index types + dispatch metadata.
+- `catalog_tests/queries.yaml` — code probes (literal query + field: code) (debt_to_penny measure + ODM 10y) + lexical.
 - `test_integration_treasury.py` — live: debt_to_penny, yield curve, bill rates, enumerate,
   bounded fixture search + **a live ODM field cross-check** (registry maturities present).
 

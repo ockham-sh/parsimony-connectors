@@ -39,7 +39,7 @@ search tool shapes) is an internal authoring standard — not part of the publis
 7. **Multi-bundle HF repos** when per-part snapshots are large (SDMX, BoJ).
 8. **Validation**: curated probes under `packages/<provider>/catalog_tests/queries.yaml`.
 
-Reference patterns: `packages/sdmx/` (multi-bundle + structured search),
+Reference patterns: `packages/sdmx/` (multi-bundle + hierarchical search),
 `packages/boj/` (database/series split), `packages/treasury/` / `packages/bde/`
 (flat catalogs).
 
@@ -114,14 +114,19 @@ uv run python tooling/validate_catalog.py --provider riksbank --allow-missing-re
 
 | Mode | When to use | Example |
 |------|-------------|---------|
-| `code` | `code` field has BM25 index | `code: SEKEURPMI` |
+| `code` | `code` field has BM25 index | `query: "SEKEURPMI"`, `field: code` |
 | `title_bm25` | title indexed (BM25 or hybrid) | short lexical slice of title |
 | `hybrid_title` | title uses **hybrid** index | longer phrase; often `optional: true` |
-| `structured_field` | metadata/dimension field indexed | `agency: ECB`, `REF_AREA: France` |
+| `metadata_field` | a non-title indexed metadata column | `query: "ECB"`, `field: agency` |
+
+`query` is always **literal text**. Do not write `query: "code: SEKEURPMI"` or
+`agency: ECB` as if there were a query grammar — name the index with `field=`
+(or use an exact `filter=` in connector APIs). Soft constraints belong in
+`query`; hard constraints belong in `filter=`.
 
 Do **not** add semantic-style probes when the build policy chose BM25-only
-(high cardinality). SDMX codelist catalogs use hybrid label search; dataset catalogs
-use structured code probes and optional title probes.
+(high cardinality). SDMX series catalogs index dimension labels; dataset catalogs
+use code probes and optional title probes.
 
 ### Curated probe file format
 
@@ -131,7 +136,8 @@ use structured code probes and optional title probes.
 catalog_url: hf://parsimony-dev/riksbank
 queries:
   - id: code_example
-    query: "code: EXAMPLE"
+    query: "EXAMPLE"
+    field: code
     expected_code: EXAMPLE
     mode: code
     required: true
@@ -207,7 +213,7 @@ expected by `Catalog.load("hf://parsimony-dev/<name>")`.
 
 Root: `hf://parsimony-dev/boj` (override: `PARSIMONY_BOJ_CATALOG_URL`).
 
-Expected agent path: **structured search first** — `boj_databases_search` →
+Expected agent path: **hierarchical search first** — `boj_databases_search` →
 `boj_series_search(db=...)` → `boj_fetch`. See
 `packages/boj/catalog_tests/queries.yaml` and the catalog authoring rules in this document.
 
@@ -236,7 +242,9 @@ uv run python ../../tooling/validate_catalog.py --provider boj \
 Root: `hf://parsimony-dev/sdmx` (override: `PARSIMONY_SDMX_CATALOG_URL`).
 
 Layout: ``sdmx_datasets_<agency>`` + per-flow ``sdmx_series_<agency>_<flow>`` catalogs.
-``sdmx_datasets_search`` accepts optional ``agency`` (fans out across all agency dataset catalogs when omitted).
+``sdmx_datasets_search`` requires ``agency`` (one catalog / one score scale per call:
+``ECB``, ``ESTAT``, ``IMF_DATA``, ``WB_WDI``). If the source is unknown, call once
+per agency and compare titles — there is no cross-agency merge.
 
 Agent path: **datasets search → series search / dimension search → fetch**.
 

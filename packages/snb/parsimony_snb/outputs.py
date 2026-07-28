@@ -5,10 +5,10 @@ from __future__ import annotations
 from parsimony.result import Column, ColumnRole, OutputSpec
 
 # Compound code ``{cube_id}#{series_key}`` so every addressable SNB series has a
-# unique catalog entry; agents split on ``#`` to recover the fetchable cube_id and
-# the dimension selection. Mirrors Treasury's ``{endpoint}#{field}`` and rba's
-# ``{table_id}#{series_id}``. Warehouse cubes carry ``@``/``.`` in the cube_id but
-# never ``#``, so the split is unambiguous.
+# unique catalog entry. Fetch args come from METADATA columns (``cube_id``,
+# ``series_key``), not by parsing the KEY. Mirrors Treasury's ``{endpoint}#{field}``
+# and rba's ``{table_id}#{series_id}``. Warehouse cubes carry ``@``/``.`` in the
+# cube_id but never ``#``, so the compound form stays unambiguous.
 SNB_ENUMERATE_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="snb"),

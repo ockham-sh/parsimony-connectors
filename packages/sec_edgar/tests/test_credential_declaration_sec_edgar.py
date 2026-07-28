@@ -105,9 +105,7 @@ class TestSecEdgarFramesCredentialDeclaration(CredentialDeclarationSuite):
     [sec_edgar_income_statement, sec_edgar_insider_transactions],
     ids=["income_statement", "insider_transactions"],
 )
-def test_edgartools_verb_fast_fails_naming_env_var(
-    connector: object, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_edgartools_verb_fast_fails_naming_env_var(connector: object, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("SEC_EDGAR_USER_AGENT", raising=False)
     with pytest.raises(UnauthorizedError) as exc_info:
         connector(cik="320193")  # type: ignore[operator]

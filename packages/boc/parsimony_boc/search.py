@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
+from parsimony.catalog.search import (
+    CatalogSearchParams,
+    make_local_search_connector,
+)
 from parsimony.result import Column, ColumnRole, OutputSpec
 
 from parsimony_boc.catalog_build import build_boc_catalog
@@ -15,6 +18,11 @@ BOC_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="boc"),
         Column(name="title", role=ColumnRole.TITLE),
+        Column(name="description", role=ColumnRole.METADATA),
+        Column(name="group", role=ColumnRole.METADATA),
+        Column(name="group_label", role=ColumnRole.METADATA),
+        Column(name="entity_type", role=ColumnRole.METADATA),
+        Column(name="source", role=ColumnRole.METADATA),
     ]
 )
 
@@ -27,8 +35,8 @@ boc_search = make_local_search_connector(
     tags=["macro", "ca", "tool"],
     description=(
         "Search the Bank of Canada (BoC) Valet catalog. "
-        "Preferred: structured queries such as 'code: FXUSDCAD'. "
+        "query= is literal text; use filter={'code': 'FXUSDCAD'} for an exact id. "
         "Pass returned codes to boc_fetch(series_name=...)."
     ),
-    output_columns=BOC_SEARCH_OUTPUT.columns,
+    output=BOC_SEARCH_OUTPUT,
 )

@@ -150,9 +150,7 @@ def test_destatis_fetch_drops_not_yet_published_placeholder() -> None:
     ``(latest / year_ago - 1) * 100`` reads that placeholder as a real -100%
     collapse. An exact zero (status ``-``) is a genuine observation and stays.
     """
-    respx.get(f"{_BASE}/tables/61111-0001/data").mock(
-        return_value=httpx.Response(200, json=_JSONSTAT_WITH_STATUS)
-    )
+    respx.get(f"{_BASE}/tables/61111-0001/data").mock(return_value=httpx.Response(200, json=_JSONSTAT_WITH_STATUS))
 
     df = destatis_fetch(name="61111-0001").raw
 

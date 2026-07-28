@@ -10,12 +10,13 @@ catalog_root: hf://parsimony-dev/sdmx
 
 queries:
   - id: dataset_code_ecb_yc
-    query: "code: ECB|YC"
+    query: "ECB|YC"
+    field: code
     namespace: sdmx_datasets_ecb
     expected_code: ECB|YC
-    mode: structured_field
+    mode: code
     required: true
-    why: "Per-agency datasets catalog; structured code lookup"
+    why: "Per-agency datasets catalog; exact code lookup on the code index"
 
   - id: dataset_title_ecb_yield
     query: "yield curve"

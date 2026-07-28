@@ -444,7 +444,8 @@ def test_bdf_search_ranks_over_fixture_catalog(tmp_path: Path) -> None:
     result = bdf_search(query="dollar euro exchange rate", limit=5, catalog_url=str(out_dir))
 
     sdf = result.raw
-    assert list(sdf.columns) == ["code", "title", "coverage", "score", "matched"]
+    assert bdf_search.output_spec is not None
+    assert list(sdf.columns) == [c.name for c in bdf_search.output_spec.columns]
     assert not sdf.empty
     assert len(sdf) <= 3
     assert sdf.iloc[0]["code"] == "EXR.M.USD.EUR.SP00.E"

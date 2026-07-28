@@ -18,40 +18,38 @@ from parsimony_sdmx.connectors.fetch import SdmxFetchParams
 class TestParamValidation:
     def test_accepts_valid_dataset_and_series_key(self) -> None:
         p = SdmxFetchParams(
-            dataset_key="ECB-YC",
+            agency="ECB",
+            dataset_id="YC",
             series_key="B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y",
             start_period="2020-01",
             end_period="2024-12",
         )
-        assert p.dataset_key == "ECB-YC"
+        assert p.agency == "ECB"
+        assert p.dataset_id == "YC"
 
-    def test_normalizes_agency_prefix_to_uppercase(self) -> None:
-        p = SdmxFetchParams(dataset_key="ecb-YC", series_key="B.U2.EUR")
-        assert p.dataset_key == "ECB-YC"
-
-    def test_rejects_missing_agency_prefix(self) -> None:
-        with pytest.raises(InvalidParameterError, match="must include agency prefix"):
-            SdmxFetchParams(dataset_key="FOO123", series_key="B.U2.EUR")
+    def test_normalizes_agency_to_uppercase(self) -> None:
+        p = SdmxFetchParams(agency="ecb", dataset_id="YC", series_key="B.U2.EUR")
+        assert p.agency == "ECB"
 
     def test_rejects_unknown_agency(self) -> None:
         with pytest.raises(InvalidParameterError, match="Unknown agency"):
-            SdmxFetchParams(dataset_key="OECD-MEI", series_key="B.U2.EUR")
+            SdmxFetchParams(agency="OECD", dataset_id="MEI", series_key="B.U2.EUR")
 
     def test_rejects_path_traversal_in_dataset_id(self) -> None:
         with pytest.raises(InvalidParameterError, match="disallowed characters"):
-            SdmxFetchParams(dataset_key="ECB-../secret", series_key="B.U2.EUR")
+            SdmxFetchParams(agency="ECB", dataset_id="../secret", series_key="B.U2.EUR")
 
     def test_rejects_whitespace_in_series_key(self) -> None:
         with pytest.raises(ValidationError):
-            SdmxFetchParams(dataset_key="ECB-YC", series_key="B.U2 EUR")
+            SdmxFetchParams(agency="ECB", dataset_id="YC", series_key="B.U2 EUR")
 
     def test_rejects_query_smuggling_in_series_key(self) -> None:
         with pytest.raises(ValidationError):
-            SdmxFetchParams(dataset_key="ECB-YC", series_key="B.U2?token=x")
+            SdmxFetchParams(agency="ECB", dataset_id="YC", series_key="B.U2?token=x")
 
     def test_series_key_length_bounded(self) -> None:
         with pytest.raises(ValidationError):
-            SdmxFetchParams(dataset_key="ECB-YC", series_key="A" * 300)
+            SdmxFetchParams(agency="ECB", dataset_id="YC", series_key="A" * 300)
 
 
 class TestEmptyDocumentClassification:
@@ -82,11 +80,12 @@ class TestEmptyDocumentClassification:
             "parsimony_sdmx.providers.sdmx_client.sdmx_client",
             lambda agency_id, wb_url_rewrite=True: _FakeClient(),
         )
-        monkeypatch.setattr(fetch_mod, "_resolve_structure", lambda dataset_key: None)
+        monkeypatch.setattr(fetch_mod, "_resolve_structure", lambda agency, dataset_id: None)
 
         with pytest.raises(EmptyDataError) as exc:
             fetch_mod.sdmx_fetch(
-                dataset_ref="ECB-BOP",
+                agency="ECB",
+                dataset_id="BOP",
                 series_ref="Q.U2.N.4.993.N.A1.E",
                 start_period="2023-Q1",
                 end_period="2025-Q4",
@@ -118,10 +117,10 @@ class TestEmptyDocumentClassification:
             "parsimony_sdmx.providers.sdmx_client.sdmx_client",
             lambda agency_id, wb_url_rewrite=True: _FakeClient(),
         )
-        monkeypatch.setattr(fetch_mod, "_resolve_structure", lambda dataset_key: None)
+        monkeypatch.setattr(fetch_mod, "_resolve_structure", lambda agency, dataset_id: None)
 
         with pytest.raises(ProviderError):
-            fetch_mod.sdmx_fetch(dataset_ref="ECB-BOP", series_ref="Q.U2.N.4.993.N.A1.E")
+            fetch_mod.sdmx_fetch(agency="ECB", dataset_id="BOP", series_ref="Q.U2.N.4.993.N.A1.E")
 
 
 class TestOrGroupCoverage:
@@ -159,9 +158,13 @@ class TestOrGroupCoverage:
             dsd_dim_ids=["FREQ", "geo"],
             label_maps={},
         )
-        monkeypatch.setattr(fetch_mod, "_resolve_structure", lambda dataset_key: structure)
+        monkeypatch.setattr(fetch_mod, "_resolve_structure", lambda agency, dataset_id: structure)
         return fetch_mod.sdmx_fetch(
-            dataset_ref="ESTAT-TEST", series_ref=series_ref, start_period="2024-01", end_period="2025-12"
+            agency="ESTAT",
+            dataset_id="TEST",
+            series_ref=series_ref,
+            start_period="2024-01",
+            end_period="2025-12",
         )
 
     def test_missing_or_member_raises_naming_dimension_and_codes(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -254,9 +257,9 @@ class TestUnitAttributePassthrough:
             dsd_dim_ids=["FREQ", "REF_AREA"],
             label_maps={"FREQ": {"M": "Monthly"}, "REF_AREA": {"DE": "Germany"}, "UNIT": {"PC": "Percent"}},
         )
-        monkeypatch.setattr(fetch_mod, "_resolve_structure", lambda dataset_key: structure)
+        monkeypatch.setattr(fetch_mod, "_resolve_structure", lambda agency, dataset_id: structure)
 
-        df = fetch_mod.sdmx_fetch(dataset_ref="ECB-TEST", series_ref="M.DE").raw
+        df = fetch_mod.sdmx_fetch(agency="ECB", dataset_id="TEST", series_ref="M.DE").raw
 
         # Dimensions are code-only (their labels ride in `title`); UNIT / UNIT_MULT keep
         # a label because it qualifies `value` and is not carried by the title.

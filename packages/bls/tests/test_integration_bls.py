@@ -62,7 +62,7 @@ def test_enumerate_series_live_composes_titles() -> None:
     assert not df.empty
     assert df["title"].str.len().gt(0).all(), "blank composed title in a title-less survey"
     assert (df["code"].str.startswith("JT")).all()
-    # dimension metadata present for structured search
+    # dimension metadata present for exact filter= / label columns
     assert any(c.endswith("_label") for c in df.columns)
 
 

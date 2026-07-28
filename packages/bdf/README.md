@@ -41,7 +41,8 @@ or bind it explicitly:
 
 ```python
 from parsimony_bdf import load
-connectors = load(api_key="<your-key>")   # binds the key across the bundle
+
+connectors = load(api_key="<your-key>")  # binds the key across the bundle
 ```
 
 A missing key fails fast with `UnauthorizedError` naming `BDF_API_KEY`.
@@ -64,6 +65,7 @@ For multi-plugin composition (autoloads everything installed):
 
 ```python
 from parsimony import discover
+
 connectors = discover.load_all()
 ```
 

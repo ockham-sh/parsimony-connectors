@@ -231,7 +231,8 @@ def test_bde_search_over_bounded_catalog_live(tmp_path: Path) -> None:
 
     assert_provenance_shape(result, expected_source="bde_search", required_param_keys=["query"])
     sdf = result.raw
-    assert list(sdf.columns) == ["code", "title", "coverage", "score", "matched"]
+    assert bde_search.output_spec is not None
+    assert list(sdf.columns) == [c.name for c in bde_search.output_spec.columns]
     assert not sdf.empty, "search over the fixture catalog returned nothing"
     # Bounded by the 3-row fixture — never the full catalog.
     assert len(sdf) <= 3

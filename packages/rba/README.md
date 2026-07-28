@@ -10,7 +10,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 |---|---|---|
 | `rba_fetch` | connector | Fetch a published RBA statistical table/series by `table_id`. Resolves across all three publication formats — a CSV stem (`f1-data`), a current XLSX-exclusive sheet (`a03/Bond Purchase Program`), or a legacy xls-hist workbook (`b03hist`) — and returns a tidy long-format DataFrame. |
 | `enumerate_rba` | enumerator | Discover series via the 3-pass HTML scrape (CSV index + current XLSX-exclusive sheets + legacy xls-hist), parsing each table's metadata header rows. Drives the `rba` catalog. |
-| `rba_search` | search | Semantic search over the published RBA catalog. Pass the `table_id` portion (before `#`) of a returned code to `rba_fetch(table_id=...)`. |
+| `rba_search` | search | Semantic search over the published RBA catalog. Pass the returned `table_id` column to `rba_fetch(table_id=...)`. |
 
 ## Coverage
 
@@ -74,6 +74,7 @@ For multi-plugin composition:
 
 ```python
 from parsimony import discover
+
 connectors = discover.load_all()
 ```
 

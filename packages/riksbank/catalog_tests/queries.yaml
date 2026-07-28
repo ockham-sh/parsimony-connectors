@@ -4,7 +4,7 @@
 #   packages/riksbank/catalog_tests/queries.generated.yaml
 #
 # Expected usage: hybrid title/description search (BM25 + vector on text fields).
-# Structured ``code:`` probes exercise the code BM25 index. The catalog spans all five
+# Exact code probes use literal ``query: "<id>"`` with ``field: code``. The catalog spans all five
 # Riksbank products; ``code`` shapes route the follow-up fetch (bare SWEA/SWESTR ids vs
 # ``monetary_policy/``, ``turnover/``, ``holdings/`` prefixes).
 
@@ -12,21 +12,24 @@ catalog_url: hf://parsimony-dev/riksbank
 
 queries:
   - id: code_sekeurpmi
-    query: "code: SEKEURPMI"
+    query: "SEKEURPMI"
+    field: code
     expected_code: SEKEURPMI
     mode: code
     required: true
     why: "Direct lookup on indexed code field (SWEA bare id)"
 
   - id: code_mp_gdp
-    query: "code: monetary_policy/SEQGDPNAYSA"
+    query: "monetary_policy/SEQGDPNAYSA"
+    field: code
     expected_code: monetary_policy/SEQGDPNAYSA
     mode: code
     required: true
     why: "Direct lookup on a Monetary Policy compound code"
 
   - id: code_turnover_fx_monthly
-    query: "code: turnover/fx/monthly"
+    query: "turnover/fx/monthly"
+    field: code
     expected_code: turnover/fx/monthly
     mode: code
     required: true

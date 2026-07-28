@@ -50,6 +50,7 @@ For multi-plugin composition (autoloads everything installed):
 
 ```python
 from parsimony import discover
+
 connectors = discover.load_all()
 ```
 

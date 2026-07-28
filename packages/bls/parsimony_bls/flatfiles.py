@@ -138,8 +138,8 @@ def build_label_map(columns: list[str], rows: list[dict[str, str]]) -> dict[str,
 def resolve_label(tables: dict[str, dict[str, str]], col: str, code: str) -> str:
     """Best-effort dimension-code → label using the survey's mapping tables.
 
-    Falls back to the raw code when no table/label is found, so structured search
-    degrades gracefully rather than dropping the value.
+    Falls back to the raw code when no table/label is found, so exact ``filter=``
+    on that dimension still matches the code spelling an agent reads from the hit.
     """
     if not code:
         return ""

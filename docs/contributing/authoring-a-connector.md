@@ -346,7 +346,7 @@ CATALOG_NAMESPACE = "treasury"
 def build_treasury_catalog() -> Catalog:
     result = enumerate_treasury()
     entries = list(result.entities.values())
-    catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
+    catalog = Catalog(CATALOG_NAMESPACE, indexes=discovery_indexes(entries))
     catalog.set_entities(entries)
     catalog.build()
     return catalog
@@ -358,11 +358,12 @@ def build_treasury_catalog() -> Catalog:
   the `@enumerator` decorator was given). (This is the current API. Older notes may say
   `entities_from_raw`, `entries_from_result`, `entities_from_result`, or `to_entities()` —
   all are stale; see [../concepts/connectors.md](../concepts/connectors.md).)
-- **`discovery_indexes(entries)`** builds the index policy: a `code` index (BM25, exact
-  lookup), and `title` + `description` indexes that are adaptive — **Hybrid BM25 + vector**
-  when a field has fewer than 1000 unique values, **BM25-only** at or above 1000.
-- **`Catalog(namespace, indexes=..., default_field="title")`** wraps the entities. A bare
-  query string searches `default_field`.
+- **`discovery_indexes(entries)`** builds the index policy by field role: a `code` index
+  (BM25, exact lookup), and `title` + `description` indexes that are always **Hybrid BM25 +
+  vector** — cardinality is not consulted (`entries` is accepted for call-site compatibility
+  only).
+- **`Catalog(namespace, indexes=...)`** wraps the entities. A bare query string searches
+  the `title` index by convention when it exists (pass `field=` to score another index).
 - **`catalog.build()`** constructs the indexes; the operator script calls **`catalog.save(url)`**
   to persist.
 
@@ -388,8 +389,7 @@ treasury_search = make_local_search_connector(
         "Dispatch: source=treasury_rates → treasury_rates_fetch(feed=endpoint); "
         "source=fiscal_data → treasury_fetch(endpoint=endpoint)."
     ),
-    output_columns=TREASURY_SEARCH_OUTPUT.columns,
-    metadata_columns=("source", "endpoint", "field"),
+    output=TREASURY_SEARCH_OUTPUT,
 )
 ```
 
@@ -402,9 +402,10 @@ Key arguments:
 - **`build_catalog`** is used for a cold rebuild when no snapshot is found, so search works
   unchanged in a fresh clone.
 - **`tags`** are free-form labels for organizing and filtering connectors.
-- **`metadata_columns`** are the **dispatch payload** echoed onto each hit so the agent
-  knows which fetch verb to call and with what arguments — without parsing the code string.
-  These are *not* indexed and do not affect recall.
+- **`output`** is an `OutputSpec` of provider columns. `ColumnRole.METADATA` entries are the
+  **dispatch payload** echoed onto each hit so the agent knows which fetch verb to call and
+  with what arguments — without parsing the code string. These are *not* indexed and do not
+  affect recall. The factory appends the shared ranking pair (`score`, `search_detail`).
 
 ### The operator CLI (`scripts/build_catalog.py`)
 
@@ -640,9 +641,10 @@ recorded cassettes (the `.gitignore` enforces this). Mark live-API tests
 ### Catalog recall probes (`catalog_tests/queries.yaml`)
 
 A catalog-backed package ships a curated set of search probes that pin recall. Each probe
-declares a query, an `expected_code`, a `mode`, and whether it is `required` (exact `code:`
-lookups) or `optional` (fuzzy title probes that may reorder on a BM25-only index above 1000
-titles). A `thresholds.min_required_recall` (typically `1.0`) is the bar. See
+declares a query, an `expected_code`, a `mode`, and whether it is `required` (exact
+identifier probes: literal `query` + `field: code`) or `optional` (longer semantic-style
+title probes — embedding recall varies by phrasing, so they stay optional even though
+title is always hybrid). A `thresholds.min_required_recall` (typically `1.0`) is the bar. See
 [`packages/treasury/catalog_tests/queries.yaml`](https://github.com/ockham-sh/parsimony-connectors/blob/main/packages/treasury/catalog_tests/queries.yaml).
 
 ---

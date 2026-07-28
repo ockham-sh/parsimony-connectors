@@ -98,7 +98,7 @@
 ## 6. Output schemas
 
 - `bdf_fetch` → KEY `key`(ns bdf) + TITLE `title` + DATA `date`(datetime), `value`(numeric).
-- `bdf_search` → KEY `code`(ns bdf) + TITLE `title` + DATA `score`.
+- `bdf_search` → KEY `code`(ns bdf) + TITLE `title` + factory-appended `score`/`search_detail`.
 - `enumerate_bdf` → KEY `code`(ns bdf) + TITLE `title` + 9 METADATA (see §4).
 
 ## 7. Tests
@@ -106,8 +106,8 @@
 - `test_bdf_connectors.py` — offline respx: fetch happy/null-value/empty/parse/invalid-param/no-key/env-fallback; enumerate bounded shape + bilingual metadata + best-effort degradation (series-only / stubs-only / empty) + seam monkeypatch; search rank/discriminate/empty.
 - `test_error_mapping_bdf.py` — `ErrorMappingSuite` (keyed, default `env_key="api_key"`), route `observations/exports/json`.
 - `test_integration_bdf.py` — live: keyed fetch (real FX magnitudes), dataset-bounded enumerate via the `_list_all_series` seam, fixture-catalog search.
-- `test_build_catalog.py` — index types + `default_field`.
-- `catalog_tests/queries.yaml` — recall gate (exact `code:` + a distinctive `title_bm25` required; semantic `hybrid_title` optional).
+- `test_build_catalog.py` — index types.
+- `catalog_tests/queries.yaml` — recall gate (exact `field: code` + a distinctive `title_bm25` required; semantic `hybrid_title` optional).
 
 ---
 
@@ -153,5 +153,5 @@ tests green + ruff/mypy/`parsimony list --strict` clean. Signed: autonomous pass
 
 - [x] **Universe completeness (Q1) + fetchability (Q2) measured.** Full export = 41,641 rows = total_count (0 dups, 45 dataflows); 545-series fetchability sweep = 100%. See §8.
 - [ ] **Build + publish the snapshot.** Enumeration completeness is now proven; what remains is the maintainer build-and-publish: a full build of all 41.6k series → embed → `validate_catalog.py` (expect `required_recall 1.00`) → push to `hf://parsimony-dev/bdf`. Not run in this pass (heavy embed; one-time op).
-- [ ] **Consider exposing `dim_*` facets as structured METADATA.** The `series` table carries rich SDMX dimensions (currency, instrument, counterpart sector); only `freq`/`ref_area` are surfaced today. Adding a few high-signal ones as indexed METADATA would enable `FIELD:value` structured search — weigh against embedder cost.
+- [ ] **Consider exposing `dim_*` facets as filterable METADATA.** The `series` table carries rich SDMX dimensions (currency, instrument, counterpart sector); only `freq`/`ref_area` are surfaced today. Adding a few high-signal ones as columns would enable exact `filter=` constraints — weigh against embedder cost.
 - [ ] **`.env` var name.** `BDF_API_KEY` now mirrors `BANQUEDEFRANCE_KEY`; if anything else still reads the latter, keep both in sync (or migrate callers to `BDF_API_KEY`).

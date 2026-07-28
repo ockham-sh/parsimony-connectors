@@ -4,12 +4,13 @@
 # published sitemap — 237 publication cubes catalogued at series granularity
 # (compound ``cube_id#series_key`` codes, ``source=snb_data_portal``) + 912
 # warehouse cubes catalogued at cube level (``{sdmx_id}#``, ``source=snb_warehouse``).
-# With >1000 unique titles the adaptive index degrades to BM25-only (the guidebook
-# rule), so exact ``code:`` probes are ``required`` and semantic-style title probes
-# stay ``optional``.
+# Title/description are always hybrid (role-based policy); exact code probes
+# (literal ``query`` + ``field: code``) are ``required`` and longer semantic-style
+# title probes stay ``optional`` because embedding recall varies by phrasing.
 #
-# The agent passes the part before ``#`` to ``snb_fetch`` (which routes publication
-# vs warehouse by id shape).
+# The compound code is ``{cube_id}#{series_key}``. Fetch args come from METADATA
+# columns — pass ``cube_id`` to ``snb_fetch(cube_id=...)``. Do not parse the KEY
+# or pass the compound ``code`` as ``cube_id``.
 #
 # Regenerate drafts after a local build:
 #   uv run python tooling/validate_catalog.py --provider snb \
@@ -20,14 +21,16 @@ catalog_url: hf://parsimony-dev/snb
 
 queries:
   - id: code_bond_yield_10y
-    query: "code: rendoblim#10J"
+    query: "rendoblim#10J"
+    field: code
     expected_code: rendoblim#10J
     mode: code
     required: true
     why: "Direct lookup on the indexed code field (10-year Swiss Confederation bond yield)"
 
   - id: code_warehouse_derivatives
-    query: "code: BSTA@SNB.AUR_U.ODF#"
+    query: "BSTA@SNB.AUR_U.ODF#"
+    field: code
     expected_code: "BSTA@SNB.AUR_U.ODF#"
     mode: code
     required: true
@@ -38,7 +41,7 @@ queries:
     expected_code: rendoblim#10J
     mode: title_bm25
     optional: true
-    why: "Distinctive lexical title probe; ranking may vary on the BM25-only title index"
+    why: "Distinctive lexical title probe; hybrid ranking may vary by phrasing"
 
   - id: title_derivatives
     query: "outstanding derivative financial instruments banks"

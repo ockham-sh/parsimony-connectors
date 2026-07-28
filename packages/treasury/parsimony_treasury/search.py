@@ -7,7 +7,10 @@ string-splitting the code.
 
 from __future__ import annotations
 
-from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
+from parsimony.catalog.search import (
+    CatalogSearchParams,
+    make_local_search_connector,
+)
 from parsimony.result import Column, ColumnRole, OutputSpec
 
 from parsimony_treasury.catalog_build import build_treasury_catalog
@@ -20,9 +23,12 @@ TREASURY_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="treasury"),
         Column(name="title", role=ColumnRole.TITLE),
+        Column(name="description", role=ColumnRole.METADATA),
         Column(name="source", role=ColumnRole.METADATA),
         Column(name="endpoint", role=ColumnRole.METADATA),
         Column(name="field", role=ColumnRole.METADATA),
+        Column(name="frequency", role=ColumnRole.METADATA),
+        Column(name="category", role=ColumnRole.METADATA),
     ]
 )
 
@@ -37,8 +43,7 @@ treasury_search = make_local_search_connector(
         "Dispatch: source=treasury_rates → treasury_rates_fetch(feed=endpoint); "
         "source=fiscal_data → treasury_fetch(endpoint=endpoint)."
     ),
-    output_columns=TREASURY_SEARCH_OUTPUT.columns,
-    metadata_columns=("source", "endpoint", "field"),
+    output=TREASURY_SEARCH_OUTPUT,
 )
 
 __all__ = ["PARSIMONY_TREASURY_CATALOG_URL_ENV", "TREASURY_SEARCH_OUTPUT", "TreasurySearchParams", "treasury_search"]

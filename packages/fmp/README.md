@@ -63,7 +63,7 @@ redacted from logs. A missing key fails fast with `UnauthorizedError`.
 ```python
 from parsimony_fmp import load
 
-connectors = load(api_key="<your-key>")   # or rely on FMP_API_KEY
+connectors = load(api_key="<your-key>")  # or rely on FMP_API_KEY
 result = connectors["fmp_quotes"](symbols="AAPL,TSLA,MSFT")
 print(result.raw.head())
 ```
@@ -72,6 +72,7 @@ For multi-plugin composition:
 
 ```python
 from parsimony import discover
+
 connectors = discover.load_all()
 ```
 

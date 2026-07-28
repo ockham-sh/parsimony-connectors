@@ -547,7 +547,7 @@ When a provider has no native search, three roles, cleanly separated:
    def build_<p>_catalog(...) -> Catalog:
        result   = enumerate_<p>(...)                # the @enumerator (sync) -> Result
        entries  = list(result.entities.values())     # Result -> list[Entity]
-       catalog  = Catalog(NAMESPACE, indexes=discovery_indexes(entries), default_field="title")
+       catalog  = Catalog(NAMESPACE, indexes=discovery_indexes(entries))
        catalog.set_entities(entries)
        catalog.build()
        return catalog
@@ -571,7 +571,7 @@ The search connector is one declarative call (`search.py`):
     catalog_url_env_var="PARSIMONY_<P>_CATALOG_URL",
     build_catalog=build_<p>_catalog,            # cold-build fallback
     tags=["…", "tool"], description="…dispatch routing each hit to its fetch connector…",
-    output_columns=[code(KEY), title(TITLE), score(DATA)])
+    output=OutputSpec([code(KEY), title(TITLE), …METADATA…]))  # factory appends score/search_detail
 ```
 
 Resolution order is `params.catalog_url` → env var → `default_url`; on a missing remote it
@@ -650,10 +650,11 @@ The catalog is a *designed* artifact. Techniques drawn from the existing connect
     several products whose fetch verbs differ and a hit must route by code shape. riksbank is the
     latter: SWEA/SWESTR keep bare ids (self-routing — disjoint id spaces), but the three other
     products carry a routing prefix (`monetary_policy/<id>`, `turnover/<market>/<freq>`,
-    `holdings/<dataset>`) because the search verb can only return `code`/`title`/`score`, so the
-    code is the *only* thing that can route the follow-up fetch — and bare MP ids share SWEA's
-    `SED*`/`SEM*`/`SEA*` prefix space, so a bare id would be ambiguous. Decide per-provider from
-    the actual id namespace **and** the number of distinct fetch verbs the catalog feeds.
+    `holdings/<dataset>`) — riksbank chose code-shape routing rather than METADATA dispatch
+    columns (treasury's alternative: project `source`/`endpoint`/`field` onto hits). Bare MP
+    ids also share SWEA's `SED*`/`SEM*`/`SEA*` prefix space, so a bare id would be ambiguous.
+    Decide per-provider from the actual id namespace **and** the number of distinct fetch verbs
+    the catalog feeds.
 - **Synthetic parent rows** so the catalog carries hierarchy: `db:<code>` (boj), `group:<NAME>`
   (boc), `dataset:<id>` / `domain:<id>` (bdp). Agents navigate by KEY-prefix or an
   `entity_type` METADATA column. Catalog the granularity the agent should *search* at, even if
@@ -667,9 +668,9 @@ The catalog is a *designed* artifact. Techniques drawn from the existing connect
 - **Dimension manifests for two-stage search** (sdmx): derive a compact `{id, values:[{code,
   label}]}` manifest (capped ~12 values/dim) from each built series bundle and attach it to the
   parent **datasets** bundle, so a coarse `datasets_search` hit tells the agent which
-  structured `FIELD:value` fields the next `series_search` accepts. The catalog
+  `{dimension}_code` columns the next `series_search` accepts in `filter=`. The catalog
   self-documents its own query vocabulary (`datasets_search` → read dimensions →
-  `series_search` → `fetch`).
+  `series_search(query=…, filter=…)` → `fetch`).
 - **Multi-bundle sharding** for huge providers: one bundle per agency for discovery + one per
   `(agency, flow)` / per database for depth (sdmx → thousands of bundles; boj → per-DB). Keeps
   each namespace tractable and embedding memory bounded. `catalog_root` + per-probe
@@ -701,8 +702,9 @@ depends on how many entries a provider publishes. (The `entries` argument is kep
 compatibility but no longer inspected; the old `adaptive_field_index` and its
 `HYBRID_UNIQUE_VALUE_LIMIT` / weight constants were removed when the policy became role-based.)
 Hybrid components fuse with **tie-aware Reciprocal Rank Fusion (unweighted, k=60)** — there are
-no per-field BM25/vector weights any more. `default_field="title"` enables broad (plain-text)
-search; structured `FIELD: value` (AND across `&&`, OR across `,`) works on any indexed field.
+no per-field BM25/vector weights any more. Broad (no-`field=`) search targets the `title`
+index by convention when it exists. `query` is always literal text; exact constraints use `filter=` (mapping shorthand or
+typed `F(...)`), never a `FIELD: value` / `&&` grammar inside the query string.
 The default policy indexes only `code`, `title`, and `description` — nothing else — so fold any
 prose you need searched into the `description` column (a METADATA column the policy builds no
 index for is invisible to search however rich its content — see §12). SDMX supplies a custom
@@ -796,12 +798,12 @@ green conformance+offline gate, because only 1 of 17 verbs had a live test.
   returns row 0).
 
 **The recall gate (`catalog_tests/queries.yaml`).** Curate probes per provider:
-`required` exact-`code:` probes + short lexical `title_bm25` probes, `optional`
-`hybrid_title`/`structured_field` probes (long/semantic title probes belong in `optional`
-because embedding recall varies by phrasing, not because the index degrades — title is always
-hybrid now), ending with
+`required` exact-`code` probes (`query: "<id>"`, `field: code`) + short lexical `title_bm25`
+probes, `optional` `hybrid_title` / `metadata_field` probes (long/semantic title probes belong
+in `optional` because embedding recall varies by phrasing, not because the index degrades —
+title is always hybrid now), ending with
 `thresholds: {min_required_recall: 1.0}`. `report.ok = schema_ok AND every required probe's
-expected_code appears in catalog.search(query) top results`. Auto-draft a starting set with
+expected_code appears in catalog.search(query, field=…) top results`. Auto-draft a starting set with
 `validate_catalog.py --write-queries` (samples real entries, emits one probe per indexed field),
 then hand-curate. This is how you prove the catalog covers the data an agent will actually
 search for.
@@ -831,7 +833,7 @@ Per-package `tests/`:
   `-m 'not integration'`); every verb live, real content, `assert_no_secret_leak` with a real
   key; bounded enumerate + fixture-catalog search.
 - Catalog packages also: **`catalog_tests/queries.yaml`** (recall probes) and
-  **`test_build_catalog.py`** (index types + `default_field`).
+  **`test_build_catalog.py`** (index types).
 
 `test_support/` holds the shared `ErrorMappingSuite`, `CANARY_KEY`, `assert_no_secret_leak`,
 `assert_provenance_shape`, `require_env`.
@@ -1135,8 +1137,9 @@ rule, also edit the relevant section above.
   - **The bulk `.series` file is self-describing — title + dimensions + date range in one TSV.**
     Most surveys carry a ready-made `series_title` (no dimension-join needed); a few (SM/JT/PR)
     don't, so compose a searchable title by joining the resolved dimension labels (the sdmx
-    `compose_series_title` fallback). Emit `<dim>_code` + `<dim>_label` per dimension so structured
-    `FIELD: value` search resolves on labels, and derive the tier-1 manifest from those same
+    `compose_series_title` fallback). Emit `<dim>_code` + `<dim>_label` per dimension so
+    `filter=` can pin codes exactly (and labels feed discovery), and derive the tier-1
+    manifest from those same
     entries (no extra fetch). The directory listing's file *size* is a free oracle: gate the
     on-demand build on it so an agent's `*_search` never tries to index a GB-scale microdata file —
     refuse with "construct an id from the manifest and fetch it" instead.
@@ -1532,14 +1535,15 @@ rule, also edit the relevant section above.
     client's documented convention). General rule: when a value contains a sub-delimiter the
     server treats syntactically (`:`/`,`/`;`), verify on the wire whether it must stay literal,
     and don't trust 200-vs-404 alone — **assert the response is actually filtered.**
-  - **One catalog over several products needs codes that self-route, because search returns only
-    `code`/`title`/`score`.** `make_local_search_connector` hard-fixes the search output to those
-    three columns — the `source` METADATA column does *not* reach the agent. So when a catalog
-    feeds N different fetch verbs, the **code shape is the routing channel.** riksbank keeps
-    SWEA/SWESTR ids bare (disjoint, self-identifying) but prefixes the three new families
-    (`monetary_policy/<id>`, `turnover/<market>/<freq>`, `holdings/<dataset>`) — bare MP ids
-    share SWEA's `SED*`/`SEM*`/`SEA*` prefix space, so they'd be ambiguous. Decide the code scheme
-    from the number of distinct fetch verbs the catalog routes to, not just id-uniqueness.
+  - **One catalog over several products needs codes that self-route, or explicit METADATA
+    dispatch columns.** `make_local_search_connector` projects `ColumnRole.METADATA` from the
+    search `OutputSpec` onto each hit (e.g. treasury's `source` / `endpoint` / `field`). When a
+    catalog feeds N different fetch verbs and you prefer not to add those columns, the **code
+    shape is the routing channel.** riksbank keeps SWEA/SWESTR ids bare (disjoint,
+    self-identifying) but prefixes the three new families (`monetary_policy/<id>`,
+    `turnover/<market>/<freq>`, `holdings/<dataset>`) — bare MP ids share SWEA's
+    `SED*`/`SEM*`/`SEA*` prefix space, so they'd be ambiguous. Decide the code scheme from the
+    number of distinct fetch verbs the catalog routes to, not just id-uniqueness.
   - **Forecast/vintage data is a real shape: a series × a vintage (policy round).** Monetary
     Policy fetch takes `series` + optional `policy_round`; with a round it returns one vintage
     (each observation list = realised history to the cutoff + the forecast horizon), without a

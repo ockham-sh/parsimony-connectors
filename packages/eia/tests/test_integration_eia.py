@@ -238,7 +238,8 @@ def test_eia_search_over_bounded_catalog_live(tmp_path: Path) -> None:
 
     assert_provenance_shape(result, expected_source="eia_search", required_param_keys=["query"])
     sdf = result.raw
-    assert list(sdf.columns) == ["code", "title", "score"]
+    assert eia_search.output_spec is not None
+    assert list(sdf.columns) == [c.name for c in eia_search.output_spec.columns]
     assert not sdf.empty, "search over the fixture catalog returned nothing"
     assert sdf.iloc[0]["code"] == "electricity/retail-sales"
 

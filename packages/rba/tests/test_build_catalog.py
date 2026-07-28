@@ -1,9 +1,7 @@
 """Tests for the RBA catalog index configuration.
 
-Pins the discovery-index policy: a BM25 ``code`` index for exact lookups and adaptive
-``title`` / ``description`` indexes, with ``title`` as the default search field. (On a
-small sample the adaptive fields are Hybrid; the real catalog has >1000 unique titles,
-so the live policy degrades title/description to BM25-only — handled in queries.yaml.)
+Pins the role-based discovery-index policy: BM25 ``code``, hybrid ``title`` /
+``description``. Broad search targets ``title`` by convention.
 """
 
 from __future__ import annotations

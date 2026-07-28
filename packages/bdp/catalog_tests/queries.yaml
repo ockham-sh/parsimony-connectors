@@ -4,9 +4,10 @@
 # ``dataset:<domain>:<id>`` stubs + 65 ``domain:<id>`` stubs, built from the
 # paginated BPstat hierarchy crawl and a bilingual ``/series/`` enrichment pass
 # (English title + EN/PT descriptions folded into the indexed ``description``).
-# With >1000 unique titles the adaptive index degrades to BM25-only, so
-# semantic-style title probes stay ``optional`` (the guidebook rule); only exact
-# ``code:`` and short distinctive lexical probes are ``required``.
+# Title/description are always hybrid (role-based policy); exact code probes
+# (literal ``query`` + ``field: code``) and short distinctive lexical probes are
+# ``required``, while longer semantic-style title probes stay ``optional`` because
+# embedding recall varies by phrasing.
 #
 # Series codes are compound ``domain_id:dataset_id:series_id``. Regenerate
 # drafts after a local build:
@@ -18,21 +19,24 @@ catalog_url: hf://parsimony-dev/bdp
 
 queries:
   - id: code_activity_coincident
-    query: "code: 48:aea9d7f70ddf9c6de29feaeba86a9456:12099329"
+    query: "48:aea9d7f70ddf9c6de29feaeba86a9456:12099329"
+    field: code
     expected_code: "48:aea9d7f70ddf9c6de29feaeba86a9456:12099329"
     mode: code
     required: true
     why: "Direct lookup on the indexed compound code (economic-activity coincident indicator)"
 
   - id: code_dataset_stub
-    query: "code: dataset:48:aea9d7f70ddf9c6de29feaeba86a9456"
+    query: "dataset:48:aea9d7f70ddf9c6de29feaeba86a9456"
+    field: code
     expected_code: "dataset:48:aea9d7f70ddf9c6de29feaeba86a9456"
     mode: code
     required: true
     why: "The synthetic dataset stub rows are present and findable by code"
 
   - id: code_domain_stub
-    query: "code: domain:48"
+    query: "domain:48"
+    field: code
     expected_code: "domain:48"
     mode: code
     required: true
@@ -50,7 +54,7 @@ queries:
     expected_code: "48:aea9d7f70ddf9c6de29feaeba86a9456:12099330"
     mode: hybrid_title
     optional: true
-    why: "Semantic-style title probe; ranking may vary on the BM25-only title index"
+    why: "Semantic-style title probe; hybrid ranking may vary by phrasing"
 
 thresholds:
   min_required_recall: 1.0
