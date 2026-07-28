@@ -130,7 +130,7 @@
 ## 6. Output schemas
 
 - Fetch `OutputSpec`: KEY=..., DATA=... (dtype coercion, if any, happens in the connector body, not the schema)
-- Search `OutputSpec`: code/title/score (+ any dispatch metadata the agent needs to route a fetch)
+- Search `OutputSpec`: code/title/score/search_detail (+ any dispatch metadata the agent needs to route a fetch)
 - Compound-code / dispatch notes (how search results map back to a fetch call):
 
 ---
@@ -140,7 +140,7 @@
 - `ErrorMappingSuite` wired (route_url, method, env_key, provider): ___
 - `IntegrationSuite` (live, env-gated) smoke: ___
 - Conformance (`ProviderTestSuite` / `assert_plugin_valid`): ___
-- Catalog probes `catalog_tests/queries.yaml` (modes: code / title_bm25 / hybrid_title / structured_field):
+- Catalog probes `catalog_tests/queries.yaml` (modes: code / title_bm25 / hybrid_title / metadata_field):
 
 ---
 

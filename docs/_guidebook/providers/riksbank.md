@@ -157,7 +157,7 @@ The five products on the `api.riksbank.se` Azure APIM gateway (paths from portal
   family DATA columns (date+value, period+amount, date+balance); native extras (SWESTR trade
   metadata, MP `policy_round`/`forecast_cutoff_date`, turnover facets, holdings ISIN/issuer)
   fold in as additional columns.
-- Search: `code`/`title`/`score`; the `code` shape routes the follow-up fetch.
+- Search: `code`/`title`/`score`/`search_detail`; the `code` shape routes the follow-up fetch.
 
 ## 7. Tests
 

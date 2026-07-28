@@ -3,10 +3,10 @@
 # Single-bundle catalog (namespace ``bdf``): ~41.6k series rows + 45
 # ``dataset:<id>`` stub rows, built from the live ``series`` / ``webstat-datasets``
 # exports. Titles are single-language English (French + breadcrumb fold into the
-# indexed ``description``); with >1000 unique titles the adaptive index degrades
-# to BM25-only, so semantic-style title probes stay ``optional`` (the guidebook
-# rule), and only exact ``code:`` and short distinctive lexical probes are
-# ``required``.
+# indexed ``description``). Title/description are always hybrid (role-based
+# policy); exact code probes (literal ``query`` + ``field: code``) and short
+# distinctive lexical probes are ``required``, while longer semantic-style title
+# probes stay ``optional`` because embedding recall varies by phrasing.
 #
 # Regenerate drafts after a local build:
 #   uv run python scripts/validate_catalog.py --provider bdf \
@@ -17,21 +17,24 @@ catalog_url: hf://parsimony-dev/bdf
 
 queries:
   - id: code_usd_eur_spot
-    query: "code: EXR.M.USD.EUR.SP00.E"
+    query: "EXR.M.USD.EUR.SP00.E"
+    field: code
     expected_code: EXR.M.USD.EUR.SP00.E
     mode: code
     required: true
     why: "Direct lookup on the indexed code field (ECB USD/EUR reference rate)"
 
   - id: code_inflation_expectations
-    query: "code: PAI.M.FR.N.PR._Z.INPR03.TX"
+    query: "PAI.M.FR.N.PR._Z.INPR03.TX"
+    field: code
     expected_code: PAI.M.FR.N.PR._Z.INPR03.TX
     mode: code
     required: true
     why: "Direct lookup on a news-based French inflation-expectations series"
 
   - id: code_dataset_stub
-    query: "code: dataset:EXR"
+    query: "dataset:EXR"
+    field: code
     expected_code: dataset:EXR
     mode: code
     required: true
@@ -49,7 +52,7 @@ queries:
     expected_code: PAI.M.FR.N.PR._Z.INPR03.TX
     mode: hybrid_title
     optional: true
-    why: "Semantic-style title probe; ranking may vary on the BM25-only title index"
+    why: "Semantic-style title probe; hybrid ranking may vary by phrasing"
 
 thresholds:
   min_required_recall: 1.0

@@ -204,8 +204,10 @@ archetype E is *structural*, not a shortcut.
   DATA=`date`(datetime)/`value`(numeric)/`series_key`.
 - **Enumerate `RBA_ENUMERATE_OUTPUT`:** KEY=`code` (ns rba) + TITLE=`title` +
   METADATA(description, source, table_id, series_id, category, frequency, unit).
-- **Search `RBA_SEARCH_OUTPUT`:** `code`(KEY)/`title`(TITLE)/`score`(DATA). The search
-  description tells the agent to pass the part before `#` to `rba_fetch`.
+- **Search `RBA_SEARCH_OUTPUT`:** KEY `code`, TITLE `title`, METADATA including
+  `table_id` / `series_id` / `description` / …, plus factory-appended `score`/`search_detail`.
+  Dispatch: pass the returned `table_id` column to `rba_fetch` (compound `code` is catalog
+  identity).
 
 ---
 
@@ -218,7 +220,7 @@ archetype E is *structural*, not a shortcut.
   dynamic XLSX exclusivity, per-fetch error swallowing, bounding seam, status mapping.
 - `test_public_surface.py` (new) — `__all__`, exact `CONNECTORS` count, internal seams
   not re-exported as public connectors.
-- `test_build_catalog.py` (new) — index types + `default_field`.
+- `test_build_catalog.py` (new) — index types.
 - `test_integration_rba.py` — live (curl_cffi), bounded enumerate + fixture-catalog
   search + the new live XLSX-exclusive + xls-hist fetches.
 - `catalog_tests/queries.yaml` (new) — recall probes (fixes a dangling registry ref).

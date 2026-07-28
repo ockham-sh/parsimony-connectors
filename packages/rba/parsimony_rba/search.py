@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
+from parsimony.catalog.search import (
+    CatalogSearchParams,
+    make_local_search_connector,
+)
 from parsimony.result import Column, ColumnRole, OutputSpec
 
 from parsimony_rba.catalog_build import build_rba_catalog
@@ -15,6 +18,7 @@ RBA_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="rba"),
         Column(name="title", role=ColumnRole.TITLE),
+        Column(name="description", role=ColumnRole.METADATA),
         Column(name="table_id", role=ColumnRole.METADATA),
         Column(name="series_id", role=ColumnRole.METADATA),
         Column(name="frequency", role=ColumnRole.METADATA),
@@ -33,6 +37,5 @@ rba_search = make_local_search_connector(
         "Search the Reserve Bank of Australia (RBA) statistical catalog. "
         "Dispatch: rba_fetch(table_id=table_id); filter result by series_id column."
     ),
-    output_columns=RBA_SEARCH_OUTPUT.columns,
-    metadata_columns=("table_id", "series_id", "frequency", "category", "unit"),
+    output=RBA_SEARCH_OUTPUT,
 )

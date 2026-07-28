@@ -190,8 +190,9 @@
   (`snb_fetch` parses it with `pd.to_datetime` before returning — `OutputSpec` never coerces).
   Dimension code columns and `Value` are additional columns `snb_fetch` returns but does not
   declare on the schema.
-- **Search `OutputSpec`:** `code`/`title`/`score`. Agent splits `code` on `#` and passes
-  the cube_id part to `snb_fetch`.
+- **Search `OutputSpec`:** KEY `code`, TITLE `title`, METADATA including `cube_id` /
+  `series_key` / `description` / …, plus factory-appended `score`/`search_detail`. Dispatch:
+  pass the returned `cube_id` column to `snb_fetch` (compound `code` is catalog identity).
 
 ## 7. Tests
 
@@ -206,8 +207,8 @@
   to a 2–3 cube slice + request counter), sitemap live count sanity, fixture-catalog search.
 - `test_public_surface.py` — `__all__ == ["CONNECTORS","load"]`, count 3, internals not
   re-exported.
-- `test_build_catalog.py` — index types + `default_field` + namespace/dispatch metadata.
-- `catalog_tests/queries.yaml` — `code:` required probes (publication + warehouse) +
+- `test_build_catalog.py` — index types + namespace/dispatch metadata.
+- `catalog_tests/queries.yaml` — required code probes (literal query + field: code) (publication + warehouse) +
   optional title probes.
 
 ---

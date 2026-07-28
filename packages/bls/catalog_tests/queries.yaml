@@ -1,14 +1,14 @@
-# Curated search probes for the two-tier BLS catalogs (structured search first).
+# Curated search probes for the two-tier BLS catalogs.
 #
 # Workflow:
 #   bls_surveys_search(query=...)          -> namespace bls_surveys (tier 1)
 #   -> bls_series_search(survey='CU', ...) -> namespace bls_series_cu (tier 2)
 #   -> bls_fetch(series_id=...)
 #
-# The surveys catalog is small (full title/hybrid recall). Per-survey series
-# catalogs are large (~thousands of titles) so the adaptive index degrades to
-# BM25-only: exact ``code:`` and structured ``FIELD: value`` clauses are
-# ``required``; semantic-style title probes stay ``optional`` (guidebook rule).
+# Both tiers use role-based indexes (title always hybrid). A probe names the
+# index it scores with ``field:``; the ``query`` is always literal text.
+# Exact-identifier probes are ``required``; longer semantic-style title probes
+# stay ``optional`` because embedding recall varies by phrasing.
 #
 # Validate against a local build:
 #   uv run python scripts/build_catalog.py --survey CU --save-root /tmp/bls
@@ -19,10 +19,11 @@ catalog_root: hf://parsimony-dev/bls
 
 queries:
   - id: survey_code_cu
-    query: "code: CU"
+    query: "CU"
+    field: code
     namespace: bls_surveys
     expected_code: CU
-    mode: structured_field
+    mode: code
     required: true
     why: "Tier-1: a survey is findable by its abbreviation"
 
@@ -35,7 +36,8 @@ queries:
     why: "Tier-1: survey discoverable by name"
 
   - id: series_code_cu_allitems
-    query: "code: CUUR0000SA0"
+    query: "CUUR0000SA0"
+    field: code
     namespace: bls_series_cu
     expected_code: CUUR0000SA0
     mode: code

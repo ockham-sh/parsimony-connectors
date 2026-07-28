@@ -165,9 +165,7 @@ def test_boc_fetch_maps_unknown_series_404_to_empty_data() -> None:
 @respx.mock
 def test_boc_fetch_keeps_provider_error_for_upstream_failure() -> None:
     """Only 404 is remapped — a real upstream failure stays a ProviderError."""
-    respx.get("https://www.bankofcanada.ca/valet/observations/FXUSDCAD/json").mock(
-        return_value=httpx.Response(503)
-    )
+    respx.get("https://www.bankofcanada.ca/valet/observations/FXUSDCAD/json").mock(return_value=httpx.Response(503))
 
     with pytest.raises(ProviderError):
         boc_fetch(series_name="FXUSDCAD")

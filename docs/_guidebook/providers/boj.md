@@ -201,8 +201,8 @@ Date params follow the series frequency: `YYYY` (annual/fiscal), `YYYYHH` (half)
 - Enumerate (`BOJ_ENUMERATE_OUTPUT`): KEY=`code` (ns `boj`), TITLE=`title`, METADATA=
   `description`/`db`/`db_title`/`entity_type`/`frequency`/`unit`/`category`/`breadcrumb`/
   `start_date`/`end_date`/`last_update`/`source`.
-- Databases search: `db`(KEY)/`title`(TITLE)/`score`(DATA)/`category`+`series_namespace`(METADATA).
-- Series search: `code`(KEY ns `boj`)/`title`(TITLE)/`score`(DATA)/`db`(METADATA).
+- Databases search: `db`(KEY)/`title`(TITLE)/`score`+`search_detail`/`category`+`series_namespace`(METADATA).
+- Series search: `code`(KEY ns `boj`)/`title`(TITLE)/`score`+`search_detail`/`db`(METADATA).
 
 ---
 

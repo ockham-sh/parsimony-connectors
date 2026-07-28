@@ -268,7 +268,8 @@ def test_riksbank_search_over_bounded_catalog_live(tmp_path: Path) -> None:
 
     fx = riksbank_search(query="euro Swedish krona exchange rate", limit=5, catalog_url=str(out_dir))
     assert_provenance_shape(fx, expected_source="riksbank_search", required_param_keys=["query"])
-    assert list(fx.raw.columns) == ["code", "title", "source", "coverage", "score", "matched"]
+    assert riksbank_search.output_spec is not None
+    assert list(fx.raw.columns) == [c.name for c in riksbank_search.output_spec.columns]
     assert fx.raw.iloc[0]["code"] == "SEKEURPMI"
 
     # Ranking discriminates: each family's flagship query surfaces its own code.

@@ -158,7 +158,7 @@ Missing/suppressed observations come back as `{"v": ""}` (or the key absent), no
   a concurrency-capped `/groups/{name}/json` fan-out for series→group membership **and** group
   liveness (404 ⇒ prune the group row).
 - Index policy: `discovery_indexes()` — `code`→BM25, `title`/`description`→hybrid (BM25 +
-  vector). `default_field="title"`.
+  vector). 
 - Multi-bundle? No — one flat `boc` catalog (~18k rows fits comfortably).
 - Catalog URL: `hf://parsimony-dev/boc` · env override `PARSIMONY_BOC_CATALOG_URL`.
 
@@ -181,7 +181,7 @@ Missing/suppressed observations come back as `{"v": ""}` (or the key absent), no
   DATA=`date`(datetime)+`value`(numeric).
 - Enumerate: KEY=`series_name` (ns `boc`), TITLE=`title`,
   METADATA=`description`/`source`/`entity_type`/`group`/`group_label`.
-- Search: `code`(KEY ns `boc`)/`title`(TITLE)/`score`(DATA). A `group:`-prefixed `code`
+- Search: `code`(KEY ns `boc`)/`title`(TITLE)/`score`/`search_detail`. A `group:`-prefixed `code`
   routes to `boc_fetch(series_name="group:…")`; a bare `code` routes to
   `boc_fetch(series_name="…")`.
 
@@ -195,7 +195,7 @@ Missing/suppressed observations come back as `{"v": ""}` (or the key absent), no
   `enumerate_boc` (monkeypatched `_list_groups` → 2 groups + request counter), `boc_search`
   over a fixture catalog in `tmp_path`.
 - Conformance: `assert_plugin_valid(parsimony_boc)`.
-- Catalog probes `catalog_tests/queries.yaml`: `code:` probes (FXUSDCAD, group:FX_RATES_DAILY)
+- Catalog probes `catalog_tests/queries.yaml`: code probes (literal query + field: code) (FXUSDCAD, group:FX_RATES_DAILY)
   + short `title_bm25` probes (exchange rate, bond yield).
 
 ---

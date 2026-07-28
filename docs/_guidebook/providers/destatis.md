@@ -212,7 +212,7 @@ Base URL: `https://genesis.destatis.de/genesis/api/rest`. Anonymous; `Accept: ap
 - Enumerate (`DESTATIS_ENUMERATE_OUTPUT`): KEY=`code` (ns `destatis`), TITLE=`title`,
   METADATA=`description`/`entity_type`/`parent_statistic`/`subject_area`/`title_de`/`title_en`/
   `variable_codes`/`variable_names_en`/`source`.
-- Search (`DESTATIS_SEARCH_OUTPUT`): `code`(KEY ns `destatis`)/`title`(TITLE)/`score`(DATA).
+- Search (`DESTATIS_SEARCH_OUTPUT`): `code`(KEY ns `destatis`)/`title`(TITLE)/`score`/`search_detail`.
   A search hit's `code` feeds `destatis_fetch(name=code)` directly (table rows) — statistic rows
   are navigational (their code is a parent, not directly fetchable).
 

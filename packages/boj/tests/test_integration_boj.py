@@ -216,7 +216,8 @@ def test_boj_databases_search_over_fixture_catalog_live(tmp_path: Path) -> None:
 
     assert_provenance_shape(result, expected_source="boj_databases_search", required_param_keys=["query"])
     df = result.raw
-    assert list(df.columns) == ["db", "title", "category", "series_namespace", "coverage", "score", "matched"]
+    assert boj_databases_search.output_spec is not None
+    assert list(df.columns) == [c.name for c in boj_databases_search.output_spec.columns]
     assert not df.empty, "databases search returned nothing"
     # The single bounded DB is the top hit and dispatch hints are populated.
     assert df.iloc[0]["db"] == "FM01"
@@ -232,7 +233,8 @@ def test_boj_series_search_over_fixture_catalog_live(tmp_path: Path) -> None:
 
     assert_provenance_shape(result, expected_source="boj_series_search", required_param_keys=["query"])
     df = result.raw
-    assert list(df.columns) == ["code", "title", "db", "coverage", "score", "matched"]
+    assert boj_series_search.output_spec is not None
+    assert list(df.columns) == [c.name for c in boj_series_search.output_spec.columns]
     assert not df.empty, "series search returned nothing"
     assert (df["db"] == "FM01").all()
     # Codes returned are real BoJ series codes usable by boj_fetch.

@@ -20,10 +20,7 @@ from parsimony_treasury import (
 class TestTreasuryFetchCredentialDeclaration(CredentialDeclarationSuite):
     connector = treasury_fetch
     call_kwargs = {"endpoint": "v2/accounting/od/debt_to_penny"}
-    route_url = (
-        "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/"
-        "v2/accounting/od/debt_to_penny"
-    )
+    route_url = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/debt_to_penny"
 
 
 class TestTreasuryRatesFetchCredentialDeclaration(CredentialDeclarationSuite):

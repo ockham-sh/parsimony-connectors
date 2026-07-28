@@ -101,8 +101,9 @@ print(hits.frame[["id", "title"]].head())
 # UNRATE  Unemployment Rate
 # ...
 
-# 2. Fetch observations by series_id.
-result = connectors["fred_fetch"](series_id="UNRATE")
+# 2. Fetch observations — paste search's `id` into `series_id=`.
+series_id = hits.frame.iloc[0]["id"]
+result = connectors["fred_fetch"](series_id=series_id)
 print(result.frame.head())
 #   series_id              title units_short  ... date        value
 # 0    UNRATE  Unemployment Rate     Percent  ... 1948-01-01    3.4
@@ -149,8 +150,10 @@ than stuck. Parsimony installs no log handler of its own, so turn them on with
 `logging.basicConfig(level=logging.INFO)`, or run the CLI with `--verbose`, if
 you would rather watch the work than wait it out.
 
-The flow is the same shape as native search, but `treasury_search` returns a
-`code` column you feed back into a fetch connector:
+The flow is the same shape as native search. `query=` is literal text; exact
+constraints go in `filter=` (e.g. `filter={"source": "fiscal_data"}`). Fetch args
+come from METADATA columns on the hit (`endpoint`, `field`, `source`) — not by
+parsing the compound `code`:
 
 ```python
 from parsimony import discover
@@ -159,12 +162,11 @@ connectors = discover.load("treasury")
 
 # 1. Search the catalog. No API key needed.
 hits = connectors["treasury_search"](query="federal debt outstanding")
-print(hits.frame[["code", "title", "endpoint"]].head())
+print(hits.frame[["code", "title", "endpoint", "source"]].head())
+row = hits.frame.iloc[0]
 
-# 2. Fetch by endpoint, using a code/endpoint surfaced by the search.
-result = connectors["treasury_fetch"](
-    endpoint="v2/accounting/od/debt_to_penny",
-)
+# 2. Dispatch from METADATA: fiscal_data → treasury_fetch; treasury_rates → treasury_rates_fetch.
+result = connectors["treasury_fetch"](endpoint=row["endpoint"])
 print(result.frame.head())
 ```
 

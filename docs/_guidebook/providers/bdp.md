@@ -106,7 +106,7 @@ There is **no** bulk-download / export / FTP surface and **no** "list all series
   Split entity types by the KEY prefix or the `entity_type` column.
 - Entity shape: KEY=`code` (ns `bdp`), TITLE=`title` (EN label), METADATA=[`description` (folded EN + PT rich descriptions + domain/dataset context), `entity_type`, `domain_id`, `domain_name`, `dataset_id`, `dataset_label`, `title_pt` (PT label), `short_label`, `num_series`, `last_update`, `source`].
 - **Enumeration → enrichment split:** the crawl's job is purely **ID discovery** (it yields `id` + EN `label` + the dataset's declared count for the self-check). The rich, search-bearing text comes from a separate **`/series/?series_ids=` enrichment** in batches of 100, in **EN and PT** — the same endpoint returns a far richer `description` than the crawl's terse `label` (e.g. *"Assets of insurance corporations and pension funds in loans of the financial sector - consolidated data - transactions for the year ending the quarter in millions of euros"* vs the label *"Assets of insurers and pensions in loans of the financial sector-accum transactions"*). EN description is the primary search signal; PT description folds in for Portuguese recall (the BM25 analogue of BdF's EN+FR fold). Best-effort, batched, retried, split-on-failure (the bde enrichment pattern).
-- Index policy: `discovery_indexes()` — `code`=BM25, `title`/`description`=hybrid (BM25 + vector; the default embedder is not multilingual, so no cross-language bridge — hence the bilingual `description` text). `default_field="title"`.
+- Index policy: `discovery_indexes()` — `code`=BM25, `title`/`description`=hybrid (BM25 + vector; the default embedder is not multilingual, so no cross-language bridge — hence the bilingual `description` text). 
 - Multi-bundle? No — one `bdp` bundle (~72 K series + 212 dataset stubs + 65 domain stubs) is tractable.
 - Catalog URL: `hf://parsimony-dev/bdp` · env override `PARSIMONY_BDP_CATALOG_URL`.
 
@@ -123,7 +123,7 @@ There is **no** bulk-download / export / FTP surface and **no** "list all series
 ## 6. Output schemas
 
 - `bdp_fetch` → KEY `series_id` (param_key `dataset_id`, ns bdp) + TITLE `title` + DATA `date`(datetime), `value`(numeric). One row per (series, observation); `series_ids` filters, `start_date`/`end_date`/`lang` bound. Dispatch: `bdp_search` returns the compound `domain:dataset:series` code; the agent splits it and calls `bdp_fetch(domain_id, dataset_id, series_ids=series)`.
-- `bdp_search` → KEY `code`(ns bdp) + TITLE `title` + DATA `score`.
+- `bdp_search` → KEY `code`(ns bdp) + TITLE `title` + factory-appended `score`/`search_detail`.
 - `enumerate_bdp` → KEY `code`(ns bdp) + TITLE `title` + 10 METADATA (see §4).
 
 ## 7. Tests
@@ -131,8 +131,8 @@ There is **no** bulk-download / export / FTP surface and **no** "list all series
 - `test_bdp_connectors.py` — offline respx: fetch (JSON-stat parse, multi-series melt, None-param drop, EmptyData, ParseError on non-dict, 404→ProviderError, invalid dataset_id/lang); enumerate bounded crawl via the `_list_domains` seam (exact schema, domain/dataset/series rows, EN+PT folded, dataset-list pagination followed, page-cap), empty-on-domains-failure.
 - `test_error_mapping_bdp.py` — `ErrorMappingSuite` (keyless, `env_key=None`), route `domains/11/datasets/ABC/`.
 - `test_integration_bdp.py` — live (keyless): bounded single-domain crawl via the `_list_domains` seam with a request counter asserting the bound; keyed fetch of the domain-48 dataset; fixture-catalog search.
-- `test_build_catalog.py` — index types + `default_field`.
-- `catalog_tests/queries.yaml` — recall gate (exact `code:` + distinctive `title_bm25` required; semantic `hybrid_title` optional).
+- `test_build_catalog.py` — index types.
+- `catalog_tests/queries.yaml` — recall gate (exact `field: code` + distinctive `title_bm25` required; semantic `hybrid_title` optional).
 
 ---
 
@@ -177,4 +177,4 @@ clean. Signed: autonomous pass, 2026-06-08.
 - [x] **Deepest-pagination crawl (domain 1, 16,644 series) confirmed.** Live crawl recovered 16,644/16,644 unique series across 167 pages, 0 mismatch. Both stress cases (most-datasets + deepest-pagination) now pass exactly.
 - [ ] **Build + publish the snapshot.** Enumeration completeness is proven; the remaining maintainer step is the heavy one-time build: full crawl + EN/PT enrichment of all 72 K series → embed → `validate_catalog.py` (expect `required_recall 1.00`) → push to `hf://parsimony-dev/bdp`. Not run in this pass (heavy enrichment fan-out + embed). Existing snapshot (if any) is stale/pre-fix.
 - [ ] **Drop EN enrichment to halve build calls?** EN comes from both the crawl `label` and the `/series/` EN `description`; the latter is richer but the marginal recall gain over the label is modest. If the ~720 EN-enrichment calls become a throttling problem, fall back to crawl-label-only EN and keep PT enrichment.
-- [ ] **Per-series structured `frequency` column.** Deliberately dropped (frequency is a dimension, so it's per-series not per-dataset, and lives in the prose `description` in both languages). Revisit only if `FIELD:value` frequency filtering is requested — it would need parsing each series' `dimension_category` against the domain's Periodicity dimension.
+- [ ] **Per-series structured `frequency` column.** Deliberately dropped (frequency is a dimension, so it's per-series not per-dataset, and lives in the prose `description` in both languages). Revisit only if exact `filter=` on frequency is requested — it would need parsing each series' `dimension_category` against the domain's Periodicity dimension.

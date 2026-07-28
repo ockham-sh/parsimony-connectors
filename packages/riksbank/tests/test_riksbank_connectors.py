@@ -69,6 +69,8 @@ def test_enumerate_output_declares_code_description_and_source_columns() -> None
     prose and ``source`` routes a hit to the right fetch verb."""
     by_role: dict[ColumnRole, list[str]] = {}
     for col in RIKSBANK_ENUMERATE_OUTPUT.columns:
+        if col.role is None:
+            continue
         by_role.setdefault(col.role, []).append(col.name)
     assert by_role[ColumnRole.KEY] == ["code"]
     assert "description" in by_role[ColumnRole.METADATA]

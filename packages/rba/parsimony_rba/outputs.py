@@ -10,8 +10,8 @@ RBA_ENUMERATE_OUTPUT = OutputSpec(
         # catalog entry. RBA reuses some series IDs across closely-related tables
         # (e.g. ``b13-1-2-africa-and-middle-east`` vs ``b13-2-1-africa-and-middle-east``
         # share ~225 ids each); a bare ``series_id`` KEY would silently dedup ~5% of
-        # entries. Mirrors Treasury's ``{endpoint}#{field}`` precedent. Agents split
-        # on ``#`` to recover the fetchable ``table_id`` and the row's ``series_key``.
+        # entries. Mirrors Treasury's ``{endpoint}#{field}`` precedent. Fetch args come
+        # from METADATA columns (``table_id``, ``series_id``), not by parsing the KEY.
         Column(name="code", role=ColumnRole.KEY, namespace="rba"),
         Column(name="title", role=ColumnRole.TITLE),
         # ``description`` is the CSV/sheet header's own per-series descriptive text —

@@ -8,7 +8,8 @@ catalog_url: hf://parsimony-dev/<provider>
 
 queries:
   - id: code_example
-    query: "code: <SAMPLE_CODE>"
+    query: "<SAMPLE_CODE>"
+    field: code
     expected_code: "<SAMPLE_CODE>"
     mode: code
     required: true

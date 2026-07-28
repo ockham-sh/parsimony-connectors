@@ -19,7 +19,7 @@ Live observation fetches hit the agency endpoint inside a spawned subprocess. Ma
 
 | Name | Kind | Description |
 |---|---|---|
-| `sdmx_datasets_search` | connector | Structured search over per-agency dataset catalogs (agency optional — fans out across all agencies). |
+| `sdmx_datasets_search` | connector | Search one agency's dataset catalog (`agency` required: ECB, ESTAT, IMF_DATA, WB_WDI). |
 | `sdmx_series_search` | connector | Search populated per-flow series catalogs with dimension filters and title search. |
 | `sdmx_dimension_search` | connector | Search or enumerate one flow dimension's values (`code`, `label`) from its catalog. |
 | `sdmx_fetch` | connector | Live observation fetch for a series key against the agency endpoint. |
@@ -46,7 +46,8 @@ python -c "from parsimony import discover; print([p.name for p in discover.iter_
 from parsimony_sdmx import CONNECTORS
 
 result = CONNECTORS["sdmx_fetch"](
-    dataset_ref="ECB-YC",
+    agency="ECB",
+    dataset_id="YC",
     series_ref="B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y",
 )
 print(result.raw.head())
@@ -56,6 +57,7 @@ For multi-plugin composition:
 
 ```python
 from parsimony import discover
+
 connectors = discover.load_all()
 ```
 
@@ -112,11 +114,22 @@ Structure fetches are bounded (~2–15 s per flow) and fully parallelizable. Ser
 
 ## Expected agent workflow (dataset → series → fetch)
 
-Agents usually navigate in three steps:
+Agents usually navigate in three steps. `query` is always **literal text** (no
+`field: value` / `&&` grammar). Anything you want enforced exactly goes in `filter=`.
 
-1. **`sdmx_datasets_search(query=..., agency=...)`** — find the right dataflow. *Agency is optional*; omit it to search across all agency dataset catalogs. Read the returned **`dimensions`** list (the axes the flow breaks down by, in key order).
-2. **`sdmx_series_search(agency=..., dataset_id=..., query=...)`** — search populated series keys. Use `{dimension}_label` for semantic resolution, `{dimension}_code` for exact filters, and `&&` to combine clauses. Need a dimension's valid codes? **`sdmx_dimension_search(agency=..., dataset_id=..., dimension=...)`** searches or enumerates them.
-3. **`sdmx_fetch(dataset_ref=..., series_ref=...)`** — live observation fetch. On empty/too-broad results, loop back to step 2 with more filters.
+1. **`sdmx_datasets_search(query=..., agency=...)`** — find the right dataflow in
+   **one** agency catalog (`sdmx_datasets_<agency>`). `agency` is required
+   (`ECB`, `ESTAT`, `IMF_DATA`, `WB_WDI`). If the source is unknown, call once per
+   agency and compare titles — there is no cross-agency merge (each catalog has
+   its own index/score scale). Read the returned **`dimensions`** list (axes in
+   key order).
+2. **`sdmx_series_search(agency=..., dataset_id=..., query=..., filter=...)`** —
+   shortlist with free-text `query=` (ranks `{dimension}_label` fields), then pin
+   contested dimensions with exact `filter=` on `{dimension}_code`. Resolve unknown
+   codes/labels with **`sdmx_dimension_search(agency=..., dataset_id=..., dimension=...)`**.
+3. **`sdmx_fetch(agency=..., dataset_id=..., series_ref=...)`** — live observation
+   fetch. Paste the same `agency` / `dataset_id` pair and the series `key` as
+   `series_ref`. On empty/too-broad results, loop back to step 2 with a tighter `filter=`.
 
 Only published flows are searchable. A flow with no series catalog hard-errors ("not published; ask the maintainers to build it") — there is no live fallback.
 
@@ -129,22 +142,28 @@ c = load()
 
 # 1. Find the dataset — inspect the candidates, then take the top match
 ds = c["sdmx_datasets_search"](query="unemployment rate monthly", agency="ESTAT", limit=5)
-print(ds.raw[["dataset_id", "title", "score"]])
+print(ds.raw[["agency", "dataset_id", "title", "score"]])
 row = ds.raw.iloc[0]
-dataset_id = row["dataset_id"]      # thread this into steps 2 and 3
-dimensions = row["dimensions"]      # axes this flow breaks down by, in key order
+agency = row["agency"]
+dataset_id = row["dataset_id"]  # thread both into steps 2 and 3
+dimensions = row["dimensions"]  # axes this flow breaks down by, in key order
 
-# 2. Search populated combinations using DSD field names
+# 2. Shortlist with literal query text, pin exact dimension codes with filter=
 series = c["sdmx_series_search"](
-    agency="ESTAT",
+    agency=agency,
     dataset_id=dataset_id,
-    query="geo_label: Germany && freq_code: M",
+    query="Germany unemployment",
+    filter={"geo_code": "DE", "freq_code": "M"},
     limit=10,
 )
 print(series.raw[["key", "title"]].head())
 
 # 3. Fetch observations for the chosen series (paste the key straight in)
-obs = c["sdmx_fetch"](dataset_ref=f"ESTAT-{dataset_id}", series_ref=series.raw.iloc[0]["key"])
+obs = c["sdmx_fetch"](
+    agency=agency,
+    dataset_id=dataset_id,
+    series_ref=series.raw.iloc[0]["key"],
+)
 print(obs.raw.head())
 ```
 
@@ -156,7 +175,8 @@ Override the catalog root for local dev: `PARSIMONY_SDMX_CATALOG_URL=file:///tmp
 from parsimony.catalog import Catalog
 
 datasets = Catalog.load("hf://parsimony-dev/sdmx/sdmx_datasets_ecb")
-flows = datasets.search("code: ECB|YC", limit=3)
+# query is literal; name the index with field= (storage code is '{agency}|{dataset_id}')
+flows = datasets.search("ECB|YC", field="code", limit=3)
 print("datasets", flows[0].code, flows[0].title[:80])
 
 series = Catalog.load("hf://parsimony-dev/sdmx/sdmx_series_ecb_yc")

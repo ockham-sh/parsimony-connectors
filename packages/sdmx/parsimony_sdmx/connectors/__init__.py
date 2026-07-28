@@ -11,7 +11,7 @@ uploads an ``hf://`` snapshot.
 
 The plugin surfaces:
 
-- :func:`sdmx_datasets_search` — discover flows across agency dataset catalogs.
+- :func:`sdmx_datasets_search` — discover flows in one agency dataset catalog.
 - :func:`sdmx_series_search` — columnar per-flow series search (catalog-backed).
 - :func:`sdmx_dimension_search` — a flow dimension's values (catalog-backed).
 - :func:`sdmx_fetch` — live SDMX retrieval.

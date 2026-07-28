@@ -12,7 +12,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 |---|---|---|
 | `boc_fetch` | connector | Fetch one or more series by name (e.g. `FXUSDCAD,FXEURCAD`) or a whole panel by group (e.g. `group:FX_RATES_DAILY`). Reaches the **entire** universe by name. |
 | `enumerate_boc` | enumerator | Catalog feed: one row per series (~15.6k) and one per live group (~2.4k), from Valet's list endpoints plus a per-group membership fan-out. |
-| `boc_search` | connector | Search the published BoC catalog (lexical title or `code:`/structured). Pass returned codes to `boc_fetch(series_name=...)`. |
+| `boc_search` | connector | Search the published BoC catalog (literal `query=`; exact ids via `filter=`). Pass returned codes to `boc_fetch(series_name=...)`. |
 
 ## Discovery model
 
@@ -67,7 +67,7 @@ from parsimony_boc import CONNECTORS
 
 # find a series (or a whole panel) in the catalog
 hits = CONNECTORS["boc_search"](query="US dollar Canadian dollar exchange rate")
-code = hits.raw.iloc[0]["code"]            # e.g. "FXUSDCAD" or "group:FX_RATES_DAILY"
+code = hits.raw.iloc[0]["code"]  # e.g. "FXUSDCAD" or "group:FX_RATES_DAILY"
 # fetch observations
 result = CONNECTORS["boc_fetch"](series_name=code, start_date="2024-01-01")
 print(result.raw.head())
@@ -77,6 +77,7 @@ For multi-plugin composition (autoloads everything installed):
 
 ```python
 from parsimony import discover
+
 connectors = discover.load_all()
 ```
 

@@ -17,6 +17,11 @@ class CatalogQuery:
     query: str
     expected_code: str
     mode: str
+    #: The index to score, when the probe targets a specific field. ``None`` means
+    #: the catalog's default broad field. A probe says which field it means rather
+    #: than encoding it into *query*, because *query* is literal text: a
+    #: ``"field: value"`` string would be matched as that punctuation, not scoped.
+    field: str | None = None
     required: bool = True
     optional: bool = False
     why: str = ""
@@ -46,6 +51,7 @@ def _query_from_raw(raw: dict[str, Any]) -> CatalogQuery:
         query=str(raw["query"]),
         expected_code=str(raw.get("expected_code") or raw.get("expected", "")),
         mode=str(raw.get("mode", "title_bm25")),
+        field=raw.get("field"),
         required=required,
         optional=optional,
         why=str(raw.get("why", "")),
@@ -69,7 +75,7 @@ def load_queries_file(path: Path) -> CatalogQuerySet:
         merged: list[dict[str, Any]] = []
         for key in slices:
             for item in data.get(key, []) or []:
-                mode = "structured_field" if key == "series_dimension_label" else "hybrid_title"
+                mode = "dimension_label" if key == "series_dimension_label" else "hybrid_title"
                 merged.append(
                     {
                         "id": item["id"],
@@ -77,6 +83,7 @@ def load_queries_file(path: Path) -> CatalogQuerySet:
                         "expected_code": item["expected"],
                         "namespace": item.get("namespace"),
                         "mode": mode,
+                        "field": item.get("field"),
                         "required": not bool(item.get("optional")),
                         "optional": bool(item.get("optional")),
                         "why": item.get("notes", ""),

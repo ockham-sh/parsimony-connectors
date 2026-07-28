@@ -5,9 +5,10 @@ from __future__ import annotations
 from parsimony.result import Column, ColumnRole, OutputSpec
 
 # Compound code ``{endpoint}#{field}`` so every addressable Fiscal Data measure has
-# a unique catalog entry; agents split on ``#`` to recover the fetchable endpoint and
-# the column to read off the row. ODM rate-feed rows use ``home/{feed}#{column}`` (the
-# ``home/`` prefix + the ``source`` column route a search hit to the right fetch verb).
+# a unique catalog entry. Fetch args come from METADATA columns (``endpoint``,
+# ``field``, ``source``), not by parsing the KEY. ODM rate-feed rows use
+# ``home/{feed}#{column}`` (the ``home/`` prefix + the ``source`` column route a
+# search hit to the right fetch verb).
 TREASURY_ENUMERATE_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="treasury"),

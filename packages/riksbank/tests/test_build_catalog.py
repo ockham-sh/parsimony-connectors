@@ -1,8 +1,8 @@
 """Tests for the Riksbank catalog index configuration + cross-family routing metadata.
 
-Pins the discovery-index policy (a BM25 ``code`` index for exact lookups, adaptive
-``title`` / ``description`` indexes, ``title`` the default field) and checks that the
-``source`` dispatch column survives onto each entity so an agent can route a search hit
+Pins the role-based discovery-index policy (BM25 ``code``, hybrid ``title`` /
+``description``; broad search targets ``title``) and checks that the ``source``
+dispatch column survives onto each entity so an agent can route a search hit
 back to the right fetch verb across all five families.
 """
 

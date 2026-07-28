@@ -18,7 +18,7 @@ monorepo. Distributed standalone on PyPI as `parsimony-riksbank`.
 | `riksbank_turnover_fetch` | connector | Fetch aggregated turnover for a market (`fi`/`fx`/`ird`) at a frequency (`daily`/`monthly`). |
 | `riksbank_holdings_fetch` | connector | Fetch the Riksbank's securities holdings (`swedish_securities` per-ISIN, or `swedish_securities_aggregated`). |
 | `enumerate_riksbank` | enumerator | Enumerate every addressable unit across all five products for catalog indexing. |
-| `riksbank_search` | connector | Semantic-search the published `riksbank` catalog and return matching `code` + `title` + `score`. |
+| `riksbank_search` | connector | Semantic-search the published `riksbank` catalog and return matching `code` + `title` + `score`/`search_detail`. |
 
 ## Install
 

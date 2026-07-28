@@ -1,9 +1,3 @@
-# Changelog — parsimony-bls
-
-All notable changes to `parsimony-bls` will be documented in this file. The
-format is based on [Keep a Changelog](https://keepachangelog.com/) and
-this project adheres to [Semantic Versioning](https://semver.org/).
-
 ## [Unreleased]
 
 ### Added
@@ -11,13 +5,23 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 - Credential-declaration conformance tests (`CredentialDeclarationSuite`) for the
   HTTP verbs `bls_fetch` and `enumerate_bls_surveys`, proving BLS's optional-key
   posture: no `requires=` fast-fail, and a bound `api_key` reaches the request.
-- The search connectors now end with the uniform ranking trio — `coverage`,
-  `score`, `matched` (core's shared column definitions): coverage is the
-  provable fraction of the query, score the fuzzy similarity, matched the
-  evidence origin (`lexical` / `semantic` / `both`). An all-`semantic` result
-  page means nothing lexically real matched: rephrase the query.
+- The search connectors now end with the uniform ranking pair — `score`,
+  `search_detail` (core's shared column definitions): score is query-relative
+  relevance in `(0, 1]`; `search_detail` is canonical JSON evidence for why a
+  row ranked (hidden from `to_llm()`). Filter-only reads leave both null.
 
 ### Changed
+
+- **`bls_fetch` year window defaults.** `start_year` / `end_year` are optional and
+  default to the most recent window that fits the BLS per-call cap (~10y unkeyed /
+  ~20y keyed). `.describe()` documents each param via `Field(description=…)`.
+  Explicit spans wider than the cap still raise `InvalidParameterError`.
+
+- **`bls_series_search` filter docs + validation.** Docstring tells callers to use
+  `*_code` fields for codes (e.g. `seasonal_code=S`); bare dim names filter
+  labels. Unknown filter keys and code-shaped values on bare dim keys raise
+  `InvalidParameterError` with a hint instead of a silent empty result.
+
 
 - Catalog builds use explicit role-based index choice (core removed
   `adaptive_field_index`): survey titles and dimension-label vocabularies are

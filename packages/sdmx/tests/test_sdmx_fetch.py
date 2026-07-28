@@ -80,7 +80,7 @@ def _call_sdmx_fetch(params):
     from parsimony_sdmx.connectors.fetch import sdmx_fetch
 
     return sdmx_fetch(
-        dataset_ref=params.dataset_key,
+        agency=params.agency, dataset_id=params.dataset_id,
         series_ref=params.series_key,
         start_period=params.start_period,
         end_period=params.end_period,
@@ -109,7 +109,8 @@ class TestSdmxFetch:
         ).set_index(["FREQ", "REF_AREA", "CURRENCY", "TIME_PERIOD"])["value"]
 
         params = SdmxFetchParams(
-            dataset_key="ECB-YC",
+            agency="ECB",
+            dataset_id="YC",
             series_key="M.DE.EUR",
         )
         result = _call_sdmx_fetch(params)
@@ -143,7 +144,7 @@ class TestSdmxFetch:
         patch_sdmx["client"] = _make_fake_client(structure_msg=structure_msg, data_msg=data_msg)
         patch_sdmx["to_pandas_output"] = pd.Series([], name="value", dtype=float)
 
-        params = SdmxFetchParams(dataset_key="ECB-YC", series_key="M.DE")
+        params = SdmxFetchParams(agency="ECB", dataset_id="YC", series_key="M.DE")
         with pytest.raises(EmptyDataError):
             _call_sdmx_fetch(params)
 
@@ -151,13 +152,13 @@ class TestSdmxFetch:
         from parsimony_sdmx.connectors.fetch import SdmxFetchParams
 
         with pytest.raises(InvalidParameterError, match="Unknown agency"):
-            SdmxFetchParams(dataset_key="BOGUS-X", series_key="M.DE")
+            SdmxFetchParams(agency="BOGUS", dataset_id="X", series_key="M.DE")
 
-    def test_dataset_key_must_include_agency_prefix(self) -> None:
+    def test_unknown_agency_without_dataset_is_rejected(self) -> None:
         from parsimony_sdmx.connectors.fetch import SdmxFetchParams
 
-        with pytest.raises(InvalidParameterError, match="must include agency prefix"):
-            SdmxFetchParams(dataset_key="YCONLY", series_key="M.DE")
+        with pytest.raises(InvalidParameterError, match="Unknown agency"):
+            SdmxFetchParams(agency="YCONLY", dataset_id="X", series_key="M.DE")
 
     def test_series_url_metadata_for_ecb(self, patch_sdmx: dict[str, Any]) -> None:
         from parsimony_sdmx.connectors.fetch import SdmxFetchParams
@@ -175,7 +176,7 @@ class TestSdmxFetch:
             }
         ).set_index(["FREQ", "REF_AREA", "TIME_PERIOD"])["value"]
 
-        params = SdmxFetchParams(dataset_key="ECB-YC", series_key="M.DE")
+        params = SdmxFetchParams(agency="ECB", dataset_id="YC", series_key="M.DE")
         result = _call_sdmx_fetch(params)
 
         assert "series_url" in result.raw.columns
@@ -199,7 +200,9 @@ class TestSdmxFetch:
             }
         ).set_index(["FREQ", "REF_AREA", "TIME_PERIOD"])["value"]
 
-        params = SdmxFetchParams(dataset_key="WB_WDI-WDI", series_key="A.USA")
+        params = SdmxFetchParams(
+            agency="WB_WDI",
+            dataset_id="WDI", series_key="A.USA")
         result = _call_sdmx_fetch(params)
         assert "series_url" not in result.raw.columns or result.raw["series_url"].isna().all()
 
@@ -218,7 +221,7 @@ class TestSdmxFetch:
             {"FREQ": ["M"], "TIME_PERIOD": ["2024-01"], "value": [1.0]}
         ).set_index(["FREQ", "TIME_PERIOD"])["value"]
 
-        params = SdmxFetchParams(dataset_key="ECB-YC", series_key="M")
+        params = SdmxFetchParams(agency="ECB", dataset_id="YC", series_key="M")
         result = _call_sdmx_fetch(params)
 
         roles = {c.name: c.role for c in result.output_spec.columns}
@@ -274,32 +277,32 @@ class TestSdmxFetchBatch:
         monkeypatch.setattr(fetch_mod, "_fetch_one_series", fake_one)
         # Structure resolution is orthogonal to the orchestration these tests exercise —
         # stub it out so it doesn't reach the network (see TestStructureSharing for its own tests).
-        monkeypatch.setattr(fetch_mod, "_resolve_structure", lambda dataset_key: None)
+        monkeypatch.setattr(fetch_mod, "_resolve_structure", lambda agency, dataset_id: None)
         return fetch_mod, calls
 
     def test_list_of_keys_stacks_into_one_table(self, monkeypatch: pytest.MonkeyPatch) -> None:
         fetch_mod, calls = self._stub_one(monkeypatch)
         keys = ["M.I15.TOTAL.ES", "M.RCH_A.TOTAL.ES", "M.RCH_M.TOTAL.ES"]
-        result = fetch_mod.sdmx_fetch(dataset_ref="ESTAT-PRC_HICP_MINR", series_ref=keys)
+        result = fetch_mod.sdmx_fetch(agency="ESTAT", dataset_id="PRC_HICP_MINR", series_ref=keys)
         assert list(result.raw["series_key"]) == keys
         assert set(calls) == set(keys)
 
     def test_request_order_preserved_despite_concurrency(self, monkeypatch: pytest.MonkeyPatch) -> None:
         fetch_mod, _ = self._stub_one(monkeypatch, delay_first=True)
         keys = [f"M.K{i}" for i in range(5)]  # K0 is slowest; map must still return in input order
-        result = fetch_mod.sdmx_fetch(dataset_ref="ECB-YC", series_ref=keys)
+        result = fetch_mod.sdmx_fetch(agency="ECB", dataset_id="YC", series_ref=keys)
         assert list(result.raw["series_key"]) == keys
 
     def test_single_string_takes_unbatched_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
         fetch_mod, calls = self._stub_one(monkeypatch)
-        result = fetch_mod.sdmx_fetch(dataset_ref="ECB-YC", series_ref="M.DE.EUR")
+        result = fetch_mod.sdmx_fetch(agency="ECB", dataset_id="YC", series_ref="M.DE.EUR")
         assert list(result.raw["series_key"]) == ["M.DE.EUR"]
         assert calls == ["M.DE.EUR"]
 
     def test_empty_list_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         fetch_mod, _ = self._stub_one(monkeypatch)
         with pytest.raises(InvalidParameterError, match="at least one series key"):
-            fetch_mod.sdmx_fetch(dataset_ref="ECB-YC", series_ref=[])
+            fetch_mod.sdmx_fetch(agency="ECB", dataset_id="YC", series_ref=[])
 
     def test_over_cap_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from parsimony_sdmx.connectors.fetch import _MAX_BATCH_SERIES
@@ -309,7 +312,7 @@ class TestSdmxFetchBatch:
         # The cap error must signpost the OR-string fast path, not just refuse the list —
         # a blocked caller should learn the escape hatch at the point of failure.
         with pytest.raises(InvalidParameterError, match="at most") as exc:
-            fetch_mod.sdmx_fetch(dataset_ref="ECB-YC", series_ref=too_many)
+            fetch_mod.sdmx_fetch(agency="ECB", dataset_id="YC", series_ref=too_many)
         msg = str(exc.value)
         assert "OR" in msg and "'+'" in msg
 
@@ -324,7 +327,7 @@ class TestSdmxFetchBatch:
         long_key = f"M.N.{codes}.DE"
         assert len(long_key) > _SERIES_KEY_MAX_CHARS
         with pytest.raises(InvalidParameterError, match="capped at") as exc:
-            fetch_mod.sdmx_fetch(dataset_ref="ECB-ICP", series_ref=long_key)
+            fetch_mod.sdmx_fetch(agency="ECB", dataset_id="ICP", series_ref=long_key)
         msg = str(exc.value)
         assert str(_SERIES_KEY_MAX_CHARS) in msg
         assert "OR-string" in msg and "list" in msg
@@ -334,7 +337,7 @@ class TestSdmxFetchBatch:
 
         fetch_mod, _ = self._stub_one(monkeypatch, fail_on={"M.BAD.ES"})
         with pytest.raises(ProviderError, match="bad key M.BAD.ES"):
-            fetch_mod.sdmx_fetch(dataset_ref="ECB-YC", series_ref=["M.GOOD.ES", "M.BAD.ES"])
+            fetch_mod.sdmx_fetch(agency="ECB", dataset_id="YC", series_ref=["M.GOOD.ES", "M.BAD.ES"])
 
 
 class TestStructureSharing:
@@ -355,7 +358,7 @@ class TestStructureSharing:
             {"FREQ": ["M"], "REF_AREA": ["DE"], "TIME_PERIOD": ["2024-01"], "value": [1.0]}
         ).set_index(["FREQ", "REF_AREA", "TIME_PERIOD"])["value"]
 
-        result = sdmx_fetch(dataset_ref="ECB-YC", series_ref=["M.DE", "M.FR", "M.ES"])
+        result = sdmx_fetch(agency="ECB", dataset_id="YC", series_ref=["M.DE", "M.FR", "M.ES"])
 
         client = patch_sdmx["client"]
         # One structure resolution shared by the whole batch...
@@ -375,55 +378,11 @@ class TestStructureSharing:
             {"FREQ": ["M"], "REF_AREA": ["DE"], "TIME_PERIOD": ["2024-01"], "value": [1.0]}
         ).set_index(["FREQ", "REF_AREA", "TIME_PERIOD"])["value"]
 
-        sdmx_fetch(dataset_ref="ECB-YC", series_ref="M.DE")
+        sdmx_fetch(agency="ECB", dataset_id="YC", series_ref="M.DE")
 
         client = patch_sdmx["client"]
         assert client.dataflow.call_count == 1
         assert client.get.call_count == 1
-
-
-class TestFlowPrefixStrip:
-    """``series_ref`` may still carry a flow-id prefix (e.g. from an older ``sdmx_series_search``
-    result, or copy-pasted from a provider's raw SDMX-CSV ``KEY`` column); ``sdmx_fetch`` should
-    defensively strip it rather than 400 at the provider on a duplicated flow id."""
-
-    def test_strip_flow_prefix_removes_matching_prefix(self) -> None:
-        from parsimony_sdmx.connectors.fetch import _strip_flow_prefix
-
-        assert _strip_flow_prefix("YC.B.U2.EUR", "YC") == "B.U2.EUR"
-        assert _strip_flow_prefix("yc.B.U2.EUR", "YC") == "B.U2.EUR"
-
-    def test_strip_flow_prefix_leaves_bare_key_untouched(self) -> None:
-        from parsimony_sdmx.connectors.fetch import _strip_flow_prefix
-
-        assert _strip_flow_prefix("B.U2.EUR", "YC") == "B.U2.EUR"
-
-    def test_strip_flow_prefix_does_not_touch_unrelated_leading_segment(self) -> None:
-        from parsimony_sdmx.connectors.fetch import _strip_flow_prefix
-
-        # A dimension code that happens to equal the dataset_id is not a flow prefix.
-        assert _strip_flow_prefix("YC.YC.EUR", "YC") == "YC.EUR"
-
-    def test_sdmx_fetch_strips_prefixed_series_ref_before_request(self, patch_sdmx: dict[str, Any]) -> None:
-        from parsimony_sdmx.connectors.fetch import sdmx_fetch
-
-        dim_ids = ["FREQ", "REF_AREA"]
-        structure_msg = _structure_msg(dim_ids, "YC")
-        data_msg = SimpleNamespace(data="<observations>")
-        patch_sdmx["client"] = _make_fake_client(structure_msg=structure_msg, data_msg=data_msg)
-        patch_sdmx["to_pandas_output"] = pd.DataFrame(
-            {"FREQ": ["M"], "REF_AREA": ["DE"], "TIME_PERIOD": ["2024-01"], "value": [1.0]}
-        ).set_index(["FREQ", "REF_AREA", "TIME_PERIOD"])["value"]
-
-        sdmx_fetch(dataset_ref="ECB-YC", series_ref="YC.M.DE")
-
-        client = patch_sdmx["client"]
-        assert client.get.call_args.kwargs["key"] == "M.DE"
-
-    def test_sdmx_fetch_strips_prefix_from_every_key_in_a_batch(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        fetch_mod, calls = TestSdmxFetchBatch._stub_one(monkeypatch)
-        fetch_mod.sdmx_fetch(dataset_ref="ECB-YC", series_ref=["YC.M.DE", "M.FR"])
-        assert calls == ["M.DE", "M.FR"]
 
 
 class TestSdmxFetchOutput:

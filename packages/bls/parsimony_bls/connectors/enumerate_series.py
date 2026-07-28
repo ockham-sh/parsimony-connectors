@@ -3,8 +3,8 @@
 Reads the survey's authoritative ``.series`` flat file (curl_cffi, Akamai-walled
 host) plus its dimension code tables, and emits one row per series with the
 ``series_id`` as code, a resolved title, and per-dimension ``<dim>_code`` /
-``<dim>_label`` metadata for structured search. The output schema is **dynamic
-per survey** (dimension columns differ), so this stays a plain ``@connector``
+``<dim>_label`` metadata for exact ``filter=`` on series search. The output schema is
+**dynamic per survey** (dimension columns differ), so this stays a plain ``@connector``
 returning raw rows; the catalog builder re-projects with the per-survey schema.
 """
 

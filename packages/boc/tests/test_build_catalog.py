@@ -11,7 +11,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(_REPO_ROOT / "tooling") not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT / "tooling"))
 
-from parsimony.catalog.policy import discovery_indexes as macro_discovery_indexes  # noqa: E402
+from parsimony.catalog.policy import discovery_indexes  # noqa: E402
 
 
 def _sample_entries() -> list[Entity]:
@@ -21,9 +21,9 @@ def _sample_entries() -> list[Entity]:
     ]
 
 
-def test_macro_discovery_indexes_for_boc_sample() -> None:
+def test_discovery_indexes_for_boc_sample() -> None:
     entries = _sample_entries()
-    indexes = macro_discovery_indexes(entries)
+    indexes = discovery_indexes(entries)
     catalog = Catalog("boc", indexes=indexes)
     assert catalog.name == "boc"
     assert set(indexes) == {"code", "title", "description"}

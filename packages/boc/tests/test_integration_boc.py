@@ -202,7 +202,8 @@ def test_boc_search_over_bounded_catalog_live(tmp_path: Path) -> None:
 
     assert_provenance_shape(result, expected_source="boc_search", required_param_keys=["query"])
     sdf = result.raw
-    assert list(sdf.columns) == ["code", "title", "coverage", "score", "matched"]
+    assert boc_search.output_spec is not None
+    assert list(sdf.columns) == [c.name for c in boc_search.output_spec.columns]
     assert not sdf.empty, "search over the fixture catalog returned nothing"
     assert len(sdf) <= 3, "search exceeded the fixture catalog"
     # Real ranking: the FX entry is the top hit; scores are populated.

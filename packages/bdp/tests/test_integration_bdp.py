@@ -169,7 +169,8 @@ def test_bdp_search_over_bounded_catalog_live(tmp_path: Path) -> None:
 
     assert_provenance_shape(result, expected_source="bdp_search", required_param_keys=["query"])
     sdf = result.raw
-    assert list(sdf.columns) == ["code", "title", "coverage", "score", "matched"]
+    assert bdp_search.output_spec is not None
+    assert list(sdf.columns) == [c.name for c in bdp_search.output_spec.columns]
     assert not sdf.empty
     assert sdf.iloc[0]["code"] == "48:ds1:12099329"
     assert sdf["score"].notna().all()

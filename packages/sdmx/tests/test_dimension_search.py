@@ -138,7 +138,7 @@ def test_unpublished_flow_hard_errors(catalog_root: str) -> None:
 
 
 def test_filter_scopes_enumeration_to_populated_slice(catalog_root: str) -> None:
-    """With filter_json, only values populated WITHIN the slice come back.
+    """With filter, only values populated WITHIN the slice come back.
 
     France (FR) has only a monthly series (M.FR) — so FREQ scoped to FR must return M
     alone, even though A exists in the flow (via A.DE) and in the codelist.
@@ -147,7 +147,7 @@ def test_filter_scopes_enumeration_to_populated_slice(catalog_root: str) -> None
         agency="ECB",
         dataset_id="TEST",
         dimension="FREQ",
-        filter_json='{"REF_AREA_code": ["FR"]}',
+        filter={"REF_AREA_code": ["FR"]},
         limit=10_000,
         catalog_root=catalog_root,
     ).raw
@@ -162,7 +162,7 @@ def test_filter_scopes_ranked_query(catalog_root: str) -> None:
             dataset_id="TEST",
             dimension="FREQ",
             query="Annual",
-            filter_json='{"REF_AREA_code": ["FR"]}',
+            filter={"REF_AREA_code": ["FR"]},
             catalog_root=catalog_root,
         )
     msg = str(exc.value)
@@ -180,7 +180,7 @@ def test_empty_slice_gets_filter_autopsy(catalog_root: str) -> None:
             agency="ECB",
             dataset_id="TEST",
             dimension="FREQ",
-            filter_json='{"FREQ_code": ["A"], "REF_AREA_code": ["FR"]}',
+            filter={"FREQ_code": ["A"], "REF_AREA_code": ["FR"]},
             limit=10_000,
             catalog_root=catalog_root,
         )
@@ -189,17 +189,17 @@ def test_empty_slice_gets_filter_autopsy(catalog_root: str) -> None:
     assert "conflict lies among these" in msg
 
 
-def test_filter_rejects_unpopulated_value(catalog_root: str) -> None:
-    """filter_json values get the same eager validation as sdmx_series_search."""
-    with pytest.raises(InvalidParameterError) as exc:
+def test_filter_unpopulated_value_empties_slice(catalog_root: str) -> None:
+    """Unpopulated filter values are not eagerly rejected; an empty slice raises EmptyDataError."""
+    with pytest.raises(EmptyDataError) as exc:
         sdmx_dimension_search(
             agency="ECB",
             dataset_id="TEST",
             dimension="FREQ",
-            filter_json='{"REF_AREA_code": ["EL"]}',
+            filter={"REF_AREA_code": ["EL"]},
             catalog_root=catalog_root,
         )
-    assert "'EL'" in str(exc.value)
+    assert "No values" in str(exc.value) or "Zero-match" in str(exc.value)
 
 
 def test_filter_rejects_bare_dimension_column(catalog_root: str) -> None:
@@ -208,6 +208,40 @@ def test_filter_rejects_bare_dimension_column(catalog_root: str) -> None:
             agency="ECB",
             dataset_id="TEST",
             dimension="FREQ",
-            filter_json='{"REF_AREA": ["FR"]}',
+            filter={"REF_AREA": ["FR"]},
             catalog_root=catalog_root,
         )
+
+
+def test_resolve_inspect_filter_rank_workflow(catalog_root: str) -> None:
+    """The whole point of the redesign, end to end, with no query grammar anywhere.
+
+    A caller who knows a value's *meaning* but not its code resolves it here, reads
+    the code off the result, pins it with an exact filter, and ranks inside that
+    slice. Each step is a separate decision the caller can inspect, which is what
+    makes the outcome trustworthy: the filter is a constraint the caller chose, not
+    a fuzzy match a parser guessed at from a query string.
+    """
+    from parsimony_sdmx.connectors.series_search import sdmx_series_search
+
+    # Resolve: "Germany" is a label; the caller needs the code the data is keyed by.
+    values = sdmx_dimension_search(
+        agency="ECB", dataset_id="TEST", dimension="REF_AREA", query="Germany", limit=5, catalog_root=catalog_root
+    ).raw
+    # Inspect: the top value is the one meant, and it carries both code and label.
+    assert values.iloc[0]["label"] == "Germany"
+    resolved = values.iloc[0]["code"]
+    assert resolved == "DE"
+
+    # Filter + rank: the resolved code excludes every other area, and the literal
+    # query only orders what survives.
+    series = sdmx_series_search(
+        agency="ECB",
+        dataset_id="TEST",
+        query="Monthly",
+        filter={"REF_AREA_code": resolved},
+        catalog_root=catalog_root,
+    ).raw
+    assert set(series["key"]) == {"M.DE"}
+    # The key is what sdmx_fetch consumes, so the workflow ends ready to fetch.
+    assert series.iloc[0]["key"] == "M.DE"

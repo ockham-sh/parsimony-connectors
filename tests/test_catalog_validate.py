@@ -41,8 +41,11 @@ def test_generate_probes_respects_index_shape(tmp_path: Path) -> None:
     modes = {p["mode"] for p in probes}
     assert "code" in modes
     assert "title_bm25" in modes
-    assert "structured_field" in modes
-    assert "title_bm25" in modes
+    assert "metadata_field" in modes
+    # Every generated probe names the index it scores; the query itself is plain
+    # text, so a probe can never accidentally assert a grammar the kernel dropped.
+    assert all(p["field"] for p in probes)
+    assert not any(":" in p["query"] for p in probes if p["field"] != "title")
 
 
 def test_validate_curated_queries_local(tmp_path: Path) -> None:
@@ -60,16 +63,18 @@ def test_validate_curated_queries_local(tmp_path: Path) -> None:
             "queries": [
                 {
                     "id": "code_a1",
-                    "query": "code: A.1",
+                    "query": "A.1",
+                    "field": "code",
                     "expected_code": "A.1",
                     "mode": "code",
                     "required": True,
                 },
                 {
                     "id": "topic_prices",
-                    "query": "topic: prices",
+                    "query": "prices",
+                    "field": "topic",
                     "expected_code": "A.1",
-                    "mode": "structured_field",
+                    "mode": "metadata_field",
                     "required": True,
                 },
             ],

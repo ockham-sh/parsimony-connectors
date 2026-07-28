@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
+from parsimony.catalog.search import (
+    CatalogSearchParams,
+    make_local_search_connector,
+)
 from parsimony.result import Column, ColumnRole, OutputSpec
 
 from parsimony_bde.catalog_build import build_bde_catalog
@@ -11,10 +14,18 @@ BdeSearchParams = CatalogSearchParams
 
 PARSIMONY_BDE_CATALOG_URL_ENV = "PARSIMONY_BDE_CATALOG_URL"
 
+# METADATA columns are projected from catalog entity metadata (same fields the
+# enumerator stores). Declaring them here is what makes them visible on hits and
+# in ``describe()`` — do not duplicate the list in the description string.
 BDE_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="bde"),
         Column(name="title", role=ColumnRole.TITLE),
+        Column(name="description", role=ColumnRole.METADATA),
+        Column(name="frequency", role=ColumnRole.METADATA),
+        Column(name="unit", role=ColumnRole.METADATA),
+        Column(name="category", role=ColumnRole.METADATA),
+        Column(name="dataset", role=ColumnRole.METADATA),
     ]
 )
 
@@ -29,5 +40,5 @@ bde_search = make_local_search_connector(
         "Titles and descriptions are in Spanish. "
         "Pass returned serie code to bde_fetch(key=...)."
     ),
-    output_columns=BDE_SEARCH_OUTPUT.columns,
+    output=BDE_SEARCH_OUTPUT,
 )

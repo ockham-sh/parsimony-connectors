@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from parsimony.catalog.search import CatalogSearchParams, make_local_search_connector
+from parsimony.catalog.search import (
+    CatalogSearchParams,
+    make_local_search_connector,
+)
 from parsimony.result import Column, ColumnRole, OutputSpec
 
 from parsimony_bdf.catalog_build import build_bdf_catalog
@@ -15,6 +18,11 @@ BDF_SEARCH_OUTPUT = OutputSpec(
     columns=[
         Column(name="code", role=ColumnRole.KEY, namespace="bdf"),
         Column(name="title", role=ColumnRole.TITLE),
+        Column(name="description", role=ColumnRole.METADATA),
+        Column(name="frequency", role=ColumnRole.METADATA),
+        Column(name="ref_area", role=ColumnRole.METADATA),
+        Column(name="dataset_id", role=ColumnRole.METADATA),
+        Column(name="entity_type", role=ColumnRole.METADATA),
     ]
 )
 
@@ -30,7 +38,7 @@ bdf_search = make_local_search_connector(
         "series codes (and dataset:<id> group rows); pass a series code to "
         "bdf_fetch(key=...) to retrieve its observations."
     ),
-    output_columns=BDF_SEARCH_OUTPUT.columns,
+    output=BDF_SEARCH_OUTPUT,
 )
 
 __all__ = ["PARSIMONY_BDF_CATALOG_URL_ENV", "BdfSearchParams", "bdf_search"]

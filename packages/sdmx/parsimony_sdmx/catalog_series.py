@@ -97,13 +97,12 @@ def _parse_csv_header(header: list[str], dsd_order: Sequence[str]) -> tuple[list
 
 
 def _strip_flow_prefix(key: str, dataset_id: str) -> str:
-    """Strip a redundant leading ``<dataset_id>.`` flow prefix from a raw SDMX-CSV ``KEY`` value.
+    """Strip a redundant leading ``<dataset_id>.`` from a raw SDMX-CSV ``KEY`` value at build time.
 
-    Some agencies' SDMX-CSV export (observed on ECB) prefixes the ``KEY`` column with the
-    dataflow id (e.g. ``"YC.B.U2.EUR..."``), which is not the bare key ``sdmx_fetch``'s
-    ``series_ref`` expects — passing it straight through duplicates the flow id in the request
-    URL and 400s at the provider. Case-insensitive since ECB/IMF request the flow uppercased but
-    the export isn't guaranteed to echo that same case back.
+    ECB's serieskeysonly CSV prefixes ``KEY`` with the dataflow id (e.g. ``"YC.B.U2…"``).
+    Catalog keys are DSD-order only (``"B.U2…"``) so search results paste straight into
+    ``sdmx_fetch(series_ref=…)``. This runs once when building ``series.parquet``, not at
+    fetch or search time.
     """
     prefix, sep, rest = key.partition(".")
     return rest if sep and prefix.upper() == dataset_id.upper() else key
@@ -339,7 +338,7 @@ def _series_catalog_indexes(
     # 59,498 of them on a 60,691-row catalog, near 1:1 with rows. Measured on the
     # 41-case search battery, dropping it also scored better (MRR 0.725 -> 0.739)
     # because the repeated terms were double-counting. Title stays a parquet
-    # column for display; see ``searchable_fields``.
+    # column for display; the ``{dim}_label`` indexes are the search surface.
     indexes: dict[str, CatalogIndex] = {}
     for dim_id in dsd_order:
         indexes[dim_code_field(dim_id)] = BM25Index()

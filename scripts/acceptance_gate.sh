@@ -20,12 +20,13 @@ from parsimony_treasury import treasury_fetch
 def main():
     try:
         r = riksbank_fetch("SEKEURPMI")
-        assert len(r.data) > 0
+        assert len(r.raw) > 0
         return
     except RateLimitError:
         pass
-    r = treasury_fetch("GDP")
-    assert len(r.data) > 0
+    # Bare Fiscal Data endpoint — not a catalog compound code.
+    r = treasury_fetch("v2/accounting/od/debt_to_penny")
+    assert len(r.raw) > 0
 main()
 PY
 then ok "bare fetch"; else bad "bare fetch"; fi
@@ -39,7 +40,7 @@ from parsimony_riksbank.search import riksbank_search
 def main():
     with patch.object(Catalog, "load", side_effect=ImportError("No module named 'faiss'")):
         try:
-            riksbank_search("code: SEKEURPMI", catalog_url="file:///tmp/none")
+            riksbank_search("SEKEURPMI", catalog_url="file:///tmp/none")
         except ConnectorError as exc:
             assert "parsimony-core[catalog]" in str(exc)
             return
@@ -57,14 +58,21 @@ os.environ["PARSIMONY_TREASURY_CATALOG_URL"] = "$CATALOG_ROOT"
 from parsimony_treasury import load
 def main():
     c = load()
-    hits = c["treasury_search"]("title: GDP", limit=3)
-    assert len(hits.data) > 0
-    code = hits.data.iloc[0]["code"]
+    hits = c["treasury_search"](query="GDP", limit=3)
+    assert len(hits.raw) > 0
+    row = hits.raw.iloc[0]
+    # Dispatch from METADATA — never paste the compound code into fetch.
+    source = str(row["source"])
+    endpoint = str(row["endpoint"])
     try:
-        rows = c["treasury_fetch"](code)
+        if source == "treasury_rates":
+            rows = c["treasury_rates_fetch"](feed=endpoint)
+        else:
+            assert source == "fiscal_data", source
+            rows = c["treasury_fetch"](endpoint=endpoint)
     except RateLimitError:
         return  # upstream quota — search leg already proved
-    assert len(rows.data) > 0
+    assert len(rows.raw) > 0
 main()
 PY
 then ok "treasury search→fetch"; else bad "treasury search→fetch"; fi
@@ -81,20 +89,21 @@ os.environ["PARSIMONY_SDMX_CATALOG_URL"] = "$SDMX_ROOT"
 from parsimony_sdmx import load
 def main():
     c = load()
-    ds = c["sdmx_datasets_search"](agency="ECB", query="code: ECB|YC", limit=3)
-    assert len(ds.data) > 0
-    assert "dsd" in ds.data.columns
-    cl_ns = None
-    for ns_dir in Path(root).iterdir():
-        if ns_dir.name.startswith("sdmx_codelist_ecb_") and (ns_dir / "meta.json").exists():
-            cl_ns = ns_dir.name.removeprefix("sdmx_codelist_ecb_").upper()
-            break
-    if cl_ns:
-        hits = c["sdmx_codelist_search"](agency="ECB", codelist_id=cl_ns, query="monthly", limit=3)
-        assert len(hits.data) > 0
+    ds = c["sdmx_datasets_search"](agency="ECB", query="yield curve", limit=3)
+    assert len(ds.raw) > 0
+    assert {"agency", "dataset_id", "score", "search_detail"}.issubset(ds.raw.columns)
+    row = ds.raw.iloc[0]
+    agency = str(row["agency"])
+    dataset_id = str(row["dataset_id"])
+    series_ns = Path(root) / f"sdmx_series_{agency.lower()}_{dataset_id.lower()}"
+    if not (series_ns / "meta.json").exists():
+        return  # datasets leg already proved; series catalog may be unpublished
+    series = c["sdmx_series_search"](agency=agency, dataset_id=dataset_id, query="rate", limit=3)
+    assert len(series.raw) > 0
+    assert "key" in series.raw.columns
 main()
 PY
-then ok "sdmx datasets + codelist search"; else bad "sdmx datasets + codelist search"; fi
+then ok "sdmx datasets + series search"; else bad "sdmx datasets + series search"; fi
 
 note "Gate 5 — keyed connector names env var (fred)"
 if uv run python - <<'PY'

@@ -1,8 +1,9 @@
 """SNB data fetch — resolves a cube_id across the publication and warehouse APIs.
 
-A search hit carries a compound ``code`` = ``{cube_id}#{series_key}``; the agent
-passes the ``cube_id`` portion to ``snb_fetch``. ``snb_fetch`` routes by id shape
-so **every** catalogued cube is fetchable:
+Search hits expose a compound ``code`` = ``{cube_id}#{series_key}`` plus a bare
+``cube_id`` column. Pass that ``cube_id`` column to ``snb_fetch`` — not the
+compound ``code``. ``snb_fetch`` routes by id shape so **every** catalogued cube
+is fetchable:
 
 * a bare id (``rendoblim``) → ``/api/cube/{id}/data/csv/{lang}`` (publication);
 * an SDMX id with ``@`` (``BSTA@SNB.AUR_U.ODF``) → ``/api/warehouse/cube/{id}/data/csv/{lang}``
@@ -32,17 +33,21 @@ def snb_fetch(
 ) -> pd.DataFrame:
     """Fetch an SNB cube as a long-format time series by cube_id.
 
-    Handles both publication cubes (bare ids like ``rendoblim``, ``devkum``) and
-    data-warehouse cubes (SDMX ids like ``BSTA@SNB.AUR_U.ODF``) — routing is
+    Pass the ``cube_id`` column from ``snb_search`` (or a bare portal id such as
+    ``rendoblim`` / ``BSTA@SNB.AUR_U.ODF``). Do not pass the compound search
+    ``code`` (``{cube_id}#{series_key}``) — that is a search identity, not a
+    fetch argument.
+
+    Handles both publication cubes and data-warehouse cubes — routing is
     automatic from the id shape. Returns a ``date`` column, the cube's string
     dimension code columns, and a numeric ``Value`` column, stamped with
     ``cube_id`` and the cube ``title``. Optional ``from_date``/``to_date`` (YYYY,
     YYYY-MM, or YYYY-MM-DD), ``dim_sel`` (e.g. ``D0(V0,V1)``), and ``lang``
     (en/de/fr/it) pass through to the portal.
     """
-    cube_id = cube_id.strip()
-    if not cube_id:
+    if not (cube_id or "").strip():
         raise InvalidParameterError("snb", "cube_id must be non-empty")
+    cube_id = cube_id.strip()
 
     http = _http.client()
 

@@ -158,7 +158,8 @@
 - **Index policy:** custom (`catalog_policy.py`), index kind by role. Series catalogs:
   `code` and `title` BM25-only (both are per-series row text — a vector buys nothing there),
   each `<dim>` label field hybrid (BM25 + vector) for semantic label matching. Survey catalog:
-  `code` BM25, `title` hybrid. Structured `FIELD: value` clauses are the primary retrieval path.
+  `code` BM25, `title` hybrid. Exact dimension pins use `filter=` on `<dim>_code`;
+  literal `query=` soft-ranks titles / labels.
 - **Dimension manifest:** compact `[{id, values:[{code,label}…]}]` per survey, attached to
   the tier-1 entity (reuse the sdmx manifest shape) so an agent can navigate codes /
   construct an id even for non-published surveys.
@@ -175,7 +176,7 @@
 | `enumerate_bls_surveys` | @enumerator | no | tier-1 feed: one row per survey | all surveys |
 | `enumerate_bls_series` | @connector (dynamic schema) | no | tier-2 feed: one row per series in ONE survey | that survey's full universe |
 | `bls_surveys_search` | @connector | yes | search surveys + read dimension manifest | all surveys |
-| `bls_series_search` | @connector | yes | search one survey's series (structured) | built/allowlisted surveys |
+| `bls_series_search` | @connector | yes | search one survey's series (`query=` + exact `filter=` on dim codes) | built/allowlisted surveys |
 
 - **Deliberately NOT wrapped:** `timeseries/popular` (shallow, superseded by the flat-file
   enumeration); per-survey series catalogs for the GB-scale microdata surveys (reachable
@@ -189,8 +190,8 @@
   has_series_catalog, series_id_format, dimensions.
 - **`enumerate_bls_series`:** KEY=`code`(=series_id, per-survey ns), TITLE, METADATA=`*`
   (wildcard — dynamic per-survey dimension columns), like sdmx.
-- **`bls_surveys_search`:** code/title/score + survey + dimensions.
-- **`bls_series_search`:** series_id/title/score + survey + namespace.
+- **`bls_surveys_search`:** code/title/score/search_detail + survey + dimensions.
+- **`bls_series_search`:** series_id/title/score/search_detail + survey + namespace.
 - **Dispatch:** search → `series_id` → `bls_fetch(series_ids=…, start_year, end_year)`.
 
 ## 7. Tests
@@ -199,8 +200,8 @@
 - Integration (live, `-m integration`): API fetch of `LNS14000000`; live curl_cffi pull
   of one survey's `.series` (bounded); two-tier build of one headline survey; search.
 - Conformance: `assert_plugin_valid`.
-- `catalog_tests/queries.yaml`: code probes (exact series_id) + title BM25 + structured
-  dimension clause.
+- `catalog_tests/queries.yaml`: code probes (exact series_id via `field: code`) + title BM25 +
+  optional dimension/`filter=` checks in connector tests.
 
 ---
 
@@ -223,8 +224,8 @@
 `<dim>_code`→label resolver matches a series column to a mapping table by suffix
 (`area_code`→`<sv>.area`). BLS's naming is irregular for a few dimensions (e.g. LA's
 `srd_code` maps to the table `state_region_division`, not `srd`), so those codes fall back
-to the raw code instead of a word label. Impact is contained: it only degrades *structured
-search on those specific dimensions* — the `series_title` (full human text, present on
+to the raw code instead of a word label. Impact is contained: it only degrades *exact
+`filter=` on those specific dimensions* — the `series_title` (full human text, present on
 LA/WP) and `bls_fetch` are unaffected, and the title-less surveys that *depend* on labels
 for their composed titles (JT, SM) resolved 100%. **Left documented, not fixed** (a full fix
 needs each survey's `.txt` data-dictionary column→table map). Decision: 2026-06-09.

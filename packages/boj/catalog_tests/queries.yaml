@@ -1,4 +1,4 @@
-# Curated probes for BoJ multi-bundle catalogs (structured search first).
+# Curated probes for BoJ multi-bundle catalogs (hierarchical search first).
 #
 # Workflow:
 #   boj_databases_search (this file: database title probes)

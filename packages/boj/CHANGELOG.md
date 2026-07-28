@@ -1,9 +1,3 @@
-# Changelog — parsimony-boj
-
-All notable changes to `parsimony-boj` will be documented in this file. The
-format is based on [Keep a Changelog](https://keepachangelog.com/) and
-this project adheres to [Semantic Versioning](https://semver.org/).
-
 ## [Unreleased]
 
 ### Added
@@ -11,11 +5,10 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 - Credential-declaration conformance tests (`tests/test_credential_declaration_boj.py`)
   prove the keyless connectors declare no requirements (`requires=()`, no `secrets=`)
   and reach the network with nothing configured.
-- The search connectors now end with the uniform ranking trio — `coverage`,
-  `score`, `matched` (core's shared column definitions): coverage is the
-  provable fraction of the query, score the fuzzy similarity, matched the
-  evidence origin (`lexical` / `semantic` / `both`). An all-`semantic` result
-  page means nothing lexically real matched: rephrase the query.
+- The search connectors now end with the uniform ranking pair — `score`,
+  `search_detail` (core's shared column definitions): score is query-relative
+  relevance in `(0, 1]`; `search_detail` is canonical JSON evidence for why a
+  row ranked (hidden from `to_llm()`). Filter-only reads leave both null.
 
 ### Changed
 
