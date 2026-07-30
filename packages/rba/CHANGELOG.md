@@ -6,6 +6,8 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-07-30
+
 ### Fixed
 
 - A connection refused by RBA's bot-mitigation edge no longer reports "upstream timed

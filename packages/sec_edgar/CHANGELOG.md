@@ -6,6 +6,8 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-07-30
+
 ### Added
 
 - All connectors now declare `requires=("SEC_EDGAR_USER_AGENT",)` — the env var

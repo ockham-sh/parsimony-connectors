@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.0.2] - 2026-07-30
+
 ### Breaking
 
 - **`sdmx_fetch` takes `agency` + `dataset_id`** instead of composite `dataset_ref`.
