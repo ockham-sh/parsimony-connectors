@@ -168,40 +168,67 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pkg_name=$(python3 -c "
-          import os, tomllib
-          pkg = os.environ['PKG']
-          with open(f'packages/{pkg}/pyproject.toml', 'rb') as fp:
-              data = tomllib.load(fp)
-          print(data['project']['name'])
-          ")
-          pkg_version=$(python3 -c "
-          import os, tomllib
-          pkg = os.environ['PKG']
-          with open(f'packages/{pkg}/pyproject.toml', 'rb') as fp:
-              data = tomllib.load(fp)
-          print(data['project']['version'])
-          ")
+          python3 - <<'PY'
+          import json, os, sys, time, tomllib, urllib.error, urllib.request
+
+          def fail(msg):
+              print(f"::error::{msg}")
+              sys.exit(1)
+
+          pkg, dist = os.environ["PKG"], os.environ["PKG_DIST"]
+          with open(f"packages/{pkg}/pyproject.toml", "rb") as fp:
+              project = tomllib.load(fp)["project"]
+          name, version = project["name"], project["version"]
+
           # Defence against a rogue pyproject.toml claiming an unrelated PyPI name.
           # PKG_DIST is the PEP 503 canonical (hyphen-form) of the input,
           # computed once in the `normalize` job. This handles multi-word
           # folders like `alpha_vantage` whose distribution name is the
           # hyphen-form `parsimony-alpha-vantage`.
-          if [[ "$pkg_name" != "$PKG_DIST" ]]; then
-            echo "::error::pyproject name '$pkg_name' must equal '$PKG_DIST'."
-            exit 1
-          fi
-          if python3 -c "
-          import urllib.request, sys
-          try:
-              r = urllib.request.urlopen(f'https://pypi.org/pypi/${pkg_name}/${pkg_version}/json', timeout=10)
-              sys.exit(0 if r.status == 200 else 1)
-          except Exception:
-              sys.exit(1)
-          " 2>/dev/null; then
-            echo "::error::${pkg_name}==${pkg_version} is already on PyPI. Bump the version."
-            exit 1
-          fi
+          if name != dist:
+              fail(f"pyproject name '{name}' must equal '{dist}'.")
+
+          # Ask the /simple/ index, NOT /pypi/<name>/<version>/json. PyPI purges
+          # the simple index on upload; the per-version JSON endpoint sits behind
+          # a CDN that lags it by minutes. On 2026-08-10 that lag reported nine
+          # packages as missing a version they had in fact just published — the
+          # guard reads "safe to publish" exactly when it is not, and the run
+          # then burns through tests, build and smoke before dying on PyPI's
+          # `400 File already exists`. The simple index also carries a PEP 700
+          # `versions` list (api-version >= 1.1), so this is an exact membership
+          # test rather than filename parsing.
+          req = urllib.request.Request(
+              f"https://pypi.org/simple/{name}/",
+              headers={"Accept": "application/vnd.pypi.simple.v1+json"},
+          )
+          body, reason = None, "unknown"
+          for attempt in range(3):
+              try:
+                  with urllib.request.urlopen(req, timeout=10) as resp:
+                      body = json.load(resp)
+                  break
+              except urllib.error.HTTPError as exc:
+                  if exc.code == 404:
+                      body = {"versions": []}  # project has never been published
+                      break
+                  reason = f"HTTP {exc.code}"
+              except Exception as exc:
+                  reason = f"{type(exc).__name__}: {exc}"
+              time.sleep(2**attempt)
+
+          # A timeout is not proof of absence. The previous guard collapsed every
+          # exception into "not on PyPI" and waved the release through, and this
+          # runner does time out. Distinguish "confirmed absent" from "could not
+          # tell", and fail closed on the latter.
+          if body is None:
+              fail(f"could not reach PyPI to check {name}=={version} ({reason}) — refusing to publish on an unverified check.")
+          if "versions" not in body:
+              fail(f"PyPI's simple index for {name} carried no PEP 700 'versions' key — refusing to publish on an unverified check.")
+
+          if version in body["versions"]:
+              fail(f"{name}=={version} is already on PyPI. Bump the version.")
+          print(f"{name}=={version} is not on PyPI ({len(body['versions'])} version(s) published). OK to release.")
+          PY
 
       - name: Resolve workspace
         run: uv sync --all-extras --all-packages
