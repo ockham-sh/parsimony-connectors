@@ -13,12 +13,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Changed
 
 - **Every package moves to 0.0.2 and depends on the renamed `parsimony` distribution**
-  (was `parsimony-core`), pinned `>=0.0.1,<0.0.2`. Import names are unchanged.
-- **Core pins are now upper-bounded.** The 0.0.1 packages shipped
-  `parsimony-core>=0.0.1` with no cap, so a fresh install resolved core to a release
-  built against a different API and every connector failed to import. While the kernel
-  is pre-1.0 each release may break the connector surface, so the cap is tight and each
-  core release requires a connector republish.
+  (was `parsimony-core`), pinned `~=0.0.1`. Import names are unchanged.
+- **Kernel pins are now upper-bounded.** The 0.0.1 packages shipped
+  `parsimony-core>=0.0.1` with no cap at all, so a fresh install resolved the kernel to
+  a release built against a different API and every connector failed to import —
+  `discover.load_all()` raised on the exact command the skill documents.
+
+  The bound is `~=0.0.1` (any 0.0.x kernel), not a release-by-release pin. A tighter cap
+  would force all 23 packages to be republished on every kernel patch, and the release
+  workflow is one manual dispatch per package — friction that eventually gets skipped,
+  which is how the original break would return. The compatibility promise is that the
+  0.0.x kernel does not break the connector surface; enforcing it is a CI gate's job, not
+  a version specifier's. When a kernel change does need to break connectors, it takes the
+  minor bump and the packages are republished once, deliberately.
 
 ### Added
 

@@ -5,8 +5,8 @@
 ### Changed
 
 - Depends on the renamed `parsimony` distribution (was `parsimony-core`), pinned
-  `>=0.0.1,<0.0.2`. The import name is unchanged. `parsimony-core` is discontinued,
-  so 0.0.1 of this package no longer resolves — upgrade to 0.0.2.
+  `~=0.0.1` (any 0.0.x kernel). The import name is unchanged. `parsimony-core` is
+  discontinued, so 0.0.1 of this package no longer resolves — upgrade to 0.0.2.
 
 ### Added
 
