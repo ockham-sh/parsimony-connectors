@@ -47,7 +47,7 @@ reachable by constructing an id from the tier-1 manifest and fetching it.
 pip install parsimony-bls
 ```
 
-Pulls in a compatible `parsimony-core` and `curl_cffi` automatically. `curl_cffi` is a
+Pulls in a compatible `parsimony` and `curl_cffi` automatically. `curl_cffi` is a
 hard dependency: the bulk flat-file host (`download.bls.gov`) is Akamai
 bot-managed and only a real Chrome TLS handshake passes — the data API host
 (`api.bls.gov`) uses plain HTTPS.

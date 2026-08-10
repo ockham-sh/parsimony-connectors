@@ -21,7 +21,7 @@ The surface follows how a Polymarket question is actually navigated: **search â†
 pip install parsimony-polymarket
 ```
 
-Pulls in a compatible `parsimony-core` automatically. Verify discovery:
+Pulls in a compatible `parsimony` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"

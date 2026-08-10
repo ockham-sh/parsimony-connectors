@@ -23,8 +23,8 @@ body:
   - type: input
     id: kernel-version
     attributes:
-      label: parsimony-core version
-      description: Output of `pip show parsimony-core` → Version
+      label: parsimony version
+      description: Output of `pip show parsimony` → Version
       placeholder: "0.4.0"
     validations:
       required: true

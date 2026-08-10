@@ -71,7 +71,7 @@ entry at the workspace root pointing at your local parsimony checkout:
 
 ```toml
 [tool.uv.sources]
-parsimony-core = { path = "../parsimony", editable = true }
+parsimony = { path = "../parsimony", editable = true }
 ```
 
 Don't commit this — it's developer-local.
@@ -83,7 +83,7 @@ Don't commit this — it's developer-local.
 Scaffold `packages/foo/` by copying an existing small plugin (e.g.
 `packages/treasury/`) and adapting it. Each plugin must contain:
 
-- `pyproject.toml` — pin `parsimony-core>=0.0.1` (or `parsimony-core[catalog]>=0.0.1` for catalog-backed packages), declare a
+- `pyproject.toml` — pin `parsimony>=0.0.1` (or `parsimony[catalog]>=0.0.1` for catalog-backed packages), declare a
   `[project.entry-points."parsimony.providers"]` line whose value is the
   **bare module path** (`foo = "parsimony_foo"`, not `parsimony_foo:CONNECTORS`),
   and set `[project.urls] Homepage`. See
@@ -217,7 +217,7 @@ issue.
 - **Formatter:** `ruff format` (120-char lines, the workspace root `pyproject.toml` configures this)
 - **Linter:** `ruff check` with the rules selected in the workspace root
 - **Types:** `mypy` clean. Public connector signatures are flat top-level parameters; Pydantic models are optional internal validators. Return types are `Result` or a subclass.
-- **Catalogs:** build/push scripts under `packages/*/scripts/` are maintainer tooling only (not part of the plugin contract or `parsimony-core`). Operator workflow: [docs/catalog-operations.md](docs/catalog-operations.md).
+- **Catalogs:** build/push scripts under `packages/*/scripts/` are maintainer tooling only (not part of the plugin contract or `parsimony`). Operator workflow: [docs/catalog-operations.md](docs/catalog-operations.md).
 - **Imports:** absolute imports only; no `from parsimony.*` star imports.
 - **Docstrings:** every `@connector`-decorated function needs a one-line summary (tool-tagged connectors need ≥40 chars — the first sentence is the agent-facing tool description).
 

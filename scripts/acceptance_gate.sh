@@ -42,7 +42,7 @@ def main():
         try:
             riksbank_search("SEKEURPMI", catalog_url="file:///tmp/none")
         except ConnectorError as exc:
-            assert "parsimony-core[catalog]" in str(exc)
+            assert "parsimony[catalog]" in str(exc)
             return
         raise AssertionError("expected ConnectorError")
 main()

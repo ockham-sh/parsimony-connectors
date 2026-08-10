@@ -125,7 +125,7 @@ part of the API and not needed — the route tree is the authoritative enumerati
 ## 2. Authentication & access
 
 - **Auth required:** yes. `?api_key=<KEY>` query param (`api_key` is in
-  parsimony-core's sensitive-param set → auto-redacted from logs). Header auth is
+  parsimony's sensitive-param set → auto-redacted from logs). Header auth is
   not offered by EIA.
 - **Obtain:** instant free registration at `/opendata/register.php`.
 - **Rate limits:** EIA enforces a short-window throttle; exceeding it

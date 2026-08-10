@@ -36,7 +36,7 @@ with guidance to narrow it). Data is U.S. federal public domain — cite as
 pip install parsimony-eia
 ```
 
-Pulls in a compatible `parsimony-core` automatically. Verify discovery:
+Pulls in a compatible `parsimony` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"

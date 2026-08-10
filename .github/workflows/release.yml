@@ -29,7 +29,7 @@ name: Release
 # All third-party actions pinned by commit SHA (not tag) to defeat tag
 # mutation / hostile retag. Version comment shows the human-readable tag.
 #
-# Kernel source pin: the workspace resolves `parsimony-core` from a sibling
+# Kernel source pin: the workspace resolves `parsimony` from a sibling
 # `ockham-sh/parsimony` checkout via `[tool.uv.sources]`. This job checks
 # out the kernel alongside the connectors so `../parsimony` resolves.
 
@@ -250,11 +250,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Every step above resolves parsimony-core from the kernel checkout
+          # Every step above resolves parsimony from the kernel checkout
           # (KERNEL_REF=main), so they only prove the wheel works against
-          # parsimony *main* — not against the parsimony-core a user installs
+          # parsimony *main* — not against the parsimony a user installs
           # from PyPI. Gate the publish on that real combination: a venv OUTSIDE
-          # the uv workspace makes pip resolve parsimony-core (+ parsimony-shared)
+          # the uv workspace makes pip resolve parsimony (+ parsimony-shared)
           # from the PyPI index, then we install the freshly-built wheel into it
           # and exercise import + discovery — so the dependency graph a user
           # actually gets is verified before the artifact ships.
@@ -275,7 +275,7 @@ jobs:
           ")
           if [[ "$skip" == "1" ]]; then
             # Helper-only dist (e.g. parsimony-shared): not a parsimony.providers
-            # plugin and does not depend on parsimony-core, so just prove the
+            # plugin and does not depend on parsimony, so just prove the
             # published-resolution install imports.
             "$venv/bin/python" -c "import importlib; importlib.import_module('$module'); print('published-resolution smoke OK (import-only):', '$module')"
           else

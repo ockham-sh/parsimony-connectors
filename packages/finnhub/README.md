@@ -23,7 +23,7 @@ Part of the [parsimony-connectors](https://github.com/ockham-sh/parsimony-connec
 pip install parsimony-finnhub
 ```
 
-Pulls in a compatible `parsimony-core` automatically. Verify discovery:
+Pulls in a compatible `parsimony` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"

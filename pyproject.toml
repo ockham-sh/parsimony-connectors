@@ -12,7 +12,7 @@ dependencies = [
 members = ["packages/*", "test_support"]
 
 [tool.uv.sources]
-# `parsimony-core` and `torch` are deliberately NOT here — see the `workbench`
+# `parsimony` and `torch` are deliberately NOT here — see the `workbench`
 # group below for why. `parsimony-shared` is a workspace member, so its source
 # resolves inside the checkout and is safe to inherit.
 parsimony-shared = { workspace = true }
@@ -68,19 +68,19 @@ dev = [
 # Why: a workspace-root source is inherited by every member, and uv applies that
 # inheritance even when an *external* consumer installs a single member straight
 # from git — `uv add "parsimony-fred @ git+…#subdirectory=packages/fred"`. With the
-# `parsimony-core = { path = "../parsimony" }` override ungated, uv reinterpreted
+# `parsimony = { path = "../parsimony" }` override ungated, uv reinterpreted
 # `../parsimony` against the cloned repo root and failed with
-# "has no subdirectory `../parsimony`", naming neither parsimony-core nor this file
+# "has no subdirectory `../parsimony`", naming neither parsimony nor this file
 # (reported as #71). Scoping the source to a group the external consumer never
 # enables makes it invisible to that resolution — it falls through to the PyPI pin
 # in each package's own `[project] dependencies`, which is the correct external
 # behaviour — while `uv sync` here still gets the editable checkout, because the
 # default sync enables `dev`.
 #
-# Consequence to know about: `uv sync --no-dev` resolves parsimony-core from PyPI,
+# Consequence to know about: `uv sync --no-dev` resolves parsimony from PyPI,
 # not from `../parsimony`.
 workbench = [
-    # Pulls parsimony-core's `catalog` extra (faiss-cpu + sentence-transformers +
+    # Pulls parsimony's `catalog` extra (faiss-cpu + sentence-transformers +
     # huggingface_hub) into the workspace so catalog tests can build, save, and
     # search real Catalog instances. End-to-end catalog tests (e.g.
     # sdmx/test_search_structured) exercise the full hybrid-index stack and cannot
@@ -88,16 +88,16 @@ workbench = [
     # the sibling `ockham-sh/parsimony` checkout at `../parsimony`, so a
     # kernel+connectors change can be verified in a single PR (CI checks both repos
     # out side by side — see ci.yml).
-    "parsimony-core[catalog]",
+    "parsimony[catalog]",
     # Anchor for the CPU-only torch pin. sentence-transformers (transitive via
-    # `parsimony-core[catalog]`) declares plain `torch`, which otherwise resolves to
+    # `parsimony[catalog]`) declares plain `torch`, which otherwise resolves to
     # the +cu* wheel (~2 GB + triton). We never train/run torch directly — it is
     # just the embedding backend — so CPU torch is plenty. This dep exists only so
     # the source below has something to bind against.
     "torch>=2.0",
 ]
 
-[tool.uv.sources.parsimony-core]
+[tool.uv.sources.parsimony]
 path = "../parsimony"
 editable = true
 group = "workbench"

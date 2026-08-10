@@ -2,7 +2,7 @@
 
 > A working manual for connecting to data providers with the parsimony framework, and a
 > living record of findings as new providers are tackled. Built from a first-hand read of
-> `parsimony-core` (source + `parsimony/docs/`), all 24 existing connector packages, and the
+> `parsimony` (source + `parsimony/docs/`), all 24 existing connector packages, and the
 > 0.7 sweep dossiers. Companion to the per-provider research dossiers in
 > [`providers/`](providers/) (template: [`providers/_TEMPLATE.md`](providers/_TEMPLATE.md)).
 >
@@ -98,7 +98,7 @@ the only way an agent can find all the data is if you have enumerated all of it 
 catalog. This is where most of the difficulty (and creativity) lives, and where the "does it
 cover ALL the data?" question is won or lost.
 
-**`parsimony-core` ships zero connectors.** Each provider is its own pip-installable
+**`parsimony` ships zero connectors.** Each provider is its own pip-installable
 distribution (`parsimony-<name>`) discovered at runtime through a Python entry point. The
 kernel is a thin, provider-agnostic shell: connector primitives, the catalog/search engine,
 typed errors, an HTTP transport layer, and a conformance suite. **Every provider quirk lives
@@ -143,7 +143,7 @@ series set is enumerable.
 
 ## 4. Framework contract (reference)
 
-Everything here is `parsimony-core`. Imports: top-level `from parsimony import …` exposes the
+Everything here is `parsimony`. Imports: top-level `from parsimony import …` exposes the
 ~37 curated names; some names live only in submodules (noted below).
 
 ### 4.1 The three decorators
@@ -292,7 +292,7 @@ empty string falls through to the default).
   `client_secret`, `secret`, `password`, `authorization`, `registrationkey`, plus any
   `*_token`). A key sent as a query param under a name **not** in this set leaks to INFO logs
   (`secrets=()` governs provenance, **not** logs). Fixes: send it in a header or POST body, or
-  add the name to `_SENSITIVE_QUERY_PARAM_NAMES` (a parsimony-core change — what BLS's
+  add the name to `_SENSITIVE_QUERY_PARAM_NAMES` (a parsimony change — what BLS's
   `registrationkey` needed).
 - `pooled_client(http)` is a sync context manager yielding an `HttpClient` backed by one pooled
   `httpx.Client` (sync), so TCP/TLS state is reused across a sequential fan-out / enumerator loop
@@ -845,7 +845,7 @@ Per-package `tests/`:
 - **Three names in lockstep** (PR checklist enforces): PyPI `parsimony-<name>` (hyphen),
   import `parsimony_<name>` (underscore), directory `packages/<name>/`.
 - **`pyproject.toml`**: `name = "parsimony-<name>"`, `license = "Apache-2.0"`,
-  `requires-python = ">=3.11"`, `dependencies = ["parsimony-core>=0.0.1"]`, `[project.urls] Homepage = …`, hatchling
+  `requires-python = ">=3.11"`, `dependencies = ["parsimony>=0.0.1"]`, `[project.urls] Homepage = …`, hatchling
   `[tool.hatch.build.targets.wheel] packages = ["parsimony_<name>"]`, pytest `integration`
   marker, ruff per-file `E402` ignore for `scripts/*`.
 - **Entry point** (the only registration): `[project.entry-points."parsimony.providers"]`
@@ -856,7 +856,7 @@ Per-package `tests/`:
   + enumerator + search). Catalog-build workflows live in `scripts/`, never the user-facing
   module. No `__version__`/metadata dict (discovery reads from `importlib.metadata`).
 - **Per-package release**: own version, own `release.yml` trigger, own PyPI OIDC Trusted
-  Publisher — independent cadence. Releases go bottom-up after `parsimony-core`. Refresh the
+  Publisher — independent cadence. Releases go bottom-up after `parsimony`. Refresh the
   README roster with `make readme-roster` (`scripts/gen_roster.py` sweeps `packages/*/
   pyproject.toml` and counts `@connector` decorations).
 - **Catalog-validate registry**: add a `ProviderCatalogSpec` to `PROVIDER_SPECS` in
@@ -875,7 +875,7 @@ Per-package `tests/`:
   `build_catalog.py --push hf://parsimony-dev/<p>` (needs `HF_TOKEN`) → re-validate the `hf://`
   URL. Use `--allow-missing-remote` only in CI.
 - **Cross-repo:** a key sent as a GET query param under a non-standard name needs its name added
-  to `parsimony-core`'s `_SENSITIVE_QUERY_PARAM_NAMES` — a parsimony-core PR dependency at land
+  to `parsimony`'s `_SENSITIVE_QUERY_PARAM_NAMES` — a parsimony PR dependency at land
   time (BLS `registrationkey`).
 
 ---
@@ -960,7 +960,7 @@ The traps that bite regardless of provider:
   `.env` explicitly: `set -a; . /home/espinet/ockham/.env; set +a; uv run pytest … -m
   integration`); **never echo a key value**; gate **full-package** mypy (including `tests/`).
 - **Doc drift is real** — README/CHANGELOG in several packages still say
-  `parsimony-core>=0.6,<0.7` and "connectors only / no catalog" while shipping 0.7 + a catalog;
+  `parsimony>=0.6,<0.7` and "connectors only / no catalog" while shipping 0.7 + a catalog;
   CONTRIBUTING shows the stale `:CONNECTORS` entry-point form. **Verify against source, not the
   prose** — exactly the discipline this guidebook exists to enforce.
 
@@ -971,7 +971,7 @@ The traps that bite regardless of provider:
 Append dated, transferable findings here as new providers are tackled. When a finding changes a
 rule, also edit the relevant section above.
 
-- **2026-06-08 — Guidebook seeded.** From a first-hand read of `parsimony-core` (source +
+- **2026-06-08 — Guidebook seeded.** From a first-hand read of `parsimony` (source +
   `parsimony/docs/`), all 24 existing connector packages, and the 0.7 sweep dossiers
   (`_planning/connectors-catchup/{LESSONS,AUTHORING-CONTRACT-0.7}.md`). Verified against
   `discover.py` that the entry-point value is a bare module path (the `:CONNECTORS` form in

@@ -5,7 +5,7 @@ PyPI distribution named `parsimony-<name>` and registers through the `parsimony.
 entry-point, so installing it is all the wiring there is:
 
 ```bash
-pip install parsimony-core parsimony-fred parsimony-sdmx
+pip install parsimony parsimony-fred parsimony-sdmx
 ```
 
 ```python
@@ -37,8 +37,8 @@ is identical.
   quota. Thirteen providers: `bde`, `bdf`, `bdp`, `bls`, `boc`, `boj`, `destatis`, `eia`,
   `rba`, `riksbank`, `sdmx`, `snb`, `treasury`.
 
-Catalog-backed packages depend on `parsimony-core[catalog]`; native-search packages depend on
-plain `parsimony-core`. For the search/index model in depth, see
+Catalog-backed packages depend on `parsimony[catalog]`; native-search packages depend on
+plain `parsimony`. For the search/index model in depth, see
 [../concepts/discovery-and-catalogs.md](../concepts/discovery-and-catalogs.md). For how keys
 are supplied and protected, see [../concepts/credentials.md](../concepts/credentials.md).
 

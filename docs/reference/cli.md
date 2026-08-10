@@ -1,13 +1,13 @@
 # CLI and tooling reference
 
-Two command-line surfaces sit around this repo: the `parsimony` CLI (shipped by `parsimony-core`,
+Two command-line surfaces sit around this repo: the `parsimony` CLI (shipped by `parsimony`,
 available wherever the kernel is installed) and the repo's `make` targets (the developer
 workbench for working on the connector packages themselves). This page covers both, plus the
 raw `uv`/`pytest` equivalents and the environment variables that affect runtime.
 
 ## The `parsimony` CLI
 
-`parsimony-core` installs a `parsimony` console script with two verbs: `list` and `cache`.
+`parsimony` installs a `parsimony` console script with two verbs: `list` and `cache`.
 Inside the repo, run it through `uv` (`uv run parsimony …`); installed system-wide it is just
 `parsimony …`.
 

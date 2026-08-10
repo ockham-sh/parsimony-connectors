@@ -4,7 +4,7 @@
 > high-level operator workflow. This page is the deep runbook it links into.
 
 Catalog build/push scripts are **operator tooling**. They are not part of the
-connector plugin contract and are **not** part of `parsimony-core`. Each
+connector plugin contract and are **not** part of `parsimony`. Each
 published connector only needs:
 
 - a default catalog URL (often `hf://parsimony-dev/<provider>`), and
@@ -12,7 +12,7 @@ published connector only needs:
 
 How **official** connectors in this monorepo shape catalogs (hierarchy, indexing,
 search tool shapes) is an internal authoring standard — not part of the published
-`parsimony-core` contract. Third-party plugin authors may ignore it.
+`parsimony` contract. Third-party plugin authors may ignore it.
 
 ### Catalog authoring rules (official connectors)
 
@@ -267,7 +267,7 @@ uv run python scripts/build_catalog.py --catalog agency --agency ECB \
 
 Canonical `parsimony-dev/*` datasets may carry pre-v1 or legacy index layouts
 left over from earlier dev builds. Whenever a snapshot's `schema_version` does
-not match the current `parsimony-core` catalog schema (v1, value-deduplicated
+not match the current `parsimony` catalog schema (v1, value-deduplicated
 field indexes), rebuild and re-push before remote catalog tests pass without
 `PARSIMONY_ALLOW_MISSING_REMOTE_CATALOG=1`. Treat a hosted snapshot as
 authoritative only after you have rebuilt it against the current schema.

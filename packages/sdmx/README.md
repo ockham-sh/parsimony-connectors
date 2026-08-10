@@ -32,7 +32,7 @@ Four registered connectors total. Only published flows are searchable; an unpubl
 pip install parsimony-sdmx
 ```
 
-Pulls in a compatible `parsimony-core[catalog]` automatically (includes the hybrid BM25+vector catalog stack).
+Pulls in a compatible `parsimony[catalog]` automatically (includes the hybrid BM25+vector catalog stack).
 
 Verify discovery:
 
