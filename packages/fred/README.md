@@ -19,7 +19,7 @@ Once installed, this plugin is discovered automatically and exposes the followin
 pip install parsimony-fred
 ```
 
-Pulls in a compatible `parsimony-core` automatically.
+Pulls in a compatible `parsimony` automatically.
 
 ## Configuration
 

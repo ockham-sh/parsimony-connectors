@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+## [0.0.2] - 2026-08-10
+
+### Changed
+
+- Depends on the renamed `parsimony` distribution (was `parsimony-core`), pinned
+  `>=0.0.1,<0.0.2`. The import name is unchanged. `parsimony-core` is discontinued,
+  so 0.0.1 of this package no longer resolves — upgrade to 0.0.2.
+
 ### Breaking
 
 - **`sdmx_fetch` takes `agency` + `dataset_id`** instead of composite `dataset_ref`.

@@ -12,22 +12,22 @@ for the full model.
 
 ## Install
 
-You always install two things: the kernel (`parsimony-core`) and at least one
+You always install two things: the kernel (`parsimony`) and at least one
 provider package. Each provider ships as its own PyPI distribution named
 `parsimony-<name>`.
 
 ```bash
-pip install parsimony-core parsimony-fred
+pip install parsimony parsimony-fred
 ```
 
 Catalog-backed providers (the ones that ship a searchable catalog snapshot,
 such as `parsimony-treasury` and `parsimony-sdmx`) declare a dependency on
-`parsimony-core[catalog]`, so the catalog runtime is pulled in automatically
+`parsimony[catalog]`, so the catalog runtime is pulled in automatically
 when you install them. You do not need to request the `[catalog]` extra
 yourself:
 
 ```bash
-pip install parsimony-core parsimony-treasury parsimony-sdmx
+pip install parsimony parsimony-treasury parsimony-sdmx
 ```
 
 Install as many providers as you need; each one registers itself with the

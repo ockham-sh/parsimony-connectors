@@ -1,7 +1,7 @@
 """US EIA v2 Open Data API transport: key resolution, client, typed-error chokepoint.
 
 The EIA v2 API is a single keyed REST host. The key rides as an ``?api_key=``
-query param (``api_key`` is in parsimony-core's sensitive-param set, so it is
+query param (``api_key`` is in parsimony's sensitive-param set, so it is
 auto-redacted from logs) and is also stripped from provenance via
 ``secrets=("api_key",)`` on every verb.
 

@@ -108,9 +108,9 @@ jobs:
   # entry point / description) without re-running `make readme-roster`,
   # the same class of drift a stale generated file normally guards against.
   #
-  # scripts/gen_roster.py is stdlib-only (no parsimony-core, no third-party
+  # scripts/gen_roster.py is stdlib-only (no parsimony, no third-party
   # deps), so both steps below deliberately avoid `uv run` — which would
-  # materialize the full workspace venv (parsimony-core[catalog] pulls
+  # materialize the full workspace venv (parsimony[catalog] pulls
   # torch/faiss/sentence-transformers) just to run a script that needs none
   # of it. `--no-project` / `uvx` (isolated tool runtime) keep this job fast,
   # the same reasoning as the `audit` job's use of `uvx pip-audit` below.
@@ -286,13 +286,13 @@ jobs:
   #
   # The audit runs once against a hashed lockfile exported from uv.lock,
   # not per-package, because every connector pulls from the same external
-  # surface (httpx, pydantic, parsimony-core, …). A single workspace audit
+  # surface (httpx, pydantic, parsimony, …). A single workspace audit
   # catches the same CVEs as 22 per-package runs at a fraction of the cost.
   #
   # `--no-emit-workspace` drops workspace members (connectors, _shared,
   # test_support) from the export. `--no-sources` ignores the editable
   # `[tool.uv.sources]` override that points at the sibling parsimony
-  # checkout, so parsimony-core resolves to its published PyPI version.
+  # checkout, so parsimony resolves to its published PyPI version.
   # `--no-dev` excludes dev-only deps. The result is a fully-hashed,
   # exact-pinned external-deps requirements file — exactly what
   # `pip-audit --disable-pip` accepts in modern releases.
@@ -330,17 +330,17 @@ jobs:
           #   the original per-package audit step).
           # - PYSEC-2025-217 / CVE-2026-1839: both in transformers <5.0.
           #   We cannot bump because optimum-onnx 0.1.0 (the only released
-          #   version) caps transformers<4.58, and parsimony-core's
+          #   version) caps transformers<4.58, and parsimony's
           #   `standard-onnx` extra depends on optimum-onnx for OnnxEmbedder.
           #   Drop these ignores once optimum-onnx 0.2.0 (with transformers-5
-          #   support) ships upstream and parsimony-core relocks.
+          #   support) ships upstream and parsimony relocks.
           # - CVE-2025-3000 (aliases PYSEC-2025-194 / GHSA-rrmf-rvhw-rf47):
           #   memory corruption in `torch.jit.script`. NO fixed version exists
           #   in any torch release — 2.12.0 (latest) is the most-patched build;
           #   every other recent torch CVE is fixed by 2.10, this one never was,
           #   so there is nothing to upgrade or pin to. torch is a transitive
           #   embedding-backend dep (sentence-transformers via
-          #   parsimony-core[catalog]); the connectors only compute embeddings
+          #   parsimony[catalog]); the connectors only compute embeddings
           #   and never call `torch.jit.script`, so the vulnerable path is
           #   unreachable. Drop this ignore once upstream torch ships a fix.
           # Use uvx (isolated tool runtime) instead of `uv run --with` so

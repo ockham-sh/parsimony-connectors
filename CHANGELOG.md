@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-08-10
+
+### Changed
+
+- **Every package moves to 0.0.2 and depends on the renamed `parsimony` distribution**
+  (was `parsimony-core`), pinned `>=0.0.1,<0.0.2`. Import names are unchanged.
+- **Core pins are now upper-bounded.** The 0.0.1 packages shipped
+  `parsimony-core>=0.0.1` with no cap, so a fresh install resolved core to a release
+  built against a different API and every connector failed to import. While the kernel
+  is pre-1.0 each release may break the connector surface, so the cap is tight and each
+  core release requires a connector republish.
+
 ### Added
 
 - **Connectors declare their credential requirement: `requires=("<ENV_VAR>",)`.** Every verb

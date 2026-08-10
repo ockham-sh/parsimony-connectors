@@ -36,8 +36,8 @@ to pre-build. These are: `alpha_vantage`, `coingecko`, `eodhd`, `finnhub`, `fmp`
 `fred`, `polymarket`, `sec_edgar`, `tiingo`. Do **not** build catalogs for these;
 agents use the provider's own search tools.
 
-Catalog-backed packages depend on `parsimony-core[catalog]`. Native-search
-packages depend on plain `parsimony-core`.
+Catalog-backed packages depend on `parsimony[catalog]`. Native-search
+packages depend on plain `parsimony`.
 
 ## Where the build code lives
 

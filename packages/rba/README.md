@@ -40,7 +40,7 @@ Data is CC BY 4.0 — cite as "Source: Reserve Bank of Australia".
 pip install parsimony-rba
 ```
 
-Pulls in a compatible `parsimony-core` automatically. Verify discovery:
+Pulls in a compatible `parsimony` automatically. Verify discovery:
 
 ```bash
 python -c "from parsimony import discover; print([p.name for p in discover.iter_providers()])"
