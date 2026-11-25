@@ -8,6 +8,8 @@ import os
 
 from parsimony_riksbank.catalog_build import build_riksbank_catalog
 
+os.environ.setdefault("PARSIMONY_RECORD", "off")  # catalog builds are not runs to keep; set a folder to record
+
 _RIKSBANK_API_KEY_ENV = "RIKSBANK_API_KEY"
 logger = logging.getLogger(__name__)
 

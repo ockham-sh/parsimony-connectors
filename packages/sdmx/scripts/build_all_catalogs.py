@@ -7,6 +7,7 @@ import argparse
 import contextlib
 import json
 import logging
+import os
 import random
 import sqlite3
 import subprocess
@@ -36,6 +37,8 @@ from parsimony_sdmx.catalog_manifest import (
 from parsimony_sdmx.catalog_series import SERIES_AGENCIES
 from parsimony_sdmx.core.agencies import AgencyId
 from parsimony_sdmx.core.namespaces import series_namespace
+
+os.environ.setdefault("PARSIMONY_RECORD", "off")  # catalog builds are not runs to keep; set a folder to record
 
 logger = logging.getLogger(__name__)
 

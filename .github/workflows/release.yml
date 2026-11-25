@@ -52,6 +52,8 @@ permissions:
 env:
   KERNEL_REPO: ockham-sh/parsimony
   KERNEL_REF: main
+  # Connector calls in CI are not runs to keep (parsimony run recording).
+  PARSIMONY_RECORD: "off"
 
 jobs:
   normalize:

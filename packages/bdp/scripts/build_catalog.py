@@ -5,8 +5,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 
 from parsimony_bdp.catalog_build import build_bdp_catalog
+
+os.environ.setdefault("PARSIMONY_RECORD", "off")  # catalog builds are not runs to keep; set a folder to record
 
 logger = logging.getLogger(__name__)
 

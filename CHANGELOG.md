@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Parsimony run recording is off for tests, CI and catalog builds.** The kernel now saves
+  every connector call in a run folder (`PARSIMONY_RECORD`, `PARSIMONY_REPLAY`). A `pytest11`
+  plugin in `parsimony-test-support` sets `PARSIMONY_RECORD=off` for every package's tests;
+  the CI, integration and release workflows set it too; `scripts/rebuild_catalogs_v1.sh`,
+  `scripts/acceptance_gate.sh` and the per-package `build_*`, `harvest_*` and worker scripts
+  default it to `off`, so set `PARSIMONY_RECORD` to a folder to record a build on purpose.
+
 ## [0.0.2] - 2026-08-10
 
 ### Changed

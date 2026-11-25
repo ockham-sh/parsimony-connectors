@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 from pathlib import Path
 
 from parsimony_boj import enumerate_boj
@@ -24,6 +25,8 @@ from parsimony_boj.catalog_build import (
     build_series_catalog,
     split_enumerated_df,
 )
+
+os.environ.setdefault("PARSIMONY_RECORD", "off")  # catalog builds are not runs to keep; set a folder to record
 
 logger = logging.getLogger(__name__)
 

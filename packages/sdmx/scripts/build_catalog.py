@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass, replace
@@ -42,6 +43,8 @@ from parsimony_sdmx.core.agencies import ALL_AGENCIES, AgencyId
 from parsimony_sdmx.core.models import DatasetRecord, StructureRecord
 from parsimony_sdmx.core.namespaces import datasets_namespace
 from parsimony_sdmx.io.structure_json import read_structure, write_structure
+
+os.environ.setdefault("PARSIMONY_RECORD", "off")  # catalog builds are not runs to keep; set a folder to record
 
 logger = logging.getLogger(__name__)
 

@@ -28,10 +28,13 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 from datetime import UTC, datetime
 
 from parsimony_treasury import _http, parsing
 from parsimony_treasury.rate_feeds import RATE_FEED_NAMES, registry_columns
+
+os.environ.setdefault("PARSIMONY_RECORD", "off")  # catalog builds are not runs to keep; set a folder to record
 
 logger = logging.getLogger(__name__)
 

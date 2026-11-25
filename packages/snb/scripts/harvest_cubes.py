@@ -20,11 +20,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from collections import Counter
 from pathlib import Path
 
 from parsimony_snb import _http, parsing
+
+os.environ.setdefault("PARSIMONY_RECORD", "off")  # catalog builds are not runs to keep; set a folder to record
 
 logger = logging.getLogger(__name__)
 

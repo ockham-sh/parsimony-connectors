@@ -8,6 +8,8 @@ import os
 
 from parsimony_bdf.catalog_build import build_bdf_catalog
 
+os.environ.setdefault("PARSIMONY_RECORD", "off")  # catalog builds are not runs to keep; set a folder to record
+
 _BDF_API_KEY_ENV = "BDF_API_KEY"
 logger = logging.getLogger(__name__)
 

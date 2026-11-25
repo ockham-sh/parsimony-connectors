@@ -22,6 +22,8 @@ from parsimony_bls.catalog_build import build_series_catalog, build_surveys_cata
 from parsimony_bls.catalog_policy import manifest_from_series_entries
 from parsimony_bls.surveys import HEADLINE_SURVEYS, normalize_survey
 
+os.environ.setdefault("PARSIMONY_RECORD", "off")  # catalog builds are not runs to keep; set a folder to record
+
 logger = logging.getLogger(__name__)
 _BUILDER = "packages/bls/scripts/build_catalog.py"
 

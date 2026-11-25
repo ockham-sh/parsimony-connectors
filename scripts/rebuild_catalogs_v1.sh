@@ -11,6 +11,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Catalog builds and gate checks are not runs to keep; set PARSIMONY_RECORD to a folder to record anyway.
+export PARSIMONY_RECORD="${PARSIMONY_RECORD:-off}"
 DEST="${PARSIMONY_CATALOG_SRC:-/tmp/parsimony-catalogs-v1}"
 ALL=0
 PROVIDER=""

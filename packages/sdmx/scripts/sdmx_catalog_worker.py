@@ -29,6 +29,8 @@ from parsimony_sdmx.core.namespaces import series_namespace
 from parsimony_sdmx.io.http import HttpConfig, build_session
 from parsimony_sdmx.series_fields import SERIES_PARQUET
 
+os.environ.setdefault("PARSIMONY_RECORD", "off")  # catalog builds are not runs to keep; set a folder to record
+
 logger = logging.getLogger(__name__)
 
 FETCH_RLIMIT_GB = 2
