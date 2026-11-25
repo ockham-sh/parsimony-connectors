@@ -77,6 +77,9 @@
   famous series living on a different subdomain, bulk-only datasets, etc.): ___
 - Anything gated behind a higher plan / login we cannot reach: ___
 
+Expected count: <n>
+Count difference: <reason>
+
 ---
 
 ## 2. Authentication & access
